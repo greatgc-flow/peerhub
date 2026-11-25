@@ -79,7 +79,7 @@ For Gates, only exact candidate-bound fresh PASS is valid. queued/running/cancel
 The side-by-side `peerhub-m1` entrypoint and the legacy 109-command runtime
 have been retired. `peerhub`, `python -m peerhub`, and `python -m peerhub.cli`
 use the same public CLI. The v0 source is retained only on the Git branch
-`legacy/v0-main-final`; see the [structure cleanup](../implementation/STRUCTURE_CLEANUP.md).
+`legacy/v0-main-final`; see the [structure cleanup](../history/implementation/STRUCTURE_CLEANUP.md).
 
 By default `ask` reuses the latest compatible retained session of this peer/Stream,
 including native cc/cx/ag continuity, with bounded Stream catch-up when a fresh

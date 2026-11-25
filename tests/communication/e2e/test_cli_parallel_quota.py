@@ -11,7 +11,7 @@ import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.lessons import lesson_by_id
-from peerhub.cli.monitor_view import POOLS_USE_FIRST_ASCENDING
+from peerhub.cli.monitor_format import POOLS_USE_FIRST_ASCENDING
 from peerhub.core import load_limits as L
 from peerhub.cli.guide import GUIDE_MAX_BYTES
 
@@ -26,6 +26,10 @@ def _text() -> str:
     return " ".join(" ".join([lesson["title"], lesson["symptom"], lesson["fix"]]).split())
 
 
+def _batch_guide() -> str:
+    return " ".join((REPO / "docs" / "batch.md").read_text(encoding="utf-8").split())
+
+
 def test_topic_exists_and_is_named_by_the_guide(capsys):
     assert main(["guide"]) == 0
     guide = capsys.readouterr().out
@@ -33,26 +37,27 @@ def test_topic_exists_and_is_named_by_the_guide(capsys):
     assert len(guide.replace("\r\n", "\n").encode("utf-8")) <= GUIDE_MAX_BYTES
 
 
-def test_topic_is_the_loop_in_order():
+def test_topic_points_to_the_wave_procedure():
     text = _text()
-    steps = ["peerhub diag --plan", "independent", "--max-parallel", "diag --plan again", "defer"]
+    steps = ["peerhub diag --plan", "lowest 7D PACE", "--max-parallel", "read the plan after each wave",
+             "docs/batch.md#parallel-work-over-the-least-quota"]
     positions = [text.index(step) for step in steps]
     assert positions == sorted(positions), "read quota, pick pools, split, run a wave, re-read, defer when none"
 
 
-def test_topic_matches_the_pool_order_and_resource_thresholds():
+def test_docs_match_the_pool_order_and_resource_thresholds():
     text = _text()
     assert ("lowest 7D PACE first" if POOLS_USE_FIRST_ASCENDING else "highest 7D PACE first") in text
-    assert "--max-parallel n" in text and "PeerHub does not cap the count" in text
-    assert f"free RAM >= {L.MIN_FREE_RAM_GB} GB, CPU below {L.CPU_BUSY_WARN_PCT}%" in text
+    assert "--max-parallel n" in text
+    text = _batch_guide()
     assert "watch G-5H after each wave" in text
-    for word in ("spend", "hold", "rest", "blocked", "stale", "<5%"):
+    for word in ("spend", "hold", "rest", "blocked", "stale", "under 5%"):
         assert word in text
     assert "5H only gates" in text
 
 
-def test_topic_names_the_cost_rules():
-    text = _text()
+def test_batch_guide_names_the_cost_rules():
+    text = _batch_guide()
     for rule in ("lowest tier that fits", "fresh", "facts inline", "different model", "no shared files",
                  "peerhub observation refresh", "peerhub monitor"):
         assert rule in text
@@ -75,8 +80,8 @@ def test_batch_doc_explains_the_loop():
 
 def test_ai_reads_diag_and_never_the_monitor(capsys):
     text = _text()
-    assert "never peerhub monitor" in text and "human" in text
-    assert "load line" in text and "free RAM" in text
+    assert "load line" in text and "peerhub diag --plan" in text
+    assert "peerhub monitor` is the human screen" in _batch_guide()
     assert main(["guide"]) == 0
     guide = capsys.readouterr().out
     assert "diag --plan" in guide and "monitor" in guide and "human" in guide
@@ -92,10 +97,9 @@ def test_docs_match_the_resource_thresholds():
     assert "the `load:` line" in doc and "human screen" in (REPO / "docs" / "monitor.md").read_text(encoding="utf-8")
 
 
-def test_topic_gives_facts_and_leaves_the_decision_to_the_ai():
-    text = _text()
-    assert "you decide" in text and "default" in text
-    assert "must" not in text and "do not start more" not in text
+def test_batch_guide_gives_facts_and_leaves_the_decision_to_the_ai():
+    text = _batch_guide()
+    assert "Size the wave" in _text() and "Choose `n`" in text
 
 
 def test_guide_batch_line_does_not_cap_parallel_work_at_a_fixed_number(capsys):
@@ -106,11 +110,11 @@ def test_guide_batch_line_does_not_cap_parallel_work_at_a_fixed_number(capsys):
     assert "n at once" in batch and TOPIC in guide
 
 
-def test_topic_covers_inflight_spend_mid_wave_refusal_and_replay():
-    text = _text()
+def test_batch_guide_covers_inflight_spend_mid_wave_refusal_and_replay():
+    text = _batch_guide()
     assert "in-flight" in text and "margin" in text
-    assert "refused" in text and "still run" in text and "same --batch-id" in text
-    assert text.index("after each wave run peerhub observation refresh, then diag --plan again") > text.index("--max-parallel n")
+    assert "refused" in text and "still run" in text and "same batch ID replays" in text
+    assert text.index("After each wave run `peerhub observation refresh`") > text.index("--max-parallel n")
 
 
 def test_help_start_line_and_batch_doc_point_to_the_one_recipe(capsys):
@@ -120,7 +124,7 @@ def test_help_start_line_and_batch_doc_point_to_the_one_recipe(capsys):
     doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
     section_h = doc[doc.index("**H. Balancing rule**"):doc.index("**I. Concurrency**")]
     assert f"peerhub explain {TOPIC}" in section_h
-    section_j = doc[doc.index("**J. Parallel work"):]
+    section_j = doc[doc.index("### Parallel work over the least quota"):]
     assert "peerhub observation refresh" in section_j.split("5. After each wave")[1]
 
 
@@ -130,17 +134,17 @@ def _help_top(capsys) -> str:
     return " ".join(capsys.readouterr().out.split())
 
 
-def test_topic_says_the_json_rows_name_their_profiles():
-    text = _text()
-    assert "--json" in text and "profiles" in text and "load object" in text
+def test_batch_guide_says_the_json_rows_name_their_profiles():
+    text = _batch_guide()
+    assert "--json" in text and "profiles" in text and "`load` object" in text
 
 
 def test_section_h_and_j_say_which_ranking_each_one_is_for():
     doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
     h = doc[doc.index("**H. Balancing rule**"):doc.index("**I. Concurrency**")]
-    j = doc[doc.index("**J. Parallel work"):]
+    j = doc[doc.index("### Parallel work over the least quota"):]
     assert "`suggest:`" in h and "single ask" in h and "wave" in h and "lowest 7D PACE" in h
-    assert "rule H" in j and "single ask" in j
+    assert "Rule H" in j and "single ask" in j
 
 
 def test_guide_tells_what_to_do_with_stale_quota_and_a_caller_timeout(capsys):
@@ -151,8 +155,8 @@ def test_guide_tells_what_to_do_with_stale_quota_and_a_caller_timeout(capsys):
     assert "observation refresh" in quota and "diag running" in uncertain
 
 
-def test_topic_has_the_throttle_rule_and_the_reconcile_steps():
-    text = _text()
+def test_batch_guide_has_the_throttle_rule_and_the_reconcile_steps():
+    text = _batch_guide()
     assert "do not reroute" in text and "reduce concurrency" in text
     assert "diag health --stream" in text and "diag running" in text
 
@@ -173,11 +177,11 @@ def test_readme_upgrade_makes_the_backup_a_checked_step_before_the_install():
     assert "must exit 0" in backup and "new modified time" in backup
 
 
-def test_topic_explains_the_unmapped_count():
-    text = _text()
-    assert "unmapped" in text and "in flight" in text and L.PLAN_NA_POOLS_LABEL in text
+def test_batch_guide_explains_the_unmapped_count():
+    text = _batch_guide()
+    assert "unmapped" in text and "in-flight" in text and L.PLAN_NA_POOLS_LABEL in text
 
 
-def test_topic_says_a_profile_under_several_pools_spends_each_of_them():
-    text = _text()
+def test_batch_guide_says_a_profile_under_several_pools_spends_each_of_them():
+    text = _batch_guide()
     assert "under several pools" in text and "spends each" in text

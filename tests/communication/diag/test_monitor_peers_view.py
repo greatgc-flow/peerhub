@@ -1,6 +1,6 @@
 """Pure renderer and CLI tests for monitor compact 'peers' dependency view.
 
-Failing RED phase suite for PR1 (docs/design/monitor-peers-view-2026-10-16.md).
+Failing RED phase suite for PR1 (docs/history/design/monitor-peers-view-2026-10-16.md).
 Tests pure renderer fixtures and preference catalog contracts without provider calls.
 """
 from __future__ import annotations
@@ -169,7 +169,7 @@ def peers_frame() -> dict[str, Any]:
 def test_1_catalog_lists_peers_with_description_and_default_yes(tmp_path, monkeypatch, capsys):
     """1. Catalog lists 'peers' with description + default yes (groups text + JSON shape unchanged except new id)."""
     from peerhub.cli.app import main
-    from peerhub.cli.monitor_preferences import DEFAULT_GROUPS, GROUP_IDS, GROUPS
+    from peerhub.core.monitor_groups import DEFAULT_GROUPS, GROUP_IDS, GROUPS
 
     # Catalog tuple and default groups must include 'peers'
     assert "peers" in GROUP_IDS
@@ -202,7 +202,7 @@ def test_1_catalog_lists_peers_with_description_and_default_yes(tmp_path, monkey
 def test_2_renderer_prints_one_block_per_peer_with_4_links(peers_frame):
     """2. Renderer prints one block per peer with the 4 links:
     quota -> profile/model [config layer] -> latest session [fresh|reused, gen] -> context [measured%|unknown]."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(peers_frame, view="plain", width=80)
     assert "PEERS [OK]" in rendered
@@ -238,7 +238,7 @@ def test_2_renderer_prints_one_block_per_peer_with_4_links(peers_frame):
 def test_3_missing_facts_render_as_unknown_never_blank_or_zero(peers_frame):
     """3. Missing facts => 'unknown' (or 'none' for absent session), never blank/zero,
     and 'resumable' is never used as proof of session reuse."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # Absent facts: no quota, no profile, session with resumable=True but no recorded mode, no context
     peers_frame["groups"]["peers"]["data"]["peers"] = [
@@ -267,7 +267,7 @@ def test_3_missing_facts_render_as_unknown_never_blank_or_zero(peers_frame):
 
 def test_4_stale_or_absent_quota_shown_as_stale_or_unknown_not_current(peers_frame):
     """4. Stale/absent quota shown as STALE/unknown, not as current."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     peers_frame["groups"]["peers"]["data"]["peers"] = [
         {
@@ -297,7 +297,7 @@ def test_4_stale_or_absent_quota_shown_as_stale_or_unknown_not_current(peers_fra
 
 def test_5_never_claims_model_specific_quota_pool_membership(peers_frame):
     """5. Quota pools remain peer/account-level; never claims model-specific quota pool membership."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(peers_frame, view="plain", width=80)
 
@@ -318,13 +318,14 @@ def test_5_never_claims_model_specific_quota_pool_membership(peers_frame):
 
 def test_6_narrow_width_degrades_to_one_line_per_peer_and_stays_within_cols_minus_1(peers_frame):
     """6. Narrow width (e.g. 40) degrades to one line per peer via ordinary clipping and stays within columns-1."""
-    from peerhub.cli.monitor_view import _width, _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(peers_frame, view="plain", width=40)
     lines = rendered.splitlines()
 
     # Stays within columns - 1 (<= 39)
-    assert all(_width(line) <= 39 for line in lines)
+    assert all(cell_width(line) <= 39 for line in lines)
 
     # Degrades to one line per peer (e.g. 'cc: quota 82% | cc.effort... | reused gen 1 | ctx: unk')
     peer_lines = [
@@ -334,11 +335,11 @@ def test_6_narrow_width_degrades_to_one_line_per_peer_and_stays_within_cols_minu
     assert len(peer_lines) == 3
     for line in peer_lines:
         assert "~" not in line
-        assert _width(line) <= 39
+        assert cell_width(line) <= 39
 
 
 def test_narrow_peer_lines_drop_trailing_fields_whole(peers_frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(peers_frame, view="plain", width=40)
     peer_lines = [line.strip() for line in rendered.splitlines() if line.strip()[:3] in ("cc:", "cx:", "ag:")]
@@ -351,7 +352,7 @@ def test_narrow_peer_lines_drop_trailing_fields_whole(peers_frame):
 def test_7_height_limited_tty_cuts_from_the_bottom_and_names_the_count(peers_frame):
     """7. A height-limited TTY cuts the sections from the bottom up (#412; the severity allocation is gone): an error
     in a group does not move it above the others, a tall frame shows the group and its error."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     peers_frame["selected_groups"] = ["overview", "peers", "execution"]
     peers_frame["groups"]["overview"]["status"] = "OK"
@@ -367,8 +368,8 @@ def test_7_height_limited_tty_cuts_from_the_bottom_and_names_the_count(peers_fra
 
 def test_8_group_peers_selects_only_it_and_redirected_snapshot_prints_all_peers(peers_frame):
     """8. --group peers selects only it; redirected snapshot prints all peers."""
-    from peerhub.cli.monitor_preferences import GROUP_IDS
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.core.monitor_groups import GROUP_IDS
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # --group peers is recognized as a valid CLI choice
     assert "peers" in GROUP_IDS
@@ -469,7 +470,7 @@ def test_rework_2_read_model_peers_chooses_latest_session_by_recorded_activity_n
 
 def test_rework_3_stale_or_doc_quota_renders_stale_or_unknown_never_unlim_doc(peers_frame):
     """3. Any non-MEASURED quota renders as STALE/unknown before source handling; no 'unlim (doc)'."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # Case A: STALE with source='doc' or pool='unlim' must render STALE, not unlim
     peers_frame["groups"]["peers"]["data"]["peers"] = [
@@ -506,7 +507,7 @@ def test_rework_4_peers_discloses_truncation_when_sessions_capped(tmp_path):
     from tests.communication.bridge_helpers import bseed
     from tests.communication.harness.bridge import BridgeHarness
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     # Seed 10 peers: 'a', 'p1' ... 'p9' (more than PEER_CAP = 8, #394)
@@ -547,7 +548,8 @@ def test_rework_4_peers_discloses_truncation_when_sessions_capped(tmp_path):
 
 def test_rework_5_narrow_view_uses_available_width_without_fixed_37_cap(peers_frame):
     """5. Drop fixed 37-column cap; use ordinary clipping for the available width."""
-    from peerhub.cli.monitor_view import _width, _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # At width 46, content width is 43 (columns-1 = 45). Lines should use columns beyond 37.
     rendered = render_grouped_frame(peers_frame, view="plain", width=46, height=11)  # #374: +1 for the verdict line
@@ -556,13 +558,13 @@ def test_rework_5_narrow_view_uses_available_width_without_fixed_37_cap(peers_fr
     assert len(peer_lines) == 3
     # Fields that do not fit whole are dropped (never cut with `~`); lines stay within columns - 1 (<= 45)
     assert not any("~" in line for line in peer_lines)
-    assert all(_width(line) <= 45 for line in peer_lines)
+    assert all(cell_width(line) <= 45 for line in peer_lines)
     assert "Columns omitted: " in rendered
 
 
 def test_pr2_peers_footer_shows_model_facts_with_revision_and_sources(peers_frame):
     """PR2.1: Peers footer line shows model facts with defaults_revision, observed_at, age, and sources."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # Fixed clock: 2026-10-16 12:00:00 UTC (same day as observed_at 2026-10-16 => 0d ago)
     peers_frame["read_at"] = 1792152000.0
@@ -577,7 +579,7 @@ def test_pr2_peers_footer_shows_model_facts_with_revision_and_sources(peers_fram
 
 def test_pr2_peers_footer_computes_age_with_fixed_clock(peers_frame):
     """PR2.2: Age in days is computed from snapshot read time (N days ago)."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # Fixed clock: 2026-10-18 12:00:00 UTC (2 days after 2026-10-16 => 2d ago)
     peers_frame["read_at"] = 1792152000.0 + 86400.0 * 2
@@ -588,32 +590,33 @@ def test_pr2_peers_footer_computes_age_with_fixed_clock(peers_frame):
 
 def test_pr2_peers_footer_clips_within_columns_minus_1(peers_frame):
     """PR2.3: Footer line is fitted to width by ordinary clipping and stays within columns-1."""
-    from peerhub.cli.monitor_view import _width, _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # At width 40, entire line must stay within columns - 1 (<= 39)
     rendered = render_grouped_frame(peers_frame, view="plain", width=40)
     lines = rendered.splitlines()
     footer_lines = [line for line in lines if "Model facts:" in line]
     assert len(footer_lines) == 1
-    assert _width(footer_lines[0]) <= 39
+    assert cell_width(footer_lines[0]) <= 39
     assert footer_lines[0].endswith("…")
 
     # At standard width 80, entire line must stay within columns - 1 (<= 79)
     rendered_80 = render_grouped_frame(peers_frame, view="plain", width=80)
     footer_80 = [line for line in rendered_80.splitlines() if "Model facts:" in line]
     assert len(footer_80) == 1
-    assert _width(footer_80[0]) <= 79
+    assert cell_width(footer_80[0]) <= 79
 
     # At standard width 120, entire line must stay within columns - 1 (<= 119)
     rendered_120 = render_grouped_frame(peers_frame, view="plain", width=120)
     footer_120 = [line for line in rendered_120.splitlines() if "Model facts:" in line]
     assert len(footer_120) == 1
-    assert _width(footer_120[0]) <= 119
+    assert cell_width(footer_120[0]) <= 119
 
 
 def test_pr2_peers_footer_future_observed_at_renders_future(peers_frame):
     """PR2.5: observed_at after read_at renders '(future)' not '0d ago'."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # Fixed clock: 2026-10-10 UTC (observed_at 2026-10-16 is in the future)
     peers_frame["read_at"] = 1791633600.0  # 2026-10-10 12:00:00 UTC
@@ -625,7 +628,7 @@ def test_pr2_peers_footer_future_observed_at_renders_future(peers_frame):
 
 def test_pr2_peers_footer_handles_missing_facts_as_unknown(peers_frame):
     """PR2.4: Missing facts render as 'unknown', never invent or raise."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # Snapshot without read_at and with explicit None metadata
     peers_frame["read_at"] = None
@@ -642,7 +645,7 @@ def test_pr2_peers_footer_handles_missing_facts_as_unknown(peers_frame):
 def test_read_model_peers_chooses_lowest_remaining_measured_quota_skipping_error(tmp_path):
     """DB-fixture test: old ERROR row sorted first + fresh MEASURED rows => expects lowest measured (17% (3P-5H)); stale-only => STALE."""
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
     from peerhub.extensions.observation_model import epoch_to_iso
     from tests.communication.fakes.observation import FakeObservationSource, measured, unknown
     from tests.communication.harness.observation import T0, ObservationHarness
@@ -705,7 +708,7 @@ def test_peers_view_mapped_model_selects_minimum_remaining_and_labels_pool(tmp_p
     from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness, peers=("a", "ag"), stream="s")
@@ -760,7 +763,7 @@ def test_peers_view_mapped_model_missing_or_stale_pool_renders_incomplete(tmp_pa
     from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness, peers=("a", "ag"), stream="s")
@@ -827,7 +830,7 @@ def test_peers_view_unmapped_model_or_override_uses_lowest_pool_labelled_unmappe
     from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness, peers=("a", "ag"), stream="s")
@@ -876,7 +879,7 @@ def test_peers_view_footer_shows_facts_drift_line_and_json_detail(tmp_path):
     from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness, peers=("a", "ag"), stream="s")
@@ -919,7 +922,7 @@ def test_peers_view_footer_shows_facts_ok_when_clean(tmp_path):
     from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness, peers=("a", "ag"), stream="s")
@@ -958,7 +961,7 @@ def test_peers_view_footer_shows_facts_unverified_and_unknown_pools(tmp_path):
     from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness, peers=("a", "ag"), stream="s")
@@ -1012,7 +1015,7 @@ def test_peers_view_footer_clips_facts_line_within_narrow_columns(tmp_path):
     from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from peerhub.extensions.monitor_read_model import render_monitor_frame
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness, peers=("a", "ag"), stream="s")

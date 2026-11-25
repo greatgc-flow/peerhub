@@ -1,19 +1,29 @@
-import pytest
+import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
+
 from peerhub.extensions.quota_probes import (
-    _parse_agy_usage_output,
-    _real_binary,
     resolve_sys_dir,
     poll_claude_usage,
     poll_codex_usage,
     poll_agy_usage,
 )
+from peerhub.extensions.quota_probes import claude, common
+from peerhub.extensions.quota_probes.agy import _parse_agy_usage_output
+from peerhub.extensions.quota_probes.common import _real_binary
 from peerhub.extensions.observation_model import EvidenceState
 
 class DummyIdSource:
     def new_id(self, prefix: str) -> str:
         return f"{prefix}-123"
+
+def test_provider_discovery_stub_leaves_system_executable_lookup_available():
+    assert common.which(sys.executable) is None
+    assert shutil.which(sys.executable) is not None
+
 
 def test_real_binary_returns_literal_path_not_resolved(monkeypatch, tmp_path):
     # On this portable install, env/nodejs/npm-global is a junction whose
@@ -53,7 +63,7 @@ def test_real_binary_falls_back_to_path_without_portable_runtime(
     standalone_binary.parent.mkdir()
     standalone_binary.write_text("", encoding="utf-8")
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes.shutil.which",
+        "peerhub.extensions.quota_probes.common.which",
         lambda name: str(standalone_binary) if name == binary_name else None,
     )
 
@@ -71,7 +81,7 @@ def test_poll_claude_usage_timeout_fail_closed(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_binary",
+        "peerhub.extensions.quota_probes.common._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
 
@@ -105,9 +115,9 @@ def test_monitor_keeps_last_good_cc_pools_after_usage_timeout(tmp_path, monkeypa
                     "Current week (all models): 40% used resets Oct 24, 12:00pm\n", "")
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: FakeProc())
-    monkeypatch.setattr("peerhub.extensions.quota_probes._cleanup_probe", lambda _: None)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda *a: ["claude"])
-    monkeypatch.setattr("peerhub.extensions.quota_probes._parse_claude_usage_reset",
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._cleanup_probe", lambda _: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda *a: ["claude"])
+    monkeypatch.setattr("peerhub.extensions.quota_probes.claude._parse_claude_usage_reset",
                         lambda *a, **kw: datetime.fromtimestamp(now + 3600, timezone.utc))
     db = tmp_path / "core.db"
     CoreStore(db)
@@ -141,7 +151,7 @@ def test_poll_claude_usage_spawn_failure_records_the_error_type(monkeypatch):
         raise PermissionError("denied")
 
     monkeypatch.setattr(subprocess, "Popen", boom)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
     obs = poll_claude_usage(DummyIdSource(), "inst-1", "prof-1")[0]
     assert obs.evidence.state == EvidenceState.ERROR and obs.extra["reason"] == "claude_usage_spawn_failed:PermissionError"
 
@@ -158,7 +168,7 @@ def test_poll_claude_usage_unparseable_output_fail_closed(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_binary",
+        "peerhub.extensions.quota_probes.common._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
 
@@ -184,10 +194,10 @@ def test_poll_claude_usage_success_parsing(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_binary",
+        "peerhub.extensions.quota_probes.common._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
-    monkeypatch.setattr("peerhub.extensions.quota_probes._parse_claude_usage_reset", lambda *args, **kwargs: __import__('datetime').datetime(2026, 8, 17, 12, 0, tzinfo=__import__('datetime').timezone.utc))
+    monkeypatch.setattr("peerhub.extensions.quota_probes.claude._parse_claude_usage_reset", lambda *args, **kwargs: __import__('datetime').datetime(2026, 8, 17, 12, 0, tzinfo=__import__('datetime').timezone.utc))
 
     ids = DummyIdSource()
     res = poll_claude_usage(ids, "inst-1", "prof-1")
@@ -220,7 +230,7 @@ def test_poll_codex_usage_timeout_fail_closed(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_binary",
+        "peerhub.extensions.quota_probes.common._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
 
@@ -262,7 +272,7 @@ def test_poll_codex_usage_malformed_response(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_binary",
+        "peerhub.extensions.quota_probes.common._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
 
@@ -317,7 +327,7 @@ def test_poll_codex_usage_success_parsing(monkeypatch, used):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_binary",
+        "peerhub.extensions.quota_probes.common._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
 
@@ -362,7 +372,7 @@ def _poll_cx(monkeypatch, rate_limits):
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
     return [r for r in poll_codex_usage(DummyIdSource(), "inst-1", "prof-1", deadline_sec=1.0) if hasattr(r, "evidence")]
 
 
@@ -435,7 +445,7 @@ def test_poll_codex_usage_fallback_rate_limits_by_limit_id(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_binary",
+        "peerhub.extensions.quota_probes.common._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
 
@@ -503,9 +513,9 @@ def test_parse_agy_usage_output_fallback_keeps_line_separator_inside_json_string
 
 
 def test_agy_envelope_fallback_keeps_line_separator_inside_json_string():
-    from peerhub.extensions.quota_probes import _agy_envelope  # pyright: ignore[reportPrivateUsage]
+    from peerhub.extensions.quota_probes.common import json_object_from_output
 
-    envelope = _agy_envelope(_agy_json_with_separator())
+    envelope = json_object_from_output(_agy_json_with_separator())
     assert envelope is not None
     assert envelope["command"]["data"]["groups"][0]["name"] == "Gemini\u2028Models"
 
@@ -524,7 +534,7 @@ def test_poll_agy_usage_prefers_live_slash_command(monkeypatch, tmp_path):
 
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_command",
+        "peerhub.extensions.quota_probes.common.real_command",
         lambda peer, _sys_dir=None: ["agy.exe"] if peer == "ag" else None,
     )
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -622,7 +632,7 @@ def test_real_binary_default_and_overrides(monkeypatch, tmp_path):
     monkeypatch.delenv("PEERHUB_CC_BINARY", raising=False)
     monkeypatch.delenv("PEERHUB_CX_BINARY", raising=False)
 
-    monkeypatch.setattr("peerhub.extensions.quota_probes.shutil.which", lambda name: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.which", lambda name: None)
     assert _real_binary("cc", sys_dir) is None
     assert _real_binary("cx", sys_dir) is None
 
@@ -667,7 +677,7 @@ def test_poll_claude_usage_config_dir_override(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_command",
+        "peerhub.extensions.quota_probes.common.real_command",
         lambda _peer, _sys_dir=None: ["dummy.exe"],
     )
 
@@ -708,7 +718,7 @@ def test_poll_claude_usage_standalone_does_not_inject_portable_config(
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes._real_command",
+        "peerhub.extensions.quota_probes.common.real_command",
         lambda _peer, _sys_dir=None: ["claude.cmd"],
     )
 
@@ -744,7 +754,7 @@ def test_resolve_sys_dir_does_not_infer_layout_from_interpreter(monkeypatch, tmp
     interpreter.write_bytes(b"python")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("PEERHUB_SYS_DIR", raising=False)
-    monkeypatch.setattr("peerhub.extensions.quota_probes.sys.executable", str(interpreter))
+    monkeypatch.setattr(sys, "executable", str(interpreter))
 
     assert resolve_sys_dir() == tmp_path / "_sys"
 
@@ -752,14 +762,14 @@ def test_resolve_sys_dir_does_not_infer_layout_from_interpreter(monkeypatch, tmp
 @pytest.fixture(autouse=True)
 def _mock_probe_cleanup(monkeypatch):
     # Fake PIDs must never reach the OS; dedicated tests verify the shared helper.
-    monkeypatch.setattr("peerhub.extensions.quota_probes.kill_process_tree", lambda proc: True)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.kill_process_tree", lambda proc: True)
 
 
 @pytest.mark.parametrize("peer", ["ag", "cc", "cx"])
 def test_missing_explicit_binary_never_searches_path(monkeypatch, tmp_path, peer):
     key = f"PEERHUB_{peer.upper()}_BINARY"
     monkeypatch.setenv(key, str(tmp_path / "missing"))
-    monkeypatch.setattr("peerhub.extensions.quota_probes.shutil.which",
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.which",
                         lambda name: pytest.fail("explicit override must not fall through"))
     with pytest.raises(FileNotFoundError, match=key):
         _real_binary(peer)
@@ -783,7 +793,7 @@ def test_ag_invalid_fraction_is_never_measured(value, tmp_path):
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), True, -0.1, 101])
 def test_claude_invalid_percent_is_never_measured(value, monkeypatch):
-    from peerhub.extensions.quota_probes import _claude_usage_emit
+    from peerhub.extensions.quota_probes.claude import _claude_usage_emit
     from datetime import datetime, timezone
     now = datetime(2026, 10, 10, tzinfo=timezone.utc)
     assert _claude_usage_emit("current session", value, "1pm", now) is None
@@ -791,7 +801,7 @@ def test_claude_invalid_percent_is_never_measured(value, monkeypatch):
         pid = 9999
         def communicate(self, timeout):
             return f"Current session: {value}% used resets 1pm", ""
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda *a: ["claude"])
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda *a: ["claude"])
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Proc())
     obs = poll_claude_usage(DummyIdSource(), "cc", "standard", clock=lambda: now.timestamp())[0]
     assert obs.evidence.state == EvidenceState.ERROR and obs.evidence.value is None
@@ -799,13 +809,13 @@ def test_claude_invalid_percent_is_never_measured(value, monkeypatch):
 
 @pytest.mark.parametrize("value", [0.0, 1.0])
 def test_fraction_boundaries_are_valid(value):
-    from peerhub.extensions.quota_probes import _valid_fraction
-    assert _valid_fraction(value)
+    from peerhub.extensions.quota_probes.common import valid_fraction
+    assert valid_fraction(value)
 
 
 @pytest.mark.parametrize("value", [0, 1.5, 100])
 def test_claude_percent_boundaries_are_valid(value):
-    from peerhub.extensions.quota_probes import _claude_usage_emit
+    from peerhub.extensions.quota_probes.claude import _claude_usage_emit
     assert _claude_usage_emit("current session", value, "1pm")["used_frac"] == value / 100
 
 
@@ -813,19 +823,18 @@ def test_claude_probe_uses_shared_posix_tree_cleanup(monkeypatch):
     from types import SimpleNamespace
 
     from peerhub.extensions import process_tree
-    from peerhub.extensions import quota_probes as probes
     calls, groups = [], []
     class Proc:
         pid = 12345
         def communicate(self, timeout):
             raise subprocess.TimeoutExpired("claude", timeout)
-    monkeypatch.setattr(probes.sys, "platform", "linux")
-    monkeypatch.setattr(probes, "os", SimpleNamespace(name="posix", environ=probes.os.environ))
-    monkeypatch.setattr(probes, "kill_process_tree", process_tree.kill_process_tree)
+    monkeypatch.setattr(claude.sys, "platform", "linux")
+    monkeypatch.setattr(common, "os", SimpleNamespace(name="posix", environ=common.os.environ))
+    monkeypatch.setattr(common, "kill_process_tree", process_tree.kill_process_tree)
     monkeypatch.setattr(process_tree.os, "killpg", lambda pid, sig: groups.append(pid), raising=False)
     monkeypatch.setattr(process_tree.signal, "SIGKILL", 9, raising=False)
-    monkeypatch.setattr(probes, "_real_command", lambda *a: ["claude"])
-    monkeypatch.setattr(probes.subprocess, "Popen", lambda *a, **k: (calls.append(k) or Proc()))
+    monkeypatch.setattr(common, "real_command", lambda *a: ["claude"])
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: (calls.append(k) or Proc()))
     obs = poll_claude_usage(DummyIdSource(), "cc", "standard")[0]
     assert obs.evidence.state == EvidenceState.ERROR
     assert calls[0]["start_new_session"] is True and groups == [12345]
@@ -838,7 +847,7 @@ def test_ag_does_not_read_implicit_legacy_log(monkeypatch, tmp_path):
     path.write_text(json.dumps({"quota": {"gemini-5h": {
         "remaining_fraction": 0.5, "reset_in_seconds": 1800}}}), encoding="utf-8")
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda *a: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda *a: None)
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("PEERHUB_SYS_DIR", raising=False)
     obs = poll_agy_usage(DummyIdSource(), "ag", "standard")[0]
@@ -847,7 +856,7 @@ def test_ag_does_not_read_implicit_legacy_log(monkeypatch, tmp_path):
 
 def test_claude_usage_reset_resolves_known_timezone_abbreviations():
     from datetime import datetime, timezone, timedelta
-    from peerhub.extensions.quota_probes import _parse_claude_usage_reset
+    from peerhub.extensions.quota_probes.claude import _parse_claude_usage_reset
 
     # Now in KST (+09:00): 2026-10-12 19:00 KST = 2026-10-12 10:00 UTC = 2026-10-12 06:00 EDT
     kst = timezone(timedelta(hours=9))
@@ -886,7 +895,7 @@ def test_claude_usage_reset_resolves_known_timezone_abbreviations():
 
 def test_claude_usage_reset_midnight_boundaries():
     from datetime import datetime, timezone, timedelta
-    from peerhub.extensions.quota_probes import _parse_claude_usage_reset
+    from peerhub.extensions.quota_probes.claude import _parse_claude_usage_reset
 
     # Case A: Local system is in KST, already past midnight (Oct 12 05:00 KST),
     # but in EDT (UTC-4) it is still previous day: Oct 11 16:00 EDT!
@@ -913,11 +922,8 @@ def test_claude_usage_reset_midnight_boundaries():
 
 def test_claude_usage_rejects_unsupported_explicit_timezone(monkeypatch):
     import subprocess
-    from peerhub.extensions.quota_probes import (
-        _parse_claude_usage_reset,
-        poll_claude_usage,
-        UnsupportedTimezoneError,
-    )
+    from peerhub.extensions.quota_probes import UnsupportedTimezoneError
+    from peerhub.extensions.quota_probes.claude import _parse_claude_usage_reset
     from peerhub.extensions.observation_model import EvidenceState
 
     # Direct parse raises UnsupportedTimezoneError
@@ -931,7 +937,7 @@ def test_claude_usage_rejects_unsupported_explicit_timezone(monkeypatch):
             return ("Current session: 50% used resets 5:00pm (UNSUPPORTED_TZ)\n", "")
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda *a, **k: "dummy.exe")
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._real_binary", lambda *a, **k: "dummy.exe")
 
     res = poll_claude_usage(DummyIdSource(), "inst-1", "prof-1")
     assert len(res) == 1
@@ -961,7 +967,7 @@ def test_claude_usage_rejects_unsupported_explicit_timezone(monkeypatch):
 )
 def test_claude_iana_reset_dates_and_dst(zone, now_text, reset_text, expected_utc, offset_hours):
     from datetime import datetime, timedelta, timezone
-    from peerhub.extensions.quota_probes import _parse_claude_usage_reset
+    from peerhub.extensions.quota_probes.claude import _parse_claude_usage_reset
 
     reset = _parse_claude_usage_reset(
         f"{reset_text} ({zone})", now=datetime.fromisoformat(now_text)
@@ -980,13 +986,12 @@ def test_claude_iana_reset_dates_and_dst(zone, now_text, reset_text, expected_ut
 )
 def test_claude_abbreviations_work_without_timezone_database(monkeypatch, abbreviation, offset_hours):
     from datetime import datetime, timedelta, timezone
-    from peerhub.extensions import quota_probes as probes
 
     def missing_zone(name):
         pytest.fail(f"fixed offsets must not require a timezone database: {name}")
 
-    monkeypatch.setattr(probes, "ZoneInfo", missing_zone)
-    reset = probes._parse_claude_usage_reset(
+    monkeypatch.setattr(common, "ZoneInfo", missing_zone)
+    reset = claude._parse_claude_usage_reset(
         f"5pm ({abbreviation})", now=datetime(2026, 10, 12, tzinfo=timezone.utc)
     )
     assert reset is not None
@@ -1000,7 +1005,6 @@ def test_claude_abbreviations_work_without_timezone_database(monkeypatch, abbrev
 ])
 def test_claude_provider_output_with_iana_zone_is_measured(monkeypatch, output):
     from datetime import datetime, timezone
-    from peerhub.extensions import quota_probes as probes
 
     class FakeProc:
         pid = 9999
@@ -1009,7 +1013,7 @@ def test_claude_provider_output_with_iana_zone_is_measured(monkeypatch, output):
         def communicate(self, timeout=None):
             return output, ""
 
-    monkeypatch.setattr(probes, "_real_command", lambda *a: ["claude"])
+    monkeypatch.setattr(common, "real_command", lambda *a: ["claude"])
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
     now = datetime(2026, 10, 12, 10, tzinfo=timezone.utc)
     observations = poll_claude_usage(
@@ -1030,7 +1034,6 @@ def test_claude_provider_output_with_iana_zone_is_measured(monkeypatch, output):
 
 def test_claude_missing_timezone_database_is_unavailable(monkeypatch):
     from zoneinfo import ZoneInfoNotFoundError
-    from peerhub.extensions import quota_probes as probes
 
     def missing_zone(name):
         raise ZoneInfoNotFoundError(name)
@@ -1041,8 +1044,8 @@ def test_claude_missing_timezone_database_is_unavailable(monkeypatch):
         def communicate(self, timeout=None):
             return "Current session: 50% used resets 8pm (Asia/Seoul)\n", ""
 
-    monkeypatch.setattr(probes, "ZoneInfo", missing_zone)
-    monkeypatch.setattr(probes, "_real_command", lambda *a: ["claude"])
+    monkeypatch.setattr(common, "ZoneInfo", missing_zone)
+    monkeypatch.setattr(common, "real_command", lambda *a: ["claude"])
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
 
     observations = poll_claude_usage(DummyIdSource(), "inst-1", "prof-1")
@@ -1055,7 +1058,6 @@ def test_claude_missing_timezone_database_is_unavailable(monkeypatch):
 
 def test_agy_argon_weekly_bucket_maps_to_a_7d_without_unknown_pools(monkeypatch, tmp_path):
     import json
-    from peerhub.extensions import quota_probes as probes
 
     payload = {
         "status": "SUCCESS",
@@ -1085,7 +1087,7 @@ def test_agy_argon_weekly_bucket_maps_to_a_7d_without_unknown_pools(monkeypatch,
 
     sys_dir = tmp_path / "_sys"
     sys_dir.mkdir(parents=True)
-    monkeypatch.setattr(probes, "_real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr(common, "real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -1144,7 +1146,7 @@ def test_poll_agy_usage_with_fixture_measures_all_five_pools_without_drift(monke
 
     sys_dir = tmp_path / "_sys"
     sys_dir.mkdir(parents=True)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -1181,7 +1183,7 @@ def test_poll_agy_usage_preserves_unregistered_bucket_as_drift_without_mapping_p
     }
     sys_dir = tmp_path / "_sys"
     sys_dir.mkdir(parents=True)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -1223,7 +1225,7 @@ def test_poll_agy_usage_emits_conflict_observation_on_envelope_group_conflict(mo
     }
     sys_dir = tmp_path / "_sys"
     sys_dir.mkdir(parents=True)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -1269,7 +1271,7 @@ def test_poll_agy_usage_emits_conflict_observation_on_envelope_window_conflict(m
     }
     sys_dir = tmp_path / "_sys"
     sys_dir.mkdir(parents=True)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(
         subprocess,
         "run",

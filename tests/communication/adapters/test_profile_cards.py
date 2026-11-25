@@ -116,7 +116,7 @@ def test_profile_cli_shows_cards(tmp_path, capsys):
     assert "use_for" in out and PACKAGED["cc.deepthink"]["use_for"] in out
     assert main(["profile", "list", "--workspace", str(tmp_path)]) == 0
     assert "USE FOR" in capsys.readouterr().out
-    assert main(["profile", "list", "--workspace", str(tmp_path), "--format", "json"]) == 0
+    assert main(["profile", "list", "--workspace", str(tmp_path), "--json"]) == 0
     listed = json.loads(capsys.readouterr().out)["profiles"]
     assert all(p["card"]["evidence"]["value"] for p in listed if p["profile"] in PACKAGED)
 
@@ -129,7 +129,7 @@ def test_card_is_never_older_than_the_binding_check():
 
 @pytest.mark.parametrize("pid", ONE_PER_PEER)
 def test_explain_profile_id_prints_the_effective_card(tmp_path, monkeypatch, capsys, pid):
-    from peerhub.cli.recovery import run_explain_cli
+    from peerhub.cli.explain_cmd import run_explain_cli
 
     monkeypatch.chdir(tmp_path)
     assert run_explain_cli(pid) == 0
@@ -140,7 +140,7 @@ def test_explain_profile_id_prints_the_effective_card(tmp_path, monkeypatch, cap
 
 
 def test_explain_distinguishes_unknown_profile_and_no_card(tmp_path, monkeypatch, capsys):
-    from peerhub.cli.recovery import run_explain_cli
+    from peerhub.cli.explain_cmd import run_explain_cli
 
     ws = _overlay(tmp_path, monkeypatch, '[profiles."cx.extra"]\nselection_mode = "pinned"\nmodel = "m"\npools = ["X-7D"]\n'
                   'pools_source = "unverified"\n')
@@ -156,7 +156,7 @@ def test_explain_distinguishes_unknown_profile_and_no_card(tmp_path, monkeypatch
 
 def test_explain_precedence_profile_id_then_lesson_id_then_keywords(tmp_path, monkeypatch, capsys):
     """guidance code > exact profile id > exact lesson id > keywords (0.24.5 profile step + 0.24.6 lesson-id step)."""
-    from peerhub.cli.recovery import run_explain_cli
+    from peerhub.cli.explain_cmd import run_explain_cli
 
     monkeypatch.chdir(tmp_path)
     assert run_explain_cli("cc.deepthink") == 0

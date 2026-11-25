@@ -18,7 +18,7 @@ from peerhub.core.models import Peer
 from peerhub.core.store import CoreStore
 from peerhub.extensions import accounts
 from peerhub.extensions.ask import ask
-from peerhub.extensions.bridge import PrespawnError
+from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.core.peer_kinds import ALIASES
 
 
@@ -279,8 +279,8 @@ def test_marker_row_xor_fails_closed(world, tmp_path, monkeypatch, capsys, mutat
     def forbidden(*args, **kwargs):
         raise AssertionError("inconsistent account must not spawn")
 
-    monkeypatch.setattr("peerhub.extensions.adapters.base.run_bounded", forbidden)
-    monkeypatch.setattr("peerhub.extensions.adapters.base.BoundedProcess", forbidden)
+    monkeypatch.setattr("peerhub.extensions.adapters.common.run_bounded", forbidden)
+    monkeypatch.setattr("peerhub.extensions.adapters.cli_runtime.BoundedProcess", forbidden)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     with pytest.raises(PrespawnError, match="(?i)account|marker|binding"):

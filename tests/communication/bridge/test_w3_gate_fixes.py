@@ -5,8 +5,12 @@ import sqlite3
 
 import pytest
 
-from peerhub.extensions.bridge import (IllegalCertaintyTransition, InvalidTerminalResultError, ReconcileRejectedError,
-                                       TerminalConflictError)
+from peerhub.extensions.bridge_errors import (
+    IllegalCertaintyTransition,
+    InvalidTerminalResultError,
+    ReconcileRejectedError,
+    TerminalConflictError,
+)
 from peerhub.extensions.bridge_claims import ClaimScopeError
 from peerhub.core.store import CoreStore
 from tests.communication.bridge_helpers import (bseed, delivery_rows, evidence, kinds, more_stream, offset_row, records, responses, sql)

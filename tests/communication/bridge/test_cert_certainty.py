@@ -5,7 +5,7 @@ from contextlib import closing
 
 import pytest
 
-from peerhub.extensions.bridge import IllegalCertaintyTransition, ReconcileRejectedError
+from peerhub.extensions.bridge_errors import IllegalCertaintyTransition, ReconcileRejectedError
 from tests.communication.bridge_helpers import bseed, delivery_rows, evidence, kinds, offset_row, records, responses, sql
 from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget
 from tests.communication.harness.bridge import BridgeHarness

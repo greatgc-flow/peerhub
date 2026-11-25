@@ -7,11 +7,11 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-11-25.1"
+defaults_revision = "2026-11-25.2"
 observed_at = "2026-11-25"
 
 [observed_versions]
-ag = "1.5.16"
+ag = "1.5.17"
 cc = "2.1.332"
 cx = "0.172.0"
 
@@ -44,7 +44,7 @@ pools_source = "unverified"
 use_for = "implementation and diff review under an enforced sandbox"
 avoid_for = "machine-observing checks, git commit/push, network"
 traits = ["sandbox hides other processes", "sandbox network fails; no commit", "hard 2026-11-18: 2 of 6 valid, #398"]
-evidence = ["cx-sandbox-and-prompt-hygiene", "docs/peer-limits.md"]
+evidence = ["cx-sandbox-and-prompt-hygiene", "docs/adapters/peer-cli-reference.md"]
 card_checked = "2026-11-18"
 
 # Deprecated alias (0.25.0 plan D11): the binding comes from cx.effort (model sol) with effort xhigh. It still works and
@@ -92,7 +92,7 @@ pools_source = "unverified"
 use_for = "cheap triage, short summaries, simple lookups, self-contained code"
 avoid_for = "design decisions, code review (not benchmarked)"
 traits = ["effort: CLI default (no flag)", "no gh/git or reads outside -w", "hard 100/100/98, regex 115/115"]
-evidence = ["docs/model-profiles/model-profiles.json", "docs/peer-limits.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
+evidence = ["docs/model-profiles/model-profiles.json", "docs/adapters/peer-cli-reference.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
 card_checked = "2026-11-18"
 
 [profiles."cc.effort"]
@@ -106,7 +106,7 @@ pools_source = "unverified"
 use_for = "daily implementation, multi-file edits in the -w workspace"
 avoid_for = "final design arbitration (use deepthink)"
 traits = ["no gh/git or reads outside -w", "Bash allow rules match exact strings", "hard 100 x3, regex 115/115"]
-evidence = ["docs/model-profiles/model-profiles.json", "docs/peer-limits.md", "cc-allow-rules", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
+evidence = ["docs/model-profiles/model-profiles.json", "docs/adapters/peer-cli-reference.md", "cc-allow-rules", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
 card_checked = "2026-11-18"
 
 [profiles."cc.deepthink"]
@@ -121,7 +121,7 @@ pools_source = "unverified"
 use_for = "design review, hard debugging, final verification"
 avoid_for = "bulk or repetitive work (scarce, slower)"
 traits = ["45/45 benchmark, 14-15s", "no gh/git or reads outside -w", "hard 100 x3, regex 115/115"]
-evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/peer-limits.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/adapters/peer-cli-reference.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
 card_checked = "2026-11-18"
 
 # Top tier (opt-in, never a default). F-7D is the Fable weekly window. Fable use is also counted in the weekly

@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_view as mv
+from peerhub.cli import monitor_legend, monitor_view as mv
 from tests.communication.diag.test_monitor_activity_view import NOW, pool
 from tests.communication.diag.test_monitor_expand_rich import block, detail_payload, eight_pools_payload, strip
 from tests.communication.diag.test_monitor_pool_dependencies import payload as cc_payload, pool_rows
@@ -106,7 +106,7 @@ def first_seen(lines: list[str], pattern: str) -> list[str]:
 def test_quota_details_keep_the_most_urgent_peer_first(view):
     frame = eight_pools_payload()
     lines = render(frame, view).splitlines()
-    quota = re.escape(mv.FRAME_SECTIONS["capacity"])
+    quota = re.escape(monitor_legend.FRAME_SECTIONS["capacity"])
     start = next(i for i, line in enumerate(lines) if re.match(rf"(?:--|──) {quota}(?= |$)", line))
     end = next((i for i in range(start + 1, len(lines)) if re.match(r"(?:--|──) ", lines[i])), len(lines))
     assert first_seen(lines[start + 2:end], r"\s*(ag|cc|cx) ") == ["cx", "ag", "cc"]  # X-5H is out
@@ -133,8 +133,8 @@ def test_an_ok_facts_report_uses_the_same_version_check_label():
 
 # ---- 6: n/a is the plan's answer -----------------------------------------------------------------------------------
 def test_the_legend_says_that_na_is_the_plan_and_that_diag_quota_may_keep_an_older_value():
-    assert "n/a plan no longer reports it (diag quota may keep an older value)" in " ".join(mv.MONITOR_LEGEND)
-    assert "n/a plan no longer reports it" in " ".join(mv.MONITOR_LEGEND)
+    assert "n/a plan no longer reports it (diag quota may keep an older value)" in " ".join(monitor_legend.MONITOR_LEGEND)
+    assert "n/a plan no longer reports it" in " ".join(monitor_legend.MONITOR_LEGEND)
 
 
 # ---- 7: the scoped weekly window is limited by its parent ----------------------------------------------------------

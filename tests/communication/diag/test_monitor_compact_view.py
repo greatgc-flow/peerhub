@@ -8,11 +8,20 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.cli.monitor_view import (
-    BAR_CELLS, FRAME_SECTIONS, POOL_LEGEND, POOL_MARGIN_COLUMN, POOLS_USE_FIRST_HINT, _bar_quota, render_grouped_frame, _width,
+from peerhub.cli.monitor_format import (
+    BAR_CELLS,
+    _bar_quota,
 )
+from peerhub.cli.monitor_layout import cell_width
+from peerhub.cli.monitor_legend import (
+    POOL_LEGEND,
+    POOL_MARGIN_COLUMN,
+)
+from peerhub.cli.monitor_legend import FRAME_SECTIONS
+from peerhub.cli.monitor_quota_view import POOLS_USE_FIRST_HINT
+from peerhub.cli.monitor_view import render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import anchor_pool
-from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 
 NOW = 1794134880.0  # 2026-11-08 10:48Z
 
@@ -29,7 +38,7 @@ def compact_frame():
             pool("ag", "3P-7D", 0, state="STALE", age=540),
             pool("ag", "A-7D", .55, state="STALE", age=540),
             pool("ag", "G-5H", .80),
-            pool("ag", "G-7D", .55, state="STALE", age=540, reset=-1),
+            pool("ag", "G-7D", .55, state="STALE", age=540, reset=0),
             pool("cc", "F-7D", None),
             pool("cx", "X-5H", None, state="ABSENT", reset=-1),
             pool("cx", "X-7D", .89)]
@@ -118,7 +127,7 @@ def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unus
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row["projection"] = {"pace_pt": 46}
     if unusable == "?": row.update(state="UNKNOWN")
-    if unusable == "reset": row.update(resets_at=NOW - 1)
+    if unusable == "reset": row.update(resets_at=NOW)
     if unusable == "missing": row["projection"] = {}
     if unusable == "nan": row["projection"]["pace_pt"] = float("nan")
     if unusable == "inf": row["projection"]["pace_pt"] = float("inf")
@@ -152,12 +161,12 @@ def test_exact_reset_expires_state_pace_and_suggestion(compact_frame, width, ela
 
 
 def test_suggestions_reject_zero_reset_seconds():
-    from peerhub.cli.monitor_view import _compact_suggestions
+    from peerhub.cli.monitor_quota_view import compact_suggestions
 
     profiles = [{"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
     rows = [{"peer": "ag", "pool": "G-5H", "remaining": .8, "reset_seconds": 0,
              "aged": False, "state": "ok"}]
-    assert _compact_suggestions(profiles, rows) == "suggest: no eligible profiles; next: peerhub observation refresh"
+    assert compact_suggestions(profiles, rows) == "suggest: no eligible profiles; next: peerhub observation refresh"
 
 
 @pytest.mark.parametrize("width", [60, 70])
@@ -172,7 +181,7 @@ def test_narrow_pool_table_keeps_pace_and_quota_facts(compact_frame, width):
     assert POOL_MARGIN_COLUMN in header
     assert cells[cells.index("+5.0") + 1].startswith("-")
     assert any(cell.endswith("/1h!") for cell in cells) == ("EXH/RESET" in header)
-    assert all(_width(line) <= width for line in screen.splitlines())
+    assert all(cell_width(line) <= width for line in screen.splitlines())
 
 
 @pytest.fixture
@@ -210,7 +219,7 @@ def test_projection_fast_requires_two_samples(compact_frame, samples, expected):
     (.8, "threat", 1, 301, 3600, "aged"),
     (.8, "safe", 2, 60, 3600, "ok"),
     (0, "threat", 2, 301, 3600, "aged"),
-    (.05, "threat", 2, 301, -1, "reset"),
+    (.05, "threat", 2, 301, 0, "reset"),
     (None, "threat", 2, 60, -1, "?"),
 ])
 def test_low_fast_and_higher_priority_states(compact_frame, remaining, projection, samples, age, reset, expected):
@@ -245,8 +254,8 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     assert POOL_LEGEND in flat
     assert "the header time is the snapshot time" in flat
     assert "precedence:" not in screen
-    assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
-    assert all(_width(line) <= width - 1 for line in expanded.splitlines())
+    assert all(cell_width(line) <= min(99, width - 1) for line in screen.splitlines())
+    assert all(cell_width(line) <= width - 1 for line in expanded.splitlines())
 
 
 def test_m1_fast_with_threat_forecast_uses_state_warning_colour(compact_frame, monkeypatch):
@@ -254,7 +263,7 @@ def test_m1_fast_with_threat_forecast_uses_state_warning_colour(compact_frame, m
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection_samples=2)
     anchor_pool(row, NOW, 5)
-    from peerhub.cli.monitor_view import RICH_SGR
+    from peerhub.cli.monitor_layout import RICH_SGR
 
     screen = _solo(compact_frame, view="rich", color=True, width=100)
     line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
@@ -297,7 +306,7 @@ def test_database_path_ignores_sampling_caps_but_shows_read_errors(compact_frame
 def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
     compact_frame["configured_profiles"][0]["profile"] = "ag." + "long" * 60
     screen = render_grouped_frame(compact_frame, width=width, unicode=False)
-    assert all(_width(line) <= width for line in screen.splitlines())
+    assert all(cell_width(line) <= width for line in screen.splitlines())
     # #374: the footer with "details: --expand" left the compact frame; below 26 columns POOLS keeps POOL and STATE
     # whole (LEFT drops as a column, never as a cut number).
     head = re.escape(FRAME_SECTIONS["pools"])
@@ -353,7 +362,7 @@ def test_human_only_last_measurements_are_read_only_and_json_bytes_unchanged(tmp
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame",
                         lambda *a, **kw: deepcopy(human if kw.get("human") else payload))
     baseline = h.db_path.read_bytes()
-    from peerhub.cli.monitor_preferences import GROUP_IDS
+    from peerhub.core.monitor_groups import GROUP_IDS
     expected = {**payload, "selected_groups": ["capacity"], "available_groups": list(GROUP_IDS),
                 "preference": {"status": "OK", "source": "command", "reason": None},
                 "store_selection": {"path": str(h.db_path.resolve()), "source": "explicit"}}
@@ -435,7 +444,7 @@ def test_tick_advances_header_age_and_ttl_without_mutation(compact_frame):
 def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_frame):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     absent, reset = rows[6], rows[7]
-    reset.update(resets_at=NOW - 1, age_seconds=540, state="STALE")
+    reset.update(resets_at=NOW, age_seconds=540, state="STALE")
     compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
     assert "X-5H" not in screen
@@ -581,20 +590,20 @@ def test_suggestions_keep_low_pools_at_or_above_five_percent(compact_frame, rema
 @pytest.mark.parametrize("tier,suffix", [("eco", "standard"), ("normal", "effort"),
                                         ("quality", "deepthink"), ("top", "custom")])
 def test_suggestions_alternative_uses_same_ranking_with_name_ties(tier, suffix):
-    from peerhub.cli.monitor_view import _compact_suggestions
+    from peerhub.cli.monitor_quota_view import compact_suggestions
 
     profiles = [{"profile": f"{peer}.{suffix}", "fields": {"pools": {"value": ["P-7D"]}}}
                 for peer in ("cx", "cc", "ag")]
     rows = [{"peer": peer, "pool": "P-7D", "remaining": remaining, "reset_seconds": 86400,
              "aged": False, "state": "ok"} for peer, remaining in (("cx", .5), ("cc", .8), ("ag", .5))]
-    result = _compact_suggestions(profiles, rows)
+    result = compact_suggestions(profiles, rows)
     assert f"{tier}=cc.{suffix}|ag.{suffix}" in result
-    assert result == _compact_suggestions(list(reversed(profiles)), list(reversed(rows)))
+    assert result == compact_suggestions(list(reversed(profiles)), list(reversed(rows)))
 
 
 @pytest.mark.parametrize("alternative", ["eligible", "absent", "same-peer", "ineligible"])
 def test_suggestions_only_append_eligible_different_peer(alternative):
-    from peerhub.cli.monitor_view import _compact_suggestions
+    from peerhub.cli.monitor_quota_view import compact_suggestions
 
     profiles = [{"profile": "cc.fable", "fields": {"pools": {"value": ["F-7D"]}}},
                 {"profile": "cc.other", "fields": {"pools": {"value": ["F-7D"]}}}]
@@ -608,7 +617,7 @@ def test_suggestions_only_append_eligible_different_peer(alternative):
     expected = "suggest: eco=- normal=- quality=- top=cc.fable"
     if alternative == "eligible":
         expected += "|ag.probe"
-    assert _compact_suggestions(profiles, rows) == expected
+    assert compact_suggestions(profiles, rows) == expected
 
 
 def test_peers_only_uses_snapshot_capacity_support(compact_frame):
@@ -725,7 +734,7 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
     fast = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     fast.update(projection_samples=2)
     anchor_pool(fast, NOW, 5)
-    from peerhub.cli.monitor_view import RICH_SGR
+    from peerhub.cli.monitor_layout import RICH_SGR
 
     colored = _solo(compact_frame, view="rich", color=True, width=100)
     plain = _solo(compact_frame, view="rich", color=False, width=100)
@@ -738,7 +747,7 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
                                 ("A-7D", "○ aged", "dim"), ("G-5H", "▲ fast", "warn"), ("X-7D", "● ok", "ok")):
         line = _row(colored, pool)
         assert f"\x1b[{RICH_SGR[colour]}m{state}\x1b[0m" in line
-        assert not line.startswith("\x1b") and _width(line) <= 99
+        assert not line.startswith("\x1b") and cell_width(line) <= 99
     assert "\x1b" not in _solo(compact_frame, view="plain", color=True, width=100)
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b" not in _solo(compact_frame, view="rich", color=True, width=100)

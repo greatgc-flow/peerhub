@@ -98,7 +98,7 @@ def test_rel_004_gate_map_covers_every_catalog_id_exactly_once_with_consistent_m
 def test_rel_004_every_catalog_id_belongs_to_exactly_one_implementation_wave():
     from tools.traceability import wave_of
 
-    waves = _json(REPO / "docs/m1_impl/waves.json")["waves"]
+    waves = _json(REPO / "docs/history/m1_impl/waves.json")["waves"]
     ids = [t["id"] for t in catalog()]
     assigned = {i: wave_of(i, waves) for i in ids}
     assert all(w is not None for w in assigned.values()), [i for i, w in assigned.items() if w is None]

@@ -17,7 +17,8 @@ from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionE
 from peerhub.core.store import CoreStore
 from peerhub.core.workspace import Workspace
 from peerhub.extensions.ask import ask
-from peerhub.extensions.bridge import Bridge, _DDL
+from peerhub.extensions.bridge import Bridge
+from peerhub.extensions.bridge_schema import _DDL
 from peerhub.extensions.bridge_claims import ClaimStore
 
 pytestmark = [pytest.mark.integration, pytest.mark.bridge, pytest.mark.sqlite, pytest.mark.platform_sensitive]

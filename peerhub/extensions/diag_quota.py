@@ -9,20 +9,27 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, cast
 
-from peerhub._exit_codes import DIAG_EXIT_BY_STATUS
+from peerhub.core.models import iso_timestamp
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
 from peerhub.extensions.observation_model import (
+    QUOTA_MAX_AGE_SECONDS,
     FreshnessPolicy,
     MEASUREMENT_KEYS,
     QUOTA_NOTICE_AGE_SECONDS,
-    instant_us,
+    QUOTA_PROBE_LOAD_DELAY,
+    QUOTA_PROBE_LOAD_LABEL,
     oldest_measured_quota_age,
 )
-from peerhub.extensions.quota_projection import ExhaustionProjection, limit_by_parent, project_exhaustion, scoped_parent_ref
+from peerhub.extensions.quota_projection import (
+    limit_by_parent,
+    observation_projection as projection,
+    project_exhaustion,
+    quota_used_fraction,
+    scoped_parent_ref,
+)
 
 SCHEMA_VERSION = "1.0"
 QUOTA_KINDS = ("quota", "rate_limit")
@@ -31,7 +38,6 @@ _SECONDS_PER_HOUR = 60 * 60
 _SECONDS_PER_DAY = 24 * _SECONDS_PER_HOUR
 RESET_CREDIT_WARN_SECONDS = 72 * _SECONDS_PER_HOUR  # an available credit expiring in strictly less than this is flagged WARN
 POOL_KINDS = ("QUOTA", "RATE_LIMIT")  # registered pools of these kinds without evidence are listed as UNKNOWN
-EXIT_BY_STATUS = DIAG_EXIT_BY_STATUS
 
 
 def _classify(rep: DiagnosticReport, db: str) -> tuple[str, str | None]:
@@ -53,34 +59,8 @@ def _measurements(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _derived(meas: dict[str, Any]) -> dict[str, Any]:
-    rf = meas.get("remaining_fraction")
-    if isinstance(rf, (int, float)) and not isinstance(rf, bool):
-        return {"used_fraction": 1 - rf}  # derived: 1 - remaining_fraction
-    return {}
-
-
-def projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
-    """Pass evaluated freshness and measurement time to the shared engine."""
-    payload = item["payload"]
-    measured_at = None
-    if item.get("observed_at"):
-        try:
-            measured_at = instant_us(str(item["observed_at"])) / 1_000_000
-        except (ValueError, OverflowError):
-            pass
-    return project_exhaustion(
-        _derived(_measurements(payload)).get("used_fraction"),
-        payload.get("window_started_at"), measured_at, payload.get("resets_at"), now,
-        evidence_state=item["state"], anchor_basis=payload.get("anchor_basis"),
-    )
-
-
-
-
-
-def _iso(ts: int) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
+    used = quota_used_fraction(meas.get("remaining_fraction"))
+    return {"used_fraction": used} if used is not None else {}
 
 def _ts(v: object) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 253402300800 else None
@@ -104,14 +84,14 @@ def _reset_credit_view(it: dict[str, Any], now: float) -> dict[str, Any]:
                 continue
             left = exp - now
             credits.append({"id_hash": hashlib.sha256(str(c.get("id_ref")).encode()).hexdigest()[:12], "reset_type": c.get("reset_type"),
-                            "status": c.get("status"), "granted_at": c.get("granted_at"), "expires_at": _iso(exp),
+                            "status": c.get("status"), "granted_at": c.get("granted_at"), "expires_at": iso_timestamp(exp),
                             "hours_until_expiry": left / _SECONDS_PER_HOUR, "title": c.get("title"),
                             "warn": c.get("status") == "available" and left < RESET_CREDIT_WARN_SECONDS})
     nearest = _ts(p.get("nearest_expires_at")) if shown else None
     left_n = None if nearest is None else nearest - now
     return {"subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "state": it["state"], "age_seconds": it["age_seconds"],
             "source": it["source"], "condition": p.get("condition"), "available_count": count if shown else None,
-            "nearest_expires_at": None if nearest is None else _iso(nearest),
+            "nearest_expires_at": None if nearest is None else iso_timestamp(nearest),
             "hours_until_nearest_expiry": None if left_n is None else left_n / _SECONDS_PER_HOUR,
             "warn": left_n is not None and left_n < RESET_CREDIT_WARN_SECONDS, "credits": credits}
 
@@ -172,7 +152,8 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
             "subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "kind": it["kind"], "state": it["state"],
             "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": der,
             "window": {k: it["payload"][k] for k in ("window_started_at", "resets_at") if k in it["payload"]},
-            "projection": proj})
+            "projection": proj,
+            **({"reason": QUOTA_PROBE_LOAD_DELAY} if it["payload"].get("reason") == QUOTA_PROBE_LOAD_DELAY else {})})
     if peer is None:  # a registered pool with no quota/rate_limit evidence is explicit UNKNOWN (never unlimited)
         for p in rep.sections["resource_pools"].data.get("pools", []):
             pid = p["resource_pool_id"]
@@ -191,6 +172,14 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
         out["status"] = "PARTIAL"
     out["overall"] = "OK" if any(i["state"] in ("MEASURED", "STALE") for g in pools for i in g["items"]) else "UNKNOWN"
     return out
+
+
+def quota_items(db_path: str | Path, *, peer: str | None = None) -> list[dict[str, Any]]:
+    """Read quota items for scheduling with the advisory age limit inclusive."""
+    # Observation freshness compares age >= TTL at microsecond precision. Keep readings exactly at the age limit fresh.
+    policy = FreshnessPolicy(by_kind={"quota": QUOTA_MAX_AGE_SECONDS + .000001})
+    report = quota_report(db_path, peer=peer, policy=policy)
+    return [item for group in report["pools"] for item in group["items"] if item["kind"] == "quota"]
 
 
 def _num(value: object) -> float | None:
@@ -257,7 +246,8 @@ def format_quota_table(rep: dict[str, Any], *, max_age_seconds: int | None = Non
             der = " ".join(f"{k}={v:.4g} (derived)" for k, v in i["derived"].items())
             eff = i.get("effective")
             limit = f" effective={eff['remaining_fraction']:.0%} (limited by {eff['limited_by']})" if eff else ""
-            lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {i['state']:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}{limit}".rstrip())
+            state = QUOTA_PROBE_LOAD_LABEL if i.get("reason") == QUOTA_PROBE_LOAD_DELAY else i["state"]
+            lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {state:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}{limit}".rstrip())
     lines.extend(_reset_credit_lines(rep["reset_credits"], "reset credits (read-only; hours computed at read time)", "  "))
     return "\n".join(lines)
 

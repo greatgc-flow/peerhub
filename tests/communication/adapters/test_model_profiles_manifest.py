@@ -59,7 +59,8 @@ def test_every_profile_id_names_a_peer_and_has_required_fields():
 
 
 def test_pool_ids_exist_in_probe_constants():
-    from peerhub.extensions.quota_probes import AGY_QUOTA_FAMILIES, _CLAUDE_USAGE_SECTIONS
+    from peerhub.extensions.quota_probes import AGY_QUOTA_FAMILIES
+    from peerhub.extensions.quota_probes.claude import _CLAUDE_USAGE_SECTIONS
 
     known = {v for _, v in AGY_QUOTA_FAMILIES} | {v[0] for v in _CLAUDE_USAGE_SECTIONS.values()} | {"X-5H", "X-7D"}
     entries = {**packaged_profiles(), **TOML.get("exact_model_pools", {})}
@@ -91,11 +92,19 @@ def test_argon_profile_and_exact_models_share_the_gemini_quota():
 
 def test_profile_source_matches_recipe_command_and_observation():
     observed_at, versions = TOML["observed_at"], TOML["observed_versions"]
+    sources: dict[str, set[str]] = {}
     for pid, p in packaged_profiles().items():
         peer = pid.split(".", 1)[0]
         command = MANIFEST["sources"][peer]["command"]
-        want = f"cli:{command}@{versions[peer]} {observed_at}" if command else f"known-id:claude --help aliases@{versions[peer]} {observed_at}"
-        assert p["source"] == want, f"{pid} source {p['source']!r} != {want!r}"
+        prefix = f"cli:{command}" if command else "known-id:claude --help aliases"
+        match = re.fullmatch(rf"{re.escape(prefix)}@(\d+\.\d+\.\d+) (\d{{4}}-\d{{2}}-\d{{2}})", p["source"])
+        assert match, f"{pid} has invalid catalog provenance {p['source']!r}"
+        catalog_version, catalog_date = match.groups()
+        # Recording an installed CLI version does not re-observe its model catalog.
+        assert tuple(map(int, catalog_version.split("."))) <= tuple(map(int, versions[peer].split("."))), pid
+        assert catalog_date <= observed_at, pid
+        sources.setdefault(peer, set()).add(p["source"])
+    assert all(len(peer_sources) == 1 for peer_sources in sources.values())
 
 
 def test_exact_model_pools_resolve_through_the_resolver(tmp_path):

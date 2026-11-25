@@ -9,7 +9,9 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, guide_text_url, render_grouped_frame
+from peerhub.cli.monitor_links import guide_text_url
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
+from peerhub.cli.monitor_view import render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import NOW, SOURCES_READ, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 
@@ -58,7 +60,7 @@ def full_payload() -> dict[str, Any]:
                   reason="not reported by provider; plan=prolite")
     unknown = pool("cc", "F-7D", None)
     unknown.update(state="UNKNOWN", stored_state="UNKNOWN", measurements=None, last_measurements=None)
-    passed = pool("ag", "G-7D", .97, pace=-4, reset=-1)
+    passed = pool("ag", "G-7D", .97, pace=-4, reset=0)
     observations = [pool("ag", "3P-5H", .50), pool("ag", "3P-7D", .01, pace=71), aged, pool("ag", "G-5H", .40), passed,
                     pool("cc", "C-5H", .30), pool("cc", "C-7D", .63, pace=-20), unknown,
                     pool("cx", "X-5H", 0.0, reset=3600), pool("cx", "X-7D", .42, fast=True, pace=31), absent]

@@ -7,9 +7,9 @@ from collections.abc import Mapping
 from typing import Literal, TypedDict, cast
 
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PACE_BAND_ROUNDING_DIGITS, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
-from peerhub.extensions.diag_quota import projection
-from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, instant_us
-from peerhub.extensions.quota_projection import ProjectionState, limit_by_parent
+from peerhub.extensions.observation_model import ABSENT_FACT_REASONS
+from peerhub.extensions.quota_projection import ProjectionState, limit_by_parent, observation_projection
+from peerhub.extensions.quota_windows import quota_reset_at
 
 PoolState = Literal["n/a", "?", "reset", "out", "blocked", "low", "fast", "aged", "ok"]
 PaceBand = Literal["spend", "ok", "rest"]
@@ -69,28 +69,15 @@ def _exhaust_margin(exhaust: float | None, reset: float | None) -> float | None:
     return None if exhaust is None or reset is None else exhaust - reset
 
 
-def _reset_at(reading: Reading, payload: Reading, frame_time: float) -> float | None:
-    absolute = _num(payload.get("resets_at"))
-    if absolute is not None:
-        return absolute
-    # Stored durations are relative to their observation. The monitor can also
-    # supply a countdown already evaluated at its snapshot time.
-    duration = _num(payload.get("reset_in_seconds"))
-    snapshot_at = _num(reading.get("read_at"))
-    if duration is None:
-        duration = _num(reading.get("reset_in_seconds"))
-        if snapshot_at is not None and duration is not None:
-            return snapshot_at + duration
-    if duration is None:
-        return None
-    observed_at = reading.get("observed_at")
-    if isinstance(observed_at, str):
-        try:
-            return instant_us(observed_at) / 1_000_000 + duration
-        except (ValueError, OverflowError):
-            pass
-    anchor = snapshot_at if snapshot_at is not None else frame_time - (_num(reading.get("age_seconds")) or 0)
-    return anchor + duration
+def measured_pool_state(remaining: float, *, stale: bool, forecast: object, samples: float) -> PoolState:
+    """Grade a usable fraction after the caller has checked its reset."""
+    if remaining == 0:
+        return "aged" if stale else "out"
+    if remaining <= LOW_QUOTA_FRACTION:
+        return "low"
+    if samples >= _FAST_MIN_SAMPLES and forecast == "threat":
+        return "fast"
+    return "aged" if stale else "ok"
 
 
 def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
@@ -104,27 +91,23 @@ def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
     if not measured:
         remaining = None
     left = None if remaining is None else remaining * 100
-    resets_at = _reset_at(reading, payload, frame_time)
+    resets_at = quota_reset_at(reading, payload, frame_time)
     reset = None if resets_at is None else resets_at - frame_time
     projection_state = ("STALE" if stale else "MEASURED") if measured else evidence
-    proj = projection({**reading, "payload": {**payload, "resets_at": resets_at}, "state": projection_state}, frame_time)
+    proj = observation_projection({**reading, "payload": {**payload, "resets_at": resets_at}, "state": projection_state},
+                                  frame_time)
     samples = _num(reading.get("projection_samples")) or 0
 
     state: PoolState
-    if evidence == "ABSENT" and not stale and str(payload.get("reason", "")).startswith(ABSENT_FACT_REASONS):
+    if evidence == "ABSENT" and not stale and (reading.get("display_retired")
+                                              or str(payload.get("reason", "")).startswith(ABSENT_FACT_REASONS)):
         state = "n/a"
     elif remaining is None:
         state = "aged" if stale and reading.get("stored_state") == "ABSENT" else "?"
     elif reset is not None and reset <= 0:
         state = "reset"
-    elif remaining == 0:
-        state = "aged" if stale else "out"
-    elif remaining <= LOW_QUOTA_FRACTION:
-        state = "low"
-    elif samples >= _FAST_MIN_SAMPLES and proj["state"] == "threat":
-        state = "fast"
     else:
-        state = "aged" if stale else "ok"
+        state = measured_pool_state(remaining, stale=stale, forecast=proj["state"], samples=samples)
 
     reserve: Reserve | None = None
     if remaining is not None and state != "reset":
@@ -144,17 +127,10 @@ def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
     )
 
 
-def pool_health(reading: Reading, parent_reading: Reading | None, frame_time: float) -> PoolHealth:
-    """Derive a diagnostic quota reading's facts, optionally with a scoped parent.
-
-    The reading's age is evaluated at frame time. Its payload and observed_at
-    provide the anchors for the shared projection.
-    """
-    own = _reading_health(reading, frame_time)
-    if parent_reading is None or own["stale"] or own["state"] not in _STATE_SEVERITY:
-        return own
-    parent = _reading_health(parent_reading, frame_time)
-    if parent["stale"] or parent["state"] not in _STATE_SEVERITY:
+def limit_pool_health(own: PoolHealth, parent: PoolHealth, parent_ref: object) -> PoolHealth:
+    """Apply a scoped parent to already projected pool facts."""
+    if (own["stale"] or own["state"] not in _STATE_SEVERITY
+            or parent["stale"] or parent["state"] not in _STATE_SEVERITY):
         return own
 
     left, reset, lower = limit_by_parent(own["left_pct"], own["reset_in_seconds"],
@@ -163,16 +139,23 @@ def pool_health(reading: Reading, parent_reading: Reading | None, frame_time: fl
     if not (lower or worse):
         return own
     source = parent if lower else own
-    ref = parent_reading.get("resource_pool_ref")
     state = own["state"]
     if worse:
         state = "blocked" if parent["state"] == "out" else parent["state"]
     margin = _exhaust_margin(source["exhaust_in_seconds"], reset)
     return {
         **source, "state": state, "left_pct": left, "reset_in_seconds": reset,
-        "limited_by": ref if isinstance(ref, str) else None, "own_left_pct": own["left_pct"],
+        "limited_by": parent_ref if isinstance(parent_ref, str) else None, "own_left_pct": own["left_pct"],
         "exhaust_margin_seconds": margin, "exhaust_before_reset": margin is not None and margin < 0,
     }
+
+
+def pool_health(reading: Reading, parent_reading: Reading | None, frame_time: float) -> PoolHealth:
+    """Derive a quota reading's facts at frame time, optionally with a scoped parent."""
+    own = _reading_health(reading, frame_time)
+    if parent_reading is None or own["stale"] or own["state"] not in _STATE_SEVERITY:
+        return own
+    return limit_pool_health(own, _reading_health(parent_reading, frame_time), parent_reading.get("resource_pool_ref"))
 
 
 def pace_gaps(healths: Mapping[str, PoolHealth]) -> PaceGaps:

@@ -93,9 +93,9 @@ def test_guide_json_carries_the_same_text(capsys):
 
 def test_readme_quota_peers_match_the_cli_defaults(capsys):
     readme = (REPO / "README.md").read_text(encoding="utf-8")
-    example = re.search(r"(?m)^# Explicit collection[^\n]*\n([^\n]+)", readme)
+    example = re.search(r"peerhub observation refresh --peers ([a-z ]+)`", readme)
     peers = " ".join(QUOTA_CAPABLE_PEERS)
-    assert example and example[1] == f"peerhub observation refresh --peers {peers}"
+    assert example and example[1] == peers
 
     parser = build_parser()
     assert parser.parse_args(["observation", "refresh"]).peers == list(QUOTA_CAPABLE_PEERS)
@@ -204,14 +204,15 @@ def test_every_topic_is_one_short_explain_entry(capsys):
 
 def test_guide_separates_batch_validation_from_quota_spend(capsys):
     line = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
-    assert "--max-parallel n --dry-run" in line
-    assert "execution spends quota" in line
+    assert "--max-parallel n --dry-run (checks profiles, no calls)" in line
+    assert "Execution spends quota" in line
 
 
 def test_guide_uses_shared_resource_thresholds(capsys):
     line = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
     assert f"free RAM >= {MIN_FREE_RAM_GB} GB, CPU below {CPU_BUSY_WARN_PCT}%" in line
-    assert "PeerHub does not cap the count" in line
+    assert f"{CPU_BUSY_WARN_PCT}%+ CPU: hold." in line
+    assert "Other sessions' asks count. No cap." in line
 
 
 def test_no_fixed_parallelism_in_guide_docs_or_lessons(capsys):
@@ -225,62 +226,13 @@ def test_no_fixed_parallelism_in_guide_docs_or_lessons(capsys):
 # ---- the former guide: every fact is still reachable --------------------------------------------------------------
 
 FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
-    "ask-basics": (
-        'peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001',
-        'peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
-        "a --stream resumes (same store/binding, 1 peer)", "new task = new stream", "votes one-shot",
-        "bulk=standard, code=effort, review/design=deepthink (docs/batch.md)",
-        "--query-file and --json select transport/format (no token saving)",
-        "blocks until the peer finishes, then prints reply + 'session:'",
-        "foreground/background-with-exit-notification", "never detach/poll",
-        "--timeout-seconds 1800-3600", "ag prints nothing until done", "--timeout-seconds 7200",
-        "--silence-timeout-seconds unset or >= it",
-    ),
-    "writes-and-uncertain": (
-        "ag recipe: 'peerhub explain ag-recipe'", "cx sandbox enforced; cc enforced; ag NOT enforced (issue #140)",
-        "when edits are intended, pass --writable on every turn, including resumed turns",
-        "pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop",
-        "stop that stream (timeouts too), check the working tree for partial edits, 'peerhub diag health'",
-        "skipped oversized line: cc ok if an intact result follows (#325), cx needs answer+turn.completed",
-        "never blind-retry original prompt under a new request-id, with --fresh, or delete claims",
-        "continue genuinely new work on a new stream with a summary", "'peerhub explain <code>'",
-        "prompts/streams persist in local store; no tokens/passwords",
-    ),
-    "store-and-upgrade": (
-        "--db > PEERHUB_DB > nearest upward .peerhub/core.db", "peerhub explain store-missing",
-        "back up core.db before upgrading", "new schema not openable by old versions",
-        "stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor", "locks peerhub.exe on Windows",
-        "also wait for running asks (diag running)", "reinstall, check results before resend",
-        "don't run dev builds on the real store", "after restore, reopen stores (old instances fenced)",
-    ),
-    "batch-and-load": (
-        "executes asks (spends quota)", "ag tasks always writable", "overlapping writers rejected",
-        "cancel: Windows tree kill, POSIX best-effort", "inspect UNCERTAIN", "keep manifest + batch-id",
-        "PeerHub does not cap the count", "suggest: is advisory (rule H)",
-        "reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer",
-        "compare 7D PACE (5H only gates)", "PACE (pp, used%-elapsed%) needs a fresh quota age",
-        "+ = ahead of even burn", "peerhub batch run tasks.json --batch-id review-001 --max-parallel n --dry-run",
-        "TTY monitor watch refreshes quota when due", "--no-probe", "diag read committed evidence",
-        "uncertain streams may stay quota-blocked after reset", "aged quota is last-known; refresh first",
-        "accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots",
-    ),
-    "discovery-commands": (
-        "peerhub explain lessons", "peerhub explain setup", "peerhub monitor --group capacity",
-        "suggest a|b = best + alternative peer; peerhub explain monitor-states", "peerhub monitor --expand",
-        "AI sessions: peerhub diag --plan", "per-pool spend/hold/rest until reset", "peerhub monitor: the human screen",
-        "peerhub profile list; slugs: agy models; --model <slug>",
-        "peerhub session list", "peerhub account list", "peerhub observation refresh", "peerhub explain peer-subagents",
-        "the line-1 'facts:' alert (needs_recheck) clears via refresh-model-profiles skill or release upgrade",
-    ),
-    "report-issues": (
-        "github.com/greatgc-flow/peerhub/issues", "gh issue list -R greatgc-flow/peerhub --search KEYWORD",
-        "peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths)",
-    ),
-    "api-peers": (
-        "ca (Claude API through the ant CLI", "oa (OpenAI Responses API", "ga (Gemini API",
-        "spend API credits, not a subscription pool", "ca, oa and ga read no file", "One ask per stream",
-        "Also refused: --writable",
-    ),
+    "ask-basics": ("--dry-run", "docs/commands.md#ask"),
+    "writes-and-uncertain": ("partial edits", "same request ID", "docs/guidance-reference.md#ask_uncertain"),
+    "store-and-upgrade": ("peerhub update --plan", "Back up the store", "README.md#upgrade"),
+    "batch-and-load": ("--max-parallel n --dry-run", "Execution spends quota", "docs/batch.md"),
+    "discovery-commands": ("peerhub explain lessons", "peerhub diag --plan", "peerhub profile list", "docs/commands.md"),
+    "report-issues": ("peerhub --version", "exact command", "CONTRIBUTING.md#reporting-issues-and-requesting-features"),
+    "api-peers": ("--query-file", "one ask per stream", "API credits", "docs/api-credits.md"),
 }
 
 
@@ -310,8 +262,11 @@ def test_independent_peer_votes_is_extended_not_duplicated():
                    "a named stream is for review rounds on one diff only", "VERDICT / BLOCKERS / NITS", "<= 300 tokens",
                    "no `vote` command", "--max-parallel n --responses",
                    # the earlier facts stay
-                   "did not author it", "not writable", "private empty directory", "11 s"):
+                   "did not author it", "not writable", "private empty directory"):
         assert needle in text, needle
+    assert "11 s" not in text
+    observations = Path("docs/history/observations.md").read_text(encoding="utf-8")
+    assert "Three peers answered in 11 s" in observations
 
 
 # ---- freeze rule (D12) --------------------------------------------------------------------------------------------

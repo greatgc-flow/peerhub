@@ -20,9 +20,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
-from peerhub._console import format_shell_command
-from peerhub.core.load_limits import ResourceSample, read_resources
+from peerhub.core import load_limits
+from peerhub.core.load_limits import LOAD_WARNING_MESSAGES, ResourceSample
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES
+from peerhub.core.shell import format_shell_command
+from peerhub.core.workspace import store_scratch_dir
 from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
 DEFAULT_TIMEOUT_S = 600.0
@@ -46,8 +48,7 @@ _TASK_FIELDS = {
 _KEYS = _TASK_FIELDS.keys()
 _PROMPT_CHOICE = f"exactly one of {_PROMPT_KEY} or {_PROMPT_FILE_KEY}"
 _WARNING_MESSAGES = {
-    "free_ram": "free RAM {free:.1f} GB is below minimum {minimum} GB",
-    "cpu_busy": "CPU load {busy:.1f}% is at or above warning level {warning}%",
+    **LOAD_WARNING_MESSAGES,
     "workspace_overlap": "writable tasks {first} and {second} have {relationship} workspaces",
 }
 DEFAULT_PROFILE_DISPLAY = "(peer default)"
@@ -63,11 +64,6 @@ _OUTCOME_BY_STATUS = {
     "UNCERTAIN": "uncertain",
     "UNVERIFIED": "uncertain",
 }
-
-
-def store_scratch_dir(db: str | Path) -> Path:
-    store_dir = Path(db).resolve().parent
-    return (store_dir if store_dir.name == ".peerhub" else store_dir / ".peerhub") / "tmp"
 
 
 class ManifestError(ValueError):
@@ -220,16 +216,6 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
     return workspaces
 
 
-def load_warnings(load: Mapping[str, Any]) -> list[str]:
-    warnings: list[str] = []
-    if load["ram_ok"] is False:
-        warnings.append(_WARNING_MESSAGES["free_ram"].format(free=load["ram_free_gb"], minimum=load["ram_min_gb"]))
-    busy = load["cpu_busy_pct"]
-    if busy is not None and busy >= load["cpu_busy_warn_pct"]:
-        warnings.append(_WARNING_MESSAGES["cpu_busy"].format(busy=busy, warning=load["cpu_busy_warn_pct"]))
-    return warnings
-
-
 def _parse_result(stdout: str) -> dict[str, Any] | None:
     text = stdout.strip()
     starts = [0] + [m.end() for m in re.finditer(r"\n(?=\{)", text)]
@@ -306,7 +292,7 @@ def default_argv_builder(t: Task, *, stream: str, request_id: str, db: str, quer
     argv = [sys.executable, "-m", "peerhub", "--db", os.path.abspath(db), "ask", t.peer, "--query-file", str(query_file),
             "--stream", stream, "--request-id", request_id, "--json", "--timeout-seconds", str(t.timeout_s)]
     if t.profile:
-        argv += ["--profile", t.profile]
+        argv += [f"--profile={t.profile}"] if t.profile.startswith("-") else ["--profile", t.profile]
     if t.workspace is not None:
         argv += ["-w", str(t.workspace)]
     if t.writable:
@@ -414,7 +400,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
               resource_reader: Callable[[], ResourceSample] | None = None) -> dict[str, Any]:
     check_max_parallel(max_parallel)
     cancel = cancel or threading.Event()
-    resource_reader = resource_reader or read_resources
+    resource_reader = resource_reader or load_limits.read_resources
     rows: dict[str, dict[str, Any]] = {}
 
     def blocked(t: Task, reason: str) -> dict[str, Any]:
@@ -425,7 +411,8 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
     def work(t: Task, tmp: Path, launched: list[subprocess.Popen[Any]]) -> dict[str, Any]:
         stream, request = derive_ids(batch_id, t.task_id)
         row = {"task_id": t.task_id, "peer": t.peer, "stream": stream, "request_id": request}
-        query = tmp / f"{t.task_id}.txt"
+        # Task IDs are case-sensitive and can be Windows device names.
+        query = tmp / f"{request}.txt"
         try:
             query.write_text(t.prompt, encoding="utf-8")
         except OSError as exc:
@@ -515,7 +502,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             # Low resources hold further launches while asks run; with none running the task starts (with the
             # warning), so a machine that never recovers cannot stall the batch forever.
             while not cancel.is_set():
-                warnings = load_warnings(resource_reader().facts())
+                warnings = load_limits.load_warnings(resource_reader().facts())
                 in_flight = {future for future in in_flight if not future.done()}
                 if not warnings or not in_flight:
                     if warnings:

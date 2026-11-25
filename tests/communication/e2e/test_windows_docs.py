@@ -62,7 +62,7 @@ def test_windows_docs_example_commands_parse_via_real_parser():
 
 def test_windows_docs_ask_examples_pass_runtime_argument_validation():
     """Every ask command example in docs/windows.md satisfies runtime argument validation contracts."""
-    from peerhub.extensions.bridge import normalize_session_selector
+    from peerhub.extensions.bridge_sessions import normalize_session_selector
 
     doc_path = Path("docs/windows.md")
     content = doc_path.read_text(encoding="utf-8")
@@ -78,7 +78,7 @@ def test_windows_docs_ask_examples_pass_runtime_argument_validation():
             continue
         parsed = parser.parse_args(tokens[1:])
         if getattr(parsed, "subcommand", None) == "ask":
-            # 1. Exactly one of prompt or --query-file must be provided (app.py:300)
+            # 1. Exactly one of prompt or --query-file must be provided
             assert (parsed.prompt is None) != (parsed.query_file is None), (
                 f"ask requires exactly one of prompt or --query-file, but got prompt={parsed.prompt!r} "
                 f"and query_file={parsed.query_file!r} in {cmd_clean!r}"
@@ -120,7 +120,7 @@ def test_ask_usage_errors_precede_store_resolution(tmp_path, monkeypatch, capsys
     def unexpected_resolution(*args, **kwargs):
         pytest.fail("ask usage validation must precede store resolution")
 
-    monkeypatch.setattr(app, "_select_db", unexpected_resolution)
+    monkeypatch.setattr(app, "select_store", unexpected_resolution)
     if raises:
         with pytest.raises(SystemExit) as exc_info:
             app.main(["ask", "cc", *options])

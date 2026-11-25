@@ -51,7 +51,7 @@ def test_format_line_is_one_short_line():
 
 
 def test_plan_json_and_text_carry_load(plan_store, capsys, monkeypatch):  # noqa: F811
-    monkeypatch.setattr("peerhub.extensions.diag_running.read_resources", lambda: RESOURCES)
+    monkeypatch.setattr("peerhub.core.load_limits.read_resources", lambda: RESOURCES)
     assert main(["--db", str(plan_store), "diag", "--plan", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["load"]["active"] == 0 and data["pools"]
@@ -72,6 +72,7 @@ def test_unknown_leases_show_a_question_mark_never_zero():
 
 
 @pytest.mark.parametrize("psutil_cores", [CORES, None])
+@pytest.mark.real_resources
 def test_read_resources_samples_cpu_with_psutil_and_falls_back_for_core_count(monkeypatch, psutil_cores):
     cpu_percent = Mock(return_value=BUSY)
     monkeypatch.setattr(L.psutil, "cpu_percent", cpu_percent)
@@ -83,6 +84,7 @@ def test_read_resources_samples_cpu_with_psutil_and_falls_back_for_core_count(mo
     cpu_percent.assert_called_once_with(interval=L.CPU_SAMPLE_SECONDS)
 
 
+@pytest.mark.real_resources
 def test_failed_cpu_reads_stay_unknown_when_no_core_count_is_available(monkeypatch):
     monkeypatch.setattr(L.psutil, "cpu_percent", Mock(side_effect=OSError))
     monkeypatch.setattr(L.psutil, "cpu_count", Mock(side_effect=OSError))
@@ -98,12 +100,12 @@ def test_sample_load_counts_every_active_ask_and_fails_to_unknown(monkeypatch):
 
     count = diag_running.MAX_ROWS ** 3
 
-    def fake(db, *, read_at=None, all_rows=False):
+    def fake(db, *, read_at=None, all_rows=False, connection_factory=None):
         seen["all_rows"] = all_rows
         return {"status": "OK", "rows": [{"peer_id": "cx"}] * count, "truncated": False}
 
     monkeypatch.setattr(diag_running, "running_report", fake)
-    monkeypatch.setattr(diag_running, "read_resources", lambda: RESOURCES)
+    monkeypatch.setattr(L, "read_resources", lambda: RESOURCES)
     load = diag_running.sample_load("x.db")
     assert load["active"] == count and seen["all_rows"]
     monkeypatch.setattr(diag_running, "running_report", lambda db, **kw: {"status": "FAILED", "rows": [], "truncated": False})
@@ -119,7 +121,7 @@ def test_sample_load_counts_every_active_ask_and_fails_to_unknown(monkeypatch):
 def test_load_counts_each_relation_and_formats_only_a_non_mine_split(monkeypatch, relations):
     from peerhub.extensions import diag_running
 
-    monkeypatch.setattr(diag_running, "read_resources", lambda: RESOURCES)
+    monkeypatch.setattr(L, "read_resources", lambda: RESOURCES)
     rows = [{"peer_id": "cx", "relation": relation} for relation in relations]
     monkeypatch.setattr(diag_running, "running_report",
                         lambda *args, **kwargs: {"status": "OK", "rows": rows, "truncated": False})
@@ -156,7 +158,7 @@ def test_sample_load_maps_running_profiles_to_pools(monkeypatch):
             {"peer_id": "cc", "profile": "cc.standard"}, {"peer_id": "ag", "profile": None},
             {"peer_id": "ag", "profile": "ag.retired"}, {"peer_id": "oa", "profile": "oa.standard"}]
     monkeypatch.setattr(diag_running, "running_report", lambda db, **kw: {"status": "OK", "rows": rows, "truncated": False})
-    monkeypatch.setattr(diag_running, "read_resources", lambda: RESOURCES)
+    monkeypatch.setattr(L, "read_resources", lambda: RESOURCES)
     mapping = {"cx.effort": ["X-7D"], "cc.standard": ["C-7D", "F-7D"], "oa.standard": []}
     load = diag_running.sample_load("x.db", pools_of_profile=mapping)
     assert load["by_pool"] == {"X-7D": 2, "C-7D": 1, "F-7D": 1}

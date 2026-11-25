@@ -10,12 +10,14 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import FAMILIES
-from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
+from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_TAG_LEGEND, render_plan
+from peerhub.extensions.diag_read_model import PLAN_GATE_TAG, plan_data
+from peerhub.extensions.quota_windows import FAMILIES
 from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, ResourceSample, load_snapshot
 from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import ReadonlyDiag
-from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION, epoch_to_iso
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
+from peerhub.extensions.observation_model import epoch_to_iso
 from tests.communication.diag.test_diag_plan_339 import DAY, HOUR, NOW, _item, _report
 
 FRESH_AGE = QUOTA_TTL_SECONDS / 2
@@ -222,9 +224,11 @@ def test_load_names_only_mapped_in_flight_na_pools_and_caps_the_list(overflow):
     assert plan_data(report, {}, load=load)["load"] == load
 
 
-def test_explain_parallel_quota_names_the_json_row_facts(capsys):
+def test_explain_parallel_quota_links_to_the_json_row_facts(capsys):
     assert main(["explain", "parallel-quota"]) == 0
-    assert FACT_FIELDS <= set(re.findall(r"\w+", capsys.readouterr().out))
+    assert "docs/batch.md#parallel-work-over-the-least-quota" in capsys.readouterr().out
+    guide = Path("docs/batch.md").read_text(encoding="utf-8").split("### Parallel work over the least quota", 1)[1]
+    assert FACT_FIELDS <= set(re.findall(r"\w+", guide))
 
 
 def test_a_stale_window_keeps_its_own_stale_flag_when_a_sibling_decides_the_reason():
@@ -302,7 +306,7 @@ def test_limited_child_budget_uses_effective_left_and_nearer_reset():
 
 
 def test_plan_formats_pace_exhaustion_and_gaps_from_health():
-    from peerhub.cli.view import PLAN_REST_PACE_PT
+    from peerhub.core.quota_policy import PLAN_REST_PACE_PT
     from tests.communication.diag.test_pool_health import HALF, OVER_BOUNDARY
 
     def item(peer, pool, pace):

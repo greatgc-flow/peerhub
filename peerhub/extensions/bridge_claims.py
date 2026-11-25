@@ -25,6 +25,10 @@ class ClaimHeldError(RuntimeError):
     """Another owner holds an unexpired claim."""
 
 
+class LaunchBusyError(RuntimeError):
+    """The store already has activity and the resource gate is waiting."""
+
+
 class StaleClaimError(RuntimeError):
     """Token is not the current claim (superseded, expired, wrong owner/generation, or another workspace generation)."""
 
@@ -65,6 +69,14 @@ CREATE TABLE IF NOT EXISTS bridge_finalizations (
     result_json TEXT NOT NULL,
     PRIMARY KEY (stream_id, peer_id, claim_generation)
 )"""
+_DDL_CALLERS = """
+CREATE TABLE IF NOT EXISTS bridge_claim_callers (
+    stream_id TEXT NOT NULL,
+    peer_id TEXT NOT NULL,
+    claim_generation INTEGER NOT NULL,
+    detail TEXT NOT NULL,
+    PRIMARY KEY (stream_id, peer_id)
+)"""
 
 
 _FINALIZATION_TRIGGERS: dict[str, str] = {
@@ -84,6 +96,7 @@ class ClaimStore:
         with self._tx() as conn:
             conn.execute(_DDL)
             conn.execute(_DDL_FINAL)
+            conn.execute(_DDL_CALLERS)
             # Inspect under BEGIN IMMEDIATE on EVERY open; never trust a cached
             # schema version or just a trigger name. Preserve SQL body literals.
             installed = dict(conn.execute(
@@ -128,7 +141,9 @@ class ClaimStore:
             raise ClaimHeldError(f"claim for ({peer_id}, {stream_id}) held by {row['owner_id']!r}")
         return live
 
-    def acquire(self, peer_id: str, stream_id: str, owner_id: str, lease_sec: float) -> ClaimToken:
+    def acquire(self, peer_id: str, stream_id: str, owner_id: str, lease_sec: float, *,
+                caller: dict[str, Any] | None = None,
+                busy: Callable[[sqlite3.Connection, str, float], bool] | None = None) -> ClaimToken:
         gen = self._generation()
         with self._tx() as conn:
             for table, col, val in (("peers", "peer_id", peer_id), ("streams", "stream_id", stream_id)):
@@ -136,17 +151,25 @@ class ClaimStore:
                     raise UnknownReferenceError(f"unknown {col} {val!r}")
             now = self._clock()
             row = self.read_claim(conn, peer_id, stream_id)
+            if busy is not None and busy(conn, gen, now):
+                raise LaunchBusyError()
+            live = row is not None and self.check_available(row, peer_id, stream_id, owner_id, gen, now)
             if row is None:
                 claim_gen = 1
                 conn.execute("INSERT INTO bridge_claims VALUES (?,?,?,?,?,?,?)",
                              (stream_id, peer_id, owner_id, claim_gen, now + lease_sec, lease_sec, gen))
             else:
-                live = self.check_available(row, peer_id, stream_id, owner_id, gen, now)
                 claim_gen = row["generation"] if live else row["generation"] + 1  # renewal keeps G; takeover fences old tokens
                 conn.execute(
                     "UPDATE bridge_claims SET owner_id=?, generation=?, expires_at=?, lease_sec=?, workspace_generation=? "
                     "WHERE stream_id=? AND peer_id=?",
                     (owner_id, claim_gen, now + lease_sec, lease_sec, gen, stream_id, peer_id))
+            if caller is not None:
+                conn.execute("INSERT INTO bridge_claim_callers VALUES (?,?,?,?) ON CONFLICT(stream_id,peer_id) "
+                             "DO UPDATE SET claim_generation=excluded.claim_generation,detail=excluded.detail",
+                             (stream_id, peer_id, claim_gen, json.dumps(caller, sort_keys=True, default=str)))
+            elif live:
+                conn.execute("DELETE FROM bridge_claim_callers WHERE stream_id=? AND peer_id=?", (stream_id, peer_id))
         return ClaimToken(gen, claim_gen, owner_id, peer_id, stream_id)
 
     def _check(self, conn: sqlite3.Connection, token: ClaimToken) -> sqlite3.Row:

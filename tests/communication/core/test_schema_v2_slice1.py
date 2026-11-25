@@ -1,6 +1,6 @@
 """Slice 1 tests: central connection factory, unified migration registry,
 user_version 3->4 bump, and legacy schema regression.
-(docs/design/db-schema-v2-2026-10-16.md section 1, 4, 5, 6).
+(docs/history/design/db-schema-v2-2026-10-16.md section 1, 4, 5, 6).
 """
 from __future__ import annotations
 

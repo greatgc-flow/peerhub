@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.extensions.bridge import PrespawnError, RuntimeTargetError
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTargetError
 from tests.communication.adapters.conftest import calls
 from tests.communication.adapters.test_t1_adapters import bridge_cycle, drain, rec
 from tests.communication.bridge_helpers import offset_row, responses

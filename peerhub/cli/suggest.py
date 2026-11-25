@@ -9,9 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
-from peerhub._console import format_shell_command as _shell_command
-from peerhub.cli.support import quota_expired, quota_items, quota_workspace, try_quota_refresh
+from peerhub.cli.monitor_refresh import quota_expired, quota_workspace, try_quota_refresh
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
+from peerhub.core.scalars import finite_number
+from peerhub.core.shell import format_shell_command as _shell_command
 
 REASON_PROFILE_NOT_ENABLED = "not suggested (profile setting)"  # the profile file sets suggest = false; its facts are still listed
 TIE_ORDER = {"ag": 0, "cx": 1, "cc": 2}
@@ -50,11 +51,9 @@ def register_suggest_parser(subparsers: Any) -> None:
     parser.add_argument("--candidates", action="store_true", help="Show the tier's candidate profiles and quota facts")
 
 
-def _number(value: object) -> float | None:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) else None
-
-
 def _pool_items(db: str) -> dict[tuple[str, str], dict[str, Any]]:
+    from peerhub.extensions.diag_quota import quota_items
+
     items = quota_items(db)
     # Multiple observation sources can report a pool. Use its youngest evidence.
     by_pool: dict[tuple[str, str], dict[str, Any]] = {}
@@ -72,7 +71,7 @@ def _usable(item: dict[str, Any]) -> bool:
 
 
 def _remaining(item: dict[str, Any]) -> float | None:
-    remaining = _number(item["measurements"].get("remaining_fraction")) if _usable(item) else None
+    remaining = finite_number(item["measurements"].get("remaining_fraction")) if _usable(item) else None
     return remaining if remaining is not None and 0 <= remaining <= 1 else None
 
 
@@ -93,7 +92,7 @@ def _evaluate(profile: _Profile, readings: dict[tuple[str, str], dict[str, Any]]
     weekly = {pool: readings.get((profile.peer, pool), {}) for pool in profile.weekly}
     pools = short | weekly
     left = {pool: _remaining(item) for pool, item in pools.items()}
-    paces = {pool: _number(item["projection"]["pace_pt"]) if _usable(item) else None
+    paces = {pool: finite_number(item["projection"]["pace_pt"]) if _usable(item) else None
              for pool, item in weekly.items()}
     max_used = max((1 - value for pool, value in left.items() if pool in short and value is not None), default=None)
     max_pace = max((value for value in paces.values() if value is not None), default=None)

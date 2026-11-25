@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import math
 from typing import Any, Generic, NewType, Protocol, TypeVar
 
-from peerhub.extensions.observation_model import account_text as account_text, valid_epoch_seconds as valid_epoch_seconds, DISABLED_REASON as DISABLED_REASON, NOT_REPORTED_REASON as NOT_REPORTED_REASON, EvidenceState  # re-export: probes import quota_types, not observation_model
+import peerhub.extensions.observation_model as observation_model
 
 T = TypeVar("T")
 EvidenceRef = NewType("EvidenceRef", str)
@@ -33,7 +33,7 @@ class UsageMeasurement:
 
 @dataclass(frozen=True)
 class EvidenceValue(Generic[T]):
-    state: EvidenceState
+    state: observation_model.EvidenceState
     source_tag: str
     provider_id: str
     provider_version: str
@@ -44,9 +44,9 @@ class EvidenceValue(Generic[T]):
     value: T | None
 
     def __post_init__(self):
-        if self.state == EvidenceState.MEASURED and (self.value is None or self.observed_at is None):
+        if self.state == observation_model.EvidenceState.MEASURED and (self.value is None or self.observed_at is None):
             raise ValueError("measured evidence requires a value and source time")
-        if self.state not in (EvidenceState.MEASURED, EvidenceState.STALE) and self.value is not None:
+        if self.state not in (observation_model.EvidenceState.MEASURED, observation_model.EvidenceState.STALE) and self.value is not None:
             raise ValueError("unmeasured evidence must not carry a measurement")
         if self.captured_at < 0 or self.freshness_ttl < 0:
             raise ValueError("invalid capture time or freshness TTL")
@@ -70,7 +70,7 @@ class ResetCreditObserved:
     observation_id: str
     instance_id: str
     profile_id: str
-    state: EvidenceState
+    state: observation_model.EvidenceState
     source_tag: str
     observed_at: int
     captured_at: int

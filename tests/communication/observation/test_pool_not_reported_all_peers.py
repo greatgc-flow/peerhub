@@ -7,6 +7,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -26,7 +27,7 @@ WEEK = "Current week (all models): 10% used resets 12:00pm"
 FABLE = "Current week (Fable): 20% used resets 12:00pm"
 
 
-def run_cc(monkeypatch, text, returncode=0, **kw):
+def run_cc(monkeypatch, text, returncode=0, *, real_reset=False, **kw):
     class FakeProc:
         pid = 9999
         def communicate(self, timeout=None):
@@ -34,8 +35,9 @@ def run_cc(monkeypatch, text, returncode=0, **kw):
             return (text, "")
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
-    monkeypatch.setattr("peerhub.extensions.quota_probes._parse_claude_usage_reset", lambda *a, **k: RESET)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
+    if not real_reset:
+        monkeypatch.setattr("peerhub.extensions.quota_probes.claude._parse_claude_usage_reset", lambda *a, **k: RESET)
     return poll_claude_usage(DummyIdSource(), "cc", "default", **kw)
 
 
@@ -61,13 +63,17 @@ def test_cc_absent_follows_the_injected_configured_pools(monkeypatch):
 
 
 @pytest.mark.parametrize("text", [
-    "Current session: abc% used resets 12:00pm\n" + WEEK,   # malformed section poisons the whole parse
+    "Current session: abc% used resets 12:00pm\n" + WEEK,
+    "Current session: 45% used resets 12:00pm (UNSUPPORTED_TZ)\n" + WEEK,
     "Current session\n" + WEEK,                              # section present but never parsed into a row
     "garbled nonsense",
 ])
 def test_cc_malformed_report_records_no_absent(monkeypatch, text):
-    res = run_cc(monkeypatch, text)
+    res = run_cc(monkeypatch, text, real_reset=True)
     assert EvidenceState.ABSENT not in [s for _, s in states(res)]
+    if WEEK in text:
+        assert states(res) == [("C-7D", EvidenceState.MEASURED), ("C-5H", EvidenceState.UNKNOWN),
+                               ("F-7D", EvidenceState.UNKNOWN)]
 
 
 @pytest.mark.parametrize("drift", [
@@ -79,7 +85,22 @@ def test_cc_malformed_report_records_no_absent(monkeypatch, text):
 def test_cc_unrecognised_usage_section_is_drift_and_records_no_absent(monkeypatch, drift):
     """Any unrecognised usage line/section means the vocabulary changed: 'missing' pools may merely be renamed."""
     res = run_cc(monkeypatch, "\n".join([SESSION, drift]))
-    assert states(res) == [("C-5H", EvidenceState.MEASURED)]
+    assert states(res) == [("C-5H", EvidenceState.MEASURED), ("C-7D", EvidenceState.UNKNOWN), ("F-7D", EvidenceState.UNKNOWN)]
+
+
+@pytest.mark.parametrize(("fixture", "measurements"), [
+    ("mixed-language", {"C-5H": 0.25}),
+    ("renamed-section", {"C-7D": 0.10}),
+    ("new-window", {"C-5H": 0.50, "C-7D": 0.10}),
+])
+def test_cc_partial_reports_keep_only_identified_measurements(monkeypatch, fixture, measurements):
+    text = (Path(__file__).parents[1] / "fixtures" / f"cc-usage-{fixture}.txt").read_text(encoding="utf-8")
+    rows = run_cc(monkeypatch, text)
+    assert {reading.evidence.value.quota_pool_scope: reading.evidence.value.used_fraction
+            for reading in rows if reading.evidence.value is not None} == measurements
+    assert {pool: state for pool, state in states(rows) if pool not in measurements} == {
+        pool: EvidenceState.UNKNOWN for pool in ("C-5H", "C-7D", "F-7D") if pool not in measurements
+    }
 
 
 def test_cc_usual_ui_chrome_is_not_drift(monkeypatch):
@@ -88,17 +109,31 @@ def test_cc_usual_ui_chrome_is_not_drift(monkeypatch):
     assert [s for _, s in states(res)] == [EvidenceState.MEASURED] * 3
 
 
+def test_cc_inline_usage_cannot_borrow_an_unfamiliar_sections_reset(monkeypatch):
+    text = "Current session: 50% used Renamed weekly allowance: 77% used resets 1:00pm\n" + WEEK
+    rows = run_cc(monkeypatch, text, real_reset=True)
+    assert states(rows) == [("C-7D", EvidenceState.MEASURED), ("C-5H", EvidenceState.UNKNOWN),
+                            ("F-7D", EvidenceState.UNKNOWN)]
+
+
+def test_cc_ascii_usage_bar_keeps_the_reading(monkeypatch):
+    rows = run_cc(monkeypatch, "Current session\n[====] 50% used\nResets 12:00pm")
+    assert states(rows) == [("C-5H", EvidenceState.MEASURED), ("C-7D", EvidenceState.ABSENT),
+                            ("F-7D", EvidenceState.ABSENT)]
+    assert rows[0].evidence.value.used_fraction == 0.5
+
+
 @pytest.mark.parametrize("returncode", [1, 2, None])
 def test_cc_failed_or_unfinished_run_records_no_absent(monkeypatch, returncode):
     """Partial output of a failed /usage run must not turn the missing session line into 'not reported'."""
     res = run_cc(monkeypatch, "\n".join([WEEK, FABLE]), returncode=returncode)
-    assert states(res) == [("C-7D", EvidenceState.MEASURED), ("F-7D", EvidenceState.MEASURED)]
+    assert states(res) == [("C-7D", EvidenceState.MEASURED), ("F-7D", EvidenceState.MEASURED), ("C-5H", EvidenceState.UNKNOWN)]
 
 
 def run_ag(monkeypatch, tmp_path, stdout, **kw):
     completed = SimpleNamespace(returncode=0, stdout=stdout, stderr="")
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command",
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command",
                         lambda peer, _sys_dir=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: completed)
     return poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: 1_790_000_000, sys_dir=tmp_path / "_sys", **kw)

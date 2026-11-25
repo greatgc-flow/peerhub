@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-import sqlite3
 import json
+import sqlite3
+from datetime import date, timedelta
+from math import ceil
+from time import perf_counter
 
 import pytest
 
@@ -10,7 +13,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.diag, pytest.mark.platform_sensitive
 
 @pytest.mark.parametrize("layout", [".peerhub", "legacy"])
 def test_monitor_resolves_workspace_profiles_with_lineage_marker(tmp_path, monkeypatch, layout):
-    from peerhub.extensions.monitor_read_model import _current_profile, _monitor_workspace
+    from peerhub.extensions.monitor_sessions import current_profile, monitor_workspace
 
     workspace = tmp_path / "workspace"
     database_dir = workspace / ".peerhub" if layout == ".peerhub" else workspace
@@ -21,15 +24,15 @@ def test_monitor_resolves_workspace_profiles_with_lineage_marker(tmp_path, monke
     config.write_text('[profiles."cx.standard"]\nmodel="workspace-model"\n', encoding="utf-8")
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
 
-    root = _monitor_workspace(str(database_dir / "core.db"), None)
-    profile = _current_profile("cx.standard", root)
+    root = monitor_workspace(str(database_dir / "core.db"), None)
+    profile = current_profile("cx.standard", root)
     assert root == workspace
     assert profile["fields"]["model"] == {"value": "workspace-model", "source": "workspace"}
-    assert _monitor_workspace(str(database_dir / "core.db"), tmp_path) == tmp_path
+    assert monitor_workspace(str(database_dir / "core.db"), tmp_path) == tmp_path
 
 
 def test_usage_coverage_reads_bounded_daily_projection():
-    from peerhub.extensions.monitor_read_model import usage_coverage
+    from peerhub.extensions.monitor_queries import usage_coverage
 
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE bridge_monitor_delivery_scope(stream_id,peer_id,delivery_coverage_start_seq,"
@@ -128,14 +131,14 @@ def test_required_scope_failure_propagates_only_to_dependent_selected_groups(tmp
     assert frame["groups"]["store"]["status"] == "OK"
 
 
-def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path):
-    from math import ceil
-    from time import perf_counter
-    from datetime import date, timedelta
+_SCALE_GROUPS = ["execution", "coverage", "sessions", "usage"]
+
+
+@pytest.fixture
+def monitor_scale_store(tmp_path):
     from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
     from tests.communication.harness.bridge import BridgeHarness
     from tests.communication.bridge_helpers import bseed
-    from peerhub.extensions.monitor_read_model import render_monitor_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness)
@@ -163,7 +166,13 @@ def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path):
                     values[0], values[1] = f"scale-{peer}-{index:02d}", peer
                     values[2] = (date(2026, 10, 15) - timedelta(days=age)).isoformat()
                     conn.execute(f"INSERT INTO bridge_monitor_delivery_day ({','.join(day_columns)}) VALUES ({day_marks})", values)
+    return harness
 
+
+def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes(monitor_scale_store):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    with monitor_scale_store.cs.transaction() as conn:
         scope_plan = " ".join(str(row[3]) for row in conn.execute(
             "EXPLAIN QUERY PLAN SELECT stream_id FROM bridge_monitor_delivery_scope WHERE peer_id='b' ORDER BY stream_id LIMIT 21"))
         day_plan = " ".join(str(row[3]) for row in conn.execute(
@@ -172,21 +181,26 @@ def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path):
     assert "idx_monitor_delivery_peer" in scope_plan
     assert "idx_monitor_delivery_day" in day_plan
 
-    groups = ["execution", "coverage", "sessions", "usage"]
+    frame = render_monitor_frame(monitor_scale_store.db_path, _SCALE_GROUPS, read_at=1792022400.0)
+    assert frame["query_families"] <= 6
+    assert frame["groups"]["execution"]["data"]["sample_size"] == 60
+
+
+@pytest.mark.serial_timing
+def test_monitor_frame_scale_p95(monitor_scale_store):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
     samples = []
-    frame = None
     for _ in range(10):
         started = perf_counter()
-        frame = render_monitor_frame(harness.db_path, groups, read_at=1792022400.0)
+        render_monitor_frame(monitor_scale_store.db_path, _SCALE_GROUPS, read_at=1792022400.0)
         samples.append(perf_counter() - started)
-    assert frame is not None and frame["query_families"] <= 6
-    assert frame["groups"]["execution"]["data"]["sample_size"] == 60
     p95_ms = sorted(samples)[ceil(len(samples) * 0.95) - 1] * 1000
     assert p95_ms < 250
 
 
 def test_session_latency_reads_only_named_scope_and_thirty_utc_days():
-    from peerhub.extensions.monitor_read_model import session_latency
+    from peerhub.extensions.monitor_queries import session_latency
 
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE bridge_monitor_delivery_day(stream_id,peer_id,terminal_day_utc,terminal_count,measured_count,"
@@ -214,8 +228,8 @@ def test_session_latency_reads_only_named_scope_and_thirty_utc_days():
 
 
 def test_monitor_telemetry_projection_is_schema_bound_and_allowlisted():
-    from peerhub.extensions.monitor_read_model import public_telemetry
-    from peerhub.extensions.session_receipts import validate_provider_usage
+    from peerhub.extensions.monitor_sessions import public_telemetry
+    from peerhub.extensions.usage_normalization import validate_provider_usage
 
     usage = validate_provider_usage({
         "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage",

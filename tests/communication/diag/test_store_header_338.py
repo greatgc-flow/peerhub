@@ -8,7 +8,8 @@ import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.store_select import env_override_note
-from peerhub.cli.view import render_view, visible_len
+from peerhub._console import visible_len
+from peerhub.cli.view import render_view
 from peerhub.extensions.diag import DiagnosticReport
 
 LONG = r"C:\example\workspace\my-app\.peerhub\core.db"

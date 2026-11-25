@@ -6,7 +6,7 @@ import sys
 import textwrap
 
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.adapters.base import cc_permission_denials
+from peerhub.extensions.adapters.cc import cc_permission_denials
 from tests.communication.bridge_helpers import bseed, sql
 
 PY = sys.executable

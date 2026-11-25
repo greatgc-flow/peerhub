@@ -397,11 +397,11 @@ def test_the_second_ask_check_runs_again_under_the_claim(ca, monkeypatch, reques
     real_acquire = ClaimStore.acquire
     raced: list[str] = []
 
-    def acquire(self, peer_id, stream_id, owner_id, lease_sec):
+    def acquire(self, peer_id, stream_id, owner_id, lease_sec, **options):
         if not raced:  # the other ask runs to its end between the first check and this claim
             raced.append("running")
             raced.append(ask(ca.db, "ca", "first", stream_id="s", request_id="one", runtime=ca())["status"])
-        return real_acquire(self, peer_id, stream_id, owner_id, lease_sec)
+        return real_acquire(self, peer_id, stream_id, owner_id, lease_sec, **options)
 
     monkeypatch.setattr(ClaimStore, "acquire", acquire)
     with pytest.raises(RequestRejected, match="ca is stateless; use a new stream"):

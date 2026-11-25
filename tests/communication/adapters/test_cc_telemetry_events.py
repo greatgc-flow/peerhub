@@ -5,10 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.cli.monitor_view import _group_lines
-from peerhub.extensions.adapters import CliRuntimeTarget, base, telemetry
-from peerhub.extensions.adapters.base import IncrementalEventParser
+from peerhub.cli.monitor_sections import group_lines
+from peerhub.extensions.adapters import CliRuntimeTarget, event_parser, telemetry
+from peerhub.extensions.adapters.event_parser import IncrementalEventParser
 from peerhub.extensions.adapters.telemetry import parse_provider_usage
+from peerhub.extensions.usage_normalization import unknown_usage
 from tests.communication.bridge_helpers import bseed
 
 
@@ -35,7 +36,7 @@ CC_STREAM = "\n".join(json.dumps(event) for event in (
 
 
 def _usage_row(telemetry: dict[str, object]) -> str:
-    rows, _ = _group_lines("usage", {"data": {"sessions": [{"peer_id": "cc", "telemetry": telemetry}]}},
+    rows, _ = group_lines("usage", {"data": {"sessions": [{"peer_id": "cc", "telemetry": telemetry}]}},
                            width=120, unicode=False, expand=True)
     return rows[0]
 
@@ -90,10 +91,10 @@ def test_unknown_cc_event_still_marks_refusal_evidence_incomplete():
 
 
 def test_both_parsers_read_the_one_shared_cc_event_list(monkeypatch):
-    assert base.CC_EVENT_TYPES is telemetry.CC_EVENT_TYPES
+    assert event_parser.CC_EVENT_TYPES is telemetry.CC_EVENT_TYPES
     widened = (*telemetry.CC_EVENT_TYPES, "probe_event")
     monkeypatch.setattr(telemetry, "CC_EVENT_TYPES", widened)
-    monkeypatch.setattr(base, "CC_EVENT_TYPES", widened)
+    monkeypatch.setattr(event_parser, "CC_EVENT_TYPES", widened)
     stdout = '{"type":"probe_event"}\n' + REAL_CC_STREAM
     assert parse_provider_usage("cc", stdout)["coverage"]["state"] == "MEASURED"
     assert _stream_parser(stdout).refusal_evidence_incomplete is False
@@ -185,7 +186,7 @@ def test_a_stream_without_an_exact_reading_gives_no_context(events: list[dict[st
 
 
 def test_an_oversized_or_other_provider_stream_gives_no_context():
-    assert parse_provider_usage("cc", REAL_CC_STREAM + "\n" * 1_048_577) == telemetry.unknown_usage("stream_too_large")
+    assert parse_provider_usage("cc", REAL_CC_STREAM + "\n" * 1_048_577) == unknown_usage("stream_too_large")
     cx = '{"type":"turn.completed","usage":{"input_tokens":20},"modelUsage":{"m":{"contextWindow":9}}}\n'
     assert "context" not in parse_provider_usage("cx", cx)
 
@@ -201,7 +202,7 @@ def _receipt(tmp_path, candidate: object, kind: str = "cc") -> tuple[dict[str, o
     """(session_telemetry detail, its coverage state, the stored result) of one ask finalized with `candidate`."""
     from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime, _start_telemetry_delivery
     from tests.communication.harness.bridge import BridgeHarness
-    from peerhub.extensions import session_receipts
+    from peerhub.extensions import delivery_projections
     h = BridgeHarness(tmp_path / "ws")
     token, did = _start_telemetry_delivery(h, _ProviderTelemetryRuntime(kind))
     h.finalize_terminal(token, {"response": "ok", "provider_telemetry": candidate}, did)
@@ -209,7 +210,7 @@ def _receipt(tmp_path, candidate: object, kind: str = "cc") -> tuple[dict[str, o
         delivery = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
         detail = conn.execute("SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?",
                               (did,)).fetchone()[0]
-        return json.loads(detail), session_receipts.telemetry_coverage_state(conn, delivery), delivery["result_json"]
+        return json.loads(detail), delivery_projections.telemetry_coverage_state(conn, delivery), delivery["result_json"]
 
 
 def test_the_receipt_stores_the_context_in_its_existing_fields(tmp_path):

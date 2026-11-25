@@ -8,8 +8,9 @@ import pytest
 from peerhub.core.models import Peer, Stream
 from peerhub.core.store import CoreStore, IdempotencyConflictError
 from peerhub.extensions.ask import ask
-from peerhub.extensions.bridge import Bridge, _DDL
-from peerhub.extensions import bridge_registry, session_receipts
+from peerhub.extensions.bridge import Bridge
+from peerhub.extensions.bridge_schema import _DDL, upgrade_session_context
+from peerhub.extensions import bridge_registry, delivery_projection_rebuild, delivery_projections, session_receipts
 from peerhub.extensions.bridge_claims import ClaimStore, StaleClaimError
 from tests.communication.bridge_helpers import bseed, sql
 from tests.communication.control_helpers import ctl
@@ -41,7 +42,7 @@ def test_initialized_registry_reopen_does_not_reseed_history(tmp_path):
         scopes = [tuple(r) for r in conn.execute("SELECT * FROM bridge_session_monitor_scope")]
         conn.set_trace_callback(statements.append)
         try:
-            bridge_registry.initialize(conn, h.bridge._upgrade_session_context, h.bridge._fire)
+            bridge_registry.initialize(conn, upgrade_session_context, h.bridge._fire)
         finally:
             conn.set_trace_callback(None)
         assert [tuple(r) for r in conn.execute("SELECT * FROM bridge_session_counters")] == before
@@ -304,8 +305,8 @@ def test_terminal_projections_use_persisted_terminal_day_across_midnight(tmp_pat
         terminal_evidence = conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'",
                                          (result.delivery_id,)).fetchone()
         timing = json.loads(terminal_evidence[0])["peerhub_timing"]
-        session_receipts.record_latency(conn, delivery, later_observation, timing)
-        session_receipts.record_usage_coverage(conn, delivery, later_observation)
+        delivery_projections.record_latency(conn, delivery, later_observation, timing)
+        delivery_projections.record_usage_coverage(conn, delivery, later_observation)
     assert sql(h, "SELECT day_utc FROM bridge_session_latency_daily") == [(terminal_day,)]
     assert sql(h, "SELECT day_utc FROM bridge_session_usage_coverage_daily") == [(terminal_day,)]
     assert sql(h, "SELECT terminal_day_utc FROM bridge_monitor_delivery_day") == [(terminal_day,)]
@@ -373,7 +374,7 @@ def test_projection_rebuild_rejects_missing_terminal_day_without_replacing_old_p
         conn.execute("DROP TRIGGER bridge_terminal_immutable")
         conn.execute("UPDATE bridge_deliveries SET terminal_at=NULL WHERE delivery_id=?", (result.delivery_id,))
     with pytest.raises(ValueError, match="terminal_at"):
-        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+        delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1)
     assert sql(h, "SELECT * FROM bridge_monitor_delivery_day") == before
 
 
@@ -386,7 +387,7 @@ def test_projection_rebuild_rejects_duplicate_delivery_sequence_at_chunk_boundar
     with h.cs.transaction() as conn:
         conn.execute("UPDATE bridge_deliveries SET seq=1 WHERE seq=2")
     with pytest.raises(ValueError, match="not unique"):
-        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+        delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1)
 
 
 def test_projection_rebuild_failure_after_delete_rolls_back_all_projection_tables(tmp_path):
@@ -401,7 +402,7 @@ def test_projection_rebuild_failure_after_delete_rolls_back_all_projection_table
         conn.execute("CREATE TRIGGER fail_monitor_scope BEFORE INSERT ON bridge_monitor_delivery_scope "
                      "BEGIN SELECT RAISE(ABORT,'injected rebuild failure'); END")
     with pytest.raises(sqlite3.IntegrityError, match="injected rebuild failure"):
-        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+        delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1)
     assert {table: sql(h, f"SELECT * FROM {table}") for table in tables} == before
 
 
@@ -415,11 +416,11 @@ def test_projection_rebuild_is_equivalent_across_chunks_and_uses_bounded_days(tm
     h.delivery_cycle("b", "s", runtime)
     h.clock.set(datetime(2026, 10, 15, tzinfo=timezone.utc).timestamp())
     h.delivery_cycle("b", "s", runtime)
-    session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1, through_day="2026-10-15")
+    delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1, through_day="2026-10-15")
     tables = ("bridge_monitor_delivery_scope", "bridge_monitor_delivery_day")
     first = {table: sql(h, f"SELECT * FROM {table} ORDER BY 1,2,3") for table in tables}
     assert sql(h, "SELECT terminal_day_utc FROM bridge_monitor_delivery_day ORDER BY terminal_day_utc") == [("2026-10-15",)]
-    session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=100, through_day="2026-10-15")
+    delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=100, through_day="2026-10-15")
     assert {table: sql(h, f"SELECT * FROM {table} ORDER BY 1,2,3") for table in tables} == first
 
 
@@ -432,7 +433,7 @@ def test_projection_rebuild_busy_lock_leaves_existing_rows_unchanged(tmp_path):
     try:
         lock.execute("BEGIN IMMEDIATE")
         with pytest.raises(sqlite3.OperationalError, match="locked"):
-            session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+            delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1)
     finally:
         lock.execute("ROLLBACK")
         lock.close()
@@ -452,7 +453,7 @@ def test_concurrent_projection_repairs_serialize_and_both_complete(tmp_path):
 
     def repair():
         gate.wait(timeout=5)
-        return session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+        return delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: repair(), range(2)))
@@ -469,7 +470,7 @@ def test_historical_latency_ignores_mismatched_call_identity(tmp_path):
         conn.execute("UPDATE bridge_evidence SET stream_id='other' WHERE delivery_id=? AND kind='session_call'",
                      (result.delivery_id,))
         delivery = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,)).fetchone()
-        assert session_receipts._historical_latency(conn, delivery) == (None, "missing_start")
+        assert delivery_projection_rebuild._historical_latency(conn, delivery) == (None, "missing_start")
 
 
 def test_projection_rebuild_rejects_mismatched_terminal_evidence_identity(tmp_path):
@@ -481,7 +482,7 @@ def test_projection_rebuild_rejects_mismatched_terminal_evidence_identity(tmp_pa
         conn.execute("UPDATE bridge_evidence SET peer_id='other' WHERE delivery_id=? AND kind='terminal'",
                      (result.delivery_id,))
     with pytest.raises(ValueError, match="terminal evidence identity"):
-        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+        delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1)
 
 
 @pytest.mark.parametrize("target", ["call", "terminal_timing"])
@@ -503,7 +504,7 @@ def test_historical_latency_rejects_unsupported_timing_schema(tmp_path, target):
             detail["peerhub_timing"]["schema_version"] = 99
         conn.execute("UPDATE bridge_evidence SET detail=? WHERE seq=?", (json.dumps(detail), row["seq"]))
         delivery = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,)).fetchone()
-        assert session_receipts._historical_latency(conn, delivery) == (None, "invalid_ticks")
+        assert delivery_projection_rebuild._historical_latency(conn, delivery) == (None, "invalid_ticks")
 
 
 def test_projection_rebuild_rejects_duplicate_terminal_evidence(tmp_path):
@@ -520,7 +521,7 @@ def test_projection_rebuild_rejects_duplicate_terminal_evidence(tmp_path):
                      "VALUES (?,?,?,'terminal','TERMINAL',?)",
                      (result.delivery_id, row["stream_id"], row["peer_id"], row["detail"]))
     with pytest.raises(ValueError, match="terminal evidence cardinality"):
-        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+        delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1)
 
 
 def test_live_terminal_classifies_unsupported_call_timing_as_invalid_not_missing(tmp_path, monkeypatch):
@@ -546,7 +547,7 @@ def test_projection_rebuild_marks_evidence_sequence_gap_incomplete(tmp_path):
     with h.cs.transaction() as conn:
         conn.execute("DROP TRIGGER bridge_evidence_no_delete")
         conn.execute("DELETE FROM bridge_evidence WHERE seq=(SELECT MIN(seq) FROM bridge_evidence)")
-    result = session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+    result = delivery_projection_rebuild.rebuild_delivery_projections(h.db_path, chunk_size=1)
     assert result["complete"] is False
     assert sql(h, "SELECT delivery_complete,telemetry_complete FROM bridge_monitor_delivery_scope") == [(1, 0)]
 
@@ -1063,16 +1064,14 @@ def test_registry_reopen_with_complete_projections_skips_historical_recount(tmp_
     bseed(h)
     assert h.delivery_cycle("b", "s", FakeRuntimeTarget()).status == "delivered"
 
-    monkeypatch.setattr(bridge_registry.session_receipts, "historical_counts",
+    monkeypatch.setattr(delivery_projections, "historical_counts",
                         lambda *args, **kwargs: pytest.fail("ordinary open must not recount history"))
-    monkeypatch.setattr(bridge_registry.session_receipts, "historical_counts_by_generation",
+    monkeypatch.setattr(delivery_projections, "historical_counts_by_generation",
                         lambda *args, **kwargs: pytest.fail("ordinary open must not scan historical scopes"))
     Bridge(h.store, h.cs)
 
 
 def test_registry_rebuild_scales_with_scope_not_session_delivery_product(tmp_path, monkeypatch):
-    from peerhub.extensions import session_receipts
-
     h = BridgeHarness(tmp_path / "ws")
     session_count, deliveries_per_session = 5_000, 10
     with h.cs.transaction() as conn:
@@ -1114,7 +1113,7 @@ def test_registry_rebuild_scales_with_scope_not_session_delivery_product(tmp_pat
         count_calls += 1
         return {}, (None, None, 0)
 
-    monkeypatch.setattr(session_receipts, "historical_counts_by_generation", count_scope_reads)
+    monkeypatch.setattr(delivery_projections, "historical_counts_by_generation", count_scope_reads)
     Bridge(h.store, h.cs)
     assert count_calls <= 2, "5k per-session projections must be backfilled with bounded scope queries"
     plan = sql(h, "EXPLAIN QUERY PLAN SELECT delivery_id FROM bridge_deliveries "
@@ -1124,7 +1123,7 @@ def test_registry_rebuild_scales_with_scope_not_session_delivery_product(tmp_pat
 
 def test_historical_scope_with_only_prestart_deliveries_is_known_zero():
     import sqlite3
-    from peerhub.extensions.session_receipts import historical_counts_by_generation
+    from peerhub.extensions.delivery_projections import historical_counts_by_generation
 
     conn = sqlite3.connect(":memory:")
     conn.executescript("""
@@ -1192,13 +1191,13 @@ def test_provider_telemetry_is_receipt_only_and_bound_to_fenced_delivery(tmp_pat
         "cache_creation_input_tokens": 1, "output_tokens": 3}
     with h.cs.transaction() as conn:
         delivery = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
-        assert session_receipts.telemetry_coverage_state(conn, delivery) == "MEASURED"
+        assert delivery_projections.telemetry_coverage_state(conn, delivery) == "MEASURED"
         wrong_scope = dict(delivery)
         wrong_scope["stream_id"] = "spoofed-stream"
-        assert session_receipts.telemetry_coverage_state(conn, wrong_scope) == "UNKNOWN"
+        assert delivery_projections.telemetry_coverage_state(conn, wrong_scope) == "UNKNOWN"
         conn.execute("DROP TRIGGER bridge_evidence_no_update")
         conn.execute("UPDATE bridge_evidence SET detail='{}' WHERE delivery_id=? AND kind='session_telemetry'", (did,))
-        assert session_receipts.telemetry_coverage_state(conn, delivery) == "UNKNOWN"
+        assert delivery_projections.telemetry_coverage_state(conn, delivery) == "UNKNOWN"
 
 
 def test_provider_telemetry_scope_and_spoofed_delivery_id_fail_closed(tmp_path):

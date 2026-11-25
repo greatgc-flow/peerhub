@@ -7,7 +7,8 @@ import pytest
 
 from peerhub.core.store import CoreStore
 from peerhub.extensions.adapters.profiles import packaged_defaults_meta
-from peerhub.extensions.monitor_read_model import mapped_quota, render_monitor_frame
+from peerhub.extensions.monitor_quota import mapped_quota
+from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation_model import (
     NOT_REPORTED_REASON, EvidenceState, FreshnessPolicy, Observation, evaluate, instant_us,
 )

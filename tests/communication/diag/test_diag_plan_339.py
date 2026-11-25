@@ -14,7 +14,9 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.view import PLAN_BUDGET_COLUMN, PLAN_TAG_LEGEND, plan_action, plan_data, render_plan, visible_len
+from peerhub._console import visible_len
+from peerhub.cli.view import PLAN_BUDGET_COLUMN, PLAN_TAG_LEGEND, render_plan
+from peerhub.extensions.diag_read_model import plan_action, plan_data
 from peerhub.core.load_limits import ResourceSample, format_load, load_snapshot
 from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import DiagnosticReport, Section
@@ -246,6 +248,17 @@ def test_cli_plan_json_is_read_only(plan_store, capsys):
     assert hashlib.sha256(plan_store.read_bytes()).hexdigest() == before
 
 
+def test_cli_plan_reads_observation_override_without_a_selected_store(plan_store, capsys):
+    missing = plan_store.with_name("missing.db")
+    command = ["--db", str(missing), "diag", "--plan", "--json"]
+    assert main([*command, "--observation-db", str(plan_store)]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["load"]["active"] is None
+    assert any(pool["pool"] == "C-7D" for pool in plan["pools"])
+    assert main(command) == 5
+    assert not missing.exists()
+
+
 def test_cli_plan_table(plan_store, capsys):
     assert main(["--db", str(plan_store), "diag", "--plan"]) == 0
     out = capsys.readouterr().out
@@ -269,9 +282,11 @@ def test_cli_plan_rejects_live_and_subcommands(plan_store, extra):
 
 
 def test_plan_thresholds_have_one_source_and_the_legend_and_docs_derive_from_it():
-    from peerhub.cli import view
-    assert (view.PLAN_SPEND_PACE_PT, view.PLAN_REST_PACE_PT) == (10.0, 20.0)
-    assert f"spend PACE<=-{view.PLAN_SPEND_PACE_PT:.0f}" in view.PLAN_LEGEND
-    assert f"rest PACE>+{view.PLAN_REST_PACE_PT:.0f}" in view.PLAN_LEGEND
-    index = (Path(__file__).resolve().parents[3] / "docs" / "index.md").read_text(encoding="utf-8")
-    assert f"(PACE <= -{view.PLAN_SPEND_PACE_PT:.0f})" in index and f"(PACE > +{view.PLAN_REST_PACE_PT:.0f} or" in index
+    from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
+    from peerhub.extensions.diag_read_model import PLAN_LEGEND
+
+    assert (PLAN_SPEND_PACE_PT, PLAN_REST_PACE_PT) == (10.0, 20.0)
+    assert f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f}" in PLAN_LEGEND
+    assert f"rest PACE>+{PLAN_REST_PACE_PT:.0f}" in PLAN_LEGEND
+    index = (Path(__file__).resolve().parents[3] / "docs" / "commands.md").read_text(encoding="utf-8")  # diag --plan home
+    assert f"(PACE <= -{PLAN_SPEND_PACE_PT:.0f})" in index and f"(PACE > +{PLAN_REST_PACE_PT:.0f} or" in index

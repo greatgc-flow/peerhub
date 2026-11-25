@@ -1,0 +1,82 @@
+# Context Continuity and Token Efficiency (2026-10-09)
+
+Historical question: Do we need native session control (resume, interrupt, steer), or is injecting bounded context into a fresh session each time appropriate?
+Method: independent opinions from ag·cx → mutual rebuttals → direct measurements and official documentation research by cc. The conclusions follow.
+
+Policy update (PR1 committed, PR2 worktree, 2026-10-14): ordinary asks reuse the
+latest compatible retained peer/Stream session for **cc, cx and ag**. Otherwise they start fresh
+with bounded catch-up. Use a dedicated Stream for a separate task. The
+[canonical sequence](../design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence)
+supersedes the fresh-by-default and caller opt-in decisions below; the historical
+measurements remain evidence only for the recorded workloads and versions.
+
+## Conclusions
+- **Superseded decision:** keep Records + bounded catch-up + a fresh session as the default. Current behavior reuses compatible retained history, retaining Records and bounded fresh-session fallback.
+- Resuming does not reduce model input tokens. The API is stateless, so the CLI resends the previous conversation each time. The only difference is **price** (prompt caching).
+- Interrupting (cancelling) addresses latency, stops work that is no longer useful, and prevents side effects; it is not about tokens. Implemented (process tree termination, termination observation).
+- Do not implement steering. **Superseded decision:** require caller opt-in for native resume, including ag. Compatible retained-session reuse is the default for cc, cx and ag; the historical ag measurement showed no token or cache saving and does not determine reuse policy.
+
+## Measurements (haiku, approximately 30,000 tokens of context, same question)
+- Both resumed and fresh sessions receive approximately 30,000 input tokens per turn.
+- Per-turn cost with a warm cache: approximately $0.0037 for resume, $0.0216 for fresh-session injection (approximately 5.8 times). A fresh session writes the approximately 9.6k injected tokens to the cache anew each time (write multiplier 1.25, read multiplier 0.1).
+- The benefit lasts only within the cache lifetime (Anthropic default: 5 minutes; main subscription conversation: 1 hour). With longer gaps, resume also rewrites the entire context.
+- Codex fresh sessions with the same prefix had automatic cache hit rates varying from 0~99%.
+- Fixed CLI overhead is approximately 14,000 (Codex)~25,000 (Claude) input tokens per fresh session and also applies to resume requests.
+- Roughly, resume is cheaper when "warm resume history × 0.1 < size of newly injected catch-up".
+
+## Changes Implemented
+1. Per-request usage records: `usage` in `ask --json` and response Record metadata (`input_tokens`, `cached_input_tokens`, `cache_write_tokens`, `output_tokens`; values the CLI does not report are omitted rather than set to 0).
+2. Include record locations, IDs, and kinds in the catch-up prompt; if truncated, put an omission notice on the first line. Place the current question last.
+3. Add a 24,000-byte cap to the default catch-up budget (within ag's 30,000-byte Windows inline limit).
+4. Implement `control.cancel` through process tree termination (`supports_terminate`). After termination, an in-progress delivery does not finish as a normal response.
+
+## Paired Measurement (2026-10-09, [`bench.py`](../../benchmarks/context-bench-2026-10-09/bench.py))
+
+Reproduce the paired measurement from the repository root with:
+
+```bash
+PYTHONPATH=. python docs/benchmarks/context-bench-2026-10-09/bench.py --peer cc|cx|ag --turns 6 [--gap-seconds S] [--model M] [--effort E]
+```
+
+(The script was `python -m tools.context_bench` until 2026-11-10; the offline tests stay in `tests/communication/package/test_diagnostic_tool_errors.py`.)
+
+Choose one of `cc`, `cx` or `ag`; square brackets denote optional arguments, not literal shell syntax. The benchmark calls the real provider CLI for both fresh and resumed strategies and spends quota. Use `--gap-seconds` to compare warm-cache turns with turns beyond the cache lifetime, and `--model` / `--effort` to select the binding.
+
+Workload: a 259-line task list (about 6.5k tokens) plus one lookup question per turn; fresh = PeerHub-style injection of the document and prior turns into a new session, resume = native session resume. All answers were correct (6/6 in every run).
+
+| Case | Fresh | Resume | Resume / Fresh |
+|---|---|---|---|
+| cc haiku, 6 turns, warm: total cost | $0.1389 | $0.0502 | 0.36 (turn 2+: about $0.004 vs $0.022 per turn) |
+| cc haiku, 6 turns, warm: uncached input | 62k | 15k | 0.25 |
+| cx luna, 6 turns, warm: uncached input | 78.8k (cache hits 0-13k, erratic) | 11.9k (18,176 cached on every resumed turn) | 0.15 |
+| cc haiku, 2 turns, 330 s gap (past the 5 min API TTL): turn-2 cost | $0.0218 | $0.0037 | 0.17 (cache still warm: this account uses the longer subscription TTL) |
+
+Notes: cx resume usage is cumulative per thread (the tool reports per-turn deltas); cc `total_cost_usd` is cumulative for a resumed session (deltas as well). Token totals per request are about the same either way; the saving is price and cache-hit stability, as predicted.
+
+ag (gemini-3.8-flash-low, 6 turns, about 100-line document): the CLI reports `cache_read_tokens` = 0 for both strategies. Fresh input is about 14.2k tokens per turn; resumed turns are 14.4k-15.3k (usage counters are cumulative per conversation; the tool reports deltas). Total uncached input is resume/fresh = 1.03 and answers were 6/6 correct in both. Result: **no measurable saving for ag**; native resume there buys continuity only. Gemini implicit caching may still apply server-side, but the CLI does not report it.
+
+## Consequence
+The historical measurements motivated explicit per-thread resume for cc and cx,
+with ag supported for continuity by owner decision. That caller opt-in policy,
+including fresh sessions for cold threads, is **superseded by PR1**. Ordinary
+asks now reuse compatible retained history for all three providers, with fresh
+bounded catch-up when continuity is unavailable or unsafe. A cache-cold thread
+alone does not force a new generation, and this policy change establishes no
+new token, cost or quota saving.
+
+The Bridge persists vendor identity, checks workspace lineage and binding, and
+commits a consumed-prompt watermark. Later records enter the next delta,
+including same-peer responses conservatively; appending a response does not
+advance the watermark. Unprovable historical native continuity is invalidated.
+ag uses the flat JSON `conversation_id` and `agy --conversation <id>`; its
+backend caching contract remains unmeasured here.
+
+## Prefix-Stable Layout / Checkpoint: Not Pursued
+ag and cx cross-checked the hypotheses against official documentation and CLI source. cx: Codex defaults `prompt_cache_key` to the session id, so a fresh session lands on different cache affinity than a resume (this, not prefix shape, explains the erratic 0-13k hits; the benchmark prompt was already append-only). cc: `claude -p` sends the stdin prompt as one text block, so only the CLI base prefix (16-20k tokens) is cached and the injected document is rewritten every turn. ag: the CLI does report `cache_read_tokens`, it simply stayed 0.
+The cheapest experiment was run (cc, haiku, 6 fresh turns, the 259-line document moved out of stdin into `--append-system-prompt-file`, history and question in stdin): cached stayed at 16,450 and about 13.6k tokens were still written every turn, cost $0.030 per turn (worse than the $0.022 baseline and 7x the resume cost). A static document in the appended system prompt is not cached by the CLI.
+Verdict: **drop** the layout/checkpoint follow-up; native resume produced the measured cache hits. Compatible retained-session reuse now invokes native resume automatically when compatible. Revisit only if a CLI exposes a stable cache key or cache breakpoints.
+
+## Follow-up Candidates (After Measurement)
+- **Superseded by [Prefix-Stable Layout / Checkpoint: Not Pursued](#prefix-stable-layout--checkpoint-not-pursued).** Stable prefix layout: fixed instructions + a versioned checkpoint (summary Record) → changing recent records → current question. A sliding window changes the prefix and invalidates the cache.
+- Compare fresh sessions and resume in paired measurements at 2·10·50 turns, with intervals within and beyond the cache lifetime (input, cache reads/writes, output, latency, correctness when files change).
+- Measure subscription quotas separately from API cost conversion.

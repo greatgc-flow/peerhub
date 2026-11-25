@@ -97,7 +97,7 @@ def test_session_show_links_configured_profile_and_scoped_usage(tmp_path, capsys
     assert session["latest_telemetry"]["usage"]["scope"] == "session_cumulative"
     assert session["latest_telemetry"]["usage"]["attribution"] == "unattributed"
     assert "provider_telemetry" not in json.dumps(session)
-    assert main(["--db", str(db), "session", "list", "--format", "table"]) == 0
+    assert main(["--db", str(db), "session", "list"]) == 0
     table = capsys.readouterr().out
     assert "None" not in table
     assert "cx.standard" in table and "gpt-6-luna" in table
@@ -115,7 +115,7 @@ def test_session_cursor_rejects_changed_filter(tmp_path, capsys):
 
 def test_hidden_store_uses_database_directory_for_lineage(tmp_path, capsys):
     from peerhub.core.workspace import Workspace
-    from peerhub.extensions.monitor_read_model import _monitor_workspace
+    from peerhub.extensions.monitor_sessions import monitor_workspace
 
     root = tmp_path / ".peerhub"
     db = root / "core.db"
@@ -126,7 +126,7 @@ def test_hidden_store_uses_database_directory_for_lineage(tmp_path, capsys):
         metadata = json.loads(conn.execute("SELECT metadata_json FROM records WHERE kind='prompt' LIMIT 1").fetchone()[0])
         assert metadata["workspace_generation"] == lineage
         assert conn.execute("SELECT DISTINCT workspace_generation FROM bridge_session_history").fetchall() == [(lineage,)]
-    assert _monitor_workspace(str(db), None) == tmp_path
+    assert monitor_workspace(str(db), None) == tmp_path
     assert main(["--db", str(db), "session", "list", "--limit", "1", "--json"]) == 0
     cursor = json.loads(capsys.readouterr().out)["next_cursor"]
     Workspace(root).replace_generation()
@@ -177,7 +177,7 @@ def test_session_inspection_validates_receipt_identity_usage_and_context(tmp_pat
 def test_session_context_projection_preserves_zero_and_unknown(provider, has_receipt):
     from contextlib import closing
 
-    from peerhub.cli.app import _session_public_row
+    from peerhub.cli.session_cmd import _session_public_row
     from peerhub.extensions.session_receipts import CONTEXT_SOURCE, context_estimate
 
     handle, generation = "sess_context", 1
@@ -231,7 +231,7 @@ def test_session_context_estimate_matches_monitor_in_list_and_show(tmp_path, cap
     age_seconds = age_minutes * 60
     ctx_text = f"ctx {cc_context['percent']}% ({age_minutes}m ago)"
 
-    with patch("peerhub.cli.app.time", return_value=cc_context["observed_at"] + age_seconds):
+    with patch("peerhub.cli.session_cmd.time", return_value=cc_context["observed_at"] + age_seconds):
         assert main(["--db", str(db), "session", "list", "--json"]) == 0
         listed = {row["peer_id"]: row for row in json.loads(capsys.readouterr().out)["items"]}
         assert set(listed) == set(peers)

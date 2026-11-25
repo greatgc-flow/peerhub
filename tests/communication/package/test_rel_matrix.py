@@ -55,8 +55,8 @@ def _declared_oses():
     return {os_ for os_, c in OS_CLASSIFIERS.items() if c in classifiers}
 
 
-EVIDENCE = REPO / "docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json"
-EVIDENCE_REL = "docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json"
+EVIDENCE = REPO / "docs/history/m1_impl/matrix_evidence/windows-py3.11-3.13.json"
+EVIDENCE_REL = "docs/history/m1_impl/matrix_evidence/windows-py3.11-3.13.json"
 
 
 def _verified_local():
@@ -67,7 +67,7 @@ def _verified_local():
     return {(c["python"], c["os"]) for c in ev["cells"] if c["failed"] == 0 and c["dirs"]}
 
 
-CI_EVIDENCE_DIR = REPO / "docs/m1_impl/matrix_evidence"
+CI_EVIDENCE_DIR = REPO / "docs/history/m1_impl/matrix_evidence"
 
 
 def _ci_evidence_files():

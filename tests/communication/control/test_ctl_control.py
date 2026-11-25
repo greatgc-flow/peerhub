@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from peerhub.extensions.bridge import RuntimeTargetError
+from peerhub.extensions.runtime_contract import RuntimeTargetError
 from peerhub.extensions.bridge_claims import ClaimHeldError
 from peerhub.extensions.direction import DirectionError, apply_direction, decide_direction
 from peerhub.core.store import StreamClosedError

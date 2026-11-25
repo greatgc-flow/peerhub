@@ -1,16 +1,25 @@
 """CI fast-path/full-matrix contracts and Windows inventory guard."""
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import yaml
 
+from tests.communication.diag import test_diag_monitor_read_model, test_monitor_activity
+from tests.conftest import pytest_collection_modifyitems
 from tools import ci_platform
 
 pytestmark = [pytest.mark.package, pytest.mark.ci]
 ROOT = Path(__file__).resolve().parents[3]
+SERIAL_TIMING_REPORT = "junit/monitor-timing.xml"
+SERIAL_TIMING_RUN = (
+    f"python -u -m pytest -q -m serial_timing --junitxml={SERIAL_TIMING_REPORT} "
+    "-o junit_suite_name=monitor-timing "
+    "tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py"
+)
 
 
 def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
@@ -39,6 +48,9 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     windows_run = "\n".join(step.get("run", "") for step in jobs["windows-platform"]["steps"])
     assert "-m platform_sensitive" in windows_run and "verify-junit" in windows_run
     windows_steps = jobs["windows-platform"]["steps"]
+    targeted = next(step for step in windows_steps if "-m platform_sensitive" in step.get("run", ""))
+    assert "-n" not in targeted["run"].split()
+    assert targeted.get("env", {}).get("PEERHUB_CI_SERIAL_TIMING") is None
     for step in windows_steps:
         if step.get("uses", "").startswith("actions/setup-python@") or step.get("name") == "Install dependencies":
             assert step.get("if") == "steps.suite.outputs.windows_suite != 'skip'"
@@ -59,9 +71,17 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     assert "github.run_id" in wf["concurrency"]["group"]
     assert wf["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     for job_name in ("ubuntu-full", "windows-platform", "full-matrix"):
-        checkout = next(step for step in jobs[job_name]["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+        steps = jobs[job_name]["steps"]
+        checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
         assert checkout["with"].get("fetch-depth") == 0
-        uploads = [step for step in jobs[job_name]["steps"]
+        parallel = next(step for step in steps if "pytest -q -n auto" in step.get("run", ""))
+        serial = next(step for step in steps if step.get("run") == SERIAL_TIMING_RUN)
+        assert parallel["env"]["PEERHUB_CI_SERIAL_TIMING"] == "1"
+        assert serial.get("if") == parallel.get("if")
+        assert "PEERHUB_CI_SERIAL_TIMING" not in serial.get("env", {})
+        assert not serial.get("continue-on-error")
+        assert steps.index(serial) == steps.index(parallel) + 1
+        uploads = [step for step in steps
                    if step.get("uses", "").startswith("actions/upload-artifact@") and step.get("if") == "failure()"]
         assert len(uploads) == 1
         assert uploads[0]["with"]["retention-days"] == 7
@@ -73,7 +93,7 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
 def test_windows_suite_skips_only_prose_and_runs_platform_inventory_for_code(monkeypatch, tmp_path):
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="README.md\0docs/design/monitor.md\0"))
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "skip"
-    monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="peerhub/extensions/adapters/base.py\0"))
+    monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="peerhub/extensions/adapters/cli_runtime.py\0"))
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="tests/communication/fault/test_flt_storage.py\0"))
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
@@ -219,4 +239,85 @@ def test_ci_dispatch_stamps_and_uploads_source_reports_for_every_candidate_cell(
     assert upload["with"]["path"] == report
     assert upload["with"]["if-no-files-found"] == "error"
     assert upload["with"]["overwrite"] is True
-    assert steps.index(suite) < steps.index(stamp) < steps.index(upload)
+    timing = next(step for step in steps if step.get("run") == SERIAL_TIMING_RUN)
+    assert steps.index(suite) < steps.index(timing) < steps.index(stamp) < steps.index(upload)
+
+
+@pytest.mark.parametrize("workflow, job, report", [
+    ("ci.yml", "ubuntu-full", "junit/ubuntu-full.xml"),
+    ("ci.yml", "windows-platform", "junit/windows-full.xml"),
+    ("ci.yml", "full-matrix", '"junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml"'),
+    ("publish.yml", "verify", "junit/g2.xml"),
+])
+def test_monitor_timing_junit_is_merged_before_stamping_or_upload_on_failure(workflow, job, report):
+    wf = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8"))
+    steps = wf["jobs"][job]["steps"]
+    parallel = next(i for i, step in enumerate(steps) if f"--junitxml={report}" in step.get("run", ""))
+    serial = steps[parallel + 1]
+    assert serial["id"] == "monitor-timing"
+    assert serial["run"] == SERIAL_TIMING_RUN
+    assert not serial.get("continue-on-error")
+    merge = steps[parallel + 2]
+    assert merge["run"] == f"python -m tools.ci_platform merge-junit {report} {SERIAL_TIMING_REPORT}"
+    assert merge["if"] == (
+        "${{ !cancelled() && (steps.monitor-timing.outcome == 'success' || steps.monitor-timing.outcome == 'failure') }}"
+    )
+    evidence_steps = [
+        i for i, step in enumerate(steps)
+        if f"--stamp-junit {report}" in step.get("run", "")
+        or step.get("with", {}).get("path") in (report.strip('"'), "junit/windows-*.xml")
+    ]
+    assert evidence_steps and min(evidence_steps) > parallel + 2
+
+
+def test_merge_junit_preserves_serial_failure_and_suite_counts():
+    parallel = ET.fromstring(
+        '<testsuites><testsuite name="pytest" tests="1" failures="0">'
+        '<testcase classname="monitor" name="test_work_bound"/></testsuite></testsuites>'
+    )
+    serial = ET.fromstring(
+        '<testsuites><testsuite name="monitor-timing" tests="2" failures="1">'
+        '<testcase classname="monitor" name="test_p95"><failure>260 ms</failure></testcase>'
+        '<testcase classname="monitor" name="test_activity_wall_clock"/></testsuite></testsuites>'
+    )
+    ci_platform.merge_junit(parallel, serial)
+    structural, timing = parallel.findall("testsuite")
+    assert structural.get("tests") == "1" and structural.get("failures") == "0"
+    assert timing.get("tests") == "2" and timing.get("failures") == "1"
+    assert timing.findtext("testcase[@name='test_p95']/failure") == "260 ms"
+    with pytest.raises(ValueError, match="already reported"):
+        ci_platform.merge_junit(parallel, serial)
+
+
+@pytest.mark.parametrize("worker, ci", [(True, True), (False, True), (True, False)])
+def test_monitor_timing_cases_deferred_only_in_ci_workers(monkeypatch, worker, ci):
+    if ci:
+        monkeypatch.setenv("PEERHUB_CI_SERIAL_TIMING", "1")
+    else:
+        monkeypatch.delenv("PEERHUB_CI_SERIAL_TIMING", raising=False)
+    deselected = []
+    collected = SimpleNamespace(config=SimpleNamespace(
+        hook=SimpleNamespace(pytest_deselected=lambda *, items: deselected.extend(items)),
+    ))
+    if worker:
+        collected.config.workerinput = {}
+
+    class Case:
+        def __init__(self, test):
+            self.markers = {marker.name: marker for marker in getattr(test, "pytestmark", ())}
+
+        def get_closest_marker(self, name):
+            return self.markers.get(name)
+
+    structural = [
+        Case(test_diag_monitor_read_model.test_monitor_frame_scale_smoke_v1_bounded_queries_indexes),
+        Case(test_monitor_activity.test_scale_one_scope_with_a_long_delivery_history),
+    ]
+    timing = [
+        Case(test_diag_monitor_read_model.test_monitor_frame_scale_p95),
+        Case(test_monitor_activity.test_activity_long_delivery_history_wall_clock),
+    ]
+    items = structural + timing
+    pytest_collection_modifyitems(collected, items)
+    assert items == (structural if worker and ci else structural + timing)
+    assert deselected == (timing if worker and ci else [])

@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 from typing import Any, cast
 
-from peerhub.extensions.usage_normalization import REPORTED_FIELDS, normalize_provider_usage
+from peerhub.extensions.usage_normalization import (
+    PROVIDER_USAGE_CONTRACT, REPORTED_FIELDS, normalize_provider_usage, unknown_usage,
+)
 
 _TELEMETRY_MAX_BYTES = 1_048_576
 _TELEMETRY_MAX_EVENT_BYTES = 262_144
@@ -24,11 +26,6 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise _DuplicateJsonKey(key)
         value[key] = item
     return value
-
-
-def unknown_usage(reason: str) -> dict[str, Any]:
-    return {"schema_version": 1, "scope": None, "source": None, "reported": {}, "normalized": {},
-            "coverage": {"state": "UNKNOWN", "reason": reason}}
 
 
 def _cc_context(events: list[dict[str, Any]], result: dict[str, Any]) -> dict[str, int] | None:
@@ -114,8 +111,7 @@ def parse_provider_usage(kind: str, stdout: str) -> dict[str, Any]:
         return unknown_usage("missing_terminal" if not matches else "duplicate_terminal")
     envelope = matches[0]
     usage = envelope.get("usage")
-    scope = "session_cumulative"
-    source = {"cc": "cc.result.usage", "cx": "cx.turn.completed.usage", "ag": "ag.result.usage"}[kind]
+    scope, source = PROVIDER_USAGE_CONTRACT[kind]
     if usage is None or usage == {}:
         return {"schema_version": 1, "scope": scope, "source": source, "reported": {}, "normalized": {},
                 "coverage": {"state": "ABSENT", "reason": "usage_absent"}}

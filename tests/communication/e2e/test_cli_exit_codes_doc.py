@@ -7,10 +7,11 @@ import sys
 
 import pytest
 
+from peerhub._exit_codes import DIAG_EXIT_BY_STATUS
 from peerhub.cli.app import main
 from peerhub.cli.lessons import lesson_by_id
 from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY
-from peerhub.extensions import ask, batch, diag_quota
+from peerhub.extensions import ask, batch
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
 
 pytestmark = [pytest.mark.unit]
@@ -54,8 +55,8 @@ def test_exit_codes_topic_derives_the_diag_status_mapping():
     }
     diag_text = _topic_text().split("Diag ", 1)[1].split(". ", 1)[0]
     assert "health, quota, readiness, running, --plan and integrity" in diag_text
-    assert meanings.keys() == diag_quota.EXIT_BY_STATUS.keys()
-    for status, code in diag_quota.EXIT_BY_STATUS.items():
+    assert meanings.keys() == DIAG_EXIT_BY_STATUS.keys()
+    for status, code in DIAG_EXIT_BY_STATUS.items():
         assert f"{code} for {meanings[status]}" in diag_text
 
 

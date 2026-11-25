@@ -849,6 +849,9 @@
       ]
     },
     {
+      "aliases": [
+        "peer show"
+      ],
       "command": "peer get",
       "options": [
         {

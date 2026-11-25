@@ -27,9 +27,9 @@ import pytest
 pytestmark = pytest.mark.platform_sensitive
 
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.adapters.base import IncrementalEventParser
+from peerhub.extensions.adapters.event_parser import MAX_EVENT_BYTES, IncrementalEventParser
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult, run_bounded
-from peerhub.extensions.bridge import RuntimeTargetError
+from peerhub.extensions.runtime_contract import RuntimeTargetError
 from tests.communication.bridge_helpers import bseed, records, responses
 from tests.communication.harness.bridge import BridgeHarness
 
@@ -711,13 +711,13 @@ def test_blocking_display_callback_does_not_mask_later_error(tmp_path):
 
 
 def test_cli_app_ask_streaming_does_not_retain_chunks(tmp_path, monkeypatch, capsys):
-    """P1 cli/app.py:187: CLI ask streaming must not retain every streamed chunk in a list."""
+    """P1: CLI ask streaming must not retain every streamed chunk in a list."""
     import inspect
-    from peerhub.cli import app
+    from peerhub.cli import ask_cmd
     from tests.communication.fakes import FakeRuntimeTarget
 
     # Inspect source of _run_ask_cli to ensure no unbounded streamed list is used
-    src = inspect.getsource(app._run_ask_cli)
+    src = inspect.getsource(ask_cmd.run_ask)
     assert "streamed: list" not in src
     assert "streamed.append" not in src
 
@@ -887,7 +887,7 @@ def test_parser_exception_latched_makes_outcome_indeterminate_never_terminal(tmp
 
 
 def test_cli_app_ask_prints_final_response_when_display_truncated(tmp_path, monkeypatch, capsys):
-    """P2 cli/app.py:198: Final response suppressed whenever anything streamed: print final response when display was truncated."""
+    """P2: Final response suppressed whenever anything streamed: print final response when display was truncated."""
     from peerhub import cli
     from peerhub.extensions import ask as ask_mod
     from tests.communication.fakes import FakeRuntimeTarget
@@ -914,7 +914,7 @@ def test_cli_app_ask_prints_final_response_when_display_truncated(tmp_path, monk
 
 
 def test_ask_slow_display_queue_overflow_propagates_display_truncated(tmp_path):
-    """P2 cli/app.py:198: Real process with slow display queue overflow sets display_truncated on target.deliver."""
+    """P2: Real process with slow display queue overflow sets display_truncated on target.deliver."""
     ws = tmp_path / "ws_slow_disp_overflow"
     ws.mkdir()
     script = textwrap.dedent("""
@@ -1204,3 +1204,29 @@ def test_cx_event_size_limit_excludes_newline(extra_bytes, terminated):
             parser.parse()
     else:
         assert parser.parse() == "answer"
+
+
+@pytest.mark.parametrize("split_trailing", [False, True])
+@pytest.mark.parametrize("extra_bytes,trailing,expected_error", [
+    (-4, b"      ", None),
+    (0, b" \r\n\t  ", None),
+    (1, b"      ", "oversized event"),
+    (-4, b"     x", "well-formed top-level"),
+])
+def test_ag_event_size_limit_excludes_trailing_whitespace(split_trailing, extra_bytes, trailing, expected_error):
+    parser = IncrementalEventParser("ag")
+    # The cap is in bytes, including any multibyte characters inside the object.
+    prefix, suffix = '{"response":"é'.encode(), b'"}'
+    response_padding = b"x" * (MAX_EVENT_BYTES + extra_bytes - len(prefix) - len(suffix))
+    event = prefix + response_padding + suffix
+    parser.feed(event[:-8])
+    parser.feed(event[-8:] if split_trailing else event[-8:] + trailing)
+    if split_trailing:
+        parser.feed(trailing)
+    parser.close()
+    assert parser.oversized_count == int(extra_bytes > 0)
+    if expected_error is None:
+        assert parser.parse() == "é" + response_padding.decode()
+    else:
+        with pytest.raises(ValueError, match=expected_error):
+            parser.parse()

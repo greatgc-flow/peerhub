@@ -8,10 +8,57 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
-## [0.26.15] - 2026-11-25
+## [0.26.16] - 2026-11-25
+
+Includes the unreleased 0.26.15 audit fixes.
+
+### Added
+
+- `peerhub ask` samples machine load before launch. On high CPU or low free RAM it waits up to 120 seconds while other asks hold active leases. Dry runs report the load without waiting.
+- API peers retain scoped billing observations in `core.db` and expose them in diag and monitor JSON. Offline balances, estimates and charges stay separate from usage and unreconciled execution evidence (closes #472).
+
+### Changed
+
+- Lowered the CPU warning threshold for asks and batches to 80%. The guide and parallel quota lesson tell callers to check load before starting work and count other sessions' asks.
+- Quota and Antigravity transport probes get twice the timeout at high CPU load. Transport detection retries a timeout once and can reuse a successful result for the same installed binary when the machine is busy.
+- Packaged defaults record agy 1.5.17 in revision 2026-11-25.2. The model lists are unchanged and will be rechecked when the machine is idle.
+- Monitor and `diag running` identify local asks whose caller, wrapper and provider processes have exited. The `a2` alert clears immediately for dead asks and remains visible for live orphans. The next ask start, batch run or monitor repair releases dead leases and records uncertain abandonment.
+- CI runs the full deterministic suites and the publish verification suites in parallel, with the monitor latency limit checked serially. Publish runs the G7 invariant tests as part of G0, and the release recipe puts the version bump in the last feature PR.
+- An internal refactor shares the monitor group catalog and saved preference reader below the CLI, enforces the extensions-to-CLI import boundary, and centralizes the provider usage candidate factory and shared A2A journal types. Binary resolution and peer-kind imports use their canonical modules.
+- Diagnostics and monitor share quota-row projection, pool health, and CLI formatting for quota bars, durations, and percentages.
 
 ### Fixed
 
+- The command reference records retained compatibility forms and their canonical replacements.
+- Fixed the monitor defaults reset example and retired adapter links in historical reviews. User-facing Markdown is checked for common encoding damage.
+- Batch runs validate every task's effective local profile before workers start and use request IDs for Windows-safe prompt filenames (from PR #470).
+- Continuous monitor watch updates activity alerts and read status with the activity rows. JSON `min_quota.state` reports stale zero as `aged` (from PR #470).
+- `diag readiness` stops using remaining quota at reset, including when a parent pool would otherwise limit a child (from PR #470).
+- Core Stream reads return the Stream row and its ordered members from one snapshot (from PR #470).
+- Core and account recipes keep the same explicit store throughout, and the guide describes offline batch profile checks (from PR #470).
+- API billing uses private per-store HMAC scopes, preserves validated usage on uncertain replies, and omits unexpected response bodies from diagnostics. Custom API peers show provider monetary facts, offline monetary storage is capped with replay protection, and the Bridge and diagnostics work with the billing extension disabled (#472).
+- Claude Code `/usage` recognizes ASCII progress bars and rejects inline readings whose reset belongs to an unfamiliar section (#472).
+- Claude Code `/usage` preserves recognized measurements from partial reports and leaves configured windows unknown when unfamiliar sections may account for them (closes #472).
+- Deterministic tests use a quiet CPU and RAM sample and isolate the Antigravity transport cache. The ask gate and probe tests supply their own resource readings.
+- Linux ask liveness uses the boot ID and process start ticks, so wall-clock corrections do not revoke live leases. Legacy timestamp mismatches and unverified leaderless sessions remain unknown.
+- POSIX asks record their launch identity before the provider can execute. The reaper leaves unresolved invocations with missing process evidence unknown.
+- The reaper and `diag running` follow the current invocation when a retry reuses a delivery. The reaper can also expire a dead wrapper's pre-invocation claim without changing delivery certainty.
+- Under resource pressure, asks check for activity and reserve a launch in the same store transaction. Confirmed-dead asks do not make the gate wait, and the existing wait limit still applies.
+- Antigravity transport detection verifies the running version before using a cached result, tracks the executable behind recognized Windows launchers, and renews the ask lease between probes.
+- Monitor keeps the orphan alert for an unresolved delivery after another ask takes over its claim.
+- CI failure artifacts and G2 release evidence include the outcomes of the serial monitor latency checks.
+- Package tests retry interrupted builds and installs in fresh directories and share only completed attempts across workers.
+- The monitor activity SQL wall-clock check runs in the serial CI step. VM-step and query-plan checks stay in the parallel suite.
+- CLI adapters kill and reap a spawned child if a worker fails to start, and report the delivery as uncertain.
+- Claude Code and Codex CLI deliveries report uncertainty when the prompt was only partially written, even if the CLI exits successfully.
+- Antigravity argv parsing applies the event-size limit to the JSON object and validates trailing whitespace independently of pipe chunk boundaries.
+- Antigravity commands with wrapper arguments probe their own help output instead of reusing a transport decision for the same interpreter and version.
+- Monitor hides expired quota windows in both layouts and excludes them from the header age. `--show-quota-notes` names the retired windows.
+- Monitor updates exhaustion alerts and PEERS quota summaries when windows expire between reads.
+- Monitor retires stored relative quota resets using the observation timestamp and reports the expiry in quota notes.
+- The live monitor calculates title age from the same retirement-filtered quota evidence as snapshots, scoped to the watched peers.
+- Hidden quota windows can no longer distort pace gaps or flatten the expanded QUOTA tree when they share a visible window's name.
+- Monitor and diagnostics report quota probes that still time out under high CPU load as delayed by load.
 - Filter lease-active asks by peer before applying the `diag running` limit.
 - Validate explicit batch task profiles during dry runs using the ask resolver.
 - Hide unavailable quota windows in both human monitor layouts by default and omit unread pools from the pace gap. Use `--show-quota-notes` to restore the count, names, reasons and gap placeholders.
@@ -20,9 +67,35 @@ they do not claim new validation or publication evidence.
 
 ### Documentation
 
+- Consolidated the command, monitor, adapter, store and maintainer references, shortened overlapping offline lessons, and moved historical implementation and design records into `docs/history/`.
+- Archived dated lesson observations and M1 skill examples, identified the monitor and prompt-cache decisions as active, and labeled the frozen M1 audit as historical evidence.
 - Correct quota refresh and unavailable-window descriptions, the monitor snapshot example and redraw behavior, and guide help and size measurements.
 - Clarify batch resource throttling, per-task quota refusals, and Argon's shared Gemini pools.
 - Fix the profile smoke recipe and add API peers and links to packaged CLI version observations.
+
+### Changed (internal)
+
+- Documented the repository maintenance tools' import and packaging boundaries and added architecture checks.
+- Moved plan models, durable journaling, deadline execution, skill source and projection code, and delivery projection rebuilds to dedicated modules.
+- Architecture tests enforce the Core, extensions, and CLI import direction and public cross-layer imports.
+- The command inventory checks that the command reference lists every argparse command, including aliases. The documentation map and offline lessons link to the owning procedures.
+- Split provider lookup, CLI subprocess lifecycle, output parsing and display, and Antigravity transport detection into dedicated adapter modules.
+- Separate recovery guidance data, outcome classification, and CLI rendering, and split monitor activity rendering into running asks, recent asks, and lead sessions.
+- Consolidate scalar, text, timestamp, and digest helpers in Core, unify CLI quota refresh scheduling, and move profile telemetry into its extension.
+- Split quota and account probes into provider modules with shared probe helpers.
+- Split the Claude Code, Codex, and Antigravity CLI adapters into provider modules. Antigravity owns stream parsing and transport detection.
+- Split session receipts, delivery projections, and ask budgets into separate modules and moved provider usage validation alongside normalization.
+- Split bridge exceptions and durable control handling into dedicated modules.
+- Split Bridge schema initialization, retained sessions, fenced delivery, and the certainty and reconciliation ledger into dedicated modules.
+- Split monitor terminal links, formatting and layout, and bounded SQLite queries into dedicated modules.
+- Split monitor frame rendering by section and separate alert, activity, quota, and session projections from snapshot assembly.
+- Move CLI parser registration and handlers into command-family modules.
+- Extract terminal output helpers, diagnostic dashboard and quota-plan read models, and explain command rendering into dedicated modules.
+- Move dated design plans, audits, debates, and scoring evidence to the design archive.
+
+### Removed
+
+- Removed internal compatibility import shims. See the [command compatibility reference](docs/commands.md#compatibility) for retained forms.
 
 ## [0.26.14] - 2026-11-25
 
@@ -95,7 +168,7 @@ they do not claim new validation or publication evidence.
 
 ### Documentation
 
-- Design record `docs/design/monitor-pace-health-2026-11-23.md` documents the monitor pace-health and caller ownership work implemented in PRs #460-#468. The nine debate rounds and scoring through round 5 are in `docs/design/monitor-pace-health-2026-11-23/`.
+- Design record `docs/design/monitor-pace-health-2026-11-23.md` documents the monitor pace-health and caller ownership work implemented in PRs #460-#468. The nine debate rounds and scoring through round 5 are in `docs/history/design/monitor-pace-health-2026-11-23/`.
 
 ## [0.26.8] - 2026-11-23
 
@@ -139,7 +212,7 @@ they do not claim new validation or publication evidence.
 
 - Dry-run batch previews use ask's resolved profile when available, and the diagnostic plan footer names in-flight pools that lack applicable rows (#447).
 - Windows quota refresh results include an API and WinError warning if a background probe cannot be contained in a Job Object (#444).
-- `update --plan`: the printed backup and restore commands run the interpreter that runs PeerHub (not a bare `python`, which may lack peerhub for a pipx or uv install); the scoring record `docs/design/scoring-2026-11-22/` (rubric, six rounds, overall 95.2) documents why 0.26.6 ships.
+- `update --plan`: the printed backup and restore commands run the interpreter that runs PeerHub (not a bare `python`, which may lack peerhub for a pipx or uv install); the scoring record `docs/history/design/scoring-2026-11-22/` (rubric, six rounds, overall 95.2) documents why 0.26.6 ships.
 - `diag --plan`: a stale window keeps its own `(stale)` tag even when a sibling window decides the reason; `explain parallel-quota` says a profile listed under several pools spends each of them.
 - `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a restore command for the selected store after the backup command.
 - `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a UTC-stamped backup path followed by a restore command for the selected store. Restoring validates the backup and rotates `workspace.generation`.
@@ -218,7 +291,7 @@ they do not claim new validation or publication evidence.
 
 - `peerhub update --check` compares installed versions and packaged model defaults with available release metadata and the local Codex catalog. `peerhub update --plan` checks for running asks and prints blockers, store backup and upgrade commands, and resume hints. Both modes are read-only.
 - Rich terminal monitor frames link eligible `--query-file` inputs in RUNNING and RECENT to existing files inside the ask workspace. Monitor and human `diag quota` and `diag --live` show a refresh hint when quota readings are missing or over an hour old.
-- The [0.26.0 plan](docs/design/plan-0.26.0-2026-11-21.md) and [regression audit](docs/design/audit-0.26.0-regressions.md) document the release decisions and the behavior reviewed.
+- The [0.26.0 plan](docs/history/design/plan-0.26.0-2026-11-21.md) and [regression audit](docs/history/design/audit-0.26.0-regressions.md) document the release decisions and the behavior reviewed.
 
 ### Changed
 
@@ -698,7 +771,7 @@ Item-level review after 0.24.11 (cc.fable, ag.deepthink) found these; 0.24.11 is
 
 ### Fixed
 
-- A cc ask no longer becomes uncertain because an earlier stream line (typically a large tool result in a long ask) exceeded the 256 KB event cap: an intact later `result` event resolves the gap, like cx already did. An oversized `result` event, or a gap after the result, stays uncertain, and the skipped line is still reported as `oversized_event_count` (#325). Behavior and limits: docs/peer-limits.md.
+- A cc ask no longer becomes uncertain because an earlier stream line (typically a large tool result in a long ask) exceeded the 256 KB event cap: an intact later `result` event resolves the gap, like cx already did. An oversized `result` event, or a gap after the result, stays uncertain, and the skipped line is still reported as `oversized_event_count` (#325). See [event size limits](docs/adapters/peer-cli-reference.md#cc-and-cx-event-size).
 
 ## [0.24.4] - 2026-11-09
 
@@ -1020,7 +1093,7 @@ Item-level review after 0.24.11 (cc.fable, ag.deepthink) found these; 0.24.11 is
 
 ### Notes
 
-- Extension DDL ownership, trigger-definition verification and the rest of the schema-v2 proposal are intentionally deferred (see docs/design/monitor-peers-view-2026-10-16.md).
+- Extension DDL ownership, trigger-definition verification and the rest of the schema-v2 proposal are intentionally deferred (see docs/history/design/monitor-peers-view-2026-10-16.md).
 
 ## [0.18.1] - 2026-10-16 (superseded candidate)
 

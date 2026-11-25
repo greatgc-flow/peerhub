@@ -8,25 +8,17 @@ import sys
 import pytest
 
 from peerhub.cli.app import build_parser
-from peerhub.cli.recovery import (
-    REGISTRY,
-    GuidanceEntry,
-    get_guidance,
-    make_guidance_payload,
-    render_guidance_hint,
-    render_explain,
-    run_explain_cli,
-    select_guidance_code,
-)
+from peerhub.cli.explain_cmd import run_explain_cli
+from peerhub.cli.recovery import REGISTRY, GuidanceEntry
+from peerhub.cli.recovery_render import get_guidance, make_guidance_payload, render_guidance_hint
 from typing import Any
 
 from peerhub.extensions.bridge_claims import ClaimHeldError
 from peerhub.extensions.adapters.api import RequestRejected
-from peerhub.extensions.adapters.base import AgRequiresWritableError
-from peerhub.extensions.bridge import (
+from peerhub.extensions.adapters.ag import AgRequiresWritableError
+from peerhub.extensions.bridge_errors import (
     ConflictingSessionFlagsError,
     InvalidSessionHandleSyntaxError,
-    PrespawnError,
     SessionBindingMismatchError,
     SessionDeltaOverflowError,
     SessionFingerprintMismatchError,
@@ -38,6 +30,8 @@ from peerhub.extensions.bridge import (
     SessionUnavailableError,
     SessionWorkspaceMismatchError,
 )
+from peerhub.extensions.recovery_classification import select_guidance_code
+from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.extensions.ask import LegacySelectorUnsupported, PeerNotFoundError, StreamPeerMismatchError
 from peerhub.core.store import (
     CasMismatchError,
@@ -59,7 +53,7 @@ AG_WRITABLE_NEXT = (
 
 
 def test_writable_recovery_uses_exception_type_even_when_message_changes():
-    from peerhub.cli.recovery import render_exception_guidance_hint
+    from peerhub.cli.recovery_render import render_exception_guidance_hint
 
     error = AgRequiresWritableError("rephrased execution policy")
     assert render_exception_guidance_hint("ask_delivery_failed", error) == AG_WRITABLE_NEXT.removeprefix("next: ")
@@ -74,7 +68,7 @@ def test_ag_writable_gate_pins_recovery_and_preserves_contract(tmp_path, monkeyp
     log = tmp_path / "agy-calls.jsonl"
     monkeypatch.setenv("FAKE_KIND", "ag")
     monkeypatch.setenv("FAKE_LOG", str(log))
-    monkeypatch.setattr("peerhub.extensions.adapters.base.resolve_binary", lambda spec: [sys.executable, FAKE])
+    monkeypatch.setattr("peerhub.extensions.adapters.registry.resolve_binary", lambda spec: [sys.executable, FAKE])
     db = tmp_path / "core.db"
     argv = ["--db", str(db), "ask", "ag", "Reply with exactly: pong"]
     assert main(argv + (["--json"] if json_output else [])) == 1
@@ -152,7 +146,7 @@ def test_ag_writable_still_executes(tmp_path, monkeypatch, capsys):
     log = tmp_path / "agy-calls.jsonl"
     monkeypatch.setenv("FAKE_KIND", "ag")
     monkeypatch.setenv("FAKE_LOG", str(log))
-    monkeypatch.setattr("peerhub.extensions.adapters.base.resolve_binary", lambda spec: [sys.executable, FAKE])
+    monkeypatch.setattr("peerhub.extensions.adapters.registry.resolve_binary", lambda spec: [sys.executable, FAKE])
     assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello", "--writable", "--json"]) == 0
     captured = capsys.readouterr()
     assert not captured.err
@@ -181,16 +175,18 @@ def test_registry_well_formedness():
 
 
 def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
-    """Independently inventory emission boundaries across ask path and app.py error paths via AST."""
+    """Independently inventory emission boundaries across the ask and CLI error paths via AST."""
     import ast
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[3]
-    bridge_file = root / "peerhub" / "extensions" / "bridge.py"
-    claims_file = root / "peerhub" / "extensions" / "bridge_claims.py"
-    adapter_base = root / "peerhub" / "extensions" / "adapters" / "base.py"
-    ask_file = root / "peerhub" / "extensions" / "ask.py"
-    app_file = root / "peerhub" / "cli" / "app.py"
+    extensions = root / "peerhub" / "extensions"
+    bridge_files = ("bridge.py", "bridge_delivery.py", "bridge_ledger.py", "bridge_schema.py", "bridge_sessions.py")
+    control_file = extensions / "bridge_control.py"
+    claims_file = extensions / "bridge_claims.py"
+    adapters = extensions / "adapters"
+    ask_file = extensions / "ask.py"
+    cli_path = root / "peerhub" / "cli"
 
     statuses: set[str] = set()
     exceptions: set[str] = set()
@@ -199,28 +195,32 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
         with open(file_path, "r", encoding="utf-8") as f:
             tree = ast.parse(f.read(), str(file_path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Raise):
+            if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+                func = node.exc.func
+                name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+                if name and name[0].isupper():
+                    exceptions.add(name)
+
+    # 1. Statuses and raises from the Bridge façade and its implementation modules
+    for module in bridge_files:
+        bridge_file = extensions / module
+        tree = ast.parse(bridge_file.read_text(encoding="utf-8"), str(bridge_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if (isinstance(func, ast.Name) and func.id == "CycleResult") or (isinstance(func, ast.Attribute) and func.attr == "CycleResult"):
+                    if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                        statuses.add(node.args[0].value)
+            elif isinstance(node, ast.Raise):
                 if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
                     if node.exc.func.id and node.exc.func.id[0].isupper():
                         exceptions.add(node.exc.func.id)
 
-    # 1. Statuses and raises from bridge.py
-    with open(bridge_file, "r", encoding="utf-8") as f:
-        tree = ast.parse(f.read(), str(bridge_file))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            if (isinstance(func, ast.Name) and func.id == "CycleResult") or (isinstance(func, ast.Attribute) and func.attr == "CycleResult"):
-                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                    statuses.add(node.args[0].value)
-        elif isinstance(node, ast.Raise):
-            if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
-                if node.exc.func.id and node.exc.func.id[0].isupper():
-                    exceptions.add(node.exc.func.id)
-
-    # 2. Raises from bridge_claims.py and adapter base.py
+    # 2. Raises from bridge_control.py, bridge_claims.py and the CLI provider adapters
+    _extract_raises(control_file)
     _extract_raises(claims_file)
-    _extract_raises(adapter_base)
+    for module in ("cli_runtime", "event_parser", "live_output", "registry", "common", "cc", "cx", "ag", "ag_transport"):
+        _extract_raises(adapters / f"{module}.py")
 
     # 3. Statuses and raises from ask.py
     with open(ask_file, "r", encoding="utf-8") as f:
@@ -236,17 +236,17 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
                 if node.exc.func.id and node.exc.func.id[0].isupper():
                     exceptions.add(node.exc.func.id)
 
-    # 4. Exceptions handled in app.py error paths
-    with open(app_file, "r", encoding="utf-8") as f:
-        tree = ast.parse(f.read(), str(app_file))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ExceptHandler):
-            if isinstance(node.type, ast.Name):
-                exceptions.add(node.type.id)
-            elif isinstance(node.type, ast.Tuple):
-                for elt in node.type.elts:
-                    if isinstance(elt, ast.Name):
-                        exceptions.add(elt.id)
+    # 4. Exceptions handled by the CLI entry point and the extracted command families
+    for cli_file in (cli_path / "app.py", *sorted(cli_path.glob("*_cmd.py"))):
+        tree = ast.parse(cli_file.read_text(encoding="utf-8"), str(cli_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ExceptHandler):
+                if isinstance(node.type, ast.Name):
+                    exceptions.add(node.type.id)
+                elif isinstance(node.type, ast.Tuple):
+                    for elt in node.type.elts:
+                        if isinstance(elt, ast.Name):
+                            exceptions.add(elt.id)
 
     return statuses, exceptions
 
@@ -302,6 +302,7 @@ EXCEPTION_CONTROL_FLOW_ALLOWLIST: dict[str, str] = {
     "KeyboardInterrupt": "User SIGINT/Ctrl+C aborts CLI command without guidance output.",
     "SystemExit": "Process exit handler; translates exit code without guidance output.",
     "ImportError": "Optional dependency loading failure caught during dynamic module import.",
+    "LaunchBusyError": "Claim acquisition signals the resource gate to wait and retry without emitting a CLI error.",
     "OSError": "Low-level OS/socket error caught during file/socket operations.",
     "TypeError": "Standard library type error caught during internal argument validation.",
 }
@@ -455,7 +456,7 @@ def _standalone_validation_error_codes() -> set[str]:
             (CasMismatchError("stale revision"), "cas_conflict"),
             (RuntimeError("dispatch failed"), "delivery_failed"),
         ):
-            with patch("peerhub.cli.app._run_core_cli", side_effect=exc):
+            with patch("peerhub.cli.core_cmd._run_core_cli", side_effect=exc):
                 check(["--db", db, "peer", "list"], expected)
     return codes
 
@@ -1365,7 +1366,8 @@ def test_oversized_prompt_guidance_preserves_sizes_and_recovery(tmp_path, monkey
 
 def test_guidance_reference_doc_parity():
     """Issue #135: Parity test between guidance registry, session definitions, and docs/guidance-reference.md."""
-    from peerhub.cli.recovery import render_guidance_reference, REGISTRY, RESULT_STATUS_REGISTRY
+    from peerhub.cli.explain_cmd import render_guidance_reference
+    from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY
 
     doc_path = Path("docs/guidance-reference.md")
     assert doc_path.is_file(), "docs/guidance-reference.md does not exist"
@@ -1495,7 +1497,7 @@ def test_bare_cli_exit_change_documented_under_breaking():
 
 
 def test_provider_limit_in_uncertain_error_is_surfaced():
-    from peerhub.cli.app import _provider_limit
+    from peerhub.cli.ask_cmd import _provider_limit
     got = _provider_limit("ag exited 3: error: Individual quota reached. Please upgrade. Resets in 1h22m56s.\nAGY_ERROR: {}")
     assert got == {"reason": "quota_exhausted", "reset_time": "1h22m56s"}
     assert _provider_limit("cx exited 1: You've hit your usage limit. try again at 3:05 PM") == {"reason": "usage_limit", "reset_time": "3:05 PM"}
@@ -1509,7 +1511,7 @@ def test_provider_limit_in_uncertain_error_is_surfaced():
     ("ag exited 3: Individual quota reached\nIndividual quota reached. Resets in 1h", "1h"),
 ])
 def test_provider_limit_finds_reset_on_any_line(message, reset):
-    from peerhub.cli.app import _provider_limit
+    from peerhub.cli.ask_cmd import _provider_limit
     assert _provider_limit(message) == {"reason": "usage_limit" if message.startswith("cc") else "quota_exhausted",
                                        "reset_time": reset}
 
@@ -1627,7 +1629,7 @@ def test_batch_classifies_denied_empty_as_unverified():
 
 
 def test_denied_action_names_parses_agy_json_defensively():
-    from peerhub.extensions.adapters.base import denied_action_names
+    from peerhub.extensions.adapters.ag import denied_action_names
     out = '{"response":"","denied_actions":[{"action":"command"},{"action":"command"},{"x":1},"junk",{"action":"edit"}]}'
     assert denied_action_names(out) == ["command", "edit"]
     assert denied_action_names('{"response":"ok"}') == []
@@ -1637,7 +1639,7 @@ def test_denied_action_names_parses_agy_json_defensively():
 
 def test_with_writable_keeps_the_flag_before_a_double_dash():
     """A dash-leading prompt after `--` must stay a prompt; --writable goes before the separator (0.24.12 review)."""
-    from peerhub.cli.app import with_writable
+    from peerhub.cli.ask_cmd import with_writable
 
     assert with_writable(["ask", "ag", "--json", "--", "-5 is negative?"]) == ["ask", "ag", "--json", "--writable", "--", "-5 is negative?"]
     assert with_writable(["ask", "ag", "ping"]) == ["ask", "ag", "ping", "--writable"]

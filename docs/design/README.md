@@ -1,39 +1,22 @@
-# docs/design/ — Design Documents Index
+# Design Documents Index
 
-This directory contains architectural specifications, active design proposals, and design reviews for PeerHub.
+[Development status](../STATUS.md) tracks the current queue and the triggers for reopening deferred work.
 
-> **Status Authority:** [`docs/STATUS.md`](../STATUS.md) is the single authoritative source of truth for release readiness, shipped features, and the active development queue. Never treat dated design proposals as current status records.
+## Current decisions and contracts
 
-## 1. Shipped Designs & Implementation Contracts
+- **Active** — [Monitor pace health and caller ownership](monitor-pace-health-2026-11-23.md) records the quota column grammar and ownership rules used by the [monitor guide](../monitor.md) and `peerhub explain caller-ownership`.
+- **Active** — [Inbound A2A server](a2a-inbound-server.md) records the deferred proposal and the conditions for implementation referenced by the [remote ask guide](../remote-ask.md).
+- **Active** — [Per-peer prompt-cache TTL](backlog-cache-ttl-2026-11-20.md) defines the measurements and start trigger referenced by the [current backlog](../STATUS.md).
+- **Active** — [Retained session contract](../implementation/RETAINED_SESSIONS.md) covers the registry, retention, replay, and the `--session` and `--fresh` selectors.
 
-Most entries below are shipped; they are kept for provenance. The latest plan is listed first.
+## Historical records
 
-- [Plan 0.24.5 (November 2026)](plan-0.24.5-2026-11-10.md): Latest plan (published as v0.24.5 and v0.24.6): profile cards, quota utilization report and model re-observation; its decision log also covers the 0.24.6 follow-up.
-- [Plan 0.24.4 (November 2026)](plan-0.24.4-2026-11-09.md): Pace in the compact monitor, pace-aware suggest, and the guide balance recipe (previous plan; published as v0.24.4).
-- [Plan 0.24.0 (November 2026)](plan-0.24.0-2026-11-08.md): Release plan and evidence for monitor, CLI and profile changes shipped in v0.24.0.
-- [Plan 0.24.1 (November 2026)](plan-0.24.1-2026-11-08.md): Store discovery recovery and cc permission-denial handling for the v0.24.1 candidate.
-- [Pre-TDD Renewal (October 2026)](peerhub-pre-tdd-renewal-2026-10-14.md): Reconciled architecture, numbered RED contracts (PH-T001–PH-T094), and multi-peer consensus.
-- [CLI, Monitoring, and Inspection Addendum](peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, and PH-T095–105.
-- [Monitor Groups Usability Review](monitor-groups-usability-review-2026-10-16.md): Group discovery, default/legacy contracts, delivery certainty semantics, and TDD acceptance.
-- [Human-First Monitor Dashboard Redesign](monitor-human-dashboard-redesign-2026-10-16.md): Visual grouped TTY default, aligned pipe output, JSON/schema compatibility, and group selection.
-- [Responsive Monitor Terminal Dashboard](monitor-terminal-responsive-2026-10-16.md): Height-aware terminal layout, visible DB provenance, and cached resize rendering (shipped in v0.18.2).
-- [Monitor Peers View](monitor-peers-view-2026-10-16.md): Per-peer quota -> profile/model -> latest session -> context view (shipped in v0.18.2).
-- [Peer CLI Option Audit](peer-cli-option-audit-2026-10-15.md): Installed CLI option evidence, canary results, and model options.
-- [Deepthink Debate Ledger](peerhub-deepthink-debate-2026-10-14.md): Debate provenance, corrections, and pre-TDD gates.
-- [Retained Session Contract](../implementation/RETAINED_SESSIONS.md): Registry, retention, replay, and `--session`/`--fresh` selectors (PRs 1-3 shipped in v0.16.0).
-- [Remote Ask Guide](../remote-ask.md): Running a peer on a remote server via SSH.
-- [Scoring record 2026-11-22](scoring-2026-11-22/README.md): rubric (six parallel axes, twelve scenarios), protocol, score history and the verbatim peer replies behind every score.
-- [Monitor pace health and caller ownership (2026-11-23)](monitor-pace-health-2026-11-23.md): decided, not implemented. Ten decisions (health vs reserve, no per-pool target, even burn, exhaustion forecast, labels, RUNNING refresh, Guide link, clickable details, status extras, caller ownership) with purpose, evidence and reason; nine debate rounds in `monitor-pace-health-2026-11-23/rounds/`.
-
-## 2. Deferred Proposals
-## 2. Deferred Proposals
-
-- [Inbound A2A Server](a2a-inbound-server.md): PROPOSED, NOT IMPLEMENTED (deferred on 2026-10-10).
-- [Quota Forecast Plan](plan-quota-forecast-2026-10-12.md): Offline candidate forecasting backtests; runtime promotion deferred pending validation gates.
-- [Blocked Streams Plan](plan-stuck-streams-2026-10-12.md): PRs 1-3 shipped in v0.16.0; PRs 4-6 / automated timeout settlement deferred pending contract review.
-- [Deferred Monitor Extensions](monitor-peers-view-2026-10-16.md): `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, and full `db-schema-v2` DDL extensions deferred; see the [STATUS deferred backlog](../STATUS.md#deferred-backlog-start-triggers).
-
-## 3. History & Archival
-
-- [Documentation Archival Ledger (2026-10-17)](../history/ledger-2026-10-17.md): Full record of archived debate docs (`peerhub-session-usage-monitoring-review-*`, `plan-session-reuse-*`, `plan-session-monitoring-*`, `plan-monitoring-v2-*`) and `peerhub-production-call-map-R1.json` with original commits, SHA-256 hashes, retrieval commands, and preserved decisions.
-- The pre-v0.10 design and review notes (September 2026), the Phase 0, 2026-07 and 2026-08 drafts and the Engram-era history, including the initial architecture debate, were removed from the tree and are kept in Git history; ledger section 1a lists the retrieval commands.
+- **Historical** — Release plans for [0.24.0](../history/design/plan-0.24.0-2026-11-08.md), [0.24.1](../history/design/plan-0.24.1-2026-11-08.md), [0.24.4](../history/design/plan-0.24.4-2026-11-09.md), [0.24.5–0.24.6](../history/design/plan-0.24.5-2026-11-10.md), [0.25.0](../history/design/plan-0.25.0-2026-11-20.md), and [0.26.0](../history/design/plan-0.26.0-2026-11-21.md).
+- **Historical** — The [pre-TDD renewal](../history/design/peerhub-pre-tdd-renewal-2026-10-14.md), [deepthink debate ledger](../history/design/peerhub-deepthink-debate-2026-10-14.md), [CLI and monitoring addendum](../history/design/peerhub-cli-monitoring-inspection-2026-10-14.md), and [session reuse analysis](../history/design/analysis-session-reuse-as-is-2026-10-13.md) record the October architecture review.
+- **Historical** — The [monitor peers view](../history/design/monitor-peers-view-2026-10-16.md) records the original layout and deferred proposals for [expanded details](../history/design/monitor-expand-details-2026-10-16.md), [lineage](../history/design/monitor-e2e-lineage-2026-10-16.md), [live evidence](../history/design/live-evidence-archive-2026-10-16.md), and [schema v2](../history/design/db-schema-v2-2026-10-16.md).
+- **Historical** — The [blocked streams plan](../history/design/plan-stuck-streams-2026-10-12.md), [quota forecast plan](../history/design/plan-quota-forecast-2026-10-12.md), and [October issue resolution note](../history/design/issue-resolution-2026-10-18.md) record shipped slices and deferred proposals. See the [backlog](../STATUS.md#deferred-backlog-start-triggers) for current triggers.
+- **Historical** — The [peer CLI audit](../history/design/peer-cli-option-audit-2026-10-15.md), [model pools and guide design](../history/design/pools-guide-2026-10-17.md), and [profile consolidation proposal](../history/design/profile-ssot-2026-10-29.md) record earlier adapter and model work.
+- **Historical** — The [consensus activation draft](../history/design/CONSENSUS-ACTIVATION-RUNBOOK.md) and [REL-005 pytest oracle](../history/design/rel005-pytest-oracle-2026-10-16.md) record earlier operational proposals.
+- **Historical** — The [2026-11-22 scoring record](../history/design/scoring-2026-11-22/README.md) preserves the rubric, protocol, scores, and peer replies.
+- **Historical** — The monitor pace-health [debate rounds](../history/design/monitor-pace-health-2026-11-23/rounds/) and [scoring rounds](../history/design/monitor-pace-health-2026-11-23/scoring/) preserve the evidence behind the decision record.
+- **Historical** — The [design archive](../history/design/) also holds earlier audits and shipped monitor designs. The [archival ledger](../history/ledger-2026-10-17.md) records original commits, hashes, and Git retrieval commands for the design files, reviews, and production call map removed from the tree.

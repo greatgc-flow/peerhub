@@ -6,7 +6,7 @@ Every requirement has at least one linked test, all required dimensions are cove
 State-machine and exception-catalog test references all resolve. Decisions 1–8 are ratified and codified into the contracts.
 
 Files: `M2_0_EXTENSION_HOST_CONTRACT.md`, `M2_1_ARTIFACT_CONTRACT.md`, `requirements.m2.json`, `test-catalog.m2.json`, `STATE_MACHINES.m2.json`,
-`EXCEPTION_CATALOG.m2.json`, `RED_SEQUENCE.m2.md`, plus the M2.2–M2.6 Work, Skill/Catalog, MCP, Backup/Recovery, and Eval contracts. M1 defect classes probed: `docs/m1_impl/CX_FINAL_CHECKLIST.md`.
+`EXCEPTION_CATALOG.m2.json`, `RED_SEQUENCE.m2.md`, plus the M2.2–M2.6 Work, Skill/Catalog, MCP, Backup/Recovery, and Eval contracts. M1 defect classes probed: `docs/history/m1_impl/CX_FINAL_CHECKLIST.md`.
 
 ## Ratified Architecture Decisions (SSOT)
 

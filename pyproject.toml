@@ -47,7 +47,7 @@ peerhub = "peerhub.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-xdist>=3.0", "pytest-timeout>=2.3.0", "pyright>=1.1.370", "hypothesis>=6.0",
-    "build>=1.0", "setuptools>=77.0.3", "virtualenv>=20", "pyyaml>=6", "packaging>=23"]
+    "build>=1.0", "setuptools>=77.0.3", "virtualenv>=20", "pyyaml>=6", "packaging>=23", "filelock>=3"]
 
 [tool.setuptools.dynamic]
 version = {attr = "peerhub._version.__version__"}
@@ -69,6 +69,7 @@ addopts = "-ra -m 'not slow and not e2e and not live and not canary and not soak
 # SQLite commit for tens of seconds, so 60 s turned one disk stall into a lost job. 180 s still catches a real deadlock.
 timeout = 180
 markers = [
+    "real_resources: exercise the OS resource reader instead of the default quiet sample",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "e2e: marks tests as End-to-End tier (deselect with '-m \"not e2e\"')",
     "canary: local opt-in provider measurements outside the release catalog",
@@ -77,4 +78,5 @@ markers = [
     "multiprocess", "fault", "migration", "bridge", "observation", "diag", "security", "package",
     "release", "ci", "evidence", "matrix", "cutover", "compatibility", "claim", "certainty", "restart", "integration", "live", "soak", "provider", "cc", "cx", "ag", "ca", "oa", "ga", "isolation", "control", "context", "persistence", "immutability",
     "platform_sensitive: tests that exercise OS/process/SQLite boundary behavior and must run on Windows",
+    "serial_timing: wall-clock checks run in a separate serial step when CI uses xdist",
 ]

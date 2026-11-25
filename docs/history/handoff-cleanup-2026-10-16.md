@@ -7,7 +7,7 @@ handoff/state notes, question lists, peer-review prompts and responses, and
 test or command output captures.
 
 PeerHub's current release state and remaining work are recorded in
-[`STATUS.md`](../STATUS.md); operating guidance is in [`HANDOFF.md`](../HANDOFF.md)
+[`STATUS.md`](../STATUS.md); operating guidance is in [maintainer notes](../../CONTRIBUTING.md#development-notes)
 and [`CONTRIBUTING.md`](../../CONTRIBUTING.md). The design decisions and
 historical implementation/review outcomes are retained in the dated
 [`design`](../design/) and [`history/session-log-2026-10.md`](session-log-2026-10.md)

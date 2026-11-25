@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_view as mv
+from peerhub.cli import monitor_layout, monitor_view as mv
 from tests.communication.diag.test_monitor_activity_view import NOW, pool
 from tests.communication.diag.test_monitor_plain_golden import _payload
 
@@ -61,7 +61,7 @@ def test_fable_is_nested_and_blocked_by_fresh_common_pool_showing_the_parents_le
     assert "C-7D out" in rows[0]
     assert "no eligible profiles" in screen and "top=cc.fable" not in screen
     if view == "rich":
-        assert f"\x1b[{mv.RICH_SGR['out']}m{mv.RICH_GLYPHS[unicode]['blocked']} blocked" in screen
+        assert f"\x1b[{monitor_layout.RICH_SGR['out']}m{monitor_layout.RICH_GLYPHS[unicode]['blocked']} blocked" in screen
     assert frame == before
 
 
@@ -142,7 +142,7 @@ def test_short_frames_never_leave_a_scoped_child_without_its_parent(width, heigh
     frame = payload()
     screen = mv.render_grouped_frame(frame, view="rich", width=width, height=height)
     assert len(screen.splitlines()) < height
-    assert all(mv._width(line) < width for line in screen.splitlines())
+    assert all(monitor_layout.cell_width(line) < width for line in screen.splitlines())
     if pool_rows(screen, "F-7D"):
         assert pool_rows(screen, "C-7D")
 

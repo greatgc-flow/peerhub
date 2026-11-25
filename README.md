@@ -53,7 +53,7 @@ peerhub --db .peerhub/core.db ask cc "Reply OK" --profile cc.standard --stream s
 
 The reply prints on stdout with a receipt line; use a new `--request-id` for every ask and a new `--stream` for every new task.
 
-- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, active asks, free RAM and CPU, about 350 tokens). `peerhub explain <topic or keywords>` finds a lesson.
+- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, active asks, free RAM and CPU, about 350 tokens). [Guide and explain](docs/commands.md#guide-and-explain) shows how to find a lesson.
 - Shared stores: follow `peerhub explain caller-ownership` to export a unique `PEERHUB_OWNER` per lead session, a readable `PEERHUB_LEAD` and batch lane identifiers.
 - People: `peerhub monitor` is the human screen (quota, running asks, recent asks).
 - Something wrong: `peerhub explain report-issues` lists what to include before filing an issue.
@@ -61,16 +61,16 @@ The reply prints on stdout with a receipt line; use a new `--request-id` for eve
 ## Core recipe
 
 The Core stores Peers, Streams, immutable Records, and per-peer Offsets.
-These commands use a new `core-demo` Stream in the selected store and call no provider:
+These commands create a `core-demo` Stream in `.peerhub/core.db` without calling a provider.
 
 ```powershell
 peerhub --db .peerhub/core.db peer register --peer reader --name "Demo reader"
-peerhub stream create --stream core-demo --members reader
-peerhub record append --stream core-demo --author-peer reader --kind message --body '"Hello"' --idempotency-key core-demo-001 --created-at 2026-10-10T00:00:00Z
-peerhub record read --stream core-demo --after 0 --limit 10
-peerhub offset get --peer reader --stream core-demo
-peerhub offset advance --peer reader --stream core-demo --position 1 --revision 1
-peerhub offset get --peer reader --stream core-demo
+peerhub --db .peerhub/core.db stream create --stream core-demo --members reader
+peerhub --db .peerhub/core.db record append --stream core-demo --author-peer reader --kind message --body '"Hello"' --idempotency-key core-demo-001 --created-at 2026-10-10T00:00:00Z
+peerhub --db .peerhub/core.db record read --stream core-demo --after 0 --limit 10
+peerhub --db .peerhub/core.db offset get --peer reader --stream core-demo
+peerhub --db .peerhub/core.db offset advance --peer reader --stream core-demo --position 1 --revision 1
+peerhub --db .peerhub/core.db offset get --peer reader --stream core-demo
 ```
 
 On an existing Stream, advance to the position you actually read and pass the
@@ -86,7 +86,7 @@ peerhub guide
 peerhub explain ask_blocked_uncertain
 ```
 
-CLI output defaults to compact human text, including when redirected. Use `--json` for scripts; `--format` is a hidden compatibility alias. Errors carry an outcome code and `next:` hint. Run `peerhub explain exit-codes` for the process exit codes and error output by command.
+CLI output defaults to compact human text, including when redirected. Use `--json` for scripts. Errors carry an outcome code and `next:` hint. Run `peerhub explain exit-codes` for the process exit codes and error output by command.
 
 ## Everyday commands
 
@@ -143,7 +143,8 @@ peerhub monitor --json --schema-version 1.1 --cycles 1
 # Customize grouped watch and snapshot defaults (workspace by default).
 peerhub monitor defaults set --group overview activity peers execution sessions usage context capacity coverage
 peerhub monitor defaults show
-peerhub monitor defaults reset   # saved before 0.24.16? reset to get the new `activity` group
+# Reset defaults saved before 0.24.16 to include the new activity group.
+peerhub monitor defaults reset
 
 # Review with a second provider using a declared profile.
 peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
@@ -173,7 +174,7 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API pee
 
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed pre-spawn unless `--writable` is explicitly passed (`#140`). cx resume passes `-c sandbox_mode="workspace-write"` (default `read-only`) because resume does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
-Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
+Quota is collected separately from diagnostics. The default peers are shown in `peerhub observation refresh --peers cx cc ag`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 
 `peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
 prints an ask command and one reason line. Put the task and supporting material
@@ -290,9 +291,7 @@ Configured weekly dependencies appear together in POOLS: for example, `cc F-7D` 
 
 For automation, `--json` emits schema
 2.0 NDJSON frames for watch and one JSON object for snapshot. The frozen 0.16.1
-machine contract remains available as `--json --schema-version 1.1`; the hidden
-deprecated `--legacy` alias was removed in 0.20.0 after its 0.19.x sunset.
-Use the explicit `--json --schema-version 1.1` options for the frozen machine contract.
+machine contract is available via `--json --schema-version 1.1`.
 
 The `diag` dashboard shows a threat summary, a stable pool
 table with usage, PACE in percentage points, reset countdown, conditional
@@ -456,12 +455,12 @@ peerhub diag running
 # Per-pool spend/hold/rest/blocked with target %/h until reset (stored observations only)
 peerhub diag --plan
 
-# Spread parallel work over the least quota: peerhub explain parallel-quota (docs/batch.md J)
+# Spread parallel work over the least quota: peerhub explain parallel-quota
 ```
 
 ### Upgrade
 
-To upgrade PeerHub safely:
+See [Store migrations](docs/migrations.md) for schema details.
 
 0. **Plan and back up**. `peerhub update --plan` lists blocking asks and processes and prints the backup, restore and upgrade commands. `peerhub explain store-and-upgrade` covers the hazards. Wait until `peerhub update --plan` exits 0 (it exits 1 while asks are running), then back up by running the printed backup command. It writes `.peerhub/core.db.pre-update-<UTC time>.bak` for the default store. Copy the exact path the plan prints. The command must exit 0 and the file must show a new modified time before step 2.
 1. **Stop `peerhub monitor`**: Stop any active monitor process before upgrading. A running monitor locks `peerhub.exe` on Windows and keeps old code running. Also wait for running `peerhub ask` calls to finish: they keep dependency files such as `pydantic_core` loaded, so an in-place upgrade can fail and leave a half-deleted install. If peerhub crashes with `ModuleNotFoundError` after an upgrade, reinstall it and check the result records before re-sending an ask.
@@ -508,7 +507,9 @@ tools/           maintainer scripts
   release_notes.py        traceability.py
 ```
 
-Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/implementation/STRUCTURE_CLEANUP.md).
+`peerhub/cli/app.py` registers and dispatches commands. Each command family owns its parser and handler in `peerhub/cli/`, with shared store selection in `store_select.py`.
+
+Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/history/implementation/STRUCTURE_CLEANUP.md).
 
 ## Where model facts come from and how to refresh them
 
@@ -528,10 +529,10 @@ See the [documentation map](docs/index.md) for all documentation.
   `git show 465bfe98de7d6931864da4991e45cc1993e342e6:docs/history/reviews/mece-audit-2026-09-20-cross-repo.md`
   (see the [archival ledger](docs/history/ledger-2026-10-17.md)).
 - Node.js based CLIs depend on their runtime and launcher installation; portable
-  layouts may resolve differently. See the [CLI observations](docs/compatibility/peer-cli-observations.md)
+  layouts may resolve differently. See the [CLI observations](docs/history/compatibility/peer-cli-observations.md)
   and [adapter reference](docs/adapters/peer-cli-reference.md).
 - Windows console or pipe encoding can affect non-ASCII output. See the
-  [recorded encoding failure](docs/m1_impl/wave7_report.md) and
+  [recorded encoding failure](docs/history/m1_impl/wave7_report.md) and
   [adapter reference](docs/adapters/peer-cli-reference.md#external-limitations).
 
 These are environment warnings; historical observations do not establish a
@@ -551,4 +552,4 @@ python -m tools.live_gate --yes
 
 Real providers are opt-in: set `PEERHUB_LIVE=1` and select `live`, `slow`, `e2e` or `canary` under `tests/communication/live`; live fixtures refuse CI. `-m live` selects exactly the six M1 live-tier tests; slow/e2e release cases use their own markers. The gate partitions those stages. Optional `canary` tests are outside the release catalog and measure usage, native resume recall, writable sentinel creation and cancellation using standard profiles. Use `python -m tools.live_gate --yes --only canary --peer cx` for lower-cost measurements; these results are not release evidence. See the [local live gate guidance](CONTRIBUTING.md#local-live-gate) for call budgets and skip behavior. Soak is separately opt-in with `PEERHUB_SOAK=1`. Local checks do not promote a milestone or authorize a release; candidate-matched CI, live and package evidence still apply.
 
-Historical evidence is retained separately: the 2026-10-04 archived snapshot has [VERIFIED-LOCAL records](docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json), and the recorded CI head has [VERIFIED-CI records](docs/m1_impl/matrix_evidence/ci-run-37189754726.json). Those records preserve their original paths and apply only to the recorded snapshot/head, not this changed worktree.
+The 2026-10-04 archived snapshot has [VERIFIED-LOCAL records](docs/history/m1_impl/matrix_evidence/windows-py3.11-3.13.json). The recorded CI head has [VERIFIED-CI records](docs/history/m1_impl/matrix_evidence/ci-run-37189754726.json). Each record applies only to the snapshot or head it identifies.

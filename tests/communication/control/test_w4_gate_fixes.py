@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from peerhub.extensions.bridge import BoundaryConflictError, SessionError
+from peerhub.extensions.bridge_errors import BoundaryConflictError, SessionError
 from peerhub.extensions.catchup import CatchUpBudget, build_catch_up
 from peerhub.extensions.direction import DirectionError, apply_direction
 from peerhub.core.store import CasMismatchError

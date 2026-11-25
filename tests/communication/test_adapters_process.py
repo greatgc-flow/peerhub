@@ -11,6 +11,7 @@ Covers:
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -19,17 +20,60 @@ import textwrap
 import threading
 import time
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from types import SimpleNamespace
+from unittest.mock import Mock, call
 
+import psutil
 import pytest
 
 pytestmark = pytest.mark.platform_sensitive
 
-from peerhub.extensions.adapters import CliRuntimeTarget
+from peerhub.extensions.adapters import CliRuntimeTarget, cli_runtime, process
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
-from peerhub.extensions.bridge import RuntimeTargetError
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTargetError
 from peerhub.extensions.process_tree import kill_process_tree
 from peerhub.extensions.runtime_port import ProcessRuntimeAdapter, RuntimeCancellationError, RuntimeCapability
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX launch gate")
+@pytest.mark.parametrize("approved", [False, True])
+def test_supervised_process_only_execs_after_approval(approved):
+    # Close the gate's writer by exiting the wrapper, exactly as a wrapper crash does.
+    wrapper = textwrap.dedent("""
+        import os
+        import sys
+        from peerhub.extensions.adapters.process import BoundedProcess
+
+        provider = [sys.executable, "-c",
+                    "from pathlib import Path; import sys; Path(sys.argv[1]).write_text('executed')",
+                    sys.argv[2]]
+        process = BoundedProcess(provider, stdin=None, cwd=os.getcwd(), env=os.environ,
+                                 timeout_s=10, max_bytes=1024)
+        process.start(suspended=True)
+        print(process.pid, flush=True)
+        if sys.argv[1] == "True":
+            process.release_launch()
+            assert process.wait().returncode == 0
+        else:
+            os._exit(17)
+    """)
+    with NamedTemporaryFile() as file:
+        result = subprocess.run([sys.executable, "-c", wrapper, str(approved), file.name],
+                                capture_output=True, timeout=15)
+        assert result.returncode == (0 if approved else 17), result.stderr
+        if not approved:
+            pid = int(result.stdout)
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    if psutil.Process(pid).status() == psutil.STATUS_ZOMBIE:
+                        break
+                except psutil.NoSuchProcess:
+                    break
+                assert time.monotonic() < deadline, "launch process did not exit after losing its gate"
+                time.sleep(0.01)
+        assert Path(file.name).read_text() == ("executed" if approved else "")
 from tests.communication.bridge_helpers import bseed, delivery_rows, kinds
 from tests.communication.harness.bridge import BridgeHarness
 
@@ -42,6 +86,111 @@ def _record(body: str = "test prompt", rid: str = "rec-1"):
 
 def _drain(gen):
     return list(gen)
+
+
+@pytest.mark.parametrize("fail_at", [1, 3])
+def test_worker_start_failure_kills_and_reaps_child(monkeypatch, fail_at):
+    calls = Mock()
+    child = SimpleNamespace(pid=4242, poll=lambda: None, wait=calls.wait,
+                            stdin=io.BytesIO(), stdout=io.BytesIO(), stderr=io.BytesIO())
+    calls.kill_tree.return_value = True
+    monkeypatch.setattr(process.subprocess, "Popen", lambda *args, **kwargs: child)
+    monkeypatch.setattr(process, "kill_process_tree", calls.kill_tree)
+    original_start = threading.Thread.start
+    starts = 0
+
+    def start(thread):
+        nonlocal starts
+        starts += 1
+        if starts == fail_at:
+            raise RuntimeError("thread start failed")
+        original_start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", start)
+    target = CliRuntimeTarget("cc", ".", command=["fake-cc"])
+    session = target.create_session()
+    with pytest.raises(RuntimeTargetError, match="thread start failed") as failure:
+        next(iter(target.deliver(session, _record(), [])))
+    assert not isinstance(failure.value, PrespawnError)
+    assert failure.value.termination_confirmed is True
+    assert calls.mock_calls == [call.kill_tree(child), call.wait(timeout=10)]
+    assert session not in target._active
+
+
+def test_popen_failure_stays_prespawn(monkeypatch):
+    def popen(*args, **kwargs):
+        raise FileNotFoundError("fake executable missing")
+
+    monkeypatch.setattr(process.subprocess, "Popen", popen)
+    target = CliRuntimeTarget("cc", ".", command=["fake-cc"])
+    with pytest.raises(PrespawnError, match="fake executable missing"):
+        _drain(target.deliver(target.create_session(), _record(), []))
+
+
+def test_unverified_supervised_process_is_uncertain_and_stays_behind_the_gate(monkeypatch):
+    runner = Mock(pid=4242)
+    publish = Mock()
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *a, **kw: runner)
+    monkeypatch.setattr(cli_runtime, "process_created", lambda pid: None)
+    monkeypatch.setattr(cli_runtime, "capture_process_identity", lambda pid: None)
+    target = CliRuntimeTarget("cc", ".", command=["fake-cc"])
+    session = target.create_session()
+
+    with pytest.raises(RuntimeTargetError, match="could not verify the supervised launch process") as failure:
+        _drain(target.deliver(session, _record(), [], publish_launch=publish))
+    assert not isinstance(failure.value, PrespawnError)
+    runner.start.assert_called_once_with(suspended=True)
+    publish.assert_not_called()
+    runner.release_launch.assert_not_called()
+    runner.cancel_launch.assert_called_once_with()
+    runner.abort.assert_called_once_with()
+    assert session not in target._active
+
+
+def test_broken_launch_gate_does_not_prove_exec_was_rejected(monkeypatch):
+    close = Mock()
+    monkeypatch.setattr(process, "os", SimpleNamespace(write=Mock(side_effect=BrokenPipeError), close=close))
+    runner = BoundedProcess(["fake-cc"], stdin=None, cwd=".", env={})
+    runner._launch_gate, runner._launch_status = 101, 102
+    with pytest.raises(BrokenPipeError):
+        runner.release_launch()
+    assert close.call_args_list == [call(101), call(102)]
+
+
+@pytest.mark.parametrize("kind,stdout", [
+    ("cc", b'{"type":"result","subtype":"success","is_error":false,"result":"OK"}\n'),
+    ("cx", b'{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}\n'
+           b'{"type":"turn.completed"}\n'),
+])
+@pytest.mark.parametrize("state", ["complete", "short", "broken"])
+def test_stdin_must_be_complete_before_zero_exit_can_deliver(monkeypatch, kind, stdout, state):
+    child = SimpleNamespace(pid=4242, poll=lambda: 0, wait=lambda **kwargs: 0, returncode=0,
+                            stdin=io.BytesIO(), stdout=io.BytesIO(stdout), stderr=io.BytesIO())
+    monkeypatch.setattr(process.subprocess, "Popen", lambda *args, **kwargs: child)
+    monkeypatch.setattr(cli_runtime, "process_created", lambda pid: None)
+    writes: list[bytes] = []
+
+    def write_some(pipe, view):
+        writes.append(bytes(view))
+        if len(writes) == 1:
+            return 4
+        if state == "broken":
+            raise BrokenPipeError
+        return len(view) if state == "complete" else 0
+
+    monkeypatch.setattr(process, "_write_some", write_some)
+    target = CliRuntimeTarget(kind, ".", command=["fake-cli"])
+    events = iter(target.deliver(target.create_session(), _record(), []))
+    assert next(events)[0] == "started"
+    if state == "complete":
+        terminal, = events
+        assert terminal[0] == "terminal"
+        assert terminal[1]["response"] == "OK"
+    else:
+        with pytest.raises(RuntimeTargetError, match=rf"stdin write incomplete \({state}, 4/11\)") as failure:
+            next(events)
+        assert not isinstance(failure.value, PrespawnError)
+    assert writes == [b"test prompt", b" prompt"]
 
 
 def test_normal_exit_termination_confirmed_is_none(tmp_path):
@@ -339,6 +488,12 @@ def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pi
     release, violations = threading.Event(), []
     monkeypatch.setattr(proc_module.subprocess, "Popen", lambda *a, **k: _StuckPopen(returncode, release, violations))
     monkeypatch.setattr(proc_module, "kill_process_tree", failed_kill)
+    # Popen is a fake, so there is no launcher PID or child reading the approval pipe.
+    monkeypatch.setattr(cli_runtime, "process_created", lambda pid: 123.0)
+    monkeypatch.setattr(cli_runtime, "capture_process_identity",
+                        lambda pid: "linux:fake-boot:1" if sys.platform.startswith("linux") else None)
+    approve = Mock()
+    monkeypatch.setattr(BoundedProcess, "release_launch", approve)
     timeout_s = 0.5
     bound = timeout_s + 10 + 5 + 2
     ws = tmp_path / "ws_stuck"
@@ -359,6 +514,7 @@ def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pi
         result = bridge_h.delivery_cycle("b", "s", target)
         assert time.monotonic() - t0 <= bound
         assert (result.status, result.certainty) == ("uncertain", "STARTED")
+        assert approve.call_count == (0 if sys.platform == "win32" else 1)
         details = [e["detail"] for e in bridge_h.execution_evidence(rec.record_id, "b")["events"]
                    if e["kind"] in ("runtime_timeout", "runtime_error")]
         assert details and all(d.get("termination_confirmed") is not True for d in details)

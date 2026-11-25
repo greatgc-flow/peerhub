@@ -1,7 +1,7 @@
 # Antigravity (`ag`) adapter
 
 This page documents the current production contract. Historical migration notes live under
-[`checkpoints/`](checkpoints/) and are not operational guidance.
+[`checkpoints/`](../history/adapter-checkpoints/) and are not operational guidance.
 
 ## Current contract
 
@@ -98,7 +98,9 @@ under `permissions.allow` in agy's `settings.json`; accept-edits alone does not
 approve shell commands. Prefer the narrow matching rule when shell access is
 intended. PeerHub never passes `--dangerously-skip-permissions` (#195).
 
-For an empty reply, check these three causes before changing permissions:
+For a text-only task, inline the content via `--query-file` and say "no tools". Keep one task per ask and name files explicitly; a literal `*` is never expanded. When file reads are needed, ask for the file reader and leave out shell fallbacks (#406). `denied_actions` shows tool names only. Use a new stream after an empty or `denied_empty` reply and inline the content. For a prompt over the argv limit, split it or use cc/cx on a separate stream and use a new request ID for changed text. Verify Flash-tier claims against the source.
+
+For an empty reply, check these causes before changing permissions:
 
 1. **Untrusted workspace:** check the actual `-w` against `trustedWorkspaces`.
    Use the trusted project folder, even when the task only reads files.
@@ -108,8 +110,12 @@ For an empty reply, check these three causes before changing permissions:
    target locally; use a bounded text
    extract or explicitly approve the intended shell command rather than assuming
    accept-edits permits it.
-3. **Wrong branch:** confirm the path exists on the checked-out branch; a path
+3. **Allow-list scope:** inspect `permissions.allow`. Headless reads outside the workspace and unlisted commands can be denied. Use a narrow rule such as `command(regex:...)` for a command that needs it.
+4. **Quota:** inspect `RESOURCE_EXHAUSTED` and the reported reset before starting new work.
+5. **Wrong branch:** confirm the path exists on the checked-out branch; a path
    present only on another branch cannot be read from this checkout.
+
+In #302 a file read once failed with a trusted workspace. Three re-tests did not reproduce it and the issue closed on 2026-11-09. Inline the content when a read cannot be relied on.
 
 Image reads are denied through `peerhub ask ag`. If an image read is intended,
 use direct `agy` with an exact-path read allow rule; PeerHub has no

@@ -6,12 +6,15 @@ import json
 import sqlite3
 import time
 from contextlib import closing
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from peerhub.extensions import diag_quota
 from peerhub.extensions.diag_readiness import compose
-from peerhub.extensions.monitor_read_model import PEER_CAP, mapped_quota, render_monitor_frame
+from peerhub.extensions.monitor_queries import PEER_CAP
+from peerhub.extensions.monitor_quota import mapped_quota
+from peerhub.extensions.monitor_read_model import render_monitor_frame
 from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
 from tests.communication.bridge_helpers import bseed
 from tests.communication.harness.bridge import BridgeHarness
@@ -109,13 +112,17 @@ def readiness_observation(pool: str, remaining: float, reset_in: float) -> dict:
             "observation_id": f"obs-{pool}", "payload": {"remaining_fraction": remaining, "resets_at": NOW + reset_in}}
 
 
-def readiness(parent: float, child: float, parent_reset: float = 3600, child_reset: float = 86400) -> dict:
+def readiness(parent: float, child: float, parent_reset: float = 3600, child_reset: float = 86400,
+              parent_relative: bool = False) -> dict:
     profiles = [{"id": "cc.fable", "pools": ["quota:cc:C-7D", "quota:cc:F-7D"], "mapping": "verified",
                  "binding": "cc.fable/m/e", "policy": None},
                 {"id": "cc.effort", "pools": ["quota:cc:C-7D"], "mapping": "verified", "binding": "cc.effort/m/e",
                  "policy": None}]  # the shipped membership: F-7D's profiles are a strict subset of C-7D's
-    return compose(profiles, [readiness_observation("C-7D", parent, parent_reset),
-                              readiness_observation("F-7D", child, child_reset)], [], NOW, complete=True)
+    parent_observation = readiness_observation("C-7D", parent, parent_reset)
+    if parent_relative:
+        parent_observation["observed_at"] = datetime.fromtimestamp(NOW - 60, timezone(timedelta(hours=9))).isoformat()
+        parent_observation["payload"] = {"remaining_fraction": parent, "reset_in_seconds": 60 + parent_reset}
+    return compose(profiles, [parent_observation, readiness_observation("F-7D", child, child_reset)], [], NOW, complete=True)
 
 
 def test_readiness_parent_lower_the_child_pool_has_the_parent_left_and_the_nearer_reset():
@@ -134,6 +141,17 @@ def test_readiness_parent_out_exhausts_the_child_pool_and_its_profile():
 def test_readiness_parent_higher_changes_nothing():
     pool = readiness(.80, .26, parent_reset=3600, child_reset=86400)["pools"]["quota:cc:F-7D"]
     assert pool["remaining"] == .26 and pool["reset_in"] == 86400 and "limited_by" not in pool
+
+
+@pytest.mark.parametrize("remaining", [0, .08])
+@pytest.mark.parametrize("reset", [0, -1])
+@pytest.mark.parametrize("relative", [False, True])
+def test_readiness_reset_parent_cannot_limit_the_child(remaining, reset, relative):
+    report = readiness(remaining, .26, parent_reset=reset, parent_relative=relative)
+    parent, child = (report["pools"][f"quota:cc:{name}"] for name in ("C-7D", "F-7D"))
+    assert parent["state"] == "MEASURED" and parent["remaining"] is None and parent["reset_in"] == 0
+    assert child["remaining"] == .26 and child["reset_in"] == 86400 and "limited_by" not in child
+    assert all(p["state"] == "UNKNOWN" and p["action"] == "inspect_facts" for p in report["profiles"])
 
 
 # ---- 7: diag quota -------------------------------------------------------------------------------------------------

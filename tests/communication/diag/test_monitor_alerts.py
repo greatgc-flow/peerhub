@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 
-from peerhub.extensions import monitor_read_model as mrm
+from peerhub.extensions import monitor_queries, monitor_read_model as mrm
+from peerhub.extensions import monitor_alerts, monitor_quota
 from tests.communication.harness.core import CoreHarness
 
 pytestmark = [pytest.mark.unit, pytest.mark.diag]
@@ -25,11 +26,11 @@ def ask(state: str, name: str = "s", **kw: Any) -> dict[str, Any]:
 def alerts(**kw: Any) -> list[dict[str, Any]]:
     args: dict[str, Any] = {"asks": [], "pools": [], "accounts": [], "facts_report": None, "failures": [], "now": NOW}
     args.update(kw)
-    return mrm.build_alerts(**args)
+    return monitor_alerts.build_alerts(**args)
 
 
 def test_window_constant():
-    assert mrm.ALERT_WINDOW_S == 1800
+    assert monitor_queries.ALERT_WINDOW_S == 1800
 
 
 def test_alert_shape():
@@ -71,8 +72,8 @@ def test_every_rule_in_order():
 
 @pytest.mark.parametrize("state", ["empty", "error", "unsure"])
 def test_a1_window_boundary(state):
-    inside = ask(state, "in", ended_at=NOW - mrm.ALERT_WINDOW_S, age_s=float(mrm.ALERT_WINDOW_S))
-    outside = ask(state, "out", ended_at=NOW - mrm.ALERT_WINDOW_S - 1, age_s=float(mrm.ALERT_WINDOW_S + 1))
+    inside = ask(state, "in", ended_at=NOW - monitor_queries.ALERT_WINDOW_S, age_s=float(monitor_queries.ALERT_WINDOW_S))
+    outside = ask(state, "out", ended_at=NOW - monitor_queries.ALERT_WINDOW_S - 1, age_s=float(monitor_queries.ALERT_WINDOW_S + 1))
     assert [a["subject"] for a in alerts(asks=[inside, outside])] == ["cx.standard in"]
 
 
@@ -82,8 +83,8 @@ def test_a1_with_an_inexact_end_uses_the_bound_and_has_no_age():
 
 
 def test_overdue_window_boundary():
-    inside = ask("overdue", "in", lease_left_s=-float(mrm.ALERT_WINDOW_S))
-    outside = ask("overdue", "out", lease_left_s=-float(mrm.ALERT_WINDOW_S) - 1)
+    inside = ask("overdue", "in", lease_left_s=-float(monitor_queries.ALERT_WINDOW_S))
+    outside = ask("overdue", "out", lease_left_s=-float(monitor_queries.ALERT_WINDOW_S) - 1)
     assert [a["subject"] for a in alerts(asks=[inside, outside])] == ["cx.standard in"]
 
 
@@ -119,22 +120,22 @@ def test_pool_states_and_min_quota():
                     obs("cx", "X-7D", 0.42, projection={"state": "threat"}), obs("cc", "F-7D", None, state="UNKNOWN"),
                     obs("cx", "X-5H", 0.42, projection={"state": "threat"})]
     observations[3]["projection_samples"] = 2  # the view's rule: `fast` needs two samples (monitor_view `_compact_pool`)
-    pools = mrm.pool_states(observations)
+    pools = monitor_quota.pool_states(observations)
     by_name = {p["pool"]: p for p in pools}
     assert by_name["ag 3P-7D"] == {"pool": "ag 3P-7D", "left_pct": 1, "state": "low", "shown": "low", "window": "7D",
                                    "evidence": "MEASURED", "fresh": True, "na": False}
     assert by_name["cc C-5H"]["state"] == "out" and by_name["cx X-7D"]["state"] == by_name["cx X-7D"]["shown"] == "fast"
     assert by_name["cx X-5H"]["state"] == "ok"  # a threat projection from fewer than two samples is not `fast`
     assert by_name["cc F-7D"]["state"] == "?" and by_name["cc F-7D"]["left_pct"] is None
-    assert mrm.min_quota(pools) == {"pool": "ag 3P-7D", "left_pct": 1, "state": "low", "aged": False}
-    assert mrm.min_quota([]) is None
+    assert monitor_quota.min_quota(pools) == {"pool": "ag 3P-7D", "left_pct": 1, "state": "low", "aged": False}
+    assert monitor_quota.min_quota([]) is None
 
 
 def test_two_sample_rule_reads_the_counts_of_the_human_path():
     item = {"observation_id": "x", "peer_id": "cx", "kind": "quota", "pool_ref": "cx:X-7D", "state": "MEASURED",
             "measurements": {"remaining_fraction": 0.42}, "projection": {"state": "threat"}, "reset_in_seconds": 100.0}
-    assert mrm.pool_states([item])[0]["state"] == "ok"
-    assert mrm.pool_states([item], samples={"x": 2})[0]["state"] == "fast"
+    assert monitor_quota.pool_states([item])[0]["state"] == "ok"
+    assert monitor_quota.pool_states([item], samples={"x": 2})[0]["state"] == "fast"
 
 
 def stale(peer, pool, oid):
@@ -145,33 +146,33 @@ def stale(peer, pool, oid):
 def test_stale_pools_are_aged_with_their_last_known_value_and_never_out_low_or_fast():
     observations = [stale("ag", "3P-7D", "o1"), stale("cc", "C-7D", "o2"), stale("cx", "X-7D", "o3"), stale("cx", "X-5H", "o4")]
     last_known = {"o1": (0.0, None), "o2": (0.05, NOW + 100.0), "o3": (0.5, NOW - 1.0)}  # o4: no valid last value
-    pools = {p["pool"]: p for p in mrm.pool_states(observations, last_known, NOW)}
-    assert (pools["ag 3P-7D"]["state"], pools["ag 3P-7D"]["shown"], pools["ag 3P-7D"]["left_pct"]) == ("aged", "out", 0)
+    pools = {p["pool"]: p for p in monitor_quota.pool_states(observations, last_known, NOW)}
+    assert (pools["ag 3P-7D"]["state"], pools["ag 3P-7D"]["shown"], pools["ag 3P-7D"]["left_pct"]) == ("aged", "aged", 0)
     assert (pools["cc C-7D"]["state"], pools["cc C-7D"]["shown"], pools["cc C-7D"]["left_pct"]) == ("aged", "low", 5)
     assert (pools["cx X-7D"]["state"], pools["cx X-7D"]["shown"], pools["cx X-7D"]["left_pct"]) == ("reset", "reset", None)
     assert (pools["cx X-5H"]["state"], pools["cx X-5H"]["left_pct"]) == ("?", None)
     assert alerts(pools=list(pools.values())) == []  # a3 is fresh-only: `state`, never `shown`
-    assert mrm.min_quota(list(pools.values())) == {"pool": "ag 3P-7D", "left_pct": 0, "state": "out", "aged": True}
+    assert monitor_quota.min_quota(list(pools.values())) == {"pool": "ag 3P-7D", "left_pct": 0, "state": "aged", "aged": True}
 
 
 @pytest.mark.parametrize("fraction,projection,samples,shown", [
-    (0.01, {}, 0, "low"), (0.60, {}, 0, "aged"), (0.0, {}, 0, "out"), (0.60, {"state": "threat"}, 2, "fast"),
+    (0.01, {}, 0, "low"), (0.60, {}, 0, "aged"), (0.0, {}, 0, "aged"), (0.60, {"state": "threat"}, 2, "fast"),
     (0.60, {"state": "threat"}, 1, "aged")])
 def test_min_quota_of_a_stale_pool_shows_the_view_precedence(fraction, projection, samples, shown):
     item = {**stale("ag", "3P-7D", "o1"), "projection": projection, "projection_samples": samples}
-    pools = mrm.pool_states([item], {"o1": (fraction, None)}, NOW)
-    assert mrm.min_quota(pools) == {"pool": "ag 3P-7D", "left_pct": round(fraction * 100), "state": shown, "aged": True}
+    pools = monitor_quota.pool_states([item], {"o1": (fraction, None)}, NOW)
+    assert monitor_quota.min_quota(pools) == {"pool": "ag 3P-7D", "left_pct": round(fraction * 100), "state": shown, "aged": True}
     assert pools[0]["state"] == "aged" and alerts(pools=pools) == []
 
 
 def test_capacity_source_is_stale_only_without_a_fresh_seven_day_pool():
     fresh = {"observation_id": "f", "peer_id": "cc", "kind": "quota", "pool_ref": "cc:F-7D", "state": "MEASURED",
              "measurements": {"remaining_fraction": 0.4}, "projection": {}, "reset_in_seconds": 100.0}
-    all_stale = mrm.pool_states([stale("ag", "3P-7D", "o1")], {"o1": (0.2, None)}, NOW)
-    assert mrm.capacity_source(all_stale) == "stale"
-    assert mrm.capacity_source(mrm.pool_states([stale("ag", "3P-7D", "o1"), fresh], {"o1": (0.2, None)}, NOW)) == "read"
-    assert mrm.capacity_source(mrm.pool_states([stale("ag", "3P-5H", "o1")], {}, NOW)) == "read"  # no 7-day row is stale
-    assert mrm.capacity_source([]) == "read"  # providers that never report quota
+    all_stale = monitor_quota.pool_states([stale("ag", "3P-7D", "o1")], {"o1": (0.2, None)}, NOW)
+    assert monitor_quota.capacity_source(all_stale) == "stale"
+    assert monitor_quota.capacity_source(monitor_quota.pool_states([stale("ag", "3P-7D", "o1"), fresh], {"o1": (0.2, None)}, NOW)) == "read"
+    assert monitor_quota.capacity_source(monitor_quota.pool_states([stale("ag", "3P-5H", "o1")], {}, NOW)) == "read"  # no 7-day row is stale
+    assert monitor_quota.capacity_source([]) == "read"  # providers that never report quota
 
 
 def unread(peer, pool, state="UNKNOWN", **kw):
@@ -182,7 +183,7 @@ def unread(peer, pool, state="UNKNOWN", **kw):
 def test_capacity_source_is_unknown_when_no_seven_day_pool_has_a_reading():
     """#376 P14: every 7-day pool is unknown or in error and none is STALE; a window the provider says it has not is no pool."""
     def source(*observations):
-        return mrm.capacity_source(mrm.pool_states(list(observations), {"o1": (0.2, None)}, NOW))
+        return monitor_quota.capacity_source(monitor_quota.pool_states(list(observations), {"o1": (0.2, None)}, NOW))
 
     fresh = {"observation_id": "f", "peer_id": "cc", "kind": "quota", "pool_ref": "cc:F-7D", "state": "MEASURED",
              "measurements": {"remaining_fraction": 0.4}, "projection": {}, "reset_in_seconds": 100.0}
@@ -195,7 +196,7 @@ def test_capacity_source_is_unknown_when_no_seven_day_pool_has_a_reading():
     assert source(not_reported) == "read"
     assert source(unread("cc", "C-7D", "STALE", stored_state="ABSENT", reason="disabled by provider: weekly limit")) == "read"
     assert source(not_reported, unread("cc", "F-7D", "ERROR")) == "unknown"
-    assert [p["na"] for p in mrm.pool_states([not_reported, unread("cc", "F-7D")])] == [True, False]
+    assert [p["na"] for p in monitor_quota.pool_states([not_reported, unread("cc", "F-7D")])] == [True, False]
 
 
 def test_a_frame_whose_only_seven_day_pool_is_unknown_reports_unknown_capacity(tmp_path):
@@ -226,7 +227,7 @@ def test_all_stale_frame_reports_stale_capacity_and_an_aged_min_quota_without_a3
     out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 300, preference_source="command")
     assert out["groups"]["capacity"]["data"]["observations"][0]["state"] == "STALE"
     assert out["alert_sources"]["capacity"] == "stale"
-    assert out["min_quota"] == {"pool": "cx X-7D", "left_pct": 0, "state": "out", "aged": True}  # A6: the shown state
+    assert out["min_quota"] == {"pool": "cx X-7D", "left_pct": 0, "state": "aged", "aged": True}
     assert out["alerts"] == []  # still no a3 for a stale 0%
     assert out["groups"]["capacity"]["data"]["observations"][0]["measurements"] is None  # the public value stays hidden
 
@@ -257,9 +258,10 @@ def test_stale_value_is_the_checked_fraction_not_one_minus_used(tmp_path, fracti
 @pytest.mark.parametrize("human", [False, True])
 def test_fast_needs_two_samples_on_every_path_without_another_statement(tmp_path, monkeypatch, captures, shown, human):
     """`fast` (two MEASURED samples of one window and a threat projection) is the same on the JSON, expand and compact paths."""
+    from peerhub.extensions import quota_projection
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from tests.communication.harness.observation import T0, ObservationHarness
-    monkeypatch.setattr(mrm, "project_exhaustion", lambda *a, **k: {"state": "threat", "pace_pt": 30.0})
+    monkeypatch.setattr(quota_projection, "project_exhaustion", lambda *a, **k: {"state": "threat", "pace_pt": 30.0})
     h = ObservationHarness(tmp_path / "fast")
     h.register_pool({"schema_version": "1.0", "resource_pool_id": "cx:X-7D", "provider": "openai", "kind": "QUOTA", "metadata": {}})
     for n in range(captures):
@@ -405,12 +407,12 @@ def test_hint_is_inferred_from_saved_defaults_when_no_source_is_given(tmp_path, 
 
 def test_frame_alerts_come_from_activity_rows(tmp_path):
     from tests.communication.diag.test_monitor_activity import caller, claim, delivery, iso
-    from peerhub.extensions import bridge, bridge_claims
+    from peerhub.extensions import bridge_claims, bridge_schema
     import sqlite3
     from contextlib import closing
     h = CoreHarness(tmp_path / "ws")
     with closing(sqlite3.connect(h.db_path)) as c:
-        for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+        for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             c.execute(stmt)
         c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
         c.commit()

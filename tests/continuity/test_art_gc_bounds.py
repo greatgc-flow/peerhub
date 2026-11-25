@@ -57,10 +57,10 @@ def test_commit_fsyncs_the_shard_directory_on_posix(tmp_path, monkeypatch):
 def test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml(monkeypatch):
     import importlib
 
-    from peerhub.extensions.skills import SkillCatalogEngine
+    from peerhub.extensions.skill_source import parse_yaml_frontmatter
 
     text = "name: demo\ntags: [a, 'b', \"c\"]\nempty: []\nplain: value\n"
-    with_yaml = SkillCatalogEngine._parse_yaml_frontmatter(text)
+    with_yaml = parse_yaml_frontmatter(text)
     real = importlib.import_module
 
     def no_yaml(name, *a, **k):
@@ -69,7 +69,7 @@ def test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml(monkeypatch)
         return real(name, *a, **k)
 
     monkeypatch.setattr(importlib, "import_module", no_yaml)
-    assert SkillCatalogEngine._parse_yaml_frontmatter(text) == with_yaml == {"name": "demo", "tags": ["a", "b", "c"], "empty": [], "plain": "value"}
+    assert parse_yaml_frontmatter(text) == with_yaml == {"name": "demo", "tags": ["a", "b", "c"], "empty": [], "plain": "value"}
 
 
 @pytest.mark.catalog_id("SKL-018")
@@ -154,7 +154,7 @@ def test_a_new_shard_syncs_its_parent_and_an_existing_shard_does_not(tmp_path, m
 
 @pytest.mark.catalog_id("SKL-018")
 def test_a_skill_file_that_changes_while_being_hashed_is_rejected_not_framed_wrongly(tmp_path, monkeypatch):
-    from peerhub.extensions import skills as skills_mod
+    from peerhub.extensions import skill_source
     from peerhub.extensions.boundary import SecurityBoundaryError
     from peerhub.extensions.skills import SkillCatalogEngine
 
@@ -162,7 +162,7 @@ def test_a_skill_file_that_changes_while_being_hashed_is_rejected_not_framed_wro
     d.mkdir()
     f = d / "a.txt"
     f.write_bytes(b"x" * 100_000)  # several chunks
-    real_fstat = skills_mod.os.fstat
+    real_fstat = skill_source.os.fstat
 
     def growing(fd):
         result = real_fstat(fd)
@@ -170,7 +170,7 @@ def test_a_skill_file_that_changes_while_being_hashed_is_rejected_not_framed_wro
             extra.write(b"late")
         return result
 
-    monkeypatch.setattr(skills_mod.os, "fstat", growing)
+    monkeypatch.setattr(skill_source.os, "fstat", growing)
     with pytest.raises(SecurityBoundaryError, match="changed while"):
         SkillCatalogEngine.compute_directory_digest(d)
     monkeypatch.undo()

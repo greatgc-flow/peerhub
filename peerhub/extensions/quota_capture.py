@@ -4,24 +4,107 @@ Provider parsing/transport is owned by quota_probes; no v0 runtime is loaded.
 """
 from __future__ import annotations
 
+import math
+import os
 import subprocess
+import sys
 import time
 import uuid
-import math
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Generator, Sequence, cast
 
-from peerhub.core.peer_kinds import ALIASES, CLI_PEER_ALIASES, QUOTA_CAPABLE_PEERS
-from peerhub.extensions.observation import ObservationStore
-from peerhub.extensions.observation_model import (EvidenceState, Observation, ResourcePool, changed_account_plan,
-                                                  epoch_to_iso, quota_probe_timed_out)
-from peerhub.extensions.quota_types import ResetCreditObserved, UsageObserved
+from peerhub.core.load_limits import ResourceSample, probe_timeout_factor
 from peerhub.core.models import utc_now_iso
+from peerhub.core.peer_kinds import ALIASES, CLI_PEER_ALIASES, QUOTA_CAPABLE_PEERS
+from peerhub.core.workspace import store_scratch_dir
+from peerhub.extensions.observation import ObservationStore
+from peerhub.extensions.observation_model import (
+    QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, EvidenceState, Observation,
+    ResourcePool, changed_account_plan, epoch_to_iso, quota_probe_timed_out,
+)
+from peerhub.extensions.quota_types import ResetCreditObserved, UsageObserved
 
 if TYPE_CHECKING:
     from peerhub.extensions.quota_probes import ProbeCancellation
 
 VERSION_PROBE_TIMEOUT_SECONDS = 3.0
+QUOTA_LOCK_WAIT_SECONDS = 3.0
+QUOTA_LOCK_POLL_SECONDS = .05
+
+
+def _try_file_lock(file: BinaryIO) -> bool:
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            file.seek(4096)  # Lock a byte beyond the PID so the owner can still be read on Windows.
+            msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+@contextmanager
+def quota_refresh_lock(db_path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> Generator[bool, None, None]:
+    """Hold a PID lock until the refresh finishes or its process exits."""
+    import psutil
+
+    scratch = store_scratch_dir(db_path)
+    scratch.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + QUOTA_LOCK_WAIT_SECONDS
+    # Keep a stable file identity so two contenders cannot lock different files during dead-owner recovery.
+    with (scratch / "quota-refresh.lock").open("a+b") as file:
+        while not _try_file_lock(file):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or (cancelled is not None and cancelled()):
+                yield False
+                return
+            time.sleep(min(QUOTA_LOCK_POLL_SECONDS, remaining))
+        file.seek(0)
+        raw = file.read(32).strip()
+        owner = int(raw) if raw.isdigit() else 0
+        while 0 < owner <= 0x7fffffff and psutil.pid_exists(owner):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or (cancelled is not None and cancelled()):
+                yield False
+                return
+            time.sleep(min(QUOTA_LOCK_POLL_SECONDS, remaining))
+        file.seek(0)
+        file.truncate()
+        file.write(str(os.getpid()).encode("ascii"))
+        file.flush()
+        try:
+            yield True
+        finally:
+            file.seek(0)
+            file.truncate()  # Closing releases the OS lock. An interrupted owner leaves its PID for the next caller.
+
+
+def refresh_each_peer(peers: Sequence[str], *, collect: Callable[[str], dict[str, Any]],
+                      cancellation: ProbeCancellation) -> dict[str, Any] | None:
+    """Commit each peer's evidence as it arrives and summarize the collection."""
+    statuses: set[str] = set()
+    observations: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for peer in peers:
+        if cancellation.cancelled():
+            return None
+        try:
+            result = collect(peer)
+        except Exception as exc:
+            statuses.add("FAILED")
+            warnings.append(type(exc).__name__)
+            continue
+        statuses.add(result["status"])
+        observations.extend(result.get("observations", []))
+        warnings.extend(result.get("warnings", []))
+    if statuses and not cancellation.cancelled():
+        status = "OK" if statuses == {"OK"} else "FAILED" if statuses == {"FAILED"} else "PARTIAL"
+        return {"status": status, "observations": observations, "warnings": warnings}
+    return None
 
 
 class _Ids:
@@ -181,7 +264,8 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                   cx_pools: Sequence[str] | None = None, cc_pools: Sequence[str] | None = None,
                   ag_pools: Sequence[str] | None = None,
                   account_pollers: dict[str, Callable[[], Any]] | None = None,
-                  retry_timeouts: bool = False, cancellation: ProbeCancellation | None = None) -> dict[str, Any]:
+                  retry_timeouts: bool = False, cancellation: ProbeCancellation | None = None,
+                  resource_reader: Callable[[], ResourceSample] | None = None) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
     if not Path(db_path).is_file():
@@ -193,6 +277,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             labels = ", ".join(f"{peer}/{CLI_PEER_ALIASES[peer]}" for peer in QUOTA_CAPABLE_PEERS)
             raise ValueError(f"quota providers: {labels}")
         kinds.append(kind)
+    timeout_factor = probe_timeout_factor(resource_reader)
+    busy = timeout_factor > 1
+    deadline_sec *= timeout_factor
     injected_pollers = pollers is not None
     if pollers is None:
         from peerhub.extensions.quota_probes import poll_agy_usage, poll_claude_usage, poll_codex_usage
@@ -220,10 +307,10 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     probed_versions: dict[str, str | None] = {}
 
     def _default_v_fn(k: str) -> str | None:
+        timeout = VERSION_PROBE_TIMEOUT_SECONDS * timeout_factor
         if cancellation is not None:
-            return _probe_cli_version(k, sys_dir, timeout=min(deadline_sec, VERSION_PROBE_TIMEOUT_SECONDS),
-                                      cancellation=cancellation)
-        return _probe_cli_version(k, sys_dir)
+            timeout = min(deadline_sec, timeout)
+        return _probe_cli_version(k, sys_dir, timeout=timeout, cancellation=cancellation)
 
     def check_cancelled() -> None:
         if cancellation is not None and cancellation.cancelled():
@@ -238,6 +325,10 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             probed_versions[kind] = None
     pending_obs: list[tuple[str, str | None, str, EvidenceState, dict[str, Any], str, str, str]] = []  # last item: observation kind
     warnings: list[str] = []
+
+    def report_load_delay(peer: str, payload: dict[str, Any]) -> None:
+        payload["reason"] = QUOTA_PROBE_LOAD_DELAY
+        warnings.append(f"{peer}: {QUOTA_PROBE_LOAD_DELAY}: {QUOTA_PROBE_LOAD_LABEL}")
 
     for peer, kind in zip(peers, kinds):
         check_cancelled()
@@ -266,7 +357,10 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         except Exception as exc:
             details = {"condition": "probe_failed", "error_type": type(exc).__name__}
             if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
-                details["reason"] = "quota_probe_timeout"
+                if busy:
+                    report_load_delay(peer, details)
+                else:
+                    details["reason"] = "quota_probe_timeout"
             pending_obs.append((
                 peer, None, f"quota_probe:{kind}", EvidenceState.ERROR, details,
                 utc_now_iso(), utc_now_iso(), "quota",
@@ -294,10 +388,10 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                 store.register_resource_pool(ResourcePool(resource_pool_id=pool_ref, provider=kind, kind="QUOTA"))
                 payload.update(remaining_fraction=measurement.remaining_fraction,
                                window_started_at=measurement.window_started_at, resets_at=measurement.resets_at)
-            elif state == EvidenceState.ABSENT:
-                absent_extra: dict[str, Any] = getattr(reading, "extra", None) or {}
-                scope, reason = absent_extra.get("pool_scope"), absent_extra.get("reason")
-                if isinstance(scope, str) and scope and isinstance(reason, str):  # X1: pool the provider did not report
+            elif state in (EvidenceState.ABSENT, EvidenceState.UNKNOWN):
+                pool_extra: dict[str, Any] = getattr(reading, "extra", None) or {}
+                scope, reason = pool_extra.get("pool_scope"), pool_extra.get("reason")
+                if isinstance(scope, str) and scope and isinstance(reason, str):  # configured pool without a measurement
                     pool_ref = f"quota:{kind}:{scope}"
                     store.register_resource_pool(ResourcePool(resource_pool_id=pool_ref, provider=kind, kind="QUOTA"))
                     payload["reason"] = reason
@@ -307,7 +401,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                 for key in ("reason", "consumed_tokens", "num_turns"):
                     if key in extra_data:
                         payload[key] = extra_data[key]
-                if extra_data.get("warning"):
+                if busy and quota_probe_timed_out(payload.get("reason")):
+                    report_load_delay(peer, payload)
+                elif extra_data.get("warning"):
                     warnings.append(f"{peer}: {extra_data.get('reason', 'probe_warning')}: {extra_data['warning']}")
             pending_obs.append((
                 peer, pool_ref, evidence.source_tag, state, payload,

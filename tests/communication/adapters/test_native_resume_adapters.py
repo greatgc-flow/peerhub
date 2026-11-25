@@ -1,12 +1,18 @@
 """Stage 1 native session identities, argv, binding and static adapter capability."""
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from peerhub.extensions.adapters import base
-from peerhub.extensions.bridge import RuntimeTargetError
+from peerhub.extensions.adapters import CliRuntimeTarget, cli_runtime
+from peerhub.extensions.adapters.process import ProcessResult
+from peerhub.extensions.adapters.registry import SPECS
+from peerhub.extensions.adapters.ag import AgSpec
+from peerhub.extensions.adapters.cc import CcSpec
+from peerhub.extensions.adapters.cx import CxSpec
+from peerhub.extensions.runtime_contract import RuntimeTargetError
 
 pytestmark = [pytest.mark.unit, pytest.mark.platform_sensitive]
 
@@ -46,33 +52,33 @@ AG = '{"response":"OK","conversation_id":"opaque.A_1:-","usage":{"input_tokens":
     ("ag", AG + AG, None),
 ])
 def test_literal_session_id_events(kind, stdout, expected):
-    assert base.SPECS[kind].parse_session_id(stdout) == expected
+    assert SPECS[kind].parse_session_id(stdout) == expected
 
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX), ("ag", AG)])
 @pytest.mark.parametrize("bad_id", ["", "a" * 201, "bad space", "bad/id", "bad\\id", "bad\n", "badé", "--last;"])
 def test_session_id_bounds_and_charset(kind, sample, bad_id):
     stdout = sample.replace('"opaque.A_1:-"', json.dumps(bad_id))
-    assert base.SPECS[kind].parse_session_id(stdout) is None
-    assert base.SPECS[kind].parse_session_id(sample + stdout) is None
+    assert SPECS[kind].parse_session_id(stdout) is None
+    assert SPECS[kind].parse_session_id(sample + stdout) is None
 
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX), ("ag", AG)])
 @pytest.mark.parametrize("bad_id", [None, 42, True, {}, []])
 def test_session_id_must_be_a_string(kind, sample, bad_id):
-    assert base.SPECS[kind].parse_session_id(sample.replace('"opaque.A_1:-"', json.dumps(bad_id))) is None
+    assert SPECS[kind].parse_session_id(sample.replace('"opaque.A_1:-"', json.dumps(bad_id))) is None
 
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX), ("ag", AG)])
 def test_session_id_at_length_limit_and_missing_output(kind, sample):
-    assert base.SPECS[kind].parse_session_id(sample.replace("opaque.A_1:-", "a" * 200)) == "a" * 200
+    assert SPECS[kind].parse_session_id(sample.replace("opaque.A_1:-", "a" * 200)) == "a" * 200
     for stdout in ("", "not JSON", "[]", "{}", '{"type":'):
-        assert base.SPECS[kind].parse_session_id(stdout) is None
+        assert SPECS[kind].parse_session_id(stdout) is None
 
 
 @pytest.mark.parametrize("writable", [False, True])
 def test_cc_fresh_and_resume_argv(writable):
-    spec = base.CcSpec()
+    spec = CcSpec()
     common = ["--model", "m-test", "--effort", "high"]
     if writable:
         common += ["--permission-mode", "acceptEdits"]
@@ -86,7 +92,7 @@ def test_cc_fresh_and_resume_argv(writable):
 @pytest.mark.parametrize("writable", [False, True])
 @pytest.mark.parametrize("model,effort", [(None, None), ("m-test", "high")])
 def test_cx_fresh_and_resume_argv(writable, model, effort):
-    spec = base.CxSpec()
+    spec = CxSpec()
     common = ["-m", model, "-c", f"model_reasoning_effort={effort}"] if model else []
     common += ["--json", "-"]
     fresh = ["exec", "--skip-git-repo-check", "-s", "workspace-write" if writable else "read-only"]
@@ -100,7 +106,7 @@ def test_cx_fresh_and_resume_argv(writable, model, effort):
 @pytest.mark.parametrize("writable", [False, True])
 @pytest.mark.parametrize("model,effort", [(None, None), ("m-test", "high")])
 def test_ag_fresh_and_resume_argv(writable, model, effort):
-    spec = base.AgSpec()
+    spec = AgSpec()
     fresh = ["-p", "question", "--output-format", "json"]
     if model:
         fresh += ["--model", model, "--effort", effort]
@@ -113,16 +119,18 @@ def test_ag_fresh_and_resume_argv(writable, model, effort):
 
 @pytest.mark.parametrize("kind,sample,source", [("cc", CC, "cc.result.session_id"), ("cx", CX, "cx.thread.started"),
                                                    ("ag", AG, "ag.conversation_id")])
-def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypatch, tmp_path):
+def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypatch):
     invocations = []
-    result = base.ProcessResult(123, 0, sample.encode(), b"", False, False, 0.1)
 
     def process(argv, **kwargs):
         invocations.append((argv, kwargs))
-        return SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
+        stdin = kwargs["stdin"]
+        result = ProcessResult(123, 0, sample.encode(), b"", False, False, 0.1,
+                               stdin_state="none" if stdin is None else "complete", stdin_bytes_written=len(stdin or b""))
+        return SimpleNamespace(pid=123, start=lambda *, suspended=False: None, cancel_launch=lambda: None, wait=lambda: result)
 
-    monkeypatch.setattr(base, "BoundedProcess", process)
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", process)
+    adapter = CliRuntimeTarget(kind, Path(__file__).parent, command=["fake.exe"], writable=(kind == "ag"))
     session = adapter.create_session()
     record = SimpleNamespace(body="question")
     first = list(adapter.deliver(session, record, []))
@@ -134,16 +142,16 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypat
     assert actual == expected
     assert telemetry["schema_version"] == 1
     assert telemetry["scope"] == "session_cumulative"
-    assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(None, None, "question", writable=(kind == "ag"))]
+    assert invocations[-1][0] == ["fake.exe", *SPECS[kind].argv(None, None, "question", writable=(kind == "ag"))]
     assert adapter.can_resume is True and adapter.resumable is True
-    assert base.SPECS[kind].can_resume is True
+    assert SPECS[kind].can_resume is True
     assert adapter.resume_session(session) == "missing"
     outcome = adapter.resume_session(session, vendor_session_id=first[-1][1]["vendor_session"]["id"])
     assert outcome == "ok"
     resumed = list(adapter.deliver(session, record, []))[-1][1]
     assert resumed.pop("provider_telemetry") == telemetry
     assert resumed == expected
-    assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(
+    assert invocations[-1][0] == ["fake.exe", *SPECS[kind].argv(
         None, None, "question", writable=(kind == "ag"), vendor_session_id="opaque.A_1:-")]
     assert invocations[-1][1]["stdin"] == (None if kind == "ag" else b"question")
     # Vendor bindings do not leak to a different local session.
@@ -152,47 +160,49 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypat
 
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX), ("ag", AG)])
-def test_invalid_vendor_binding_and_failed_terminal(kind, sample, monkeypatch, tmp_path):
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
+def test_invalid_vendor_binding_and_failed_terminal(kind, sample, monkeypatch):
+    adapter = CliRuntimeTarget(kind, Path(__file__).parent, command=["fake.exe"], writable=(kind == "ag"))
     assert adapter.resume_session("session", vendor_session_id="bad/id") == "rejected"
     assert adapter.resume_session("session", vendor_session_id="a" * 201) == "rejected"
-    result = base.ProcessResult(123, 1, sample.encode(), b"error", False, False, 0.1)
-    monkeypatch.setattr(base, "BoundedProcess", lambda *a, **kw: SimpleNamespace(
-        pid=123, start=lambda: None, wait=lambda: result))
+    result = ProcessResult(123, 1, sample.encode(), b"error", False, False, 0.1,
+                           stdin_state="none" if kind == "ag" else "complete", stdin_bytes_written=0 if kind == "ag" else 8)
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *a, **kw: SimpleNamespace(
+        pid=123, start=lambda *, suspended=False: None, cancel_launch=lambda: None, wait=lambda: result))
     events = adapter.deliver("session", SimpleNamespace(body="question"), [])
     assert next(events)[0] == "started"
-    with pytest.raises(RuntimeTargetError):
+    with pytest.raises(RuntimeTargetError, match=f"{kind} exited 1"):
         next(events)
 
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX)])
-def test_conflicting_ids_omit_terminal_candidate(kind, sample, monkeypatch, tmp_path):
+def test_conflicting_ids_omit_terminal_candidate(kind, sample, monkeypatch):
     stdout = sample + sample.replace("opaque.A_1:-", "other")
-    result = base.ProcessResult(123, 0, stdout.encode(), b"", False, False, 0.1)
-    monkeypatch.setattr(base, "BoundedProcess", lambda *a, **kw: SimpleNamespace(
-        pid=123, start=lambda: None, wait=lambda: result))
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"])
+    result = ProcessResult(123, 0, stdout.encode(), b"", False, False, 0.1,
+                           stdin_state="complete", stdin_bytes_written=8)
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *a, **kw: SimpleNamespace(
+        pid=123, start=lambda *, suspended=False: None, cancel_launch=lambda: None, wait=lambda: result))
+    adapter = CliRuntimeTarget(kind, Path(__file__).parent, command=["fake.exe"])
     events = list(adapter.deliver("session", SimpleNamespace(body="question"), []))
     assert "vendor_session" not in events[-1][1]
 
 
 @pytest.mark.parametrize("kind", ["cc", "cx", "ag"])
 def test_binding_includes_canonical_cwd_and_writable_and_version(tmp_path, kind):
-    adapter = base.CliRuntimeTarget(kind, tmp_path)
+    adapter = CliRuntimeTarget(kind, tmp_path)
     provider, _, scope = adapter.binding().partition("#")
     assert provider == "default/default" and len(scope) == 12  # a short digest of cwd+mode: no local path in Records
     assert str(tmp_path) not in adapter.binding()
-    assert adapter.binding() == base.CliRuntimeTarget(kind, tmp_path / "child" / "..").binding()
-    assert adapter.binding() != base.CliRuntimeTarget(kind, tmp_path / "other").binding()
-    assert adapter.binding() != base.CliRuntimeTarget(kind, tmp_path, writable=True).binding()
+    assert adapter.binding() == CliRuntimeTarget(kind, tmp_path / "child" / "..").binding()
+    assert adapter.binding() != CliRuntimeTarget(kind, tmp_path / "other").binding()
+    assert adapter.binding() != CliRuntimeTarget(kind, tmp_path, writable=True).binding()
     assert adapter.fingerprint() == f"adapter:{kind}:v2"
 
 
 @pytest.mark.parametrize("kind", ["cc", "cx", "ag"])
 def test_resume_capability_is_static_and_controls_remain_unsupported(kind, tmp_path, monkeypatch):
-    adapter = base.CliRuntimeTarget(kind, tmp_path)
-    monkeypatch.setattr(adapter, "_run", lambda args, timeout: base.ProcessResult(
-        123, 0, f"CLI 1.2.3 {base.SPECS[kind].resume_flag}".encode(), b"", False, False, 0.1))
+    adapter = CliRuntimeTarget(kind, tmp_path)
+    monkeypatch.setattr(adapter, "_run", lambda args, timeout: ProcessResult(
+        123, 0, f"CLI 1.2.3 {SPECS[kind].resume_flag}".encode(), b"", False, False, 0.1))
     caps = adapter.discover()["capabilities"]
     assert caps["resume"]["status"] == "supported"
     assert caps["resume"]["cli_status"] == "supported"

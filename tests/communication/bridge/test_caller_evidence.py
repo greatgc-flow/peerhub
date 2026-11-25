@@ -6,8 +6,8 @@ from contextlib import closing
 
 import pytest
 
-from peerhub.extensions.bridge import _digest  # pyright: ignore[reportPrivateUsage]
 from peerhub.extensions.bridge_claims import StaleClaimError
+from peerhub.core.models import json_digest
 from tests.communication.bridge_helpers import bseed, delivery_rows, kinds, sql
 from tests.communication.fakes import FakeRuntimeTarget
 from tests.communication.harness.bridge import BridgeHarness
@@ -202,7 +202,7 @@ def test_digests_and_retry_do_not_depend_on_the_caller(tmp_path):
     _, digest_n, result_n, _, body_n = _run(tmp_path, "wn", None)
     for text in (json.dumps(result_a), json.dumps(terminal_a), repr(body_a)):
         assert "lead-a" not in text and "ask_pid" not in text
-    assert terminal_a["digest"] == digest_a == _digest(result_a) and terminal_b["digest"] == digest_b == _digest(result_b)
+    assert terminal_a["digest"] == digest_a == json_digest(result_a, strict=False) and terminal_b["digest"] == digest_b == json_digest(result_b, strict=False)
     # the digested result has the same shape and reply whatever the caller (record ids differ per workspace)
     assert [b[0] for b in body_a] == [b[0] for b in body_b] == [b[0] for b in body_n]
     assert sorted(result_a) == sorted(result_b) == sorted(result_n)

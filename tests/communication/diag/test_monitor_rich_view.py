@@ -10,16 +10,19 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_view as mv
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER, render_grouped_frame, _width
-from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
+from peerhub.cli import monitor_format, monitor_layout, monitor_legend
+from peerhub.cli import monitor_quota_view
+from peerhub.cli.monitor_layout import cell_width
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER
+from peerhub.cli.monitor_view import render_grouped_frame
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 from tests.communication.diag.test_monitor_plain_golden import blocks, empty_payload, full_payload, quiet_payload
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
-OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values()}  # #414: a child bar's empty cells
-U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
+OUR_CODES = {"0", *monitor_layout.RICH_SGR.values(), *monitor_layout.PILL_SGR.values()}  # #414: a child bar's empty cells
+U, A = monitor_layout.RICH_GLYPHS[True], monitor_layout.RICH_GLYPHS[False]
 POOLS_HEAD = FRAME_SECTIONS["pools"]
 SUGGEST_HEAD = FRAME_SECTIONS["suggest"]
 _RULE_HEADS = "|".join(re.escape(head) for head in FRAME_HEADS if head != SUGGEST_HEAD)
@@ -118,7 +121,7 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
     for height in (None, *range(2, 30)):
         plain_lines = plain(payload, width=width, height=height).splitlines()
         rich_lines = strip(rich(payload, width=width, height=height)).splitlines()
-        assert all(_width(line) < width for line in (*rich_lines, *plain_lines))
+        assert all(cell_width(line) < width for line in (*rich_lines, *plain_lines))
         if width < 80:
             continue  # G4: the state glyph can change when rows wrap on narrow screens.
         assert abs(len(rich_lines) - len(plain_lines)) <= 2
@@ -128,7 +131,7 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
             head = _PLAIN_HEAD.match(old)
             if head:  # the rule keeps the head's title, count and notes (a head too long for the line stays a head)
                 assert new.removeprefix("── ").startswith(f"{head[1]} {head[2]}"), (width, height, old, new)
-                assert rule_head(new) or _width(old) > min(100, width) - 4, (width, height, old, new)
+                assert rule_head(new) or cell_width(old) > min(100, width) - 4, (width, height, old, new)
                 for part in old.split(" | ")[1:]:
                     assert part.replace("~", "…") in new, (width, height, old, new)
             elif old.startswith(("+", SUGGEST_HEAD, "next:", "no quota evidence", "DB:")):
@@ -142,10 +145,10 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
     width = 110
     line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 8")
-    assert line.startswith(f"── {POOLS_HEAD} 8 ─") and line.endswith("─") and _width(line) == width - 1
-    assert mv.POOLS_USE_FIRST_HINT in line
-    titles = [word for word in line.replace(mv.POOLS_USE_FIRST_HINT, "").split() if word in mv._POOL_COLUMNS]
-    assert titles == ["STATE", "LEFT", "PACE(pp)", mv.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
+    assert line.startswith(f"── {POOLS_HEAD} 8 ─") and line.endswith("─") and cell_width(line) == width - 1
+    assert monitor_quota_view.POOLS_USE_FIRST_HINT in line
+    titles = [word for word in line.replace(monitor_quota_view.POOLS_USE_FIRST_HINT, "").split() if word in monitor_format._POOL_COLUMNS]
+    assert titles == ["STATE", "LEFT", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
     rows = [text for text in strip(rich(full_payload(), width=width)).splitlines() if "X-7D" in text]
     assert line.index("LEFT") + len("LEFT") == rows[0].index("42%") + len("42%")
 
@@ -157,7 +160,7 @@ def test_the_other_rules_keep_their_head_content(head):
     payload = full_payload()
     payload["selected_groups"] = ["activity"]
     line = next(line for line in strip(rich(payload)).splitlines() if line.startswith(f"── {head.split(' · ')[0]}"))
-    assert line.startswith(f"── {head} ─") and _width(line) == 99
+    assert line.startswith(f"── {head} ─") and cell_width(line) == 99
 
 
 def test_read_failed_notes_stay_in_the_rule():
@@ -192,7 +195,7 @@ def test_rich_frame_stays_within_the_width_line_and_byte_budget(build, width):
             screen = rich(build(), width=width, height=height, unicode=unicode)
             lines = screen.splitlines()
             assert len(lines) <= (24 if height is None else min(24, max(0, height - 1))), (width, height)
-            assert all(_width(line) <= max(1, width - 1) for line in lines), (width, height, lines)
+            assert all(cell_width(line) <= max(1, width - 1) for line in lines), (width, height, lines)
             assert len(screen.encode("utf-8")) <= 8192  # the painted frame: SGR codes are counted
             assert all(code in OUR_CODES for code in SGR.findall(screen))
             assert "\x1b" not in strip(screen)
@@ -205,7 +208,7 @@ def test_one_sgr_span_per_run_of_one_colour():
         assert len(SGR.findall(line)) <= 12, line  # no per-cell gradient: a row has a handful of spans
     # G4 can omit the bar in the crowded frame. Check the span in a fixture where the bar fits.
     bar = row_of(rich(pools_payload(pool("cc", "C-7D", .63, pace=-20))), "C-7D")
-    assert re.search(rf"\x1b\[[0-9;]+m[█░|]{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}}\x1b\[0m", bar)
+    assert re.search(rf"\x1b\[[0-9;]+m[█░|]{{{monitor_format.BAR_CELLS},{monitor_format.BAR_MAX_CELLS}}}\x1b\[0m", bar)
 
 
 def test_colour_never_changes_the_text_but_for_the_pill_padding():
@@ -243,16 +246,16 @@ def test_the_palette_is_256_colour_with_semicolon_forms_whatever_colorterm_says(
     assert screen == reference  # C6: no truecolor branch
     codes = set(SGR.findall(screen))
     assert codes <= OUR_CODES and ":" not in "".join(codes)
-    for code in codes - {"0", "1", mv.RICH_SGR["out"], mv.RICH_SGR["spend"]}:  # M1  # SGR 2 dims a child bar's empty cells (#414)
+    for code in codes - {"0", "1", monitor_layout.RICH_SGR["out"], monitor_layout.RICH_SGR["spend"]}:  # M1  # SGR 2 dims a child bar's empty cells (#414)
         assert re.fullmatch(r"(?:1;)?38;5;\d{1,3}(?:;48;5;\d{1,3})?", code), code
         assert "38;2" not in code and "48;2" not in code
     assert not re.search(r"\x1b\[[0-9;:]*[^0-9;m]", screen) and "\x1b]" not in screen
 
 
 def test_the_palette_has_one_accent_per_meaning():
-    assert set(mv.RICH_SGR) == {"ok", "warn", "hot", "bad", "dim", "title", "out", "spend"}
-    assert len(set(mv.RICH_SGR.values())) == len(mv.RICH_SGR)
-    assert set(mv.PILL_SGR) == {"OK", "OK?", "ATTN"} and all("48;5;" in code for code in mv.PILL_SGR.values())
+    assert set(monitor_layout.RICH_SGR) == {"ok", "warn", "hot", "bad", "dim", "title", "out", "spend"}
+    assert len(set(monitor_layout.RICH_SGR.values())) == len(monitor_layout.RICH_SGR)
+    assert set(monitor_layout.PILL_SGR) == {"OK", "OK?", "ATTN"} and all("48;5;" in code for code in monitor_layout.PILL_SGR.values())
 
 
 # ---- line 1: the pill, the facts, the time ---------------------------------------------------------------------------
@@ -268,13 +271,13 @@ def test_line_1_starts_with_a_status_pill(sources, alerts, pill, key):
     payload["alert_sources"].update(sources)
     payload["alerts"] = alerts
     line = rich(payload).splitlines()[0]
-    assert line.startswith(f"\x1b[{mv.PILL_SGR[key]}m{pill}\x1b[0m")
+    assert line.startswith(f"\x1b[{monitor_layout.PILL_SGR[key]}m{pill}\x1b[0m")
     assert strip(line).startswith(pill + (" (quota stale)" if sources and not alerts else "") + " · ")
 
 
 def test_line_1_facts_are_separated_by_a_dim_dot_and_the_time_is_right_aligned():
     line = rich(quiet_payload()).splitlines()[0]
-    dim = mv.RICH_SGR["dim"]
+    dim = monitor_layout.RICH_SGR["dim"]
     assert strip(line) == " OK  · 0 running · 0 leads · min quota 63% cc C-7D ok".ljust(93) + "23:46Z"
     assert line.count(f"\x1b[{dim}m · \x1b[0m") == 3 and line.endswith(f"\x1b[{dim}m23:46Z\x1b[0m")
     assert rich(quiet_payload(), unicode=False, color=False).splitlines()[0].startswith("OK | 0 running | 0 leads | min")
@@ -289,9 +292,9 @@ def test_the_time_gives_way_before_any_fact_of_line_1():
         assert body.split(" · ") == [field.replace("~", "…") for field in old], width
         timed.append(new != body)
         if new != body:  # at the right edge, two cells or more after the last fact
-            assert _width(new) == width - 1 and new.endswith("23:46Z") and new[len(body):].startswith("  ")
+            assert cell_width(new) == width - 1 and new.endswith("23:46Z") and new[len(body):].startswith("  ")
         else:
-            assert _width(body) + 2 + len("23:46Z") > width - 3
+            assert cell_width(body) + 2 + len("23:46Z") > width - 3
     assert True in timed and False in timed
     payload = quiet_payload()
     payload.pop("read_at")
@@ -300,7 +303,7 @@ def test_the_time_gives_way_before_any_fact_of_line_1():
 
 def test_line_2_is_dim_structure():
     line = rich(quiet_payload()).splitlines()[1]
-    assert line == f"\x1b[{mv.RICH_SGR['dim']}mPeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s\x1b[0m"
+    assert line == f"\x1b[{monitor_layout.RICH_SGR['dim']}mPeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s\x1b[0m"
 
 
 # ---- POOLS rows: bar, glyph and state word, the row's one colour ------------------------------------------------------
@@ -314,16 +317,16 @@ def pools_payload(*rows: dict[str, Any]) -> dict[str, Any]:
 def test_bar_draws_what_is_left_at_its_allocated_width(remaining):
     for unicode in (True, False):
         line = row_of(strip(rich(pools_payload(pool("cc", "C-7D", remaining)), unicode=unicode)), "C-7D")
-        glyphs = mv.RICH_GLYPHS[unicode]
+        glyphs = monitor_layout.RICH_GLYPHS[unicode]
         chars = re.escape(glyphs["full"] + glyphs["empty"] + ("▏" if unicode else ":"))
-        bar = re.search(rf"[{chars}]{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}}", line)
-        assert bar and bar[0] == mv._bar_quota(remaining, len(bar[0]), unicode)[1:-1]
+        bar = re.search(rf"[{chars}]{{{monitor_format.BAR_CELLS},{monitor_format.BAR_MAX_CELLS}}}", line)
+        assert bar and bar[0] == monitor_format._bar_quota(remaining, len(bar[0]), unicode)[1:-1]
 
 
 @pytest.mark.parametrize("remaining,pace,colour", [(.8, 3, "ok"), (.5, -12, "spend"), (.25, 21, "warn"), (0, 25, "out")])
 def test_m1_the_bar_colour_is_the_shared_pace_band(remaining, pace, colour):
     line = row_of(rich(pools_payload(pool("cc", "C-7D", remaining, pace=pace))), "C-7D")
-    assert re.search(r"\x1b\[" + mv.RICH_SGR[colour] + rf"m[█░|]{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}}\x1b\[0m", line), line
+    assert re.search(r"\x1b\[" + monitor_layout.RICH_SGR[colour] + rf"m[█░|]{{{monitor_format.BAR_CELLS},{monitor_format.BAR_MAX_CELLS}}}\x1b\[0m", line), line
 
 
 def test_an_aged_or_unknown_pool_is_dim_never_green():
@@ -332,12 +335,12 @@ def test_an_aged_or_unknown_pool_is_dim_never_green():
     unknown = pool("cx", "X-7D", None)
     unknown.update(state="UNKNOWN", stored_state="UNKNOWN", measurements=None, last_measurements=None)
     screen = rich(pools_payload(aged, unknown))
-    dim = mv.RICH_SGR["dim"]
+    dim = monitor_layout.RICH_SGR["dim"]
     aged_line, unknown_line = row_of(screen, "C-7D"), row_of(screen, "X-7D")
-    assert mv.RICH_SGR["ok"] not in screen
-    bar = re.search(rf"\x1b\[{dim}m({U['none']}{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}})\x1b\[0m", unknown_line)
+    assert monitor_layout.RICH_SGR["ok"] not in screen
+    bar = re.search(rf"\x1b\[{dim}m({U['none']}{{{monitor_format.BAR_CELLS},{monitor_format.BAR_MAX_CELLS}}})\x1b\[0m", unknown_line)
     assert bar and "%" not in strip(unknown_line)
-    faded = mv._bar_quota(.9, len(bar[1]))[1:-1]
+    faded = monitor_format._bar_quota(.9, len(bar[1]))[1:-1]
     assert f"\x1b[{dim}m{faded}\x1b[0m" in aged_line and "90%" in aged_line
     assert f"\x1b[{dim}m{U['aged']} aged\x1b[0m" in aged_line and f"\x1b[{dim}m{U['aged']} ?\x1b[0m" in unknown_line
 
@@ -345,8 +348,8 @@ def test_an_aged_or_unknown_pool_is_dim_never_green():
 def test_m1_a_fast_state_and_its_pace_use_separate_colours():
     row = pool("cx", "X-7D", .5, fast=True, pace=12.5)
     line = row_of(rich(pools_payload(row)), "X-7D")
-    assert f"\x1b[{mv.RICH_SGR['warn']}m{U['fast']} fast\x1b[0m" in line
-    assert f"\x1b[{mv.RICH_SGR['ok']}m+12.5\x1b[0m" in line
+    assert f"\x1b[{monitor_layout.RICH_SGR['warn']}m{U['fast']} fast\x1b[0m" in line
+    assert f"\x1b[{monitor_layout.RICH_SGR['ok']}m+12.5\x1b[0m" in line
 
 
 @pytest.mark.parametrize("state,glyph", [("ok", "ok"), ("fast", "fast"), ("low", "low"), ("out", "out"), ("aged", "aged"),
@@ -354,7 +357,7 @@ def test_m1_a_fast_state_and_its_pace_use_separate_colours():
 def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
     row = {"ok": pool("cc", "C-7D", .9), "fast": pool("cc", "C-7D", .5, fast=True, pace=12.5), "low": pool("cc", "C-7D", .05),
            "out": pool("cc", "C-7D", 0.0), "aged": pool("cc", "C-7D", .9), "?": pool("cc", "C-7D", None),
-           "reset": pool("cc", "C-7D", .9, reset=-1)}[state]
+           "reset": pool("cc", "C-7D", .9, reset=0)}[state]
     if state == "aged":
         row.update(state="STALE", age_seconds=999, measurements=None)
     if state == "?":
@@ -367,9 +370,9 @@ def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
 
 def test_m1_the_family_cell_is_dim_and_left_is_neutral():
     line = row_of(rich(pools_payload(pool("cc", "C-7D", .63, pace=-20))), "C-7D")
-    assert f"\x1b[{mv.RICH_SGR['dim']}mclaude: cc.effort\x1b[0m" in line
+    assert f"\x1b[{monitor_layout.RICH_SGR['dim']}mclaude: cc.effort\x1b[0m" in line
     assert span(line, "63%") is None
-    assert f"\x1b[{mv.RICH_SGR['spend']}m-20.0\x1b[0m" in line
+    assert f"\x1b[{monitor_layout.RICH_SGR['spend']}m-20.0\x1b[0m" in line
 
 
 # ---- RUNNING, LEADS and RECENT rows ----------------------------------------------------------------------------------
@@ -384,10 +387,10 @@ def test_running_rows_start_with_their_state_glyph_and_word():
     assert rows[1].split()[1] == "gone" and rows[3].split()[1] == "overdue"
     assert rows[0].split()[1] == "16m"  # the elapsed time follows directly
     painted = screen.splitlines()[start + 1:start + 5]
-    assert painted[0].startswith(f" \x1b[{mv.RICH_SGR['ok']}m{U['run']}\x1b[0m")
-    assert painted[1].startswith(f" \x1b[{mv.RICH_SGR['bad']}m{U['gone']} gone\x1b[0m")
-    assert painted[2].startswith(f" \x1b[{mv.RICH_SGR['warn']}m?\x1b[0m")
-    assert painted[3].startswith(f" \x1b[{mv.RICH_SGR['warn']}m! overdue\x1b[0m")
+    assert painted[0].startswith(f" \x1b[{monitor_layout.RICH_SGR['ok']}m{U['run']}\x1b[0m")
+    assert painted[1].startswith(f" \x1b[{monitor_layout.RICH_SGR['bad']}m{U['gone']} gone\x1b[0m")
+    assert painted[2].startswith(f" \x1b[{monitor_layout.RICH_SGR['warn']}m?\x1b[0m")
+    assert painted[3].startswith(f" \x1b[{monitor_layout.RICH_SGR['warn']}m! overdue\x1b[0m")
     ascii_rows = strip(rich(payload, unicode=False)).splitlines()[start + 1:start + 5]
     assert [row.split()[0] for row in ascii_rows] == [">", "x", "?", "!"]
 
@@ -405,7 +408,7 @@ def test_the_context_meter_has_five_cells_and_is_defined_for_every_ctx_form(over
     line = row_of(rich(payload), "docs-site")
     assert f"  {cell}  " in strip(line)
     meter = cell.split()[1]
-    assert span(line, meter) == (mv.RICH_SGR[colour] if colour else None)
+    assert span(line, meter) == (monitor_layout.RICH_SGR[colour] if colour else None)
     ascii_cell = cell.replace("■", "#").replace("□", ".").replace("─", "-")
     assert f"  {ascii_cell}  " in row_of(rich(payload, unicode=False, color=False), "docs-site")
 
@@ -426,7 +429,7 @@ def test_recent_rows_have_a_state_dot_in_the_state_colour(state, colour):
     payload = quiet_payload()
     payload["groups"]["activity"]["data"] = activity_data([ask(state, name="done-1", age=120, exact=True, reply_line="r")])
     line = row_of(rich(payload), "done-1")
-    assert line.startswith(f" \x1b[{mv.RICH_SGR[colour]}m{U['dot']} {state}\x1b[0m  ")
+    assert line.startswith(f" \x1b[{monitor_layout.RICH_SGR[colour]}m{U['dot']} {state}\x1b[0m  ")
     assert row_of(rich(payload, unicode=False, color=False), "done-1").startswith(f" {A['dot']} {state}  ")
 
 
@@ -434,7 +437,7 @@ def test_recent_rows_have_a_state_dot_in_the_state_colour(state, colour):
 def test_every_glyph_is_one_cell_and_has_an_ascii_fallback():
     assert set(U) == set(A)
     for name, glyph in U.items():
-        assert len(glyph) == 1 and _width(glyph) == 1, name
+        assert len(glyph) == 1 and cell_width(glyph) == 1, name
         assert unicodedata.east_asian_width(glyph) not in ("W", "F"), name
         assert len(A[name]) == 1 and A[name].isascii(), name
     for banned in "▶✖▰▱◌":  # C5: these are replaced
@@ -447,7 +450,7 @@ def test_the_rich_view_without_unicode_is_ascii_decoration():
     screen = rich(quiet_payload(), unicode=False, color=False)
     assert screen.isascii()
     assert re.search(rf"-- {POOLS_HEAD} 2\s+STATE", screen) and f"{A['ok']} ok" in screen
-    assert re.search(rf"(?<![#.|])[#.|]{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}}(?![#.|])", row_of(screen, "C-7D"))
+    assert re.search(rf"(?<![#.|])[#.|]{{{monitor_format.BAR_CELLS},{monitor_format.BAR_MAX_CELLS}}}(?![#.|])", row_of(screen, "C-7D"))
     assert "-- RUNNING 0 -" in screen and screen.splitlines()[0].startswith("OK | 0 running | 0 leads | min quota")
     painted = rich(quiet_payload(), unicode=False)
     assert strip(painted).isascii() and strip(painted).splitlines()[1:] == screen.splitlines()[1:]
@@ -512,7 +515,7 @@ def test_plain_expand_is_never_painted_and_the_rich_one_uses_the_palette_only(bu
     assert "\x1b" not in plain_expand and plain_expand.isascii()
     painted = render_grouped_frame(build(), view="rich", color=True, unicode=True, width=120, height=height, expand=True)
     assert set(SGR.findall(painted)) <= OUR_CODES and "\x1b" not in strip(painted)
-    assert all(_width(line) <= 119 for line in painted.splitlines())
+    assert all(cell_width(line) <= 119 for line in painted.splitlines())
 
 
 # ---- P9: line 1 and POOLS of one redraw come from the same rows ------------------------------------------------------
@@ -550,7 +553,7 @@ def test_a_redraw_after_the_reset_moves_min_quota_to_the_lowest_pool_that_still_
     payload = human_payload(pool("cc", "C-7D", .12, reset=30.0), pool("cx", "X-7D", .89),
                             min_quota={"pool": "cc C-7D", "left_pct": 12, "state": "ok", "aged": False})
     payload["display_elapsed_seconds"] = 60
-    assert " reset " in row_of(plain(payload), " cc C-7D") and "12%" not in plain(payload)
+    assert "C-7D" not in plain(payload) and "12%" not in plain(payload)
     assert verdict(payload).endswith("| min quota 89% cx X-7D ok")
     only = human_payload(pool("cc", "C-7D", .12, reset=30.0),
                          min_quota={"pool": "cc C-7D", "left_pct": 12, "state": "ok", "aged": False})
@@ -559,14 +562,14 @@ def test_a_redraw_after_the_reset_moves_min_quota_to_the_lowest_pool_that_still_
 
 
 def test_min_quota_of_the_rows_mirrors_the_read_model_rule():
-    from peerhub.extensions import monitor_read_model as mrm
+    from peerhub.extensions import monitor_quota
 
     rows = [pool("ag", "G-5H", .01), pool("ag", "G-7D", .40), pool("cc", "C-7D", .40), pool("cx", "X-7D", .07),
             pool("zz", "Q-30D", .02)]
     payload = human_payload(*rows, min_quota=None)
     assert verdict(payload).endswith("| min quota 7% cx X-7D low")  # 7-day pools only; the 5-hour and 30-day rows do not count
-    states = mrm.pool_states([{**row, "kind": "quota", "reset_in_seconds": 86400.0} for row in rows], {}, NOW, {})
-    assert mrm.min_quota(states) == {"pool": "cx X-7D", "left_pct": 7, "state": "low", "aged": False}
+    states = monitor_quota.pool_states([{**row, "kind": "quota", "reset_in_seconds": 86400.0} for row in rows], {}, NOW, {})
+    assert monitor_quota.min_quota(states) == {"pool": "cx X-7D", "left_pct": 7, "state": "low", "aged": False}
     tie = human_payload(pool("cx", "X-7D", .40), pool("ag", "G-7D", .40), min_quota=None)
     assert verdict(tie).endswith("| min quota 40% ag G-7D ok")  # a tie goes to the first name, as in the read model
 

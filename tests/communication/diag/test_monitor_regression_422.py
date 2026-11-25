@@ -8,9 +8,10 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor, monitor_view as mv, view
+from peerhub import _console
+from peerhub.cli import monitor, monitor_legend, monitor_links, monitor_recent_view, monitor_view as mv
 from peerhub.extensions.observation_model import DISABLED_REASON
-from peerhub.extensions import monitor_read_model
+from peerhub.extensions import monitor_queries, monitor_read_model
 from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
 from tests.communication.diag.test_monitor_plain_golden import full_payload, quiet_payload
 from tests.communication.diag.test_monitor_recent_layout import (
@@ -24,12 +25,12 @@ from tests.communication.diag.test_monitor_recent_layout import (
 def test_active_work_survives_history_pressure(width, style, expand):
     payload = full_payload()
     activity = payload["groups"]["activity"]["data"]
-    activity["asks"].extend(ended(f"history-{i}", i) for i in range(mv.RECENT_EXPAND * 2))
+    activity["asks"].extend(ended(f"history-{i}", i) for i in range(monitor_recent_view.RECENT_EXPAND * 2))
     screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width, height=32, expand=expand)  # M9/G8 add quota lines.
     heads = head_names(screen)
     assert heads.index("ALERTS") < heads.index("RUNNING")
     after_running = screen.split("RUNNING", 1)[1]
-    next_heading = r"\n(?:── |-- )?(?:" + "|".join(map(re.escape, mv.FRAME_HEADS)) + r") "
+    next_heading = r"\n(?:── |-- )?(?:" + "|".join(map(re.escape, monitor_legend.FRAME_HEADS)) + r") "
     running = re.split(next_heading, after_running, maxsplit=1)[0]
     assert "pool_out:" in screen and "cx.deepthink" in running
     if "RECENT" in heads:
@@ -42,7 +43,7 @@ def test_active_work_survives_history_pressure(width, style, expand):
 @pytest.mark.parametrize("style", ["plain", "rich"])
 def test_expanded_history_restores_finished_and_sampled_superseded_rows(width, style):
     payload = full_payload()
-    cap = monitor_read_model.TEXT_NEWEST_ROWS
+    cap = monitor_queries.TEXT_NEWEST_ROWS
     payload["groups"]["activity"]["data"] = activity_data([
         *(ended(f"history-{i:02}", i) for i in range(cap + 1)),
         ask("unsure", name="replaced-ask", superseded=True, age=4000, exact=True),
@@ -52,8 +53,8 @@ def test_expanded_history_restores_finished_and_sampled_superseded_rows(width, s
     whole = "\n".join(recent_rows(mv.render_grouped_frame(payload, **options)))
     bounded = "\n".join(recent_rows(mv.render_grouped_frame(payload, height=100, **options)))
     assert f"history-{cap - 1:02}" in whole and f"history-{cap:02}" not in whole
-    assert "replaced-ask" in whole and mv.SUPERSEDED_MARK in whole
-    assert f"history-{mv.RECENT_EXPAND:02}" not in bounded and "replaced-ask" not in bounded
+    assert "replaced-ask" in whole and monitor_legend.SUPERSEDED_MARK in whole
+    assert f"history-{monitor_recent_view.RECENT_EXPAND:02}" not in bounded and "replaced-ask" not in bounded
     assert payload == before
 
 
@@ -69,7 +70,7 @@ def test_unavailable_pool_count_and_quota_reason(width, style, expand, notes):
                                      expand=expand, show_quota_notes=notes)
     pools = screen.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
     assert pools.startswith("4 " if notes else "2 ")
-    assert all((f"({pool} {mv.QUOTA_NA})" in pools) == notes for pool in ("C-5H", "X-30D"))
+    assert all((f"({pool} {monitor_legend.QUOTA_NA})" in pools) == notes for pool in ("C-5H", "X-30D"))
     assert screen.count("not reported (plan prolite)") == int(notes)
     assert screen.count(DISABLED_REASON) == int(notes)
 
@@ -95,7 +96,7 @@ def test_only_newest_ask_uses_live_session_context(width, style, expand, peer):
     start = next(i for i, line in enumerate(lines) if " new " in line)
     prior = next(line for line in lines if " old " in line)
     current = "\n".join(lines[start:lines.index(prior)])
-    assert "71k" in current and mv.CONTEXT_ESTIMATE_LABEL in current
+    assert "71k" in current and monitor_legend.CONTEXT_ESTIMATE_LABEL in current
     assert all(value not in prior for value in ("71k", "62k", "u3", "gen2", "now"))
 
 
@@ -108,8 +109,8 @@ def test_plain_guide_stays_visible_with_or_without_terminal_or_opt_out(monkeypat
     monkeypatch.setenv("PEERHUB_GUIDE_URL", url)
     payload = full_payload() if expand else quiet_payload()
     screen = mv.render_grouped_frame(payload, view="plain", width=118, expand=expand, tty=tty)
-    guides = [line for line in screen.splitlines() if line.startswith(f"{mv.GUIDE_TEXT}:")]
-    assert guides == [f"{mv.GUIDE_TEXT}: {url}"]
+    guides = [line for line in screen.splitlines() if line.startswith(f"{monitor_links.GUIDE_TEXT}:")]
+    assert guides == [f"{monitor_links.GUIDE_TEXT}: {url}"]
     assert "\x1b" not in screen
 
 
@@ -122,9 +123,9 @@ def test_normal_screen_alone_needs_a_margin(height):
 @pytest.mark.parametrize("alternate", [False, True])
 def test_terminal_leaves_last_frame_on_normal_screen(monkeypatch, capsys, alternate):
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
-    output = view.FrameOutput(anchor_rows=True, alternate=alternate)
+    output = _console.FrameOutput(anchor_rows=True, alternate=alternate)
     output.write("first\n")
     output.write("last\n")
     output.close()
@@ -140,9 +141,9 @@ def test_terminal_leaves_last_frame_on_normal_screen(monkeypatch, capsys, altern
 @pytest.mark.parametrize("cycles", [0, 1])
 def test_watch_uses_the_selected_screen_budget_and_leaves_a_final_frame(monkeypatch, capsys, width, style, expand, cycles):
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
-    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (width, 24)))
+    monkeypatch.setattr(_console.FrameOutput, "geometry", staticmethod(lambda: (width, 24)))
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *args, **kwargs: False)
     monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *args, **kwargs: full_payload())
     monkeypatch.setattr(monitor, "_cached_profiles", lambda *args: [])
@@ -182,9 +183,9 @@ def test_watch_uses_the_selected_screen_budget_and_leaves_a_final_frame(monkeypa
 def test_live_frames_rewrite_only_changed_rows_with_periodic_full_repaints(monkeypatch, capsys):
     """A day of 1 s full repaints hung a VS Code terminal; later frames send only the rows that changed."""
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
-    output = view.FrameOutput(anchor_rows=True, alternate=True)
+    output = _console.FrameOutput(anchor_rows=True, alternate=True)
     output.write("head\nrow a\n")
     capsys.readouterr()
     output.write("head\nrow a\n")
@@ -194,7 +195,7 @@ def test_live_frames_rewrite_only_changed_rows_with_periodic_full_repaints(monke
     full = "\x1b[H\x1b[1;1Hhead\x1b[K\x1b[2;1Hrow A\x1b[K\x1b[3;1Htail\x1b[K\x1b[J"
     output.write("head\nrow A\ntail\n")  # a changed row count (resize) repaints in full
     assert capsys.readouterr().out == full
-    for _ in range(view.FULL_REPAINT_FRAMES - output.frames % view.FULL_REPAINT_FRAMES - 1):
+    for _ in range(_console.FULL_REPAINT_FRAMES - output.frames % _console.FULL_REPAINT_FRAMES - 1):
         output.write("head\nrow A\ntail\n")
     assert capsys.readouterr().out == ""
     output.write("head\nrow A\ntail\n")

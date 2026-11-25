@@ -5,7 +5,6 @@ import pytest
 
 from peerhub.core.models import Peer, Stream
 from peerhub.core.store import CoreStore
-from peerhub.extensions.source_records import source_records
 
 
 pytestmark = [pytest.mark.architecture, pytest.mark.sqlite, pytest.mark.unit, pytest.mark.platform_sensitive]
@@ -29,7 +28,7 @@ def _append(store: CoreStore, stream_id: str, key: str) -> None:
     )
 
 
-def test_source_records_and_core_iterator_order_and_pagination(tmp_path) -> None:
+def test_core_iterator_orders_and_paginates_records(tmp_path) -> None:
     store = CoreStore(tmp_path / "core.db")
     _seed(store)
     _append(store, "z", "z1")
@@ -39,8 +38,6 @@ def test_source_records_and_core_iterator_order_and_pagination(tmp_path) -> None
     expected = [("a", 1, "a1"), ("a", 2, "a2"), ("z", 1, "z1")]
     for page_size in (1, 2, 500):
         direct = list(store.iter_records_snapshot(page_size=page_size))
-        compat = list(source_records(store, page_size=page_size))
-        assert direct == compat
         assert [(r.stream_id, r.position, r.body["key"]) for r in direct] == expected
 
 
@@ -50,7 +47,7 @@ def test_reader_holds_one_committed_snapshot_across_pages(tmp_path) -> None:
     _append(store, "a", "a1")
     _append(store, "a", "a2")
 
-    reader = source_records(store, page_size=1)
+    reader = store.iter_records_snapshot(page_size=1)
     first = next(reader)
     assert first.body == {"key": "a1"}
 
@@ -70,7 +67,7 @@ def test_snapshot_excludes_streams_created_after_iterator_starts(tmp_path) -> No
     _append(store, "a", "a-before")
     _append(store, "z", "z-before")
 
-    reader = source_records(store, page_size=1)
+    reader = store.iter_records_snapshot(page_size=1)
     assert next(reader).body == {"key": "a-before"}
 
     # Both a new Stream and a new Record were committed after the snapshot.
@@ -80,7 +77,7 @@ def test_snapshot_excludes_streams_created_after_iterator_starts(tmp_path) -> No
 
     remaining = list(reader)
     assert [(rec.stream_id, rec.body["key"]) for rec in remaining] == [("z", "z-before")]
-    assert [(rec.stream_id, rec.body["key"]) for rec in source_records(store, 1)] == [
+    assert [(rec.stream_id, rec.body["key"]) for rec in store.iter_records_snapshot(page_size=1)] == [
         ("a", "a-before"), ("z", "z-before"), ("z", "z-after"), ("zz", "zz-after")
     ]
 
@@ -108,4 +105,4 @@ def test_abandoned_scan_releases_snapshot_and_store_stays_usable(tmp_path) -> No
 def test_invalid_page_size_does_not_start_scan(tmp_path, page_size) -> None:
     store = CoreStore(tmp_path / "core.db")
     with pytest.raises(ValueError, match="page size"):
-        list(source_records(store, page_size=page_size))
+        list(store.iter_records_snapshot(page_size=page_size))

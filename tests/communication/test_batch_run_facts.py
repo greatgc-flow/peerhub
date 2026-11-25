@@ -17,7 +17,8 @@ import pytest
 from peerhub.cli import suggest
 from peerhub.cli.app import main
 from peerhub.core import load_limits, migrations
-from peerhub.extensions import ask, batch, bridge, diag_running
+from peerhub.extensions import ask, batch, bridge_schema, diag_running
+from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED, TERMINAL
 from tests.communication.test_batch_run import builder, write
 
 
@@ -102,11 +103,11 @@ def test_dry_run_distinguishes_zero_from_unavailable_load(dry_run, monkeypatch, 
 def test_dry_run_reports_replay_counts_from_the_selected_store(dry_run, monkeypatch, capsys):
     dangling = "dangling-invocation"
     cases = {
-        "settled": (bridge.TERMINAL, True),
-        "settled-refusal": (bridge.STARTED, True),
-        "uncertain": (bridge.MAY_HAVE_STARTED, False),
-        "pending": (bridge.NOT_STARTED, False),
-        dangling: (bridge.NOT_STARTED, False),
+        "settled": (TERMINAL, True),
+        "settled-refusal": (STARTED, True),
+        "uncertain": (MAY_HAVE_STARTED, False),
+        "pending": (NOT_STARTED, False),
+        dangling: (NOT_STARTED, False),
         "new": None,
     }
     argv = dry_run([_task(task_id) for task_id in cases])
@@ -115,7 +116,7 @@ def test_dry_run_reports_replay_counts_from_the_selected_store(dry_run, monkeypa
     memory = "file:batch-replay-facts?mode=memory&cache=shared"
     with closing(connect(memory, uri=True)) as store:
         migrations.get_migration_registry()[0].apply(store)
-        for statement in bridge._DDL:
+        for statement in bridge_schema._DDL:
             if statement.startswith("CREATE TABLE"):
                 store.execute(statement)
         for task_id, state in cases.items():
@@ -225,16 +226,16 @@ def test_dry_run_displays_the_named_profile_resolved_by_ask(dry_run, monkeypatch
             super().__init__(kind, task_workspace, **options)
 
     monkeypatch.setattr(ask, "CliRuntimeTarget", TargetWithDefault)
-    argv = dry_run([_task("resolved", peer, workspace=str(workspace)), _task("unavailable", "oa")])
+    argv = dry_run([_task("resolved", peer, workspace=str(workspace)), _task("unnamed", "cc")])
     assert main([*argv[:2], "ask", peer, "preview", "--workspace", str(workspace), "--dry-run", "--json"]) == 0
     resolved = json.loads(capsys.readouterr().out)["profile"]
     assert resolved
 
     assert main([*argv, "--dry-run", "--json"]) == 0
-    named, unavailable = json.loads(capsys.readouterr().out)["tasks"]
-    assert named["profile"] is unavailable["profile"] is None
+    named, unnamed = json.loads(capsys.readouterr().out)["tasks"]
+    assert named["profile"] is unnamed["profile"] is None
     assert named["profile_display"] == batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
-    assert unavailable["profile_display"] == batch.DEFAULT_PROFILE_DISPLAY
+    assert unnamed["profile_display"] == batch.DEFAULT_PROFILE_DISPLAY
 
     assert main([*argv, "--dry-run"]) == 0
     assert capsys.readouterr().out.splitlines()[2].endswith(f" {named['profile_display']} {named['workspace']}")
@@ -397,7 +398,7 @@ def test_final_cli_counts_each_outcome(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(batch, "default_argv_builder", builder(tmp_path))
     modes = {"notstarted": "FAILED", "empty": "UNVERIFIED", "uncertain": "UNCERTAIN",
              "claimheld": "BLOCKED", "refused": "FAILED"}
-    monkeypatch.setattr(batch, "read_resources", load_limits.ResourceSample)
+    monkeypatch.setattr(load_limits, "read_resources", load_limits.ResourceSample)
     ok_count = len(modes)
     rows = [_task(f"ok-{i}") for i in range(ok_count)]
     rows.extend(_task(mode, prompt=f"mode:{mode}") for mode in modes)

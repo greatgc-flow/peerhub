@@ -1,8 +1,10 @@
 """The package fixture must test supplied release bytes without rebuilding them."""
+from types import SimpleNamespace
+
 import pytest
 
 from tests.communication.harness import pkg_env
-from tests.communication.package.conftest import dist
+from tests.communication.package.conftest import _prepare_once, dist
 
 pytestmark = [pytest.mark.package, pytest.mark.release]
 
@@ -38,18 +40,49 @@ def test_dist_fixture_rejects_incomplete_or_ambiguous_directory(monkeypatch, tmp
         dist.__wrapped__(tmp_path_factory)
 
 
-def test_dist_fixture_builds_locally_when_directory_is_unset(monkeypatch, tmp_path, tmp_path_factory):
+def test_dist_fixture_builds_locally_when_directory_is_unset(monkeypatch, tmp_path):
     monkeypatch.delenv("PEERHUB_DIST_DIR", raising=False)
     calls = []
-    source = tmp_path / "checkout"
-    wheel, sdist = tmp_path / "local.whl", tmp_path / "local.tar.gz"
-    monkeypatch.setattr(pkg_env, "copy_checkout", lambda path: source)
+    monkeypatch.setattr(pkg_env, "copy_checkout", lambda path: path)
 
     def build(src, out):
         calls.append((src, out))
+        out.mkdir(parents=True, exist_ok=True)
+        wheel, sdist = out / "local.whl", out / "local.tar.gz"
+        wheel.touch()
+        sdist.touch()
         return wheel, sdist
 
     monkeypatch.setattr(pkg_env, "build_dist", build)
-    local = dist.__wrapped__(tmp_path_factory)
-    assert (local.src, local.wheel, local.sdist) == (source, wheel, sdist)
-    assert len(calls) == 1 and calls[0][0] == source
+    # The fixture builds once per pytest session root (shared by xdist workers) and reads the built files back.
+    request = SimpleNamespace(getfixturevalue=lambda name: {"package_session_root": tmp_path}[name])
+    local = dist.__wrapped__(request)
+    assert dist.__wrapped__(request) == local
+    [(source, out)] = calls
+    assert source == out.parent / "checkout"
+    assert out.parent.parent == tmp_path
+    assert (local.src, local.wheel, local.sdist) == (source, out / "local.whl", out / "local.tar.gz")
+
+
+def test_prepare_once_isolates_a_retry_from_a_lingering_writer(tmp_path):
+    attempts = []
+
+    def interrupted(root):
+        attempts.append(root)
+        (root / "artifact").write_bytes(b"partial")
+        raise RuntimeError("worker interrupted")
+
+    with pytest.raises(RuntimeError, match="worker interrupted"):
+        _prepare_once(tmp_path, "package", interrupted)
+    [abandoned] = attempts
+    assert not (tmp_path / "package.ready").exists()
+
+    def complete(root):
+        assert root != abandoned
+        assert (abandoned / "artifact").read_bytes() == b"partial"
+        (root / "artifact").write_bytes(b"complete")
+        (abandoned / "artifact").write_bytes(b"leftover child output")
+
+    published = _prepare_once(tmp_path, "package", complete)
+    assert _prepare_once(tmp_path, "package", _forbid_build) == published
+    assert (published / "artifact").read_bytes() == b"complete"

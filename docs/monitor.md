@@ -5,8 +5,7 @@
 `peerhub diag --plan --json` reports the same difference as `exhaust_margin_seconds`, using the effective reset for a parent-limited pool. The plan text marks early exhaustion with `!early`.
 
 This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
-`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. It describes what the screen shows. The same facts are
-in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
+`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. For quick offline help, use `peerhub explain monitor-view` or `peerhub explain monitor-states`.
 
 Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
 required quota reading reaches 210 seconds (90 seconds before expiry) or is missing. Failed or partial peers retry after 60 seconds.
@@ -29,6 +28,14 @@ evidence. Automatic collection rechecks quota under the lock before probing.
 For a command you can run, use `peerhub suggest --tier standard` and see
 `peerhub explain suggest` for its quota rules.
 
+## Commands and output
+
+- `monitor groups` lists all eleven group IDs and whether the effective defaults select them. The defaults select nine groups. Use `--group GROUP` (repeatable), `--group all`, or `monitor defaults show|set|reset` to inspect or change the selection.
+- `monitor --snapshot` renders one read-only frame. Use `monitor --snapshot --expand --group sessions --group execution` for the retained-session and execution tables. `monitor --no-probe --interval-seconds 60` watches committed evidence. Pass the global `--db PATH` before `monitor` to choose another store.
+- Without `--cycles`, a terminal watches until interrupted and redirected output runs one cycle. Explicit `--cycles 0` watches everywhere until interrupted. Positive values bound the watch.
+- `--json` emits schema 2.0: one object for a snapshot, or one `initial` frame plus a `complete` frame per watch cycle (NDJSON). Older scripts can select `--json --schema-version 1.1`.
+- `--view plain` uses an ASCII frame. `--view rich` uses terminal glyphs and colour when available. See [CLI help](commands.md#guide-and-explain) and the [probe contract](implementation/OBSERVATION_PROBES.md).
+
 ## The top lines
 
 ```
@@ -45,6 +52,7 @@ PeerHub Monitor 2026-11-20 14:02Z · DB:env · quota age 3m                     
 After the status come `N running` asks, `N leads` and `min quota 68% cc C-7D ok`: the lowest 7-day pool that has a
 number, with the state POOLS shows for it (`(aged)` when its evidence is stale). The right-hand fields drop first on a
 narrow terminal; the rich view puts the snapshot time at the right edge when it fits.
+JSON `min_quota.state` also reports `aged` for a stale zero, with `aged: true`.
 
 **Line 2 (the title)** is `PeerHub Monitor <UTC time> · DB:<source> · quota age <age>`:
 
@@ -64,6 +72,7 @@ than an hour old. Ages of a day or more use days. Without quota readings, the li
 The per-pool `aged` state keeps its own freshness rule. Human `diag quota` and `diag --live` show the same notice.
 After a timeout, both monitor layouts keep a measured value less than 15 minutes old and show one note per affected peer,
 such as `cc probe timeout (value 3m old)`.
+A quota probe that still times out under high CPU load is labeled `delayed by load`.
 
 ## POOLS
 
@@ -71,6 +80,7 @@ such as `cc probe timeout (value 3m old)`.
 (`n/a`) windows by default, including the legacy Antigravity weekly bucket when the provider omits it from a
 complete report. Add `--show-quota-notes` to count and name them inline and show reasons in compact POOLS or
 expanded QUOTA. This display option applies to snapshots and watches. See [Antigravity quota pools](adapters/ag.md#quota-pools).
+Readings past their reset or older than their window are also shown as `n/a` and excluded from the header age.
 
 The compact view applies `POOLS_CAP` and omits nonbinding short windows unless they have a scoped parent.
 The expanded view includes all short windows, with visible rows limited by the frame height.
@@ -167,7 +177,7 @@ plus the superseded asks in the read model's `SUPERSEDED_CAP` sample. A running 
 | stream | the stream's name, `s-ab12`. |
 | `R` / `F` | the ask resumed an existing session (`R`) or started a fresh one (`F`). |
 | `u<n>` | how many times the stream's session has been used. |
-| ctx | context at the end of the ask, `62k/6%` (tokens and share of the model's maximum input). For `cx` and `ag`, the `CONTEXT_ESTIMATE_LABEL` (`est`) marks a fallback when the SESSIONS sample provides one. |
+| ctx | context at the end of the ask, `62k/6%` (tokens and share of the model's maximum input). For `cx` and `ag`, `est` marks a compatible SESSIONS sample observed at or after the ask started. |
 | `c91%` | the cache-read share of the ask's input. |
 | reply | the reply's first words, in quotes. |
 
@@ -179,10 +189,12 @@ the remaining space.
 
 `RUNNING n | cc 2 cx 1` lists asks that have not ended (five rows in the compact frame; the head counts all of them). A
 row is the elapsed time, profile, lead, the ask's first words and the stream. A flag comes first: `►` (`>`) running
-normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller process is gone) and `?` (liveness unknown).
+normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller is gone and the ask has no confirmed end),
+`!orphan` (a provider process is still alive after both the caller and wrapper exited) and `?` (liveness unknown).
 `--expand` lists every field of every running ask.
 
 Continuous terminal watch reads activity every `min(5 s, --interval-seconds)` using `RUNNING_REFRESH_SECONDS`.
+Activity rows, alerts, source status and the verdict update together, including when an activity alert clears.
 Full reads and quota probes keep their existing schedules. Scripted cycles still use `--interval-seconds`.
 
 ## ALERTS
@@ -193,15 +205,30 @@ for an ended or overdue ask is 30 minutes.
 | Code | Meaning |
 |---|---|
 | `a1` | an ask ended badly (`empty`, `error` or `unsure`) in the last 30 minutes. Another lineage's ask is never an alert. |
-| `a2` | an ask is `gone` (its caller process is gone) or `overdue` (its lease expired, within 30 minutes). |
+| `a2` | `gone` (caller gone, ask has no confirmed end), `orphan running` (caller and wrapper gone, provider still alive), or `overdue` (lease expired within the last 30 minutes). |
 | `a3` | `pool_out`: a pool has 0% left. |
 | `a4` | not used by this version (the number is kept free). |
 | `a5` | an account: `login` (logged out), `token_expired`, or (low severity) `token_expiring` within 48 hours. The expiry is the login token's, not billing. |
 | `a6` | `store`: a group could not be read; or (low severity) `facts`: the model facts need a recheck. Its reasons are `<peer>: version_drift` (the installed CLI's version differs from the one the facts were checked against, for example `cc: version_drift`) and `ag: unknown_pool` (agy reported a pool the facts do not know). The footer adds `DRIFT:cc,ag`. |
 | `a7` | the live monitor stopped before an `ag` quota probe that would use a token; `--allow-agy-token-use` continues. |
 
+For a lease recorded on this host and in this PID namespace, PeerHub checks process identities for PID reuse. Linux
+identities use the boot ID and process start ticks. A legacy timestamp mismatch, missing launch identity, or
+unverified leaderless session leaves process liveness unknown. When the caller, wrapper and provider are confirmed
+gone, monitor shows `gone, processes dead` in RECENT and clears `a2` immediately. `diag running` shows the same
+outcome while the lease remains active. The result may have been lost. Older leases that recorded only the wrapper
+use that identity as their caller evidence. A live orphan keeps its `a2` alert even after another ask takes over the
+claim. Other hosts retain their lease-based behavior.
+
+The next `peerhub ask` start, `peerhub batch run`, or explicit `peerhub monitor repair` releases the dead ask's lease and
+records `processes_dead` as uncertain abandonment. When the wrapper died before invocation, the same recovery can
+expire its claim without changing delivery certainty. The existing replay and reconciliation rules still apply.
+Monitor snapshots and diagnostics only report the evidence.
+
 After the alerts, `--expand` lists every source that was not read completely (`source quota: stale`, then a `hint:`).
 `OK?` / `ATTN n?` on line 1 means such a source exists.
+
+A peer-level probe failure clears when a newer measured pool row from the same peer and probe source arrives.
 
 ## LEADS
 
@@ -211,7 +238,7 @@ k sessions found` counts entries before the display cap (three rows in the compa
 state (`busy`, `?busy` = alive not confirmed, `?` unknown, `-` no session), age of the last activity, `ctx`, running
 asks, model, title. `ctx 11%` is a share of the model's maximum input, `ctx 106k` tokens with an unknown window, `ctx ?`
 unknown; `!` after the percentage means 80% or more (a mark, not an alert). The rich view draws a five-cell meter
-(`■■□□□`, ASCII `##...`). `PEERHUB_MONITOR_TEXT=off` hides names, titles and prompts.
+(`■■□□□`, ASCII `##...`). `PEERHUB_MONITOR_TEXT=off` hides names, titles and prompts. Historical lead-session measurements used Claude Code 2.1.323 and 2.1.325 on Windows 11. See the [packaged CLI version observations](../peerhub/config_data/model-defaults.toml).
 
 ## The detail sections (`--expand`)
 
@@ -227,6 +254,14 @@ unknown; `!` after the percentage means 80% or more (a mark, not an alert). The 
 The sampled sections (EXECUTION, SESSIONS, USAGE, CONTEXT) say `sample N/M` when the read was capped. The last line
 is `Coverage: complete|partial; peerhub explain <code>`.
 
+QUOTA groups pools by peer and orders peers by their most urgent family. The order is `out`, `low`, a binding short window, `fast`, then the rest.
+
+### Accounts
+
+`--expand` and JSON `capacity.accounts` report the plan, login state and login-token expiry. Logged-out, expired and within-48-hour tokens raise a line-1 alert. The observation is aged after six hours. `?` means unknown and `n/a` means unavailable for that login type. Agy reports access to `/credits` with plan `n/a`. An expiry omitted by the provider leaves login state separate. The refresh stores no account names, IDs or tokens.
+
+A fresh account plan can fill in a quota note via `display_plan` and `plan_source: "account"` without replacing the stored reason. A newer ABSENT quota observation for the same login can report a changed plan via `plan_changed: true` and `plan_source: "quota"`. Account re-probes wait until the reading is at least five minutes old.
+
 ## Compact and expand
 
 - **Compact** (the default) uses `COMPACT_MAX_LINES` and `COMPACT_MAX_BYTES`. The header is followed by POOLS,
@@ -239,6 +274,8 @@ is `Coverage: complete|partial; peerhub explain <code>`.
 
 ## Narrow and small terminals
 
+ALERTS and RUNNING take priority over RECENT when space is limited.
+
 - **Width.** POOLS and QUOTA use the same width budget for their shared columns. The bar gives way before
   FAMILY, EXH/RESET and MARGIN. AGE is optional in QUOTA. Line 2 drops status fields from the right and reserves room
   for the `Guide` link when enabled.
@@ -249,9 +286,9 @@ is `Coverage: complete|partial; peerhub explain <code>`.
 
 ## The alternate screen and LIVE_ROW_MARGIN
 
-A continuous VT watch uses the full alternate screen. The monitor rewrites changed rows at fixed screen
-positions, so wide glyphs cannot push later rows down. It repaints the full frame when the row count changes
-and periodically during watch. On exit it restores the normal screen and prints the final frame there.
+A continuous VT watch uses the full alternate screen and updates the clock and countdowns at most once a second.
+The monitor rewrites changed rows at fixed screen positions with auto-wrap disabled. It repaints the full frame
+when the row count changes and every 60 frames. On exit it restores the normal screen and prints the final frame there.
 
 Finite watches use the normal screen. Bounded normal-screen frames reserve `LIVE_ROW_MARGIN` rows.
 A terminal without VT (or `TERM=dumb`) appends each frame. A pipe receives one completed frame per cycle.

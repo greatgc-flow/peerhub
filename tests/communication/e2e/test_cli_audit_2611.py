@@ -34,8 +34,8 @@ def test_diag_running_filters_by_peer_and_takes_a_limit(monkeypatch):
     seen = {}
 
     class Stub:
-        def __init__(self, db):
-            pass
+        def __init__(self, db, *, connection_factory=None):
+            assert connection_factory is None
 
         def running(self, *, read_at, limit, workspace_generation=None, peer=None):
             seen["limit"] = limit

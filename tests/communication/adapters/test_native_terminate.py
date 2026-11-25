@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.extensions.adapters import CliRuntimeTarget, process
-from peerhub.extensions.bridge import RuntimeTargetError
+from peerhub.extensions.adapters import CliRuntimeTarget, cli_runtime, process
+from peerhub.extensions.runtime_contract import RuntimeTargetError
 
 pytestmark = [pytest.mark.unit, pytest.mark.platform_sensitive]
 
@@ -117,13 +117,11 @@ def test_terminate_unconfirmed_death_raises_runtime_error(tmp_path, monkeypatch,
     assert not any(event["event"] == "terminated" for event in adapter.evidence)
 
 
-def test_aborted_zero_exit_never_yields_terminal(tmp_path, monkeypatch):
-    from peerhub.extensions.adapters import base
-
+def test_aborted_zero_exit_never_yields_terminal(monkeypatch):
     result = process.ProcessResult(123, 0, b'{"response":"OK"}', b"", False, False, 0.1, aborted=True)
-    runner = SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
-    monkeypatch.setattr(base, "BoundedProcess", lambda *args, **kwargs: runner)
-    adapter = CliRuntimeTarget("ag", tmp_path, command=["fake.exe"], writable=True)
+    runner = SimpleNamespace(pid=123, start=lambda *, suspended=False: None, cancel_launch=lambda: None, wait=lambda: result)
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *args, **kwargs: runner)
+    adapter = CliRuntimeTarget("ag", Path(__file__).parent, command=["fake.exe"], writable=True)
     delivery = adapter.deliver("session", SimpleNamespace(body="question"), [])
     assert next(delivery)[0] == "started"
     with pytest.raises(RuntimeTargetError, match="aborted"):

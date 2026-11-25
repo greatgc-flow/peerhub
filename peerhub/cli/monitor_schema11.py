@@ -6,9 +6,8 @@ import sqlite3
 import sys
 from typing import Any
 
+from peerhub.cli.monitor_refresh import agy_token_command, agy_token_stop_message, monitor_auto_probe, refresh_monitor_quota
 from peerhub.cli.store_select import report_missing_store
-from peerhub.cli.support import (agy_token_command, agy_token_stop_message, monitor_auto_probe, refresh_monitor_quota,
-                                 refresh_with_profile_pools)
 
 
 def _cycle_exit_code(report: Any, refresh_code: int) -> int:
@@ -28,7 +27,7 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
     if report_missing_store(args.db, json_output=True, selected=is_explicit, source=db_source):
         return 5
 
-    from peerhub.cli.view import dashboard_data
+    from peerhub.extensions.diag_read_model import dashboard_data
     from peerhub.extensions.diag import ReadonlyDiag
 
     store_path = str(args.db)
@@ -40,7 +39,7 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
             "schema_version": "1.1", "cycle": 0, "phase": "initial",
             "refresh": {"status": "NOT_STARTED"},
             "store_selection": {"path": store_path, "source": store_source},
-            "snapshot": dashboard_data(initial),
+            "snapshot": dashboard_data(initial, include_billing=False),
         }, ensure_ascii=True, separators=(",", ":")), flush=True)
 
         done = 0
@@ -54,6 +53,8 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
             result = None
             if done % args.collect_every == 0:
                 if args.probe:
+                    from peerhub.cli.monitor_refresh import refresh_with_profile_pools
+
                     result = refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir,
                                                         deadline_sec=args.timeout)
                 elif auto_probe:
@@ -74,7 +75,7 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
                 "schema_version": "1.1", "cycle": done, "phase": "complete",
                 "refresh": refresh_info,
                 "store_selection": {"path": store_path, "source": store_source},
-                "snapshot": dashboard_data(report),
+                "snapshot": dashboard_data(report, include_billing=False),
             }, ensure_ascii=True, separators=(",", ":")), flush=True)
             done += 1
             if total > 0 and done >= total:

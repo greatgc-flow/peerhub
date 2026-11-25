@@ -21,17 +21,18 @@ from jsonschema import FormatChecker
 from jsonschema.validators import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from peerhub.core.quota_policy import QUOTA_TTL_SECONDS as QUOTA_TTL_SECONDS
+from peerhub.core import quota_policy
 
 from peerhub.core.models import assert_json_value, is_rfc3339
 from peerhub.core.wire import WireValidationError
-from peerhub.core.quota_policy import LOW_QUOTA_FRACTION as LOW_QUOTA_FRACTION  # re-exported; one source in core
 
 _SCHEMAS = Path(__file__).parent / "schemas"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _US = timedelta(microseconds=1)
 
-KNOWN_KINDS = ("reachability", "cli_version", "runtime_capability", "session", "quota", "rate_limit", "activity", "execution_failure", "reset_credit")
+BILLING_KINDS = ("billing_usage", "billing_balance", "billing_estimate", "billing_charge")
+KNOWN_KINDS = ("reachability", "cli_version", "runtime_capability", "session", "quota", "rate_limit", "activity",
+               "execution_failure", "reset_credit", *BILLING_KINDS)
 # Measurement-bearing payload keys: only a MEASURED observation may carry them (honesty rule: unmeasured != 0/healthy/unlimited).
 MEASUREMENT_KEYS = frozenset({"remaining", "remaining_fraction", "remaining_tokens", "remaining_requests", "used", "limit",
                               "requests_per_minute", "tokens_per_minute", "reset_in_seconds", "retry_after_seconds"})
@@ -127,9 +128,14 @@ class SourceReading:
 
 
 ACCOUNT_TTL_SECONDS = 6 * 3600.0
+_KIND_TTLS = {"account": ACCOUNT_TTL_SECONDS, **dict.fromkeys(BILLING_KINDS, 86400.0)}
 
 QUOTA_MAX_AGE_SECONDS = 15 * 60
 QUOTA_NOTICE_AGE_SECONDS = 60 * 60
+
+
+QUOTA_PROBE_LOAD_DELAY = "quota_probe_delayed_by_load"
+QUOTA_PROBE_LOAD_LABEL = "delayed by load"
 
 
 def quota_probe_timed_out(reason: object) -> bool:
@@ -182,7 +188,7 @@ def account_text(value: object, limit: int = 24) -> str | None:
 class FreshnessPolicy:
     """TTL policy per observation kind (TD-13: age >= TTL is STALE)."""
 
-    default_ttl_seconds: float = QUOTA_TTL_SECONDS
+    default_ttl_seconds: float = quota_policy.QUOTA_TTL_SECONDS
     by_kind: Mapping[str, float] = field(default_factory=dict[str, float])
 
     def __post_init__(self) -> None:
@@ -193,7 +199,7 @@ class FreshnessPolicy:
 
     def ttl_for(self, kind: str) -> float:
         # Login/plan facts change over days, not minutes: an explicit by_kind entry wins, else accounts get ACCOUNT_TTL_SECONDS.
-        return float(self.by_kind.get(kind, ACCOUNT_TTL_SECONDS if kind == "account" else self.default_ttl_seconds))
+        return float(self.by_kind.get(kind, _KIND_TTLS.get(kind, self.default_ttl_seconds)))
 
 
 @dataclass(frozen=True)

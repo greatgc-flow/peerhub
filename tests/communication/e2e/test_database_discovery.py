@@ -2,7 +2,7 @@
 from pathlib import Path
 import subprocess
 
-from peerhub.cli.app import DEFAULT_DB_PATH, _resolve_db_path
+from peerhub.cli.store_select import DEFAULT_DB_PATH, select_store
 from peerhub.cli.store_select import select_store
 from peerhub.core.models import Peer
 from peerhub.core.store import CoreStore
@@ -22,7 +22,7 @@ def test_nearest_workspace_store_wins_over_parent_workspace(tmp_path, monkeypatc
     nested.mkdir()
     monkeypatch.chdir(nested)
     monkeypatch.delenv("PEERHUB_DB", raising=False)
-    assert Path(_resolve_db_path(DEFAULT_DB_PATH)) == near
+    assert Path(select_store(DEFAULT_DB_PATH).path) == near
 
 
 def test_workspace_root_discovery_never_escapes_its_owner(tmp_path, monkeypatch):
@@ -31,12 +31,12 @@ def test_workspace_root_discovery_never_escapes_its_owner(tmp_path, monkeypatch)
     provider.mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("PEERHUB_DB", raising=False)
-    assert Path(_resolve_db_path(DEFAULT_DB_PATH, workspace_root=provider)) == provider / DEFAULT_DB_PATH
+    assert Path(select_store(DEFAULT_DB_PATH, workspace_root=provider).path) == provider / DEFAULT_DB_PATH
 
 
 def test_explicit_observation_path_ignores_primary_db_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("PEERHUB_DB", "primary.db")
-    assert _resolve_db_path("observations.db", use_env=False, discover=False) == str(Path("observations.db").resolve())
+    assert select_store("observations.db", use_env=False, discover=False).path == str(Path("observations.db").resolve())
 
 
 def test_selection_reports_how_the_store_was_chosen(tmp_path):
@@ -75,7 +75,7 @@ def test_implicit_peerhub_subfolder_is_not_discovered(polluted_subfolder_workspa
     assert selection.path != str(sub_store)
 
     # Resolving path via CLI helper returns default path, NOT the subfolder store
-    resolved = _resolve_db_path(DEFAULT_DB_PATH)
+    resolved = select_store(DEFAULT_DB_PATH).path
     assert resolved == str((ws / DEFAULT_DB_PATH).resolve())
     assert Path(resolved) != sub_store
 
@@ -117,7 +117,7 @@ def test_legacy_store_present_emits_hint_line(polluted_subfolder_workspace, monk
     assert f"database not found: {(ws / DEFAULT_DB_PATH).resolve()}" in err
 
     # With JSON format, exit code 5 and JSON payload remain unchanged while stderr retains the hint
-    code_json = main(["peer", "list", "--format", "json"])
+    code_json = main(["peer", "list", "--json"])
     assert code_json == 5
     out_json, err_json = capsys.readouterr()
     payload = json.loads(out_json)
@@ -373,8 +373,7 @@ def test_implicit_miss_refuses_before_dispatch(tmp_path, monkeypatch, capsys, co
     import peerhub.cli.app as app
     def unexpected(*a, **kw):
         pytest.fail("missing store reached dispatch")
-    for handler in ("_run_ask_cli", "_run_account_cli", "_run_batch_cli", "_run_light_command", "CoreStore"):
-        monkeypatch.setattr(app, handler, unexpected)
+    monkeypatch.setattr(app, "_dispatch_command", unexpected)
     monkeypatch.chdir(tmp_path)
     assert main(command + (["--json"] if json_output else [])) == 5
     output = capsys.readouterr()

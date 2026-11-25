@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import QUOTA_NA, render_grouped_frame
+from peerhub.cli.monitor_legend import QUOTA_NA
+from peerhub.cli.monitor_view import render_grouped_frame
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool
@@ -283,7 +284,7 @@ def test_old_disabled_fact_ages_to_stale_not_a_fresh_na(store, capsys):
 
 
 def test_disabled_pool_is_never_limiting_in_mapped_quota():
-    from peerhub.extensions.monitor_read_model import mapped_quota
+    from peerhub.extensions.monitor_quota import mapped_quota
     obs = [{"pool_ref": "quota:ag:3P-5H", "state": "ABSENT", "reason": DISABLED, "effective_at_us": 5},
            {"pool_ref": "quota:ag:3P-7D", "state": "MEASURED", "effective_at_us": 5,
             "measurements": {"remaining_fraction": 0.4}}]

@@ -6,10 +6,15 @@ Core imports M3 = 0.
 """
 from __future__ import annotations
 
-import pytest
 import json
+import subprocess
+import sys
 from dataclasses import FrozenInstanceError, replace
+from pathlib import Path
 
+import pytest
+
+from peerhub.core.scalars import finite_converted_number, finite_number
 from peerhub.extensions.routing import (
     Router,
     RouteRequest,
@@ -21,6 +26,31 @@ from peerhub.extensions.routing import (
     RoutingPolicyViolationError,
     RoutingUnknownEvidencePolicyError,
 )
+
+
+def test_routing_imports_without_site_packages():
+    repo = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [sys.executable, "-E", "-S", "-B", "-c", "from peerhub.extensions.routing import Router; Router()"],
+        cwd=repo, capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_finiteness_uses_the_input_for_routing_and_evidence(default_router: Router):
+    class ConvertsToInfinity(float):
+        def __float__(self) -> float:
+            return float("inf")
+
+    value = ConvertsToInfinity(0.5)
+    assert finite_number(value) == float("inf")
+    assert finite_number(value, overflow_is_missing=True) == float("inf")
+    assert finite_converted_number(value) is None
+
+    request = RouteRequest("float-subclass", ["review"], cost_sensitivity=value)
+    candidate = CandidatePeer("peer:review", ["review"], "HEALTHY", quota_remaining=100, eval_score=value)
+    policy = RoutePolicy("float-subclass", revision=1, weights={"eval_score": value, "quota_headroom": 0.5})
+    assert default_router.route(request, [candidate], policy).selected_peer_id == candidate.peer_id
 
 
 @pytest.fixture

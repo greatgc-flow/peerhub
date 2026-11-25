@@ -2,19 +2,20 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from peerhub.core.scalars import finite_number
 from peerhub.extensions.adapters.api import API_TARGETS
+from peerhub.extensions.adapters.common import classify_refusal_text
 from peerhub.extensions.adapters.profiles import inspect_model_pools, list_profiles
-from peerhub.extensions.adapters.base import classify_refusal_text
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.observation_model import instant_us
 from peerhub.extensions.quota_projection import limit_by_parent, scoped_parent_ref
+from peerhub.extensions.quota_windows import quota_reset_at
 
 
 def readiness_report(db_path: str | Path, *, read_at: float | None = None,
@@ -64,10 +65,6 @@ def _object(raw: object) -> dict[str, Any]:
     return cast(dict[str, Any], value)
 
 
-def _number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-
-
 def _matches_binding(recorded: str, configured: str) -> bool:
     # Native bindings append an opaque cwd/write-mode hash for session reuse.
     # Readiness compares the recorded profile/model/effort, independently of
@@ -89,10 +86,13 @@ def compose(profiles: list[dict[str, Any]], observations: list[dict[str, Any]],
         if item:
             view.update(state=item["state"], age=item["age_seconds"], evidence=f"observation:{item['observation_id']}")
             if item["state"] == "MEASURED":
-                remaining, reset = item["payload"].get("remaining_fraction"), item["payload"].get("resets_at")
-                if _number(remaining) and 0 <= remaining <= 1:
+                payload = item["payload"]
+                remaining = finite_number(payload.get("remaining_fraction"), overflow_is_missing=True)
+                reset = quota_reset_at(item, payload, now)
+                # Evidence can outlive its quota window, even within its freshness TTL.
+                if remaining is not None and 0 <= remaining <= 1 and (reset is None or reset > now):
                     view["remaining"] = remaining
-                if _number(reset):
+                if reset is not None:
                     view["reset_in"] = max(0, reset - now)
         pools[ref] = view
     # A scoped weekly pool (cc F-7D) is limited by its parent (C-7D) as the monitor's POOLS shows it: both configured, the

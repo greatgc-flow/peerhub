@@ -6,7 +6,7 @@ import pytest
 
 from peerhub.core.store import IdempotencyConflictError
 from peerhub.extensions.ask import ask
-from peerhub.extensions import bridge as errors
+from peerhub.extensions import bridge, bridge_errors as errors
 from tests.communication.bridge_helpers import bseed, sql
 from tests.communication.bridge.test_retained_sessions import add
 from tests.communication.fakes.runtime import NativeRuntimeTarget, FakeRuntimeTarget
@@ -116,7 +116,7 @@ def test_replay_after_tombstoning_and_changed_selector_conflict(tmp_path, monkey
     with sqlite3.connect(db) as conn:
         conn.execute("UPDATE bridge_session_history SET state='TOMBSTONED',tombstoned_at=1")
         conn.execute("DELETE FROM bridge_sessions")
-    monkeypatch.setattr(errors.Bridge, "__init__", lambda *a, **k: pytest.fail("replay checked liveness"))
+    monkeypatch.setattr(bridge.Bridge, "__init__", lambda *a, **k: pytest.fail("replay checked liveness"))
     rt.calls.clear()
     replay = ask(db, "cx", "same", request_id="id", runtime=rt, **kw)
     assert replay["session"] == original["session"] and rt.calls == []
@@ -177,10 +177,10 @@ def test_direct_overflow_is_checked_before_prompt_append(tmp_path, monkeypatch):
     first = ask(db, "cx", "first", runtime=rt)
     CoreStore(db).append_record(stream_id=first["stream_id"], author_peer_id="user", kind="message",
                                body="x" * 1000, idempotency_key="large", created_at="2026-10-14T00:00:00Z")
-    original = errors.Bridge.__init__
+    original = bridge.Bridge.__init__
     def bounded(self, *a, **kw):
         original(self, *a, **kw, catch_up_budget=CatchUpBudget(max_bytes=200))
-    monkeypatch.setattr(errors.Bridge, "__init__", bounded)
+    monkeypatch.setattr(bridge.Bridge, "__init__", bounded)
     with pytest.raises(errors.SessionDeltaOverflowError):
         ask(db, "cx", "reject", session=first["session"]["handle"], runtime=rt)
     with sqlite3.connect(db) as conn:
@@ -236,7 +236,7 @@ def test_queued_rejection_replays_before_liveness_and_changed_intent_conflicts(t
     kw = dict(stream_id="s", request_id="reject", session=handle, runtime=rt)
     original = ask(db, "cx", "queued", **kw)
     assert original["status"] == "failed_not_started" and original["error"]["code"] == "session_not_found"
-    monkeypatch.setattr(errors.Bridge, "__init__", lambda *a, **k: pytest.fail("rejection replay constructed Bridge"))
+    monkeypatch.setattr(bridge.Bridge, "__init__", lambda *a, **k: pytest.fail("rejection replay constructed Bridge"))
     replay = ask(db, "cx", "queued", **kw)
     assert replay["error"] == original["error"] and rt.calls == []
     with pytest.raises(IdempotencyConflictError):

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import QUOTA_NA
+from peerhub.cli.monitor_legend import QUOTA_NA
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation_model import EvidenceState, Observation
 from tests.communication.diag.test_monitor_328 import Store, iso
@@ -105,7 +105,7 @@ def test_plan_mismatch_reprobes_with_backoff(store, monkeypatch, capsys, converg
     from dataclasses import replace
     from peerhub.extensions import quota_capture
     from peerhub.extensions.quota_capture import refresh_quota
-    from peerhub.extensions.quota_probes import _absent_pool
+    from peerhub.extensions.quota_probes.common import absent_pool
     from tests.communication.observation.test_account_probes import live_reading
     account(store, "cx", age=400, plan="prolite", plan_status="reported")
     store.add("cx", "X-5H", "ABSENT", age=20, reason=NOT_REPORTED + "free")
@@ -117,7 +117,7 @@ def test_plan_mismatch_reprobes_with_backoff(store, monkeypatch, capsys, converg
         # account/read finishes before the quota probe of this same collection run.
         return replace(live_reading("cx", plan="free" if converges else "prolite"), observed_at=clock[0] - 1)
     def quota(**kw):
-        return (_absent_pool(kw["ids"], "cx", "default", "cx", clock[0], 300, "X-5H", plan="free"),)
+        return (absent_pool(kw["ids"], "cx", "default", "cx", clock[0], 300, "X-5H", plan="free"),)
     for elapsed, count in ((0, 1), (60, 1), (299, 1 if converges else 2)):
         clock[0] = int(store.now) + elapsed
         refresh_quota(store.db, ["cx"], pollers={"cx": quota}, account_pollers={"cx": poll}, version_checker=lambda k: None)
@@ -129,21 +129,21 @@ def test_plan_mismatch_reprobes_with_backoff(store, monkeypatch, capsys, converg
 
 
 def test_corrupt_quota_row_is_identified_as_quota(store, monkeypatch):
-    from peerhub.extensions import monitor_read_model
+    from peerhub.extensions import monitor_quota
     from peerhub.extensions.observation_model import ObservationCorruptError
     account(store, "cx", plan="prolite", plan_status="reported")
     store.add("cx", "X-5H", "ABSENT", age=20, reason=NOT_REPORTED + "free")
-    parse = monitor_read_model.row_to_observation
+    parse = monitor_quota.row_to_observation
     def corrupt_quota(row):
         if row["kind"] == "quota":
             raise ObservationCorruptError("invalid stored quota")
         return parse(row)
-    monkeypatch.setattr(monitor_read_model, "row_to_observation", corrupt_quota)
+    monkeypatch.setattr(monitor_quota, "row_to_observation", corrupt_quota)
     with sqlite3.connect(store.db) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM observations WHERE kind='account'").fetchall()
         with pytest.raises(sqlite3.DataError, match="invalid quota observation at capture_seq="):
-            monitor_read_model._read_accounts(conn, rows, store.now)
+            monitor_quota._read_accounts(conn, rows, store.now)
 
 
 def test_compact_has_no_accounts_line_and_expand_has_one_row_per_peer(store, capsys):

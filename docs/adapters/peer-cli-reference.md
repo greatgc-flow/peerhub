@@ -1,39 +1,31 @@
 # Peer CLI compatibility reference
 
 This is the current cross-peer operator reference. The authoritative runtime
-sources are the [adapter implementation](../../peerhub/extensions/adapters/base.py)
-and the [packaged model defaults](../../peerhub/config_data/model-defaults.toml); historical snapshots under
-`checkpoints/` are provenance only.
+sources are the [shared CLI runtime](../../peerhub/extensions/adapters/cli_runtime.py),
+the [provider registry](../../peerhub/extensions/adapters/registry.py),
+the [incremental event parser](../../peerhub/extensions/adapters/event_parser.py),
+the provider implementations for [ag](../../peerhub/extensions/adapters/ag.py),
+[cc](../../peerhub/extensions/adapters/cc.py), and [cx](../../peerhub/extensions/adapters/cx.py),
+and the [packaged model defaults](../../peerhub/config_data/model-defaults.toml).
+See the [adapter checkpoints](../history/adapter-checkpoints/) for historical snapshots.
 
 ## Supported surface
 
 | Peer | Binary | Input / output | Invocation |
 |---|---|---|---|
-| `ag` | `agy.exe` | stdin / stream JSON, or `-p` argument / flat JSON | new |
-| `cc` | `claude.cmd` | stdin / stream JSON | new |
+| `ag` | `agy.exe` | stdin / stream JSON, or `-p` argument / flat JSON | new, native resume |
+| `cc` | `claude.cmd` | stdin / stream JSON | new, native resume |
 | `cx` | `codex.cmd` | stdin / JSONL events | `exec`, `exec resume` |
 
 The packaged model defaults record models, efforts, and observed CLI versions.
 The [refresh recipe](../model-profiles/model-profiles.json) describes how to update them.
 
-Ordinary `peerhub ask` calls reuse the latest compatible retained peer/Stream session;
-otherwise they start fresh with bounded catch-up. Adapter resume capability is
-independent of each call, and vendor resume arguments are internal. Use a
-dedicated Stream for a separate task.
-
-`ask --fresh` creates a new generation with bounded Stream catch-up;
-`ask --session HANDLE` uses exactly the full retained handle from a prior result.
-The options are mutually exclusive. Exact scope, lineage, binding, fingerprint,
-expiry, continuity or delta-budget failures exit 2 before provider delivery,
-without allocating a substitute. JSON preserves nullable `session` / `error`.
-Request-id retries require the same selector and replay the original snapshot,
-including after the selected handle expires. Writable permission must match
-the selected binding on every call. Uncertain work blocks all selectors.
+See [ask](../commands.md#ask) for Stream and session selection and [the retained session contract](../implementation/RETAINED_SESSIONS.md) for exact selection and replay rules.
 
 Exact invocation and decoder details are in [ag.md](ag.md), [cc.md](cc.md), and
 [cx.md](cx.md).
 
-See the [Peer CLI option audit](../design/peer-cli-option-audit-2026-10-15.md)
+See the [Peer CLI option audit](../history/design/peer-cli-option-audit-2026-10-15.md)
 for locally checked optional flags, legacy findings, and options that need
 canaries before changing the production invocation.
 
@@ -62,6 +54,31 @@ launcher layout; PeerHub's resolver does not install or repair those tools.
 Windows console/pipe encodings can also affect non-ASCII rendering. Report the
 exact command, environment, `peerhub --version`, and `peerhub diag --json` when
 these boundaries cause trouble.
+
+## Sandbox and event limits
+
+`ask --writable` maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` and ag `--mode accept-edits`. Codex defaults to `-s read-only`; resume uses `-c sandbox_mode=...` and a mode change requires a compatible new binding. Agy requires explicit `--writable` for native execution (#140), including pings and reviews. Host policy can impose further restrictions. See each adapter above for invocation details and [Windows operations](../windows.md) for host-specific workarounds.
+
+| Peer | Limits | Knobs / next action |
+| --- | --- | --- |
+| `cc` | Writes only under the `-w` workspace. `gh`/`git` commands and reads outside that workspace require interactive approval, which is never granted non-interactively. | Select the workspace with `-w` / `--workspace`; pass `--writable` for edits (`--permission-mode acceptEdits`). Keep work within that workspace; the caller handles approval-dependent operations. |
+| `cx` | The requested sandbox applies alongside host restrictions. | See the [Windows sandbox workflow](cx.md#windows-sandbox-workflow) for observed limits and who runs checks. |
+| `ag` | Writes require `--writable`; read-only native `ag` is refused before launch (#140). It prints nothing until done. | Pass `--writable --timeout-seconds 7200 --silence-timeout-seconds 7200`. |
+
+### cc and cx event size
+
+The cx adapter accepts at most 262,144 bytes (256 KiB) per JSONL record,
+excluding the newline; this is separate from the total retained output budget
+(`--max-output-bytes`). Oversized records are discarded without retaining their
+payloads in warnings or telemetry. `oversized_event_count` records the count.
+A later intact answer followed by `turn.completed` establishes delivery after a
+skipped record; an oversized final answer/completion or an unresolved gap keeps
+the outcome uncertain. A completion alone cannot substitute for a lost answer.
+
+The cc adapter uses the same 256 KiB per-line cap on its `stream-json` output. Since 0.24.5 (#325) a
+later intact `result` event establishes delivery after a skipped line (typically a large tool result in a
+long ask); an oversized `result` event, a gap after the result, or a gap with no result keeps the outcome
+uncertain, and session id and usage are not taken from a stream with an unresolved gap.
 
 ## Provider Refusal Classification (NOT_EXECUTED)
 

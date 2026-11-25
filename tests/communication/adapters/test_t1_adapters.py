@@ -12,9 +12,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, process, run_bounded
-from peerhub.extensions.adapters.base import SPECS
-from peerhub.extensions.bridge import PrespawnError, RuntimeTargetError
+from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, cli_runtime, process, run_bounded
+from peerhub.extensions.adapters.registry import SPECS
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTargetError
 from peerhub.extensions.ask import ask
 from tests.communication.adapters.conftest import FAKE, calls
 from tests.communication.bridge_helpers import bseed, delivery_rows, kinds, offset_row, responses, sql
@@ -134,7 +134,7 @@ def test_t1_missing_binary_is_prespawn_and_leaves_state_unchanged(tmp_path, mk):
 
 
 def test_t1_executable_not_on_path_is_prespawn(monkeypatch, mk):
-    monkeypatch.setattr("peerhub.extensions.adapters.base.shutil.which", lambda n: None)
+    monkeypatch.setattr("peerhub.extensions.adapters.registry.shutil.which", lambda n: None)
     with pytest.raises(PrespawnError, match="not found"):
         drain(CliRuntimeTarget("cc", mk.ws).deliver("s", rec(), []))
 
@@ -143,9 +143,9 @@ def test_t1_executable_not_on_path_is_prespawn(monkeypatch, mk):
 def test_t1_a_missing_tool_names_the_next_step(monkeypatch, mk, kind, prefix):
     """#385: the message says what to do and keeps `executable not found`, the text a launch failure is classified by."""
     from peerhub.cli.lessons import lesson_by_id
-    from peerhub.cli.recovery import select_guidance_code
+    from peerhub.extensions.recovery_classification import select_guidance_code
 
-    monkeypatch.setattr("peerhub.extensions.adapters.base.shutil.which", lambda n: None)
+    monkeypatch.setattr("peerhub.extensions.adapters.registry.shutil.which", lambda n: None)
     monkeypatch.delenv("PEERHUB_AG_TRANSPORT", raising=False)
     with pytest.raises(PrespawnError) as failure:
         drain(CliRuntimeTarget(kind, mk.ws, writable=kind == "ag").deliver("s", rec(), []))
@@ -240,7 +240,7 @@ def test_t1_discovery_reports_observed_version_with_timestamp_not_hardcoded(mk):
     d2 = mk("cc", env_extra={"FAKE_VERSION": "7.8.9-beta.1"}).discover()
     assert (d1["version"], d2["version"]) == ("3.4.5", "7.8.9-beta.1") and d1["available"] and d2["available"]
     assert before <= datetime.fromisoformat(d1["observed_at"]) <= datetime.now(timezone.utc)
-    src = Path(process.__file__).with_name("base.py").read_text(encoding="utf-8")
+    src = Path(cli_runtime.__file__).read_text(encoding="utf-8")
     assert "3.4.5" not in src
 
 
@@ -381,7 +381,9 @@ def test_t1_catch_up_is_in_prompt_and_bounded(mk):
 
 
 def test_leading_dash_prompt_is_data_for_every_provider():
-    from peerhub.extensions.adapters.base import AgSpec, CcSpec, CxSpec
+    from peerhub.extensions.adapters.ag import AgSpec
+    from peerhub.extensions.adapters.cc import CcSpec
+    from peerhub.extensions.adapters.cx import CxSpec
     for prompt in ("-h", "--help", "-", "ordinary", "\n-h"):
         args = AgSpec().argv(None, None, prompt)
         assert args[args.index("-p") + 1] == ("\n" + prompt if prompt.startswith("-") else prompt)
@@ -484,7 +486,7 @@ def test_ag_fail_closed_without_writable(mk):
 
 def test_cx_tool_only_turn_and_narration_segregation():
     """#126 and #127: cx tool-only turn returns empty response without error, and pre-tool narration is segregated."""
-    from peerhub.extensions.adapters.base import IncrementalEventParser
+    from peerhub.extensions.adapters.event_parser import IncrementalEventParser
 
     # Tool-only turn (#126)
     p_tool = IncrementalEventParser("cx")
@@ -533,7 +535,8 @@ def test_native_delivery_cc_oversized_tool_event_before_result_delivers(tmp_path
 
 def test_cx_requires_completion_after_latest_activity_in_both_parsers():
     """Completion must occur after latest activity in both CxSpec and IncrementalEventParser."""
-    from peerhub.extensions.adapters.base import CxSpec, IncrementalEventParser
+    from peerhub.extensions.adapters.event_parser import IncrementalEventParser
+    from peerhub.extensions.adapters.cx import CxSpec
 
     # Turn 1 completes, but newer turn starts without completion
     events_new_turn = (
@@ -605,7 +608,7 @@ def test_native_delivery_cx_newer_activity_after_completion_rejected(tmp_path):
 
 def test_cx_final_messages_bounded_and_discloses_truncation():
     """Final-phase messages are retained within budget, drop intermediate text, and disclose truncation."""
-    from peerhub.extensions.adapters.base import IncrementalEventParser
+    from peerhub.extensions.adapters.event_parser import IncrementalEventParser
 
     # Set small max_bytes = 100
     p = IncrementalEventParser("cx", max_bytes=100)

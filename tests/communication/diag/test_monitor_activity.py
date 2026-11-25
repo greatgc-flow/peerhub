@@ -15,8 +15,9 @@ from typing import Any
 
 import pytest
 
-from peerhub.extensions import bridge, bridge_claims, bridge_registry, session_receipts
-from peerhub.extensions import monitor_read_model as mrm
+from peerhub.extensions import bridge_claims, bridge_registry, bridge_schema, delivery_projections
+from peerhub.extensions import monitor_queries, monitor_read_model as mrm
+from peerhub.extensions import monitor_activity, monitor_values
 from tests.communication.harness.core import CoreHarness
 
 pytestmark = [pytest.mark.integration, pytest.mark.diag]
@@ -34,11 +35,11 @@ def iso(ts: float) -> str:
 def db(tmp_path):
     h = CoreHarness(tmp_path / "ws")
     with closing(sqlite3.connect(h.db_path)) as c:
-        for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+        for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             c.execute(stmt)
         c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_call_once ON bridge_evidence(delivery_id) WHERE kind='session_call'")
-        for stmt in (*bridge_registry.DDL, *session_receipts.DDL):  # the tables RECENT's session join reads (#412)
+        for stmt in (*bridge_registry.DDL, *delivery_projections.DDL):  # the tables RECENT's session join reads (#412)
             c.execute(stmt)
         c.commit()
     return h.db_path
@@ -49,8 +50,8 @@ def wsgen(db) -> str:
 
 
 def caller(**kw: Any) -> dict[str, Any]:
-    base = {"v": 1, "tool": "cc", "label": "peerhub", "session": "sess-raw-1", "host": mrm._this_host(),  # pyright: ignore[reportPrivateUsage]
-            "ns": mrm._this_ns(), "ask_pid": 4242, "ask_created": 1790812000.5,  # pyright: ignore[reportPrivateUsage]
+    base = {"v": 1, "tool": "cc", "label": "peerhub", "session": "sess-raw-1", "host": monitor_activity._this_host(),  # pyright: ignore[reportPrivateUsage]
+            "ns": monitor_activity._this_ns(), "ask_pid": 4242, "ask_created": 1790812000.5,  # pyright: ignore[reportPrivateUsage]
             "cwd": "C:/very/secret/path", "batch": None, "task": None}
     base.update(kw)
     return base
@@ -257,7 +258,7 @@ def test_overdue_row(db):
     assert row["ended_at"] is None and row["alive"] is True
 
 
-@pytest.mark.parametrize("past,running", [(mrm.ALERT_WINDOW_S, True), (mrm.ALERT_WINDOW_S + 1, False)])
+@pytest.mark.parametrize("past,running", [(monitor_queries.ALERT_WINDOW_S, True), (monitor_queries.ALERT_WINDOW_S + 1, False)])
 def test_overdue_is_in_the_running_set_only_for_the_window(db, past, running):
     claim(db, "s-late", expires=NOW - past)
     delivery(db, "s-late", certainty="STARTED", caller_detail=caller(), started_at=NOW - past - 30.0)
@@ -517,9 +518,13 @@ def test_asks_24h_counts_streams_not_superseded_deliveries(db):
 def test_the_newest_caller_row_decides_lead_and_liveness(db):
     claim(db, "s-two-callers")
     did = delivery(db, "s-two-callers", certainty="STARTED", caller_detail=caller(session="first", ask_pid=111))
-    with closing(sqlite3.connect(db)) as c:  # a second invoking process (lane A: one caller row per process)
-        c.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,?,?,?)",
-                  (did, "s-two-callers", "cx", "caller", "NOT_STARTED", json.dumps(caller(session="second", ask_pid=222))))
+    latest = caller(session="second", ask_pid=222)
+    with closing(sqlite3.connect(db)) as c:  # The new invocation and its caller snapshot are recorded together.
+        c.executemany("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,?,?,?)",
+                      [(did, "s-two-callers", "cx", "caller", "NOT_STARTED", json.dumps(latest)),
+                       (did, "s-two-callers", "cx", "about_to_invoke", "NOT_STARTED",
+                        json.dumps(dict(invocation_no=2, claim_generation=1, caller=latest))),
+                       (did, "s-two-callers", "cx", "started", "STARTED", json.dumps(dict(invocation_no=2)))])
         c.commit()
     pids = []
     row = asks(db, liveness=lambda host, ns, pid, created, **k: pids.append(pid) or True)["s-two-callers"]
@@ -542,7 +547,7 @@ def test_batch_name_and_no_raw_identity_leaves_the_read_model(db):
     row = out["groups"]["activity"]["data"]["asks"][0]
     assert row["name"] == "b1234/review" and row["stream"] == "s-batch"
     dumped = json.dumps(out)
-    for raw in ("sess-raw-1", "4242", "very/secret/path", mrm._this_host()):  # pyright: ignore[reportPrivateUsage]
+    for raw in ("sess-raw-1", "4242", "very/secret/path", monitor_activity._this_host()):  # pyright: ignore[reportPrivateUsage]
         assert raw not in dumped
 
 
@@ -664,10 +669,10 @@ def test_short_and_long_caps(db):
 
 def test_text_over_the_limit_is_long_text_and_not_fetched(db):
     statements: list[str] = []
-    row_prompt = "a" * (mrm.TEXT_MAX_CHARS + 1)
+    row_prompt = "a" * (monitor_queries.TEXT_MAX_CHARS + 1)
     claim(db, "s-long", expires=NOW - 10.0)
     delivery(db, "s-long", certainty="TERMINAL", terminal_at=iso(NOW - 10.0), prompt=row_prompt,
-             result=ok_result("b" * mrm.TEXT_MAX_CHARS))
+             result=ok_result("b" * monitor_queries.TEXT_MAX_CHARS))
     out = frame(db, trace_callback=statements.append)
     row = out["groups"]["activity"]["data"]["asks"][0]
     assert row["ask_line"] == row["ask_line_long"] == "(long text)"
@@ -676,13 +681,13 @@ def test_text_over_the_limit_is_long_text_and_not_fetched(db):
     assert len(selects) == 1 and "FROM bridge_claims c" in selects[0]  # the one activity statement, nothing fetched later
     with closing(sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)) as c:
         c.row_factory = sqlite3.Row
-        fetched = c.execute(mrm._ACTIVITY_SQL, mrm._activity_params(NOW, wsgen(db), True)).fetchone()  # pyright: ignore[reportPrivateUsage]
-    assert fetched["ask_text"] is None and fetched["ask_len"] == mrm.TEXT_MAX_CHARS + 1  # the long text never left SQLite
-    assert len(fetched["reply_text"]) == mrm.TEXT_MAX_CHARS
+        fetched = c.execute(monitor_queries._ACTIVITY_SQL, monitor_queries._activity_params(NOW, wsgen(db), True)).fetchone()  # pyright: ignore[reportPrivateUsage]
+    assert fetched["ask_text"] is None and fetched["ask_len"] == monitor_queries.TEXT_MAX_CHARS + 1  # the long text never left SQLite
+    assert len(fetched["reply_text"]) == monitor_queries.TEXT_MAX_CHARS
 
 
 def test_a_nul_hides_the_length_from_sqlite_and_python_rechecks_it(db):
-    row = text_row(db, prompt="a\x00" + "b" * mrm.TEXT_MAX_CHARS, reply="ok\x00" + "c" * mrm.TEXT_MAX_CHARS)
+    row = text_row(db, prompt="a\x00" + "b" * monitor_queries.TEXT_MAX_CHARS, reply="ok\x00" + "c" * monitor_queries.TEXT_MAX_CHARS)
     assert row["ask_line"] == row["ask_line_long"] == "(long text)"
     assert row["reply_line"] == row["reply_line_long"] == "(long text)"
 
@@ -765,7 +770,7 @@ def test_superseded_rows_do_not_take_the_text_ranks_of_ended_rows(db):
 def test_format_character_table_covers_every_cf_and_cc_character():
     missing = [cp for cp in range(sys.maxunicode + 1)
                if unicodedata.category(chr(cp)) in ("Cf", "Cc") and chr(cp) not in "\n\r"
-               and mrm._strip_controls(chr(cp)) != ("" if chr(cp) != "\t" else " ")]  # pyright: ignore[reportPrivateUsage]
+               and monitor_values._strip_controls(chr(cp)) != ("" if chr(cp) != "\t" else " ")]  # pyright: ignore[reportPrivateUsage]
     assert missing == []
 
 
@@ -804,7 +809,7 @@ def _bridge_store(tmp_path):
 def test_select_count_for_the_default_groups_and_for_capacity_alone(tmp_path, facts_in_capacity_rows):
     """Default groups: peers, sessions, scope peers, scopes, capacity, activity = 6 when the capacity rows carry a facts
     report; 7 when they do not and the existing `peers` facts fallback (one more SELECT) runs. `capacity` alone: 1."""
-    from peerhub.cli.monitor_preferences import DEFAULT_GROUPS
+    from peerhub.core.monitor_groups import DEFAULT_GROUPS
     from peerhub.extensions.observation import ObservationStore
     from tests.communication.fakes.observation import FakeObservationSource, measured
     harness = _bridge_store(tmp_path)
@@ -824,21 +829,17 @@ def test_select_count_for_the_default_groups_and_for_capacity_alone(tmp_path, fa
     assert capacity["query_families"] == 1 and capacity["groups"]["capacity"]["status"] == "OK"
 
 
-def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
-    def store(name):
+@pytest.fixture
+def activity_scale_store(tmp_path):
+    def store(name, history):
         path = CoreHarness(tmp_path / name).db_path
         with closing(sqlite3.connect(path)) as c:
-            for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+            for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
                 c.execute(stmt)
             c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
-            for stmt in (*bridge_registry.DDL, *session_receipts.DDL):
+            for stmt in (*bridge_registry.DDL, *delivery_projections.DDL):
                 c.execute(stmt)
-            c.commit()
-        return path
-
-    def seed(path, history):
-        generation = wsgen(path)
-        with closing(sqlite3.connect(path)) as c:
+            generation = wsgen(path)
             c.executemany("INSERT INTO bridge_claims (stream_id,peer_id,owner_id,generation,expires_at,lease_sec,workspace_generation) "
                           "VALUES (?,?,?,?,?,?,?)", [(f"other{i}", "cx", "o", 1, NOW - 100.0 - i, 60.0, generation) for i in range(150)]
                           + [("peer:cx:chat", "cx", "o", history, NOW - 10.0, 60.0, generation)])
@@ -849,31 +850,44 @@ def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
                           + [(f"h{i}", 1000 + i, "peer:cx:chat", "cx", f"hr{i}", i, 1, "NOT_STARTED", i + 1, json.dumps(ok_result()),
                               "d", iso(NOW - 10.0)) for i in range(history)])
             c.commit()
+        return path
 
+    return store
+
+
+def test_scale_one_scope_with_a_long_delivery_history(activity_scale_store):
     def steps(path):
-        conn = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+        params = monitor_queries._activity_params(NOW, wsgen(path), True)  # pyright: ignore[reportPrivateUsage]
+        sql = monitor_queries._ACTIVITY_SQL  # pyright: ignore[reportPrivateUsage]
         counter = [0]
-        conn.set_progress_handler(lambda: counter.__setitem__(0, counter[0] + 1) or 0, 1)
-        params = mrm._activity_params(NOW, wsgen(path), True)  # pyright: ignore[reportPrivateUsage]
-        rows = conn.execute(mrm._ACTIVITY_SQL, params).fetchall()  # pyright: ignore[reportPrivateUsage]
-        conn.set_progress_handler(None, 1)
-        started = time.perf_counter()
-        conn.execute(mrm._ACTIVITY_SQL, params).fetchall()  # pyright: ignore[reportPrivateUsage]
-        elapsed = time.perf_counter() - started  # timed without the per-instruction callback
-        plan = " | ".join(str(row[3]) for row in conn.execute("EXPLAIN QUERY PLAN " + mrm._ACTIVITY_SQL, params))  # pyright: ignore[reportPrivateUsage]
-        conn.close()
-        return counter[0], len(rows), elapsed, plan
+        with closing(sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True)) as conn:
+            conn.set_progress_handler(lambda: counter.__setitem__(0, counter[0] + 1) or 0, 1)
+            rows = conn.execute(sql, params).fetchall()
+            conn.set_progress_handler(None, 1)
+            plan = " | ".join(str(row[3]) for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params))
+        return counter[0], len(rows), plan
 
-    small_db, big_db = store("small"), store("big")
-    seed(small_db, 150)
-    seed(big_db, 9000)
-    small, rows_small, _, _ = steps(small_db)
-    big, rows_big, seconds, plan = steps(big_db)
+    small_db, big_db = activity_scale_store("small", 150), activity_scale_store("big", 9000)
+    small, rows_small, _ = steps(small_db)
+    big, rows_big, plan = steps(big_db)
     assert rows_small == rows_big == 151
     # The scope prefix of an index, never a table scan. Both scope indexes start with (stream_id, peer_id); since #330 added
     # idx_bd_scope_claim_generation the planner may take either for this prefix-only search.
     assert re.search(r"SEARCH d USING INDEX idx_bd_scope_(claim_)?generation \(stream_id=\? AND peer_id=\?\)", plan), plan
     # The statement reads every delivery of each scope active in the last 24 hours (the cost class of #330): linear in that history.
-    print(f"activity statement VM steps: history 150 -> {small}, history 9000 -> {big} ({seconds * 1000:.1f} ms)")
-    assert big < small * 120 and seconds < 1.0
+    print(f"activity statement VM steps: history 150 -> {small}, history 9000 -> {big}")
+    assert big < small * 120
     assert len(data(big_db)["asks"]) == 151
+
+
+@pytest.mark.serial_timing
+def test_activity_long_delivery_history_wall_clock(activity_scale_store):
+    path = activity_scale_store("big", 9000)
+    sql = monitor_queries._ACTIVITY_SQL  # pyright: ignore[reportPrivateUsage]
+    params = monitor_queries._activity_params(NOW, wsgen(path), True)  # pyright: ignore[reportPrivateUsage]
+    with closing(sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True)) as conn:
+        conn.execute(sql, params).fetchall()  # warm the same connection before measuring
+        started = time.perf_counter()
+        conn.execute(sql, params).fetchall()
+        elapsed = time.perf_counter() - started
+    assert elapsed < 1.0

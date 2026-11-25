@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.extensions.orchestration import (
+from peerhub.extensions.orchestration import PlanExecutor
+from peerhub.extensions.orchestration_journal import RecordPlanJournal
+from peerhub.extensions.orchestration_model import (
     CostBoundExceededError,
     Plan,
     PlanBoundExceededError,
     PlanBounds,
-    PlanExecutor,
     PlanStateTransitionError,
     PlanStep,
     PlanStepExecutionError,
-    RecordPlanJournal,
     StepExecutionResult,
     UnsupportedExecutionBoundError,
 )
@@ -300,7 +300,7 @@ def test_parallel_journal_appends_are_never_entered_concurrently(journal):
 
 @pytest.mark.catalog_id("RUN-013")
 def test_a_job_that_finishes_exactly_at_the_deadline_is_used_not_discarded():
-    from peerhub.extensions.orchestration import HardDeadlineStepRunner
+    from peerhub.extensions.orchestration_deadline import HardDeadlineStepRunner
 
     class Job:
         def __init__(self, status, output=None, error=None):

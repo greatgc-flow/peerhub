@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from peerhub.extensions.bridge import TerminalConflictError
+from peerhub.extensions.bridge_errors import TerminalConflictError
 from peerhub.extensions.bridge_claims import StaleClaimError
 from tests.communication.bridge_helpers import (bseed, delivery_rows, evidence, kinds, more_stream, offset_row, records, responses, sql)
 from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget
@@ -148,7 +148,8 @@ def test_brg_007_execution_evidence_records_certainty_and_runtime_ids(bridge_h):
         ("attempt_created", "NOT_STARTED"), ("about_to_invoke", "NOT_STARTED"), ("started", "STARTED"), ("session_call", "STARTED"), ("output", "STARTED"), ("output", "STARTED"),
         ("terminal", "TERMINAL"), ("session_telemetry", "TERMINAL"), ("response_appended", "TERMINAL"), ("offset_acked", "TERMINAL")]
     started = [e for e in ev["events"] if e["kind"] == "started"][0]["detail"]
-    assert started == {"execution_id": "exec-9", "external_session_id": "ext-1", "session_generation": 1}
+    assert ev["events"][1]["detail"]["invocation_no"] == 1
+    assert started == {"execution_id": "exec-9", "external_session_id": "ext-1", "session_generation": 1, "invocation_no": 1}
     assert [e["detail"]["chunk"] for e in ev["events"] if e["kind"] == "output"] == ["par", "tial"]
     assert d["response_record_id"] == responses(bridge_h)[0][0]  # recovery correlation to the durable response
     assert bridge_h.execution_evidence("rec-nonexistent", "b") == {"deliveries": [], "events": []}  # control: other record has none

@@ -10,7 +10,7 @@ from tests.communication.spec import ROOT
 
 pytestmark = pytest.mark.architecture
 PKG = ROOT / "peerhub"
-FORBIDDEN_PREFIXES = ("peerhub.extensions",)
+CORE_FORBIDDEN = {"peerhub.extensions", "peerhub.cli"}
 
 
 def _module_file(mod: str) -> Path | None:
@@ -21,28 +21,30 @@ def _module_file(mod: str) -> Path | None:
     return None
 
 
+def _import_root(node: ast.ImportFrom, mod: str, is_package: bool) -> str:
+    if not node.level:
+        return node.module or ""
+    base = mod.split(".") if is_package else mod.split(".")[:-1]
+    parent = base[: len(base) - (node.level - 1)]
+    return ".".join(parent + ([node.module] if node.module else []))
+
+
 def _imports(path: Path, mod: str) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    is_pkg = path.name == "__init__.py"
-    base = mod.split(".") if is_pkg else mod.split(".")[:-1]
     out: set[str] = set()
     for n in ast.walk(tree):
         if isinstance(n, ast.Import):
             out.update(a.name for a in n.names)
         elif isinstance(n, ast.ImportFrom):
-            if n.level:
-                parent = base[: len(base) - (n.level - 1)]
-                root = ".".join(parent + ([n.module] if n.module else []))
-            else:
-                root = n.module or ""
+            root = _import_root(n, mod, path.name == "__init__.py")
             out.add(root)
             out.update(f"{root}.{a.name}" for a in n.names)
     return out
 
 
-def _core_modules() -> dict[str, Path]:
+def _package_modules(package: str) -> dict[str, Path]:
     mods = {}
-    for p in (PKG / "core").rglob("*.py"):
+    for p in (PKG / package).rglob("*.py"):
         parts = list(p.relative_to(ROOT).with_suffix("").parts)
         if parts[-1] == "__init__":
             parts.pop()
@@ -71,12 +73,83 @@ def _reachable(start: dict[str, Path]) -> dict[str, str]:
 
 
 @pytest.mark.catalog_id("ARCH-001")
-def test_arch_001_core_import_graph_forbids_extension_dependency():
-    core = _core_modules()
+def test_arch_001_core_import_graph_forbids_extension_and_cli_dependencies():
+    core = _package_modules("core")
     assert "peerhub.core.store" in core and "peerhub.core.models" in core
     reach = _reachable(core)
-    bad = {m: via for m, via in reach.items() if m.startswith(FORBIDDEN_PREFIXES)}
-    assert not bad, f"Core reaches extensions: {bad}"
+    bad = {m: via for m, via in reach.items() if ".".join(m.split(".")[:2]) in CORE_FORBIDDEN}
+    assert not bad, f"Core reaches extensions or CLI: {bad}"
+
+
+def test_arch_extensions_do_not_import_cli():
+    extensions = _package_modules("extensions")
+    assert "peerhub.extensions.monitor_read_model" in extensions
+    bad = {mod: via for mod, via in _reachable(extensions).items()
+           if mod.split(".")[:2] in (["peerhub", "cli"], ["peerhub", "_console"])}
+    assert not bad, f"Extensions reach terminal or CLI code: {bad}"
+
+
+def _cross_layer_import_violations(source: str, mod: str, is_package: bool = False) -> list[str]:
+    layer = mod.split(".")[1]
+    lower = {"peerhub.core"} if layer == "extensions" else {"peerhub.core", "peerhub.extensions"}
+    tree = ast.parse(source)
+    bad: list[str] = []
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                target = alias.name
+                if ".".join(target.split(".")[:2]) in lower:
+                    if target == "peerhub.extensions" or any(p.startswith("_") for p in target.split(".")[2:]):
+                        bad.append(target)
+                    modules.add(alias.asname or target)
+        elif isinstance(node, ast.ImportFrom):
+            root = _import_root(node, mod, is_package)
+            for alias in node.names:
+                target = f"{root}.{alias.name}"
+                if ".".join(target.split(".")[:2]) not in lower:
+                    continue
+                parts = target.split(".")
+                path = _module_file(root)
+                if (target == "peerhub.extensions" or alias.name == "*"
+                        or any(p.startswith("_") for p in parts[2:])
+                        or (root.startswith("peerhub.extensions") and path is not None and path.name == "__init__.py"
+                            and _module_file(target) is None)):
+                    bad.append(target)
+                if _module_file(target) is not None:
+                    modules.add(alias.asname or alias.name)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            if ast.unparse(node.value) in modules:
+                bad.append(ast.unparse(node))
+    return sorted(bad)
+
+
+def test_arch_cross_layer_imports_use_public_module_interfaces():
+    bad = {mod: violations for layer in ("extensions", "cli") for mod, path in _package_modules(layer).items()
+           if (violations := _cross_layer_import_violations(path.read_text(encoding="utf-8"), mod, path.name == "__init__.py"))}
+    assert bad == {}, f"Private cross-layer names or package-level extension exports: {bad}"
+
+
+def test_arch_cross_layer_check_covers_relative_imports_and_module_aliases():
+    source = """
+from ..extensions import batch
+import peerhub.extensions.ask as ask
+from peerhub.extensions.adapters import CliRuntimeTarget
+def run():
+    from ..extensions.ask import _request_record
+    batch._private()
+    ask._private()
+"""
+    assert _cross_layer_import_violations(source, "peerhub.cli.command") == [
+        "ask._private", "batch._private", "peerhub.extensions.adapters.CliRuntimeTarget",
+        "peerhub.extensions.ask._request_record",
+    ]
+    assert _cross_layer_import_violations(
+        "from ..extensions import batch\nfrom ..extensions.ask import ask\nbatch.run_batch()\n",
+        "peerhub.cli.command",
+    ) == []
 
 
 @pytest.mark.catalog_id("ARCH-002")
@@ -106,7 +179,10 @@ def test_arch_003_no_vendor_peer_cardinality_ceiling(harness):
 
 
 DIAG_MOD = "peerhub.extensions.diag"
-DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", "peerhub.core.models", "peerhub.core.schema_version", "peerhub.core.read_only_probe"}  # pure models + freshness + schema contract + bounded read-only table-root probe
+DELIVERY_READS_MOD = "peerhub.extensions.delivery_reads"
+BILLING_PORT_MOD = "peerhub.extensions.billing_port"
+DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", DELIVERY_READS_MOD, BILLING_PORT_MOD,
+                         "peerhub.core.models", "peerhub.core.peer_kinds", "peerhub.core.schema_version", "peerhub.core.read_only_probe"}
 DIAG_BANNED_STDLIB = {"subprocess", "socket", "shutil", "multiprocessing", "threading", "os", "tempfile", "ctypes", "http", "urllib",
                       "asyncio", "signal", "pty", "webbrowser", "smtplib", "ftplib", "pickle", "shelve"}
 DIAG_BANNED_NAMES = {"CoreStore", "ObservationStore", "SessionBridge", "Bridge", "ClaimStore", "register_peer", "create_stream", "append_record",
@@ -147,16 +223,24 @@ def diag_module_violations(text: str, mod: str = DIAG_MOD) -> list[str]:
             bad.append(f"write SQL {s[:40]!r}")
         if words[:2] == ["BEGIN", "IMMEDIATE"] or words[:2] == ["BEGIN", "EXCLUSIVE"]:
             bad.append(f"write transaction {s[:40]!r}")
-    for n in ast.walk(tree):  # dynamic SQL construction can hide any statement from the literal scan: only literal first args
+    for n in ast.walk(tree):  # Keep SQL literal apart from the read query's fixed schema variants.
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("execute", "executescript", "executemany"):
-            if not n.args or not (isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)):
+            query = n.args[0] if n.args else None
+            literal = isinstance(query, ast.Constant) and isinstance(query.value, str)
+            running_query = (mod == DELIVERY_READS_MOD and n.func.attr == "execute"
+                             and isinstance(query, ast.Call) and isinstance(query.func, ast.Name)
+                             and query.func.id == "_running_deliveries_sql")
+            if not (literal or running_query):
                 bad.append(f"non-literal SQL passed to {n.func.attr}")
     for n in ast.walk(tree):  # every open() must be read-only; every sqlite3.connect must be mode=ro
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "open":
             modes = [a.value for a in n.args[1:2] if isinstance(a, ast.Constant)] + [k.value.value for k in n.keywords if k.arg == "mode" and isinstance(k.value, ast.Constant)]
             if any(set(str(m)) & set("wax+") for m in modes):
                 bad.append("writable open()")
-    if text.count("sqlite3.connect(") != text.count("mode=ro") or text.count("sqlite3.connect(") < 1:
+    connects = text.count("sqlite3.connect(")
+    if mod == DELIVERY_READS_MOD and connects:
+        bad.append("delivery reads must use an existing connection")
+    elif mod == DIAG_MOD and (connects != text.count("mode=ro") or not connects):
         bad.append("sqlite3.connect without mode=ro (or no connect)")
     return bad
 
@@ -167,9 +251,12 @@ def test_arch_004_diag_dependency_surface_is_read_only():
     assert path.exists() and not (ROOT / "peerhub/extensions/observation_and_diag.py").exists()  # ReadonlyDiag owns its module (D-W0-4)
     text = path.read_text(encoding="utf-8")
     assert diag_module_violations(text) == []
+    delivery_reads = (ROOT / "peerhub/extensions/delivery_reads.py").read_text(encoding="utf-8")
+    assert diag_module_violations(delivery_reads, DELIVERY_READS_MOD) == []
     assert "class ReadonlyDiag" in text and "class ObservationStore" not in text
     # the checker itself rejects each kind of violation (a checker that accepts everything would make this test vacuous)
     mutants = {"internal import": "from peerhub.extensions.observation import ObservationStore\n",
+               "direct billing import": "import peerhub.extensions.billing\n",
                "stdlib import": "import subprocess\n",
                "store import": "from peerhub.core.store import CoreStore\n",
                "write sql": "X = 'INSERT INTO t VALUES (1)'\n",
@@ -214,12 +301,15 @@ def test_arch_005_core_identity_is_not_runtime_identity(harness):
 
 
 # ----------------------------------------------------------------------------- extension independence (composition root = peerhub/cli)
-_OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py", "quota_probes.py", "quota_types.py",
-                     "diag.py", "diag_quota.py", "diag_watch.py", "schema_guard.py", "quota_projection.py")
+_OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py", "quota_probes", "quota_types.py",
+                     "diag.py", "diag_quota.py", "diag_read_model.py", "diag_watch.py", "schema_guard.py",
+                     "quota_projection.py", "quota_read_model.py", "quota_windows.py", "delivery_reads.py")
 _ALLOWED_EXTENSION_IMPORTS = {"peerhub.extensions.observation", "peerhub.extensions.observation_model", "peerhub.extensions.quota_types",
                               "peerhub.extensions.schema_guard", "peerhub.extensions.diag", "peerhub.extensions.quota_probes",
                               "peerhub.extensions.binary_resolution", "peerhub.extensions.process_tree", "peerhub.extensions.win_job",
-                              "peerhub.extensions.quota_projection"}  # shared, dependency-free helpers inside the M1 trio
+                              "peerhub.extensions.diag_quota", "peerhub.extensions.pool_health", "peerhub.extensions.quota_projection",
+                              "peerhub.extensions.quota_read_model", "peerhub.extensions.quota_windows", DELIVERY_READS_MOD,
+                              BILLING_PORT_MOD}  # shared M1 readers and helpers
 
 
 def _extension_imports(path):
@@ -238,6 +328,8 @@ def test_arch_observation_and_diag_do_not_import_the_bridge_or_m2_m3_extensions(
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
-    bad = {name: sorted(m for m in _extension_imports(root / name) if m not in _ALLOWED_EXTENSION_IMPORTS)
-           for name in _OBSERVATION_DIAG}
+    paths = [root / name for name in _OBSERVATION_DIAG]
+    modules = [module for path in paths for module in (sorted(path.rglob("*.py")) if path.is_dir() else [path])]
+    bad = {str(path.relative_to(root)): sorted(_extension_imports(path) - _ALLOWED_EXTENSION_IMPORTS)
+           for path in modules}
     assert {k: v for k, v in bad.items() if v} == {}  # e.g. quota_capture importing ask.ALIASES coupled Observation to the Bridge entry

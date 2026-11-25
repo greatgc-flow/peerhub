@@ -33,26 +33,29 @@ not private SQLite row mappers.
 | Responsibility | Single owner | Must not own |
 |---|---|---|
 | Peer/Stream/Record/Offset, canonical serialization, CAS, snapshot reads, schema guard | `peerhub/core/` | provider subprocesses, profile/permission selection |
-| Claim lease, fenced completion, invocation marker, delivery certainty, replay/reconcile | `bridge_claims.py` + `bridge.py` | CLI presentation, vendor stdout grammar |
+| Claim leases | `bridge_claims.py` | CLI presentation, vendor stdout grammar |
+| Fenced dispatch and recovery | `bridge_delivery.py` | CLI presentation, vendor stdout grammar |
+| Invocation markers, delivery certainty, terminal settlement, reconciliation | `bridge_ledger.py` | Provider invocation, CLI presentation |
+| Retained session selection, mapping lifecycle, context catch-up | `bridge_sessions.py` | Per-vendor credential discovery |
 | Retained session identity/generation, eligibility, tombstones | `bridge_registry.py` | per-vendor credential discovery |
+| Bridge schema initialization and context migration | `bridge_schema.py` | Dispatch and recovery |
 | Runtime protocol, runtime event and error types | `runtime_contract.py` | stored state, network I/O, provider launch |
 | Provider launch, output parsing, account-specific OS behavior | `extensions/adapters/` | authoritative delivery/session truth |
 | History-driven memory/search, read-only diagnostics | capability extensions | implicit model invocation from snapshot reads |
 | Commands, `--json`, hints | `cli/` | persistence contract, uncertain-execution decisions |
 
-Do not move SQL tables across owners or rename durable identifiers. No `kernel/` tree
-until a demonstrated duplicated responsibility or dependency cycle requires one. File
-length of `bridge.py` is not a refactoring goal; do not split the certainty state
-machine without an independent interface and a failure-proofing test.
+`bridge.py` provides the `Bridge` façade and wires its configuration and schema initialization.
+The bridge ledger keeps the certainty state machine together. SQL tables and durable
+identifiers retain their existing ownership. No `kernel/` tree until a demonstrated
+duplicated responsibility or dependency cycle requires one.
 
 ## Concrete boundaries in code
 
 - **Runtime port:** `RuntimeTargetError`, `PrespawnError`, `ContextLostError`,
   `RuntimeEvent`, `RuntimeTarget`, `SteerableTarget` live in
-  `extensions/runtime_contract.py`; `extensions.bridge` re-exports the identical objects.
+  `extensions/runtime_contract.py`.
 - **Pinned history scan:** `CoreStore.iter_records_snapshot(page_size=500)` yields
-  (stream ID, position)-ordered records from a single pinned read transaction;
-  `extensions.source_records.source_records()` delegates to it.
+  records ordered by stream ID and position from a single pinned read transaction.
 - **Gates:** offline tests cover type identity, adapter cold import, forbidden
   Core→Extension/CLI imports, snapshot immutability under a concurrent WAL writer.
 
@@ -109,7 +112,17 @@ schema churn, not a universal speed claim. The Bridge DDL/lock cost is tracked u
 
 - No DB schema change or migration; no CLI or JSON surface change.
 - No change to certainty, claims, vendor invocation or session handling.
-- Revert groups independently: `runtime_contract.py` + `bridge.py` + `adapters/base.py`;
-  Core snapshot delegation (`core/store.py`, `extensions/source_records.py`); trigger
-  reconciliation (`bridge.py`, `bridge_claims.py`, `test_bridge_init_reconciliation.py`,
-  `test_claim_reopen_atomicity.py` and the inventory entry). Never rewrite user data.
+- Revert the runtime port together with its Bridge and adapter callers in
+  [runtime_contract.py](../../peerhub/extensions/runtime_contract.py),
+  [bridge_delivery.py](../../peerhub/extensions/bridge_delivery.py), and
+  [cli_runtime.py](../../peerhub/extensions/adapters/cli_runtime.py). Follow the
+  launch and event paths in [process.py](../../peerhub/extensions/adapters/process.py),
+  [ag_transport.py](../../peerhub/extensions/adapters/ag_transport.py),
+  [event_parser.py](../../peerhub/extensions/adapters/event_parser.py), and
+  [live_output.py](../../peerhub/extensions/adapters/live_output.py).
+- Revert the snapshot scan in [core/store.py](../../peerhub/core/store.py) with
+  its direct callers in [memory.py](../../peerhub/extensions/memory.py) and
+  [search.py](../../peerhub/extensions/search.py).
+- Revert trigger reconciliation in `bridge.py` and `bridge_claims.py` with its
+  tests in `test_bridge_init_reconciliation.py` and `test_claim_reopen_atomicity.py`
+  and the inventory entry. Preserve user data during rollback.

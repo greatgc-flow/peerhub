@@ -5,6 +5,7 @@ import io
 import math
 import os
 import queue
+import select
 import subprocess
 import sys
 import threading
@@ -19,9 +20,28 @@ DEFAULT_MAX_BYTES = 1_048_576
 STDIN_CHUNK = 65_536
 _CMD_UNSAFE = set('&|<>^%"\r\n\0!')
 
+# The pipe's write end belongs only to the ask. EOF means the ask died before approval.
+_WAIT_FOR_LAUNCH = (
+    "import os, sys\n"
+    "gate, status = map(int, sys.argv[1:3])\n"
+    "os.set_inheritable(status, False)\n"
+    "allowed = os.read(gate, 1) == b'1'\n"
+    "os.close(gate)\n"
+    "if not allowed: sys.exit(125)\n"
+    "try:\n"
+    "    os.execvpe(sys.argv[3], sys.argv[3:], os.environ)\n"
+    "except OSError as exc:\n"
+    "    os.write(status, str(exc.strerror or exc).encode('utf-8', 'replace')[:1024])\n"
+    "    sys.exit(126)\n"
+)
+
 
 class SpawnFailure(OSError):
-    """The OS refused to create the process (nothing ran): the only genuine pre-spawn failure."""
+    """The OS rejected the launch, directly or through the supervised exec status pipe."""
+
+
+class WorkerStartFailure(RuntimeError):
+    """A process was spawned but its I/O workers could not start."""
 
 
 @dataclass(frozen=True)
@@ -156,12 +176,13 @@ class BoundedProcess:
         self._on_stdout = on_stdout
         self._on_display = on_display
         self._proc: subprocess.Popen[bytes] | None = None
+        self._launch_gate: int | None = None
+        self._launch_status: int | None = None
         self._t0 = 0.0
         self._bufs: dict[str, _HeadTailBuffer] = {"out": _HeadTailBuffer(max_bytes), "err": _HeadTailBuffer(max_bytes)}
         self._aborted = threading.Event()
         self._kill_lock = threading.Lock()
         self._termination_confirmed: bool | None = None
-        self._threads: list[threading.Thread] = []
         self._drain_threads: list[threading.Thread] = []
         self._display_queue: queue.Queue[bytes | None] = queue.Queue()
         self._display_thread: threading.Thread | None = None
@@ -194,30 +215,93 @@ class BoundedProcess:
     def parser_failed(self) -> bool:
         return self._parser_failed
 
-    def start(self) -> "BoundedProcess":
+    def start(self, *, suspended: bool = False) -> "BoundedProcess":
         check_argv(self._argv)
         self._t0 = time.monotonic()
         self._last_output = self._t0
         try:
-            self._proc = subprocess.Popen(self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          cwd=self._cwd, env=self._env, shell=False,
-                                          start_new_session=sys.platform != "win32")
+            if suspended:
+                read_gate, self._launch_gate = os.pipe()
+                try:
+                    self._launch_status, write_status = os.pipe()
+                    try:
+                        argv = [sys.executable, "-I", "-S", "-c", _WAIT_FOR_LAUNCH,
+                                str(read_gate), str(write_status), *self._argv]
+                        self._proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                      cwd=self._cwd, env=self._env, start_new_session=True,
+                                                      pass_fds=(read_gate, write_status))
+                    finally:
+                        os.close(write_status)
+                finally:
+                    os.close(read_gate)
+            else:
+                self._proc = subprocess.Popen(self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                              cwd=self._cwd, env=self._env, shell=False,
+                                              start_new_session=sys.platform != "win32")
         except (OSError, ValueError) as e:
+            self.cancel_launch()
             raise SpawnFailure(f"{type(e).__name__}: {getattr(e, 'strerror', None) or e}") from e
         p = self._proc
-        # default bufsize=-1 => the pipes are io.BufferedReader (read1 available)
-        out, err = cast(io.BufferedReader, p.stdout), cast(io.BufferedReader, p.stderr)
-        out_thread = threading.Thread(target=self._pump, args=(out, "out"), daemon=True)
-        err_thread = threading.Thread(target=self._pump, args=(err, "err"), daemon=True)
-        feed_thread = threading.Thread(target=self._feed, args=(p,), daemon=True)
-        self._drain_threads = [out_thread, err_thread]
-        self._threads = [out_thread, err_thread, feed_thread]
-        if self._on_display is not None:
-            self._display_thread = threading.Thread(target=self._drain_display, daemon=True)
-            self._display_thread.start()
-        for t in self._threads:
-            t.start()
+        workers: list[threading.Thread] = []
+        try:
+            # default bufsize=-1 => the pipes are io.BufferedReader (read1 available)
+            out, err = cast(io.BufferedReader, p.stdout), cast(io.BufferedReader, p.stderr)
+            out_thread = threading.Thread(target=self._pump, args=(out, "out"), daemon=True)
+            err_thread = threading.Thread(target=self._pump, args=(err, "err"), daemon=True)
+            feed_thread = threading.Thread(target=self._feed, args=(p,), daemon=True)
+            self._drain_threads = [out_thread, err_thread]
+            workers = [out_thread, err_thread, feed_thread]
+            if self._on_display is not None:
+                self._display_thread = threading.Thread(target=self._drain_display, daemon=True)
+                self._display_thread.start()
+            for worker in workers:
+                worker.start()
+        except Exception as e:
+            self._termination_confirmed = False
+            killed = p.poll() is None and kill_process_tree(p)
+            if not killed and p.poll() is None:
+                try:
+                    p.kill()
+                except OSError:
+                    pass
+            try:
+                p.wait(timeout=10)
+                self._termination_confirmed = killed
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            self._on_display = None
+            self._display_queue.put_nowait(None)
+            for index, pipe in enumerate((p.stdout, p.stderr, p.stdin)):
+                if pipe is not None and (index >= len(workers) or not workers[index].is_alive()):
+                    try:
+                        pipe.close()
+                    except (OSError, ValueError):
+                        pass
+            raise WorkerStartFailure(f"could not start process workers: {e}") from e
         return self
+
+    def release_launch(self) -> None:
+        gate, status = self._launch_gate, self._launch_status
+        assert gate is not None and status is not None
+        try:
+            os.write(gate, b"1")
+            remaining = max(0.0, self._t0 + self._timeout_s - time.monotonic())
+            ready, _, _ = select.select([status], [], [], min(5.0, remaining))
+            if not ready:
+                raise TimeoutError("supervised launch did not confirm exec")
+            error = os.read(status, 1024)
+            if error:
+                raise SpawnFailure(error.decode("utf-8", "replace"))
+        finally:
+            self.cancel_launch()
+
+    def cancel_launch(self) -> None:
+        gate, status = self._launch_gate, self._launch_status
+        self._launch_gate = self._launch_status = None
+        if gate is not None:
+            os.close(gate)
+        if status is not None:
+            os.close(status)
 
     def _drain_display(self) -> None:
         while True:

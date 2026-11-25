@@ -20,7 +20,7 @@ from peerhub.core.store import CoreStore
 from peerhub.extensions import accounts
 from peerhub.extensions import ask as ask_module
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.bridge import PrespawnError
+from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.extensions.bridge_claims import ClaimStore
 from peerhub.extensions.quota_capture import refresh_quota
 from tests.communication.fakes import FakeRuntimeTarget
@@ -225,7 +225,7 @@ def test_settled_replay_does_not_validate_or_spawn_deleted_root(env, monkeypatch
         raise AssertionError("settled replay must not bind an environment or spawn")
 
     monkeypatch.setattr(CliRuntimeTarget, "bind_account_env", forbidden)
-    monkeypatch.setattr("peerhub.extensions.adapters.base.BoundedProcess", forbidden)
+    monkeypatch.setattr("peerhub.extensions.adapters.cli_runtime.BoundedProcess", forbidden)
     replay = env.run()
     assert replay["status"] == "recovered_terminal" and replay["response"] == first["response"]
     assert replay["session"] == first["session"] and env.calls() == calls
