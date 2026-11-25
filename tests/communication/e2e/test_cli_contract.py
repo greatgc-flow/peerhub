@@ -384,7 +384,7 @@ def universal_json_effect(e, command):
         action = prefix[1] if len(prefix) == 2 else "list"
         argv = ["profile", action] + (["cx.standard"] if action == "show" else [])
         from unittest.mock import patch
-        with patch("peerhub.cli.profile_stats.installed_models", return_value=None):
+        with patch("peerhub.extensions.profile_stats.installed_models", return_value=None):
             result = machine(e.tmp / "unused.db", *argv)
         assert result["schema_version"] == "1.0"
     elif root == "outcome":

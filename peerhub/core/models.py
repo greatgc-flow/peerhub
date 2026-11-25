@@ -24,6 +24,11 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def iso_timestamp(ts: float) -> str:
+    """Format an epoch timestamp as UTC with whole seconds and a Z suffix."""
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 _RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$")
 
 
@@ -62,9 +67,10 @@ def assert_json_value(value: Any, path: str = "$") -> None:
     raise TypeError(f"non-JSON value {type(value).__name__} at {path}")
 
 
-def canonical_json_bytes(obj: Any) -> bytes:
-    """Produce deterministic UTF-8 canonical JSON bytes (RFC 8785 subset); strict: no NaN/Infinity."""
-    assert_json_value(obj)
+def canonical_json_bytes(obj: Any, *, strict: bool = True) -> bytes:
+    """Encode deterministic UTF-8 JSON. Strict mode requires native JSON types."""
+    if strict:
+        assert_json_value(obj)
     return json.dumps(
         obj,
         allow_nan=False,
@@ -74,10 +80,15 @@ def canonical_json_bytes(obj: Any) -> bytes:
     ).encode("utf-8")
 
 
+def json_digest(obj: Any, *, strict: bool = True) -> str:
+    """Return the unprefixed SHA-256 of the canonical JSON bytes."""
+    return hashlib.sha256(canonical_json_bytes(obj, strict=strict)).hexdigest()
+
+
 def compute_payload_digest(kind: str, body: Any) -> str:
     """Canonicalization primitive over kind + body. NOT the Record digest (see compute_record_digest, TD-02)."""
-    raw = canonical_json_bytes({"kind": kind, "body": body})
-    return f"sha256:{hashlib.sha256(raw).hexdigest()}"
+    dig = json_digest({"kind": kind, "body": body})
+    return f"sha256:{dig}"
 
 
 SEMANTIC_FIELDS = ("stream_id", "author_peer_id", "kind", "body", "targets", "reply_to", "refs", "metadata", "created_at")
@@ -102,7 +113,7 @@ def compute_record_digest(fields: Mapping[str, Any]) -> str:
         "created_at": fields["created_at"],
         "schema_version": SCHEMA_VERSION,
     }
-    return f"sha256:{hashlib.sha256(canonical_json_bytes(proj)).hexdigest()}"
+    return f"sha256:{json_digest(proj)}"
 
 
 class StreamState(str, Enum):

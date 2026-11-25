@@ -5,7 +5,8 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from peerhub._console import clean_text, finite_number
+from peerhub.core.text import clean_text
+from peerhub.core.scalars import finite_number
 from peerhub.cli.monitor_activity_view import plain_activity, rich_activity
 from peerhub.cli.monitor_alert_view import group_error
 from peerhub.cli.monitor_compact import build_compact_frame, frame_line_ladder

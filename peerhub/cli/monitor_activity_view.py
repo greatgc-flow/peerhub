@@ -4,13 +4,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from peerhub._console import clean_text
 from peerhub.cli.monitor_alert_view import group_error
 from peerhub.cli.monitor_layout import as_dict, heading_rule, rich_section
 from peerhub.cli.monitor_leads_view import plain_leads, rich_leads
 from peerhub.cli.monitor_legend import FRAME_SECTIONS
 from peerhub.cli.monitor_recent_view import compact_recent
 from peerhub.cli.monitor_running_view import compact_running, plain_running, rich_running
+from peerhub.core.text import clean_text
 
 
 def compact_activity(groups: dict[str, Any], width: int, unicode: bool, keep: str | None = None, *,

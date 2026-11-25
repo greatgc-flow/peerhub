@@ -11,7 +11,7 @@ import pytest
 
 from peerhub import __version__
 from peerhub import _console
-from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_preferences, monitor_refresh, monitor_view, support
+from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_preferences, monitor_refresh, monitor_view
 from peerhub.extensions import monitor_preferences as saved_preferences, monitor_read_model
 from peerhub.extensions.pool_health import PoolState
 from tests.communication.diag.test_monitor_plain_golden import _payload
@@ -192,7 +192,7 @@ def test_live_activity_reads_do_not_advance_quota_reads_or_probes(monkeypatch: p
     frames: list[str] = []
     cadence = min(monitor.RUNNING_REFRESH_SECONDS, interval)
     assert f"min({monitor.RUNNING_REFRESH_SECONDS} s, --interval-seconds)" in MONITOR_DOC.read_text(encoding="utf-8")
-    full_interval = max(interval, support.MONITOR_TICK_SECONDS)
+    full_interval = max(interval, monitor_refresh.MONITOR_TICK_SECONDS)
     until = full_interval + cadence
     pool_ref = "quota:cc:C-7D"
 
@@ -217,7 +217,7 @@ def test_live_activity_reads_do_not_advance_quota_reads_or_probes(monkeypatch: p
         quota_reads.append(now)
         return [{"kind": "quota", "subject_ref": "cc", "resource_pool_ref": pool_ref,
                  "stored_state": "MEASURED", "payload": {"remaining_fraction": 0.5},
-                 "age_seconds": support.MONITOR_QUOTA_MAX_AGE_SECONDS - full_interval + now}]
+                 "age_seconds": monitor_refresh.MONITOR_QUOTA_MAX_AGE_SECONDS - full_interval + now}]
 
     monkeypatch.setattr(monitor, "sleep", sleep)
     monkeypatch.setattr(monitor, "monotonic", lambda: now)

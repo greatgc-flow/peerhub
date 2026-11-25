@@ -8,7 +8,9 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
-from peerhub._console import ANSI_ESCAPE, clean_text, finite_number
+from peerhub._console import ANSI_ESCAPE
+from peerhub.core.text import clean_text
+from peerhub.core.scalars import finite_number
 
 
 RULE_PREFIX_WIDTH = 3

@@ -208,7 +208,7 @@ def _wait_for_ask_resources(
 
 
 def run_ask(args: argparse.Namespace) -> int:
-    from peerhub.cli.support import refresh_dispatch_quota
+    from peerhub.cli.monitor_refresh import refresh_dispatch_quota
     from peerhub.extensions.ask import ask, open_ask_snapshot
     if args.query_file:
         query = Path(args.query_file).read_bytes()
@@ -234,8 +234,12 @@ def run_ask(args: argparse.Namespace) -> int:
 
     def show_receipt(result: dict[str, Any]) -> None:
         if terminal_notices:
-            from peerhub.cli.profile_stats import ask_receipt
-            print(ask_receipt(args, result), file=sys.stderr)
+            from peerhub.cli.profile_stats import render_ask_receipt
+            from peerhub.extensions.profile_stats import read_receipt_measurements
+
+            ask_id = result.get("requested_record_id")
+            metrics: dict[str, Any] = read_receipt_measurements(args.db, ask_id) if ask_id else {}
+            print(render_ask_receipt(ask_id, args.profile, metrics), file=sys.stderr)
 
     try:
         result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
@@ -347,7 +351,7 @@ def run_ask(args: argparse.Namespace) -> int:
 
 
 def run_outcome(args: argparse.Namespace) -> int:
-    from peerhub.cli.profile_stats import mark_outcome
+    from peerhub.extensions.profile_stats import mark_outcome
 
     mark_outcome(args.db, args.ask_id, args.outcome)
     payload = {"ask_id": args.ask_id, "outcome": args.outcome}

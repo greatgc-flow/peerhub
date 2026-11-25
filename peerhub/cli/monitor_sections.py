@@ -5,7 +5,8 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
 from typing import Any, cast
 
-from peerhub._console import clean_text, finite_number
+from peerhub.core.text import clean_text
+from peerhub.core.scalars import finite_number
 from peerhub.cli.monitor_alert_view import alert_label, alert_rows
 from peerhub.cli.monitor_format import fraction_bar, pct
 from peerhub.cli.monitor_layout import (

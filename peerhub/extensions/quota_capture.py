@@ -4,27 +4,107 @@ Provider parsing/transport is owned by quota_probes; no v0 runtime is loaded.
 """
 from __future__ import annotations
 
+import math
+import os
 import subprocess
+import sys
 import time
 import uuid
-import math
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Generator, Sequence, cast
 
 from peerhub.core.load_limits import ResourceSample, probe_timeout_factor
+from peerhub.core.models import utc_now_iso
 from peerhub.core.peer_kinds import ALIASES, CLI_PEER_ALIASES, QUOTA_CAPABLE_PEERS
+from peerhub.core.workspace import store_scratch_dir
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import (
-    QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, EvidenceState, Observation, ResourcePool, changed_account_plan,
-    epoch_to_iso, quota_probe_timed_out,
+    QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, EvidenceState, Observation,
+    ResourcePool, changed_account_plan, epoch_to_iso, quota_probe_timed_out,
 )
 from peerhub.extensions.quota_types import ResetCreditObserved, UsageObserved
-from peerhub.core.models import utc_now_iso
 
 if TYPE_CHECKING:
     from peerhub.extensions.quota_probes import ProbeCancellation
 
 VERSION_PROBE_TIMEOUT_SECONDS = 3.0
+QUOTA_LOCK_WAIT_SECONDS = 3.0
+QUOTA_LOCK_POLL_SECONDS = .05
+
+
+def _try_file_lock(file: BinaryIO) -> bool:
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            file.seek(4096)  # Lock a byte beyond the PID so the owner can still be read on Windows.
+            msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+@contextmanager
+def quota_refresh_lock(db_path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> Generator[bool, None, None]:
+    """Hold a PID lock until the refresh finishes or its process exits."""
+    import psutil
+
+    scratch = store_scratch_dir(db_path)
+    scratch.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + QUOTA_LOCK_WAIT_SECONDS
+    # Keep a stable file identity so two contenders cannot lock different files during dead-owner recovery.
+    with (scratch / "quota-refresh.lock").open("a+b") as file:
+        while not _try_file_lock(file):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or (cancelled is not None and cancelled()):
+                yield False
+                return
+            time.sleep(min(QUOTA_LOCK_POLL_SECONDS, remaining))
+        file.seek(0)
+        raw = file.read(32).strip()
+        owner = int(raw) if raw.isdigit() else 0
+        while 0 < owner <= 0x7fffffff and psutil.pid_exists(owner):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or (cancelled is not None and cancelled()):
+                yield False
+                return
+            time.sleep(min(QUOTA_LOCK_POLL_SECONDS, remaining))
+        file.seek(0)
+        file.truncate()
+        file.write(str(os.getpid()).encode("ascii"))
+        file.flush()
+        try:
+            yield True
+        finally:
+            file.seek(0)
+            file.truncate()  # Closing releases the OS lock. An interrupted owner leaves its PID for the next caller.
+
+
+def refresh_each_peer(peers: Sequence[str], *, collect: Callable[[str], dict[str, Any]],
+                      cancellation: ProbeCancellation) -> dict[str, Any] | None:
+    """Commit each peer's evidence as it arrives and summarize the collection."""
+    statuses: set[str] = set()
+    observations: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for peer in peers:
+        if cancellation.cancelled():
+            return None
+        try:
+            result = collect(peer)
+        except Exception as exc:
+            statuses.add("FAILED")
+            warnings.append(type(exc).__name__)
+            continue
+        statuses.add(result["status"])
+        observations.extend(result.get("observations", []))
+        warnings.extend(result.get("warnings", []))
+    if statuses and not cancellation.cancelled():
+        status = "OK" if statuses == {"OK"} else "FAILED" if statuses == {"FAILED"} else "PARTIAL"
+        return {"status": status, "observations": observations, "warnings": warnings}
+    return None
 
 
 class _Ids:

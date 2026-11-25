@@ -9,7 +9,7 @@ import time
 from abc import abstractmethod
 from typing import Any, Callable, Iterator, Mapping, cast
 
-from peerhub.core.models import Record
+from peerhub.core.models import Record, iso_timestamp
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 from peerhub.core.store import CoreStore, IdempotencyConflictError
 from peerhub.extensions import bridge_registry, session_receipts
@@ -21,7 +21,7 @@ from peerhub.extensions.bridge_errors import (
     SessionLostError, SessionNotFoundError, SessionPeerMismatchError, SessionStreamMismatchError,
     SessionTombstonedError, SessionUnavailableError, SessionWorkspaceMismatchError,
 )
-from peerhub.extensions.bridge_ledger import BridgeLedger, CycleResult, PersistedRecord, iso_timestamp
+from peerhub.extensions.bridge_ledger import BridgeLedger, CycleResult, PersistedRecord
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, ProjectedRecords, build_catch_up, project_catch_up
 from peerhub.extensions.runtime_contract import RuntimeTarget
 

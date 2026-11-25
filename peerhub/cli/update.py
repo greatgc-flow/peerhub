@@ -21,7 +21,7 @@ from urllib.request import Request, urlopen
 
 import psutil
 
-from peerhub._console import format_shell_command
+from peerhub.core.shell import format_shell_command
 from peerhub._version import __version__
 from peerhub.cli.support import error_line
 from peerhub.core.connection import create_connection

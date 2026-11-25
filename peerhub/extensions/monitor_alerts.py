@@ -7,7 +7,8 @@ from peerhub.extensions.liveness import ORPHAN_RUNNING
 from peerhub.extensions.monitor_activity import BAD_ASK_STATES
 from peerhub.extensions.monitor_queries import ACTIVITY_SCOPE_CAP, ALERT_WINDOW_S
 from peerhub.extensions.monitor_quota import QuotaSnapshot, capacity_source
-from peerhub.extensions.monitor_values import finite_number, fit_line
+from peerhub.core.scalars import finite_number
+from peerhub.extensions.monitor_values import fit_line
 
 
 TOKEN_EXPIRY_WARN_S = 48 * 3600
@@ -36,11 +37,11 @@ def build_alerts(*, asks: list[dict[str, Any]] | None, pools: list[dict[str, Any
         elif state == "run" and row.get("alive") is False:
             gone.append(_alert("a2", "gone", subject, row.get("elapsed_s"), "high"))
         elif state == "overdue":
-            left = finite_number(row.get("lease_left_s"))
+            left = finite_number(row.get("lease_left_s"), overflow_is_missing=True)
             if left is not None and -left <= ALERT_WINDOW_S:
                 overdue.append(_alert("a2", "overdue", subject, round(max(0.0, -left), 3), "high"))
         elif state in BAD_ASK_STATES and row.get("note") != "other generation":  # A4: no alert at all for another lineage
-            ended = finite_number(row.get("ended_at"))
+            ended = finite_number(row.get("ended_at"), overflow_is_missing=True)
             if ended is not None and now - ended <= ALERT_WINDOW_S:
                 ended_badly.append(_alert("a1", str(state), subject, row.get("age_s"), "high"))
     login: list[dict[str, Any]] = []
@@ -50,7 +51,7 @@ def build_alerts(*, asks: list[dict[str, Any]] | None, pools: list[dict[str, Any
         if account.get("logged_in") is False:
             login.append(_alert("a5", "login", peer, None, "high"))
             continue
-        expires = finite_number(account.get("login_token_expires_at"))
+        expires = finite_number(account.get("login_token_expires_at"), overflow_is_missing=True)
         if expires is not None and expires <= now:
             login.append(_alert("a5", "token_expired", peer, round(now - expires, 3), "high"))
         elif expires is not None and expires - now <= TOKEN_EXPIRY_WARN_S:

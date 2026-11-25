@@ -21,7 +21,7 @@ from peerhub.cli.monitor_legend import FRAME_SECTIONS
 from peerhub.cli.monitor_quota_view import POOLS_USE_FIRST_HINT
 from peerhub.cli.monitor_view import render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import anchor_pool
-from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 
 NOW = 1794134880.0  # 2026-11-08 10:48Z
 

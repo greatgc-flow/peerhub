@@ -12,6 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, cast
 
+from peerhub.core.scalars import finite_number
 from peerhub.extensions.liveness import ORPHAN_RUNNING, PROCESSES_DEAD, ask_alive, ask_process_state
 from peerhub.extensions.monitor_queries import (
     ACTIVITY_SCOPE_CAP,
@@ -26,7 +27,6 @@ from peerhub.extensions.monitor_sessions import public_telemetry
 from peerhub.extensions.monitor_values import (
     activity_lines,
     display_text,
-    finite_number,
     fit_line,
     iso_seconds,
     public_binding_value,
@@ -107,7 +107,7 @@ def _caller(raw: object) -> tuple[dict[str, Any] | None, bool]:
              and (created is None or (isinstance(created, (int, float)) and not isinstance(created, bool))))
     if not valid:
         return None, True
-    item["ask_created"] = finite_number(created)  # a non-finite or overflowing creation time is unknown (None)
+    item["ask_created"] = finite_number(created, overflow_is_missing=True)  # a non-finite or overflowing creation time is unknown (None)
     return item, False
 
 
@@ -151,7 +151,7 @@ def _liveness_of(caller: dict[str, Any], liveness: Callable[..., object] | None,
         found = probe(int(pid))
     except Exception:  # noqa: BLE001 - see above
         found = "denied"
-    return None, "pid reused or clock stepped" if finite_number(found) is not None else "not accessible"
+    return None, "pid reused or clock stepped" if finite_number(found, overflow_is_missing=True) is not None else "not accessible"
 
 
 def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool, text_on: bool, secrets: list[str],
@@ -239,7 +239,7 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
                 try:
                     end_detail: object = json.loads(r["abandonment"])
                     if isinstance(end_detail, dict):
-                        observed = finite_number(cast(dict[str, object], end_detail).get("observed_at_s"))
+                        observed = finite_number(cast(dict[str, object], end_detail).get("observed_at_s"), overflow_is_missing=True)
                         if observed is not None:
                             ended_at = observed
                 except (ValueError, RecursionError):
@@ -299,7 +299,7 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
         if text_on and r["want_text"] and caller is not None and isinstance(caller.get("query_file"), str):
             row["_caller_file"] = {key: caller.get(key) for key in ("query_file", "workspace", "host")}
         if open_row:
-            lease = finite_number(r["lease_sec"])
+            lease = finite_number(r["lease_sec"], overflow_is_missing=True)
             row["_lease_age_s"] = (max(0.0, now - (expires_at - lease))
                                    if state == "run" and lease is not None and lease > 0 else None)
         else:
@@ -419,9 +419,9 @@ def _merge_leads(data: dict[str, Any], sessions: list[dict[str, Any]], read: dic
 
     def rank(lead: dict[str, Any]) -> tuple[int, int, int, float, str]:
         item: dict[str, Any] = lead["session"] or {}
-        pct = finite_number(item.get("context_pct"))
+        pct = finite_number(item.get("context_pct"), overflow_is_missing=True)
         marked = pct is not None and pct >= LEAD_CONTEXT_MARK_PCT and item.get("alive") is True
-        newest = max(finite_number(item.get("active_at")) or 0.0, finite_number(lead["last_ask_at"]) or 0.0)
+        newest = max(finite_number(item.get("active_at"), overflow_is_missing=True) or 0.0, finite_number(lead["last_ask_at"], overflow_is_missing=True) or 0.0)
         return 0 if marked else 1, 0 if lead["session"] else 1, -int(lead["running"]), -newest, str(lead["id"])
 
     leads.sort(key=rank)

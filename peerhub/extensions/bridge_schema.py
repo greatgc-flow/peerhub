@@ -6,10 +6,10 @@ import re
 import sqlite3
 from typing import Any, Callable, cast
 
+from peerhub.core.models import json_digest
 from peerhub.extensions import ask_budgets, bridge_registry
 from peerhub.extensions.bridge_claims import ClaimStore
 from peerhub.extensions.bridge_control import TERMINAL
-from peerhub.extensions.bridge_ledger import digest
 from peerhub.extensions.schema_guard import refuse_future_schema
 
 
@@ -231,14 +231,14 @@ def _reconstruct_consumed_prompt(conn: sqlite3.Connection, m: sqlite3.Row) -> in
             if not isinstance(detail, dict) or not isinstance(result, dict):
                 return None
             detail = cast("dict[str, Any]", detail)
-            if detail.get("digest") != d["result_digest"] or digest(result) != d["result_digest"]:
+            if detail.get("digest") != d["result_digest"] or json_digest(result, strict=False) != d["result_digest"]:
                 return None
             bound = detail.get("session_bound")
             if not isinstance(bound, dict):
                 return None
             bound = cast("dict[str, Any]", bound)
             if any(bound.get(key) != value for key, value in {
-                "vendor_session_digest": digest(m["vendor_session_id"]), "watermark": d["record_position"],
+                "vendor_session_digest": json_digest(m["vendor_session_id"], strict=False), "watermark": d["record_position"],
                 "binding": m["binding"], "adapter_fingerprint": m["adapter_fingerprint"],
                 "session_generation": m["session_generation"], "claim_generation": d["claim_generation"],
                 "execution_id": d["execution_id"],

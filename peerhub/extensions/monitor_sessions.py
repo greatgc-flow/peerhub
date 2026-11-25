@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from peerhub.extensions.monitor_queries import session_rows
-from peerhub.extensions.monitor_values import SAFE_MODEL, finite_number, public_binding_value
+from peerhub.core.scalars import finite_number
+from peerhub.extensions.monitor_values import SAFE_MODEL, public_binding_value
 
 
 def _safe_object(raw: object) -> dict[str, Any]:
@@ -74,8 +75,8 @@ def public_telemetry(raw: object, *, handle: str, generation: int, provider: str
     # One validated source (#376 P2): the cc adapter's reading of the ask's own stream, an ESTIMATE of the occupancy at the
     # end of that ask (`observed_at`). Every other source, provider or value that fails a check stays unknown.
     estimate = context_estimate(occupancy, window) if provider == "cc" and detail.get("source") == CONTEXT_SOURCE else None
-    valid_context = (estimate is not None and finite_number(pct) == estimate[2]
-                     and finite_number(sample_at) is not None and finite_number(window_at) is not None)
+    valid_context = (estimate is not None and finite_number(pct, overflow_is_missing=True) == estimate[2]
+                     and finite_number(sample_at, overflow_is_missing=True) is not None and finite_number(window_at, overflow_is_missing=True) is not None)
     has_context = any(detail.get(key) is not None for key in
                       ("last_input_tokens", "context_window", "context_pct", "context_sample"))
     tokens, size, percent = estimate if estimate is not None and valid_context else (None, None, None)

@@ -283,16 +283,14 @@ def test_a_cli_snapshot_has_leads_read_from_the_isolated_reader(db, capsys):
 
 
 def test_the_cli_watch_passes_the_reader_and_it_reads_the_isolated_folder(db, capsys, monkeypatch):
-    from peerhub.cli import monitor
     from peerhub.cli.app import main
-    monkeypatch.setattr(monitor, "refresh_with_profile_pools", lambda *a, **k: {"status": "OK", "observations": []})
+    monkeypatch.setattr("peerhub.cli.monitor_refresh.refresh_with_profile_pools", lambda *a, **k: {"status": "OK", "observations": []})
     code = main(["--db", str(db), "monitor", "--json", "--cycles", "1", "--group", "activity"])
     first = json.loads(capsys.readouterr().out.splitlines()[0])
     assert code == 0 and first["snapshot"]["groups"]["activity"]["data"]["leads_read"] == READ
 
 
 def test_both_cli_call_sites_pass_one_reader_that_looks_up_the_lead_module_at_call_time(db, capsys, monkeypatch):
-    from peerhub.cli import monitor
     from peerhub.cli.app import main
     from peerhub.extensions import lead_sessions
     seen: list[object] = []
@@ -303,7 +301,7 @@ def test_both_cli_call_sites_pass_one_reader_that_looks_up_the_lead_module_at_ca
         return real(*args, **kw)
 
     monkeypatch.setattr(mrm, "render_monitor_frame", render)
-    monkeypatch.setattr(monitor, "refresh_with_profile_pools", lambda *a, **k: {"status": "OK", "observations": []})
+    monkeypatch.setattr("peerhub.cli.monitor_refresh.refresh_with_profile_pools", lambda *a, **k: {"status": "OK", "observations": []})
     marker = [session("from-the-patched-module")]
     monkeypatch.setattr(lead_sessions, "read_leads", lambda dirs, **facts: (deepcopy(marker), dict(READ)))
     main(["--db", str(db), "monitor", "--snapshot", "--group", "activity", "--json"])

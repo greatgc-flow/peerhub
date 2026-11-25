@@ -7,7 +7,8 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, tzinfo
 from typing import TYPE_CHECKING, Any, cast
 
-from peerhub._console import ellipsize, pad_cell, strip_controls, visible_len
+from peerhub._console import ellipsize, pad_cell, visible_len
+from peerhub.core.text import strip_controls
 from peerhub.extensions.diag_read_model import (
     PLAN_GATE_TAG,
     PLAN_PACE_LEGEND,

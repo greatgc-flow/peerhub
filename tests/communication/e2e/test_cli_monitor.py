@@ -48,7 +48,7 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
     for key in ("NO_COLOR", "PEERHUB_NO_LINKS", "PEERHUB_MONITOR_TEXT"):
         env.pop(key, None)
     monkeypatch.chdir(cwd)
-    monkeypatch.setattr("peerhub.cli.support.refresh_dispatch_quota", lambda *_: None)
+    monkeypatch.setattr("peerhub.cli.monitor_refresh.refresh_dispatch_quota", lambda *_: None)
     entered, finish = Event(), Event()
 
     def wait_for_monitor():
@@ -1510,12 +1510,11 @@ def test_monitor_compact_and_expand_are_mutually_exclusive(capsys):
 
 @pytest.mark.parametrize("mode", ["--snapshot", "--cycles"])
 def test_monitor_explicit_compact_matches_default(tmp_path, monkeypatch, capsys, mode):
-    from peerhub.cli import monitor
     from tests.communication.diag.test_monitor_plain_golden import full_payload
 
     db = _db(tmp_path)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: full_payload())
-    monkeypatch.setattr(monitor, "refresh_with_profile_pools",
+    monkeypatch.setattr("peerhub.cli.monitor_refresh.refresh_with_profile_pools",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     args = ["--db", str(db), "monitor", "--view", "plain", mode, *(["1"] if mode == "--cycles" else [])]
     assert main(args) == 0
@@ -1619,7 +1618,7 @@ def _never_refreshed_db(tmp_path):
 def _no_refresh(monkeypatch):
     """The watch's refresh is faked above the store, so the observation tables stay as they are. The frame width is
     pinned: a pipe takes it from COLUMNS, and the lines these tests compare must not wrap in a narrow environment."""
-    monkeypatch.setattr("peerhub.cli.monitor.refresh_with_profile_pools",
+    monkeypatch.setattr("peerhub.cli.monitor_refresh.refresh_with_profile_pools",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
     monkeypatch.setenv("COLUMNS", "100")
@@ -1760,7 +1759,7 @@ def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_pat
     monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setattr("peerhub._console.FrameOutput.geometry", staticmethod(lambda: (100, 30)))
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", read)
-    monkeypatch.setattr(monitor, "refresh_with_profile_pools",
+    monkeypatch.setattr("peerhub.cli.monitor_refresh.refresh_with_profile_pools",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     monkeypatch.setattr(monitor, "monotonic", lambda: clock[0])
     monkeypatch.setattr(monitor, "sleep", sleep)
