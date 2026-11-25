@@ -214,5 +214,5 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
         return detail
     except Exception:  # never raises: an unreadable environment still yields the schema
         return {"v": SCHEMA_VERSION, "tool": "?", "label": "?", "session": None, "owner": None, "host": None, "ns": None,
-                "ask_pid": None, "ask_created": None, "cwd": None, "batch": None, "task": None,
+                "ask_pid": None, "ask_created": None, "ask_identity": None, "cwd": None, "batch": None, "task": None,
                 "workspace": None, "query_file": None, "stream_file": None}

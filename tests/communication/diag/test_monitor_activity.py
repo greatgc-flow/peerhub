@@ -518,9 +518,13 @@ def test_asks_24h_counts_streams_not_superseded_deliveries(db):
 def test_the_newest_caller_row_decides_lead_and_liveness(db):
     claim(db, "s-two-callers")
     did = delivery(db, "s-two-callers", certainty="STARTED", caller_detail=caller(session="first", ask_pid=111))
-    with closing(sqlite3.connect(db)) as c:  # a second invoking process (lane A: one caller row per process)
-        c.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,?,?,?)",
-                  (did, "s-two-callers", "cx", "caller", "NOT_STARTED", json.dumps(caller(session="second", ask_pid=222))))
+    latest = caller(session="second", ask_pid=222)
+    with closing(sqlite3.connect(db)) as c:  # The new invocation and its caller snapshot are recorded together.
+        c.executemany("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,?,?,?)",
+                      [(did, "s-two-callers", "cx", "caller", "NOT_STARTED", json.dumps(latest)),
+                       (did, "s-two-callers", "cx", "about_to_invoke", "NOT_STARTED",
+                        json.dumps(dict(invocation_no=2, claim_generation=1, caller=latest))),
+                       (did, "s-two-callers", "cx", "started", "STARTED", json.dumps(dict(invocation_no=2)))])
         c.commit()
     pids = []
     row = asks(db, liveness=lambda host, ns, pid, created, **k: pids.append(pid) or True)["s-two-callers"]

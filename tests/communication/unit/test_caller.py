@@ -10,7 +10,7 @@ from peerhub.extensions import caller
 
 pytestmark = pytest.mark.unit
 
-KEYS = {"v", "tool", "label", "session", "host", "ns", "ask_pid", "ask_created", "cwd", "batch", "task",
+KEYS = {"v", "tool", "label", "session", "host", "ns", "ask_pid", "ask_created", "ask_identity", "cwd", "batch", "task",
         "workspace", "query_file", "stream_file", "owner"}
 
 
@@ -19,13 +19,19 @@ KEYS = {"v", "tool", "label", "session", "host", "ns", "ask_pid", "ask_created",
 def test_unsafe_query_paths_are_rejected_before_resolution(bad, monkeypatch):
     known = Path(__file__).resolve()
     resolve = Path.resolve
+    bad_path = Path(bad)
+    attempted = []
 
     def fake_resolve(self, *args, **kwargs):
-        return known if self == Path(bad) else resolve(self, *args, **kwargs)
+        if self == bad_path:
+            attempted.append(self)
+            return known
+        return resolve(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "resolve", fake_resolve)
     detail = caller.detect_caller({}, query_file=bad, workspace=known.parent)
     assert set(detail) == KEYS and detail["query_file"] is None and detail["stream_file"] is None
+    assert not attempted
 
 
 def test_relative_query_uses_caller_cwd_and_records_the_larger_execution_workspace(monkeypatch):
@@ -68,8 +74,8 @@ def test_workspace_symlink_escape_is_rejected_at_write_and_read(tmp_path):
     assert caller.local_workspace_file(str(link), str(workspace)) is None
 
 
-def test_claude_code_with_lead_label(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+def test_claude_code_with_lead_label(monkeypatch):
+    monkeypatch.chdir(Path(__file__).resolve().parent)
     c = caller.detect_caller({"CLAUDE_CODE_SESSION_ID": "abc-123_X.y", "PEERHUB_LEAD": "lead-one"})
     assert set(c) == KEYS
     assert (c["v"], c["tool"], c["label"], c["session"]) == (1, "cc", "lead-one", "abc-123_X.y")
@@ -270,3 +276,4 @@ def test_never_raises(monkeypatch):
 
     c = caller.detect_caller(Hostile())
     assert set(c) == KEYS and c["v"] == 1 and c["tool"] == "?"
+    assert c["ask_identity"] is None

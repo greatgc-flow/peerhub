@@ -17,7 +17,7 @@ ALLOWED: dict[str, set[str]] = {
     "bridge_delivery": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger",
                         "bridge_sessions", "runtime_contract", "session_receipts"},
     "bridge_ledger": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_registry",
-                      "delivery_projections", "delivery_reads", "liveness", "schema_guard", "session_receipts", "sqlite_tx"},
+                      "delivery_projections", "delivery_reads", "liveness", "schema_guard", "session_receipts"},
     "bridge_schema": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_registry", "schema_guard"},
     "bridge_sessions": {"bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger", "bridge_registry",
                         "catchup", "runtime_contract", "session_receipts"},

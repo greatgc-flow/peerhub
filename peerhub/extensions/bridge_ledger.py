@@ -11,6 +11,7 @@ import json
 import re
 import sqlite3
 import time
+from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, cast
@@ -28,7 +29,6 @@ from peerhub.extensions.bridge_errors import (
 from peerhub.extensions.delivery_reads import LATEST_INVOCATION, invocation_marker_join, invocation_process_fields
 from peerhub.extensions.liveness import PROCESSES_DEAD, ask_process_state, claim_wrapper_alive
 from peerhub.extensions.schema_guard import refuse_future_schema
-from peerhub.extensions.sqlite_tx import sqlite_tx
 
 _ALLOWED = {
     NOT_STARTED: {NOT_STARTED, MAY_HAVE_STARTED, STARTED},
@@ -70,7 +70,7 @@ def reap_dead_asks(db_path: str | Path) -> int:
     if not db.is_file() or not generation.is_file():
         return 0
     refuse_future_schema(db)
-    with sqlite_tx(db.as_uri() + "?mode=rw", uri=True, timeout=30.0) as conn:
+    with closing(sqlite3.connect(db.as_uri() + "?mode=rw", uri=True, timeout=30.0)) as conn, conn:
         conn.row_factory = sqlite3.Row
         conn.execute("BEGIN IMMEDIATE")
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

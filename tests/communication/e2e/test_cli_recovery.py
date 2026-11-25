@@ -302,6 +302,7 @@ EXCEPTION_CONTROL_FLOW_ALLOWLIST: dict[str, str] = {
     "KeyboardInterrupt": "User SIGINT/Ctrl+C aborts CLI command without guidance output.",
     "SystemExit": "Process exit handler; translates exit code without guidance output.",
     "ImportError": "Optional dependency loading failure caught during dynamic module import.",
+    "LaunchBusyError": "Claim acquisition signals the resource gate to wait and retry without emitting a CLI error.",
     "OSError": "Low-level OS/socket error caught during file/socket operations.",
     "TypeError": "Standard library type error caught during internal argument validation.",
 }
