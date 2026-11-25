@@ -604,3 +604,12 @@ def run_monitor_repair(args: argparse.Namespace) -> int:
         return 4
     print(json.dumps(result, ensure_ascii=True, separators=(",", ":")) if args.json else "\n".join(f"{key}: {value}" for key, value in result.items()))
     return 0
+
+
+def run_monitor_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if getattr(args, "monitor_action", None) is not None:
+        if args.monitor_action == "repair":
+            return run_monitor_repair(args)
+        from peerhub.cli.monitor_preferences import run_preferences
+        return run_preferences(args)
+    return run_monitor(args, parser)

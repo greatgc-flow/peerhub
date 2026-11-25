@@ -84,7 +84,7 @@ def test_every_list_that_names_ca_and_oa_names_ga():
     assert f"runtime_kind\"] in ({api_kinds})" in bridge_source
     assert api_kinds in Path(batch.__file__).read_text(encoding="utf-8")
     assert peer_kinds.ALIASES["ga"] == "ga" and usage_normalization.REPORTED_FIELDS["ga"] == {"input_tokens", "output_tokens"}
-    for name in ("cli/app.py", "cli/recovery.py", "extensions/ask.py", "config_data/lessons.toml"):
+    for name in ("cli/ask_cmd.py", "cli/recovery.py", "extensions/ask.py", "config_data/lessons.toml"):
         text = (REPO / "peerhub" / name).read_text(encoding="utf-8")
         assert word["ga"].search(text), name
 
@@ -228,7 +228,8 @@ def test_the_registered_adapter_comes_before_the_peer_name_as_in_ask(tmp_path, m
 @pytest.mark.parametrize("store", ["garbage", "directory", "missing"])
 def test_a_store_problem_on_an_ask_to_a_custom_peer_ends_as_without_the_peer_lookup(tmp_path, monkeypatch, capsys, store):
     """The error path reads the store to name the stream; that read must never replace the error being reported."""
-    import peerhub.cli.app as app
+    from peerhub.cli import ask_cmd
+    from peerhub.cli.app import main
 
     db = tmp_path / "core.db"
     if store == "garbage":
@@ -236,11 +237,11 @@ def test_a_store_problem_on_an_ask_to_a_custom_peer_ends_as_without_the_peer_loo
     elif store == "directory":
         db.mkdir()
     argv = ["--db", str(db), "ask", "voter", "question", "--json", "--request-id", "r1"]
-    code = app.main(argv)  # no exception escapes (before the fix: sqlite3.DatabaseError, a traceback)
+    code = main(argv)  # no exception escapes (before the fix: sqlite3.DatabaseError, a traceback)
     payload = json.loads(capsys.readouterr().out)
     with monkeypatch.context() as patch:  # what the same command did before the error path read the store
-        patch.setattr(app, "_peer_kind", lambda db, peer: None)
-        before = app.main(argv)
+        patch.setattr(ask_cmd, "resolve_peer_kind", lambda db, peer, *, offline=False: None)
+        before = main(argv)
         assert (code, payload["error"]) == (before, json.loads(capsys.readouterr().out)["error"])
     if store == "garbage":
         assert code == 4 and payload["error"]["code"] == "storage_corrupt" and payload["guidance"]["code"]
@@ -249,19 +250,20 @@ def test_a_store_problem_on_an_ask_to_a_custom_peer_ends_as_without_the_peer_loo
 @pytest.mark.parametrize("failure", [__import__("sqlite3").DatabaseError("database disk image is malformed"),
                                      __import__("sqlite3").OperationalError("database is locked"), OSError("gone"), RuntimeError("x")])
 def test_a_failed_peer_lookup_names_no_stream_and_keeps_the_reported_error(tmp_path, monkeypatch, capsys, failure):
-    import peerhub.cli.app as app
+    from peerhub.cli import ask_cmd
+    from peerhub.cli.app import main
     from peerhub.extensions import ask as ask_module
     from peerhub.extensions.bridge_claims import ClaimHeldError
 
     def held(*args, **kwargs):
         raise ClaimHeldError("claim held by another ask")
 
-    def lookup(db, peer):
+    def lookup(db, peer, *, offline=False):
         raise failure
 
     monkeypatch.setattr(ask_module, "ask", held)
-    monkeypatch.setattr(app, "_peer_kind", lookup)
-    assert app.main(["--db", str(tmp_path / "core.db"), "ask", "voter", "question", "--json", "--request-id", "r1"]) == 1
+    monkeypatch.setattr(ask_cmd, "resolve_peer_kind", lookup)
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "voter", "question", "--json", "--request-id", "r1"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["guidance"]["code"] == "ask_claim_held"
     argv = payload["guidance"]["recover"][0]["argv"]

@@ -539,7 +539,7 @@ def test_documented_exit_codes_are_the_ones_returned(env):
 def test_store_selection_failure_uses_normal_cli_error(monkeypatch, capsys):
     def fail(*a, **k):
         raise ValueError("invalid store selection")
-    monkeypatch.setattr("peerhub.cli.app._select_db", fail)
+    monkeypatch.setattr("peerhub.cli.app.select_store", fail)
     assert main(["peer", "get", "--peer", "a"]) == 1
     assert "[invalid_arguments] ERROR: invalid store selection; next:" in capsys.readouterr().err
 

@@ -7,7 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from peerhub.cli.app import _ASK_QUERY_FILE_OPTIONS, _WORKSPACE_OPTIONS
+from peerhub.cli.arguments import WORKSPACE_OPTIONS
+from peerhub.cli.ask_cmd import ASK_QUERY_FILE_OPTIONS
 from peerhub.extensions.observation_model import EvidenceState
 from peerhub.core.store import CoreStore
 from tests.communication.fakes import FakeRuntimeTarget
@@ -39,12 +40,12 @@ def ask_effect(e, option):
         argv[1] = "cc"
     elif option == "prompt":
         argv[2] = expected = "different text"
-    elif option in _ASK_QUERY_FILE_OPTIONS:
+    elif option in ASK_QUERY_FILE_OPTIONS:
         query = e.tmp / "query.txt"
         query.write_text("한글 prompt\n", encoding="utf-8")
         expected = query.read_text(encoding="utf-8")
         argv = ["ask", "cx", option, str(query), "--json"]
-    elif option in _WORKSPACE_OPTIONS:
+    elif option in WORKSPACE_OPTIONS:
         argv += [option, str(e.tmp)]
     elif option in ("--json", "--writable"):
         argv += [option] if option != "--json" else []
@@ -68,7 +69,7 @@ def ask_effect(e, option):
         elif option == "--request-id":
             assert e.j(db, *argv)["status"] == "recovered_terminal"
             assert len([r for r in CoreStore(db).read_records(sid) if r.kind == "prompt"]) == 1
-        elif option in _WORKSPACE_OPTIONS:
+        elif option in WORKSPACE_OPTIONS:
             assert captured[0][1] == str(e.tmp)
         elif option in ("--model", "--effort", "--timeout-seconds", "--max-output-bytes", "--profile", "-p", "--silence-timeout-seconds"):
             key = {"--model": "model", "--effort": "effort", "--timeout-seconds": "timeout_s",
@@ -562,7 +563,7 @@ def profile_effect(e, command, option):
     argv = ["profile", command]
     if command == "show":
         argv.append("cx.standard")
-    if option in _WORKSPACE_OPTIONS:
+    if option in WORKSPACE_OPTIONS:
         argv += [option, str(workspace)]
     elif option == "--format":
         argv += [option, "table"]
@@ -577,7 +578,7 @@ def profile_effect(e, command, option):
         import json
         result = json.loads(out)
         assert result["schema_version"] == "1.0"
-        if option in _WORKSPACE_OPTIONS:
+        if option in WORKSPACE_OPTIONS:
             assert result["workspace"] == str(workspace)
 
 
@@ -737,7 +738,7 @@ def explain_effect(e, option):
 
 
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
-    "peer", "prompt", *_ASK_QUERY_FILE_OPTIONS, "--stream", "--request-id", "--author-peer", *_WORKSPACE_OPTIONS, "--model",
+    "peer", "prompt", *ASK_QUERY_FILE_OPTIONS, "--stream", "--request-id", "--author-peer", *WORKSPACE_OPTIONS, "--model",
     "--effort", "-p", "--profile", "--writable", "--timeout-seconds", "--silence-timeout-seconds",
     "--max-output-bytes", "--json")}
 EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effect(e, option))
@@ -782,7 +783,7 @@ EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, [
                "monitor repair --chunk-size": lambda e: monitor_management_effect(e, ["monitor", "repair", "--chunk-size", "1", "--json"], needs_bridge=True),
                "monitor repair --json": lambda e: monitor_management_effect(e, ["monitor", "repair", "--json"], needs_bridge=True)})
 EFFECT.update({f"profile {command} {option}": (lambda e, command=command, option=option: profile_effect(e, command, option))
-               for command in ("list", "show") for option in (*_WORKSPACE_OPTIONS, "--format")})
+               for command in ("list", "show") for option in (*WORKSPACE_OPTIONS, "--format")})
 EFFECT["profile show profile"] = lambda e: profile_effect(e, "show", "profile")
 
 
@@ -800,7 +801,7 @@ def running_option_effect(e, option):
 
 
 EFFECT.update({f"profile {command} {option}": (lambda e, command=command, option=option: profile_store_workspace_effect(e, command, option))
-               for command in ("stats", "check") for option in _WORKSPACE_OPTIONS})
+               for command in ("stats", "check") for option in WORKSPACE_OPTIONS})
 EFFECT.update({"diag running --peer": lambda e: running_option_effect(e, "--peer"),
                "diag running --limit": lambda e: running_option_effect(e, "--limit")})
 EFFECT.update({f"session list {option}": (lambda e, option=option: session_inspection_effect(e, "list", option))

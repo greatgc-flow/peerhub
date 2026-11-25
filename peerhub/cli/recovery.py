@@ -10,14 +10,18 @@ Maps non-success outcome codes to structured guidance and recovery advice:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import shlex
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
+
+if TYPE_CHECKING:
+    from peerhub.cli.arguments import Subparsers
 
 
 @dataclass(frozen=True)
@@ -959,3 +963,12 @@ def render_guidance_reference() -> str:
 
     return "\n".join(lines)
 
+
+def register_explain_parser(subparsers: Subparsers) -> None:
+    explain_parser = subparsers.add_parser("explain", help="Explain outcome codes or look up operational lessons")
+    explain_parser.add_argument("code", nargs="*", help="Guidance code, profile, lesson ID, or keywords. Omit it or use lessons (also list) for the index.")
+    explain_parser.add_argument("--json", action="store_true", default=False)
+
+
+def run_explain(args: argparse.Namespace) -> int:
+    return run_explain_cli(" ".join(args.code), json_output=bool(getattr(args, "json", False)))

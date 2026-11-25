@@ -6,7 +6,15 @@ The guide uses only packaged data and reads no store, profile file or provider.
 """
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from peerhub.cli.output import emit
+
+if TYPE_CHECKING:
+    from peerhub.cli.arguments import Subparsers
+
 
 GUIDE_MAX_BYTES = 1600  # enforced by tests/communication/e2e/test_cli_guide.py
 
@@ -38,3 +46,13 @@ def render_guide(workspace: Path | None = None) -> str:
         "Uncertain (timeout, empty reply, pending_earlier_record): stop the stream, check diag running and working tree, never blind-retry.",
         f"More: peerhub profile list; peerhub explain <topic> for: {more}; peerhub explain lessons.",
     ])
+
+
+def register_guide_parser(subparsers: Subparsers) -> None:
+    guide_parser = subparsers.add_parser("guide", help="Print the offline quick reference")
+    guide_parser.description = "Print the offline quick reference. Use peerhub profile list for model profiles."
+
+
+def run_guide(args: argparse.Namespace) -> int:
+    emit({"guide": render_guide()}, True) if args.json else print(render_guide())
+    return 0
