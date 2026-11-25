@@ -420,7 +420,8 @@ def test_receipt_and_query_file_warning(monkeypatch, capsys):
 ])
 def test_ask_alias_notice_uses_receipt_policy(monkeypatch, capsys, tty, json_mode, quiet, expected):
     from peerhub.extensions.adapters import profiles
-    from peerhub.extensions.adapters.base import CliRuntimeTarget, PrespawnError
+    from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
+    from peerhub.extensions.runtime_contract import PrespawnError
     from peerhub.extensions.adapters.profiles import reset_deprecation_notices
 
     def fail_policy(self):

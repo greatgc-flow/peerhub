@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from peerhub.cli import main
-from peerhub.extensions.adapters import base
+from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
 from peerhub.extensions.ask import ask
 from tests.communication.fakes.runtime import NativeRuntimeTarget
 
@@ -29,7 +29,7 @@ def test_removed_python_keywords_fail_before_writes(tmp_path):
     with pytest.raises(TypeError, match="resume"):
         ask(db, "cx", "hello", resume=True)
     with pytest.raises(TypeError, match="resume"):
-        base.CliRuntimeTarget("cx", tmp_path, resume=True)
+        CliRuntimeTarget("cx", tmp_path, resume=True)
     assert not db.exists()
 
 

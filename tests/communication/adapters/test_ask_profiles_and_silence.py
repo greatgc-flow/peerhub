@@ -10,7 +10,7 @@ from peerhub.core.models import Peer
 from peerhub.core.schema_version import SchemaVersionError
 from peerhub.core.store import CoreStore, IdempotencyConflictError
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.adapters.base import SPECS
+from peerhub.extensions.adapters.registry import SPECS
 from peerhub.extensions.adapters.process import run_bounded
 from peerhub.extensions.adapters.profiles import resolve_profile
 from peerhub.extensions.ask import ask

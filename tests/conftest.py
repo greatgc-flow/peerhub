@@ -19,7 +19,7 @@ def _quiet_machine_resources(request: pytest.FixtureRequest, monkeypatch: pytest
 @pytest.fixture(autouse=True)
 def _isolate_ag_transport_cache(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
     """Give each test its own cache directory on first access."""
-    from peerhub.extensions.adapters import ag
+    from peerhub.extensions.adapters import ag_transport as ag
 
     cache_path = ag._transport_cache_path
     root: Path | None = None

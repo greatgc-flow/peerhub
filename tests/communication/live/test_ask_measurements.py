@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from peerhub.extensions.adapters.base import SPECS, resolve_binary
+from peerhub.extensions.adapters.registry import SPECS, resolve_binary
 from tests.communication.live.ask_support import ASK_TIMEOUT, ask_args, assert_measured_response, running_session
 from tests.communication.live.live_support import ROOT
 

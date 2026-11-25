@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.extensions import runtime_contract as port
-from peerhub.extensions.adapters import base as adapter
+from peerhub.extensions.adapters import cli_runtime
 
 
 pytestmark = [pytest.mark.architecture, pytest.mark.unit, pytest.mark.platform_sensitive]
@@ -20,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_adapter_and_bridge_share_the_same_runtime_errors() -> None:
-    assert adapter.RuntimeTargetError is port.RuntimeTargetError
-    assert adapter.PrespawnError is port.PrespawnError
+    assert cli_runtime.RuntimeTargetError is port.RuntimeTargetError
+    assert cli_runtime.PrespawnError is port.PrespawnError
     assert issubclass(port.ContextLostError, port.PrespawnError)
     error = port.RuntimeTargetError("ambiguous", termination_confirmed=False)
     assert str(error) == "ambiguous"
@@ -31,7 +31,7 @@ def test_adapter_and_bridge_share_the_same_runtime_errors() -> None:
 def test_provider_adapter_cold_import_does_not_import_bridge() -> None:
     """An adapter need not load the implementation that owns persistence."""
     check = (
-        "import sys; import peerhub.extensions.adapters.base; "
+        "import sys; import peerhub.extensions.adapters.cli_runtime; "
         "print(int('peerhub.extensions.bridge' in sys.modules))"
     )
     result = subprocess.run(

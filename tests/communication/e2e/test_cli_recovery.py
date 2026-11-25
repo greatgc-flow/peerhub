@@ -73,7 +73,7 @@ def test_ag_writable_gate_pins_recovery_and_preserves_contract(tmp_path, monkeyp
     log = tmp_path / "agy-calls.jsonl"
     monkeypatch.setenv("FAKE_KIND", "ag")
     monkeypatch.setenv("FAKE_LOG", str(log))
-    monkeypatch.setattr("peerhub.extensions.adapters.base.resolve_binary", lambda spec: [sys.executable, FAKE])
+    monkeypatch.setattr("peerhub.extensions.adapters.registry.resolve_binary", lambda spec: [sys.executable, FAKE])
     db = tmp_path / "core.db"
     argv = ["--db", str(db), "ask", "ag", "Reply with exactly: pong"]
     assert main(argv + (["--json"] if json_output else [])) == 1
@@ -151,7 +151,7 @@ def test_ag_writable_still_executes(tmp_path, monkeypatch, capsys):
     log = tmp_path / "agy-calls.jsonl"
     monkeypatch.setenv("FAKE_KIND", "ag")
     monkeypatch.setenv("FAKE_LOG", str(log))
-    monkeypatch.setattr("peerhub.extensions.adapters.base.resolve_binary", lambda spec: [sys.executable, FAKE])
+    monkeypatch.setattr("peerhub.extensions.adapters.registry.resolve_binary", lambda spec: [sys.executable, FAKE])
     assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello", "--writable", "--json"]) == 0
     captured = capsys.readouterr()
     assert not captured.err
@@ -224,7 +224,7 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
     # 2. Raises from bridge_control.py, bridge_claims.py and the CLI provider adapters
     _extract_raises(control_file)
     _extract_raises(claims_file)
-    for module in ("base", "common", "cc", "cx", "ag"):
+    for module in ("cli_runtime", "event_parser", "live_output", "registry", "common", "cc", "cx", "ag", "ag_transport"):
         _extract_raises(adapters / f"{module}.py")
 
     # 3. Statuses and raises from ask.py

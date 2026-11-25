@@ -135,8 +135,8 @@ def test_alias_resolution_does_not_leak_the_target_card_or_flags(tmp_path, monke
 
 
 def test_explicit_effort_still_wins_at_ask_time(tmp_path):
-    """The ask path takes `--effort` over the profile effort (base.py); the alias changes nothing there."""
-    from peerhub.extensions.adapters.base import CliRuntimeTarget
+    """The CLI runtime takes `--effort` over the profile effort, including for an alias."""
+    from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
 
     target = CliRuntimeTarget("cx", tmp_path, profile="cx.deepthink", effort="low")
     assert target._effort == "low" and target._model == "gpt-6.2-sol"  # pyright: ignore[reportPrivateUsage]
@@ -162,7 +162,7 @@ def test_the_line_is_printed_once_per_process_and_alias(tmp_path, capsys):
 
 
 def test_the_ask_target_resolves_through_the_same_line(tmp_path, capsys):
-    from peerhub.extensions.adapters.base import CliRuntimeTarget
+    from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
 
     CliRuntimeTarget("cx", tmp_path, profile="cx.deepthink", notice_alias=True)
     assert capsys.readouterr().err.count("cx.deepthink is deprecated") == 1

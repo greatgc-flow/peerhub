@@ -68,19 +68,21 @@ ALLOWED: dict[str, set[str]] = {
 }
 
 
-def edges(root: Path = ROOT) -> dict[str, set[str]]:
-    """Top-level extension (module or package) -> the other top-level extensions it imports.
+def edges(root: Path = ROOT, namespace: str = "peerhub.extensions") -> dict[str, set[str]]:
+    """Each module or package under root -> the siblings it imports.
 
     Absolute AND relative imports are resolved, lazy imports inside functions are included (ast.walk), and the Python files inside
     extension packages count as part of their package."""
     modules = {p.stem for p in root.glob("*.py") if p.stem != "__init__"} | {p.name for p in root.iterdir() if p.is_dir() and (p / "__init__.py").exists()}
     found: dict[str, set[str]] = {}
+    depth = len(namespace.split("."))
+    prefix = namespace + "."
     for path in root.rglob("*.py"):
         rel = path.relative_to(root)
         owner = rel.parts[0] if len(rel.parts) > 1 else rel.stem
         if owner == "__init__":
             continue
-        package = ["peerhub", "extensions", *rel.parts[:-1]]  # the package this file lives in
+        package = [*namespace.split("."), *rel.parts[:-1]]  # the package this file lives in
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             targets: list[str] = []
             if isinstance(node, ast.ImportFrom):
@@ -89,11 +91,12 @@ def edges(root: Path = ROOT) -> dict[str, set[str]]:
                     absolute = ".".join(base + ([node.module] if node.module else []))
                 else:
                     absolute = node.module or ""
-                if absolute.startswith("peerhub.extensions"):
-                    parts = absolute.split(".")
-                    targets += [parts[2]] if len(parts) >= 3 else [alias.name for alias in node.names]
+                if absolute == namespace:
+                    targets += [alias.name for alias in node.names]
+                elif absolute.startswith(prefix):
+                    targets.append(absolute.split(".")[depth])
             elif isinstance(node, ast.Import):
-                targets += [a.name.split(".")[2] for a in node.names if a.name.startswith("peerhub.extensions.")]
+                targets += [a.name.split(".")[depth] for a in node.names if a.name.startswith(prefix)]
             for target in targets:
                 if target in modules and target != owner:
                     found.setdefault(owner, set()).add(target)
@@ -116,6 +119,20 @@ def test_extension_import_graph_matches_the_documented_allowlist():
     actual = edges()
     unexpected = {src: sorted(dst - ALLOWED.get(src, set())) for src, dst in actual.items() if dst - ALLOWED.get(src, set())}
     assert unexpected == {}, f"undocumented extension->extension imports (compose in peerhub/cli instead): {unexpected}"
+
+
+def test_cli_adapter_layers_import_only_their_dependencies():
+    actual = edges(ROOT / "adapters", "peerhub.extensions.adapters")
+    allowed = {
+        "ag_transport": {"common", "process"},
+        "cli_runtime": {"ag", "ag_transport", "cc", "common", "event_parser", "live_output", "process",
+                        "profiles", "registry", "sanitize", "telemetry"},
+        "event_parser": {"common", "process", "telemetry"},
+        "live_output": {"common"},
+        "registry": {"ag", "cc", "common", "cx"},
+    }
+    assert {name: actual.get(name, set()) for name in allowed} == allowed
+    assert "cli_runtime" not in actual["api"]
 
 
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():

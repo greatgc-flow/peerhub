@@ -225,7 +225,7 @@ def test_settled_replay_does_not_validate_or_spawn_deleted_root(env, monkeypatch
         raise AssertionError("settled replay must not bind an environment or spawn")
 
     monkeypatch.setattr(CliRuntimeTarget, "bind_account_env", forbidden)
-    monkeypatch.setattr("peerhub.extensions.adapters.base.BoundedProcess", forbidden)
+    monkeypatch.setattr("peerhub.extensions.adapters.cli_runtime.BoundedProcess", forbidden)
     replay = env.run()
     assert replay["status"] == "recovered_terminal" and replay["response"] == first["response"]
     assert replay["session"] == first["session"] and env.calls() == calls

@@ -1,4 +1,4 @@
-"""Contracts and helpers shared by the CLI provider adapters."""
+"""Contracts and helpers shared by the provider adapters."""
 from __future__ import annotations
 
 import json
@@ -13,6 +13,32 @@ EXCERPT_CHARS = 300
 SETUP_HINT = "(peerhub explain setup)"  # the lesson `setup`: what each peer needs, the official page and the check (#385)
 _SESSION_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,200}")
 VERSION_RE = re.compile(r"\d+\.\d+\.\d+[0-9A-Za-z.+-]*")
+
+
+def render_prompt(record: Any, catch_up: list[Any], *, limit: int | None = None) -> str:
+    def txt(r: Any) -> str:
+        b = getattr(r, "body", None)
+        return b if isinstance(b, str) else json.dumps(b, ensure_ascii=False, sort_keys=True)
+    parts: list[str] = []
+    boundary: object = getattr(catch_up, "boundary", None)
+    if isinstance(boundary, dict):
+        info = cast("dict[str, Any]", boundary)
+        if info.get("truncated") or info.get("omitted_count"):
+            parts.append(f"[context truncated: {info.get('omitted_count', '?')} earlier records omitted "
+                         f"through position {info.get('omitted_through_position', '?')}]")
+    # Bridge projections arrive oldest first; never truncate here: the injected budget decides.
+    for r in catch_up:
+        parts.append(f"[{getattr(r, 'position', '?')} {getattr(r, 'record_id', '?')} "
+                     f"{getattr(r, 'author_peer_id', '?')} {getattr(r, 'kind', '?')}] {txt(r)}")
+    has_context = bool(parts)
+    parts.append(txt(record))
+    prompt = "\n\n".join(parts)
+    if has_context:
+        preamble = "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
+        if limit is not None and limit - len(preamble) < len(prompt.encode("utf-8")) <= limit:
+            return prompt
+        return preamble + prompt
+    return prompt
 
 
 def executable_not_found(binary: str) -> str:

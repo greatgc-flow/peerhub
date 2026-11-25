@@ -1,7 +1,7 @@
 """Peers are read-only by default; write access is an explicit per-ask choice."""
 import pytest
 
-from peerhub.extensions.adapters.base import SPECS
+from peerhub.extensions.adapters.registry import SPECS
 from peerhub.extensions.ask import ask
 
 
@@ -50,7 +50,7 @@ def test_resume_preserves_writable_mode_per_peer(writable):
 
 def test_ag_without_writable_fails_closed_before_store_creation(tmp_path):
     """#140: native ag without writable=True fails closed pre-spawn without creating CoreStore or appending records."""
-    from peerhub.extensions.adapters.base import PrespawnError
+    from peerhub.extensions.runtime_contract import PrespawnError
 
     db = tmp_path / "uncreated" / "core.db"
     with pytest.raises(PrespawnError, match="ag execution requires --writable"):
@@ -78,7 +78,7 @@ def test_read_only_live_canary_sentinel(peer):
     if os.environ.get("CI") or os.environ.get("PEERHUB_LIVE") != "1":
         pytest.skip("opt-in live test requires PEERHUB_LIVE=1 and non-CI environment")
 
-    from peerhub.extensions.adapters.base import resolve_binary
+    from peerhub.extensions.adapters.registry import resolve_binary
     if resolve_binary(SPECS[peer]) is None:
         pytest.skip(f"provider CLI for {peer} is not installed")
 

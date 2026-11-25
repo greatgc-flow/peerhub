@@ -15,7 +15,7 @@ import pytest
 
 from peerhub.extensions import accounts
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.adapters import base, common
+from peerhub.extensions.adapters import cli_runtime, common
 from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.extensions.diag_readiness import _matches_binding
 from tests.communication.adapters.conftest import calls
@@ -47,7 +47,7 @@ def parent_env(tmp_path, monkeypatch):
                 "OPENAI_MODEL": "parent-model",
                 "CODEX_PROFILE": "parent-profile",
                 "UNRELATED_SETTING": "keep-me"})
-    monkeypatch.setattr(base.os, "environ", env)
+    monkeypatch.setattr(cli_runtime.os, "environ", env)
     return env
 
 
@@ -98,7 +98,7 @@ def test_bound_target_fails_closed_until_env_attached(mk, monkeypatch, kind, ope
         raise AssertionError("unbound account environment reached subprocess")
 
     monkeypatch.setattr(common, "run_bounded", forbidden)  # CLI probes spawn through adapters/common.py
-    monkeypatch.setattr(base, "BoundedProcess", forbidden)
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", forbidden)
     with pytest.raises(PrespawnError, match="(?i)account|environment|bound"):
         if operation == "env":
             _ = target._env

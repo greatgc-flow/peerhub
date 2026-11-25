@@ -85,7 +85,7 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
 def test_windows_suite_skips_only_prose_and_runs_platform_inventory_for_code(monkeypatch, tmp_path):
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="README.md\0docs/design/monitor.md\0"))
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "skip"
-    monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="peerhub/extensions/adapters/base.py\0"))
+    monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="peerhub/extensions/adapters/cli_runtime.py\0"))
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="tests/communication/fault/test_flt_storage.py\0"))
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"

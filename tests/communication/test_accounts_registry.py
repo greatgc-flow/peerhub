@@ -280,7 +280,7 @@ def test_marker_row_xor_fails_closed(world, tmp_path, monkeypatch, capsys, mutat
         raise AssertionError("inconsistent account must not spawn")
 
     monkeypatch.setattr("peerhub.extensions.adapters.common.run_bounded", forbidden)
-    monkeypatch.setattr("peerhub.extensions.adapters.base.BoundedProcess", forbidden)
+    monkeypatch.setattr("peerhub.extensions.adapters.cli_runtime.BoundedProcess", forbidden)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     with pytest.raises(PrespawnError, match="(?i)account|marker|binding"):

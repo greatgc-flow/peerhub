@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.monitor_sections import group_lines
-from peerhub.extensions.adapters import CliRuntimeTarget, base, telemetry
-from peerhub.extensions.adapters.base import IncrementalEventParser
+from peerhub.extensions.adapters import CliRuntimeTarget, event_parser, telemetry
+from peerhub.extensions.adapters.event_parser import IncrementalEventParser
 from peerhub.extensions.adapters.telemetry import parse_provider_usage
 from peerhub.extensions.usage_normalization import unknown_usage
 from tests.communication.bridge_helpers import bseed
@@ -91,10 +91,10 @@ def test_unknown_cc_event_still_marks_refusal_evidence_incomplete():
 
 
 def test_both_parsers_read_the_one_shared_cc_event_list(monkeypatch):
-    assert base.CC_EVENT_TYPES is telemetry.CC_EVENT_TYPES
+    assert event_parser.CC_EVENT_TYPES is telemetry.CC_EVENT_TYPES
     widened = (*telemetry.CC_EVENT_TYPES, "probe_event")
     monkeypatch.setattr(telemetry, "CC_EVENT_TYPES", widened)
-    monkeypatch.setattr(base, "CC_EVENT_TYPES", widened)
+    monkeypatch.setattr(event_parser, "CC_EVENT_TYPES", widened)
     stdout = '{"type":"probe_event"}\n' + REAL_CC_STREAM
     assert parse_provider_usage("cc", stdout)["coverage"]["state"] == "MEASURED"
     assert _stream_parser(stdout).refusal_evidence_incomplete is False

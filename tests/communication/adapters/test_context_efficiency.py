@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.extensions.adapters import base
+from peerhub.extensions.adapters import CliRuntimeTarget, cli_runtime
+from peerhub.extensions.adapters.common import render_prompt
+from peerhub.extensions.adapters.process import ProcessResult
+from peerhub.extensions.adapters.registry import SPECS
 from peerhub.extensions.adapters.telemetry import parse_provider_usage
 from peerhub.extensions.usage_normalization import unknown_usage
 from peerhub.extensions.catchup import ProjectedRecords
@@ -28,11 +31,11 @@ SAMPLES = [
 
 @pytest.mark.parametrize("kind,stdout,expected", SAMPLES)
 def test_literal_usage_is_normalized_and_carried_in_terminal(kind, stdout, expected, monkeypatch, tmp_path):
-    assert base.SPECS[kind].parse_usage(stdout) == expected
-    result = base.ProcessResult(123, 0, stdout.encode(), b"", False, False, 0.1)
+    assert SPECS[kind].parse_usage(stdout) == expected
+    result = ProcessResult(123, 0, stdout.encode(), b"", False, False, 0.1)
     process = SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
-    monkeypatch.setattr(base, "BoundedProcess", lambda *a, **kw: process)
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *a, **kw: process)
+    adapter = CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
     events = list(adapter.deliver("session", SimpleNamespace(body="question"), []))
     assert events[-1][0] == "terminal"
     assert events[-1][1]["response"] == "OK"
@@ -43,7 +46,7 @@ def test_literal_usage_is_normalized_and_carried_in_terminal(kind, stdout, expec
 def test_truncated_output_marks_provider_telemetry_unknown(monkeypatch, tmp_path):
     stdout = (Path(__file__).parents[1] / "fixtures" / "telemetry" / "cc-stream-real-2026-11-14.ndjson").read_bytes()
     assert "context" in parse_provider_usage("cc", stdout.decode("utf-8"))  # complete, this stream gives a context reading
-    result = base.ProcessResult(123, 0, stdout, b"", False, False, 0.1)
+    result = ProcessResult(123, 0, stdout, b"", False, False, 0.1)
     process = SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
 
     class TruncatedParser:
@@ -63,9 +66,9 @@ def test_truncated_output_marks_provider_telemetry_unknown(monkeypatch, tmp_path
         def parse_usage(self) -> dict[str, int] | None: return None
         def parse_session_id(self) -> str | None: return None
 
-    monkeypatch.setattr(base, "IncrementalEventParser", TruncatedParser)
-    monkeypatch.setattr(base, "BoundedProcess", lambda *a, **kw: process)
-    adapter = base.CliRuntimeTarget("cc", tmp_path, command=["fake.exe"])
+    monkeypatch.setattr(cli_runtime, "IncrementalEventParser", TruncatedParser)
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *a, **kw: process)
+    adapter = CliRuntimeTarget("cc", tmp_path, command=["fake.exe"])
     events = list(adapter.deliver("session", SimpleNamespace(body="question"), []))
     assert events[-1][0] == "terminal"
     assert events[-1][1]["provider_telemetry"] == unknown_usage("output_incomplete")  # no usage and no context (#376 P2)
@@ -74,7 +77,7 @@ def test_truncated_output_marks_provider_telemetry_unknown(monkeypatch, tmp_path
 @pytest.mark.parametrize("kind", ["cc", "cx", "ag"])
 @pytest.mark.parametrize("stdout", ["", "not JSON", "[]", '{}', '{"usage":{}}'])
 def test_absent_usage_is_unknown(kind, stdout):
-    assert base.SPECS[kind].parse_usage(stdout) is None
+    assert SPECS[kind].parse_usage(stdout) is None
 
 
 @pytest.mark.parametrize("kind,stdout,expected", [
@@ -88,7 +91,7 @@ def test_absent_usage_is_unknown(kind, stdout):
     ("cx", '{"type":"item.completed","usage":{"input_tokens":10}}', None),
 ])
 def test_partial_usage_omits_unknown_counters(kind, stdout, expected):
-    assert base.SPECS[kind].parse_usage(stdout) == expected
+    assert SPECS[kind].parse_usage(stdout) == expected
 
 
 @pytest.mark.parametrize("truncated,omitted", [(True, 3), (False, 3)])
@@ -98,7 +101,7 @@ def test_catch_up_prompt_has_one_boundary_then_identified_records_then_current_a
         SimpleNamespace(position=5, record_id="r5", author_peer_id="cx", kind="response", body={"fact": "known"}),
     ])
     history.boundary = {"truncated": truncated, "omitted_count": omitted, "omitted_through_position": 3}
-    prompt = base.CliRuntimeTarget._prompt(SimpleNamespace(body="current question"), history)
+    prompt = render_prompt(SimpleNamespace(body="current question"), history)
     assert prompt == ('PeerHub stream context follows. Use the earlier records as context for the final request.\n\n'
                       '[context truncated: 3 earlier records omitted through position 3]\n\n'
                       '[4 r4 user prompt] old question\n\n'
@@ -109,7 +112,7 @@ def test_catch_up_prompt_has_one_boundary_then_identified_records_then_current_a
 def test_empty_truncated_history_still_reports_boundary():
     history = ProjectedRecords()
     history.boundary = {"truncated": True, "omitted_count": 2, "omitted_through_position": 2}
-    assert base.CliRuntimeTarget._prompt(SimpleNamespace(body="now"), history) == (
+    assert render_prompt(SimpleNamespace(body="now"), history) == (
         "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
         "[context truncated: 2 earlier records omitted through position 2]\n\nnow")
 
@@ -120,7 +123,7 @@ def test_complete_history_has_no_boundary_note(boundary):
         SimpleNamespace(position=1, record_id="r1", author_peer_id="user", kind="prompt", body="earlier"),
     ])
     history.boundary = boundary
-    assert base.CliRuntimeTarget._prompt(SimpleNamespace(body="now"), history) == (
+    assert render_prompt(SimpleNamespace(body="now"), history) == (
         "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
         "[1 r1 user prompt] earlier\n\nnow")
-    assert base.CliRuntimeTarget._prompt(SimpleNamespace(body="now"), []) == "now"
+    assert render_prompt(SimpleNamespace(body="now"), []) == "now"

@@ -1,7 +1,9 @@
 # Peer CLI compatibility reference
 
 This is the current cross-peer operator reference. The authoritative runtime
-sources are the [shared CLI runtime](../../peerhub/extensions/adapters/base.py),
+sources are the [shared CLI runtime](../../peerhub/extensions/adapters/cli_runtime.py),
+the [provider registry](../../peerhub/extensions/adapters/registry.py),
+the [incremental event parser](../../peerhub/extensions/adapters/event_parser.py),
 the provider implementations for [ag](../../peerhub/extensions/adapters/ag.py),
 [cc](../../peerhub/extensions/adapters/cc.py), and [cx](../../peerhub/extensions/adapters/cx.py),
 and the [packaged model defaults](../../peerhub/config_data/model-defaults.toml).
