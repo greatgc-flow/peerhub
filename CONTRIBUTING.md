@@ -65,6 +65,16 @@ project's coding rules. Runtime code is grouped into `core`, `extensions` and
 Shared fixtures and fake CLIs live under `tests/communication/harness`.
 Every public non-success outcome needs a registry entry in `peerhub/cli/recovery.py`.
 
+### Repository maintenance tools
+
+Scripts in `tools/` are for development in a checkout. They may import
+internal PeerHub Core, extension, and CLI modules. Use public names from
+`peerhub.cli` and its submodules. If a tool needs a private CLI name, expose
+the operation it needs through a small public helper.
+
+Runtime code in `peerhub/` must never import `tools/`. Wheels and source
+distributions exclude `tools/` from both packages and package data.
+
 ## Branches, commits, and pull requests
 
 Start from `main` and use a focused, lower-case topic branch. Existing branches
