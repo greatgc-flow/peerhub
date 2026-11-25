@@ -53,10 +53,9 @@ duplicated responsibility or dependency cycle requires one.
 
 - **Runtime port:** `RuntimeTargetError`, `PrespawnError`, `ContextLostError`,
   `RuntimeEvent`, `RuntimeTarget`, `SteerableTarget` live in
-  `extensions/runtime_contract.py`; `extensions.bridge` re-exports the identical objects.
+  `extensions/runtime_contract.py`.
 - **Pinned history scan:** `CoreStore.iter_records_snapshot(page_size=500)` yields
-  (stream ID, position)-ordered records from a single pinned read transaction;
-  `extensions.source_records.source_records()` delegates to it.
+  records ordered by stream ID and position from a single pinned read transaction.
 - **Gates:** offline tests cover type identity, adapter cold import, forbidden
   Core→Extension/CLI imports, snapshot immutability under a concurrent WAL writer.
 

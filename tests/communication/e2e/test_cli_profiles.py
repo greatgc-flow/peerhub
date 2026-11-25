@@ -103,7 +103,7 @@ def test_profile_list_is_read_only_and_lists_packaged_profiles(tmp_path, capsys,
 
 def test_profile_list_table_shows_known_models_and_pool_evidence(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
-    assert main(["profile", "list", "--workspace", str(tmp_path), "--format", "table"]) == 0
+    assert main(["profile", "list", "--workspace", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "Known models (pool)" in out
     assert all(model in out for model in PACKAGED["exact_model_pools"])

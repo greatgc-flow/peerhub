@@ -43,7 +43,8 @@ def test_oldest_age_ignores_pools_that_are_not_required():
 
 def test_per_peer_due_at_lead_with_missing_and_partial_pools():
     from peerhub.cli.monitor_refresh import RefreshSchedule
-    from peerhub.extensions.observation_model import QUOTA_TTL_SECONDS, FreshnessPolicy
+    from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
+    from peerhub.extensions.observation_model import FreshnessPolicy
 
     lead = support.MONITOR_REFRESH_LEAD_SECONDS
     due = QUOTA_TTL_SECONDS - lead
@@ -101,7 +102,7 @@ def test_prior_fresh_window_does_not_make_partial_probe_complete():
 
 @pytest.mark.parametrize("expand", [False, True])
 def test_slow_failed_refresh_ages_the_same_committed_value(expand):
-    from peerhub.extensions.observation_model import QUOTA_TTL_SECONDS
+    from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 
     row = pool("cc", "C-7D", .5)
     row.update(age_seconds=support.MONITOR_QUOTA_MAX_AGE_SECONDS, ttl_seconds=QUOTA_TTL_SECONDS)

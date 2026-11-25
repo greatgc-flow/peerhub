@@ -13,10 +13,6 @@ from peerhub.extensions.diag_running import MAX_ROWS
 BLANK_HELP = {
     ("", "--version"): "The global version flag is self-describing.",
 }
-HIDDEN_HELP = {
-    (command, "--format"): "Hidden compatibility alias for output format."
-    for command in ("peer list", "stream list", "profile list", "profile show", "session list", "session show")
-} | {("monitor", "--legacy"): "Version-gated compatibility switch."}
 
 # The parser leaves these values unresolved. The help describes the runtime rule.
 CONTEXTUAL_DEFAULTS = {
@@ -85,7 +81,7 @@ def test_all_arguments_have_nonempty_help(commands):
             elif not (action.help or "").strip():
                 blank.add((command, flag))
     assert blank <= BLANK_HELP.keys()
-    assert hidden <= HIDDEN_HELP.keys()
+    assert not hidden
 
 
 def test_named_defaults_match_argparse(commands):

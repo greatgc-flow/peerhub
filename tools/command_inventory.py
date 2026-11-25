@@ -32,20 +32,24 @@ def _options(parser: argparse.ArgumentParser) -> list[dict[str, Any]]:
     return sorted(out, key=lambda o: o["flags"][0])
 
 
-def _walk(parser: argparse.ArgumentParser, path: tuple[str, ...], leaves: list[dict[str, Any]], groups: list[dict[str, Any]]) -> None:
+def _walk(parser: argparse.ArgumentParser, path: tuple[str, ...], leaves: list[dict[str, Any]],
+          groups: list[dict[str, Any]], aliases: tuple[str, ...] = ()) -> None:
+    node: dict[str, Any] = {"command": " ".join(path), "options": _options(parser)}
+    if aliases:
+        node["aliases"] = list(aliases)
     subs = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]  # noqa: SLF001
     if not subs:
-        leaves.append({"command": " ".join(path), "options": _options(parser)})
+        leaves.append(node)
         return
     if path:  # intermediate level (the root is reported as global_options)
-        groups.append({"command": " ".join(path), "options": _options(parser)})
-    seen: set[argparse.ArgumentParser] = set()
-    for name, sp in subs[0].choices.items():
-        # argparse inserts the canonical name before aliases of the same parser.
-        if sp in seen:
-            continue
-        seen.add(sp)
-        _walk(sp, (*path, name), leaves, groups)
+        groups.append(node)
+    names: dict[argparse.ArgumentParser, list[str]] = {}
+    for name, child in subs[0].choices.items():
+        names.setdefault(child, []).append(name)
+    for child, (name, *other_names) in names.items():
+        alias_paths = tuple(" ".join((*path, alias)) for alias in other_names)
+        alias_paths += tuple(f"{parent} {child_name}" for parent in aliases for child_name in (name, *other_names))
+        _walk(child, (*path, name), leaves, groups, alias_paths)
 
 
 def derive(parser: argparse.ArgumentParser | None = None) -> dict[str, Any]:

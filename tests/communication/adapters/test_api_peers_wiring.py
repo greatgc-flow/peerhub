@@ -19,8 +19,8 @@ API_PROFILES = {pid: p for pid, p in TOML["profiles"].items() if pid.split(".", 
 
 
 @pytest.fixture(autouse=True)
-def isolated_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "config"))
+def isolated_config(monkeypatch):
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", __file__)  # No models.toml beneath a file.
 
 
 def test_the_api_peers_are_builtin_peer_kinds_without_other_aliases():
@@ -41,7 +41,7 @@ def _kind_lists(tree: ast.AST):
             yield node.lineno, strings
 
 
-def test_every_list_that_names_ca_and_oa_names_ga():
+def test_every_list_that_names_ca_and_oa_names_ga(capsys):
     """Design 8 (#381): a kind list that knows `ca` and `oa` must know `ga`. Walks the package, the live gate and the
     packaged texts two ways, so a missing entry fails here and not in a store or in a message:
 
@@ -68,7 +68,7 @@ def test_every_list_that_names_ca_and_oa_names_ga():
                     missing.append(f"{path.relative_to(REPO)}:{number}: a line with ca and oa has no ga")
     assert not missing, "\n".join(missing)
     assert seen >= 30  # the files of design 8 are among them (the next assertions name each one)
-    from peerhub.cli import recovery
+    from peerhub.cli.explain_cmd import run_explain_cli
     from peerhub.core import peer_kinds
     from peerhub.extensions import batch, bridge_ledger, session_receipts, usage_normalization
 
@@ -78,7 +78,8 @@ def test_every_list_that_names_ca_and_oa_names_ga():
     for kind in BUILTIN_PEER_KINDS:
         match = session_receipts._ADAPTER_VERSION.fullmatch(f"adapter:{kind}:v12")  # pyright: ignore[reportPrivateUsage]
         assert match and match.groups() == (kind, "12")
-        assert recovery._PROFILE_ID.fullmatch(f"{kind}.example")  # pyright: ignore[reportPrivateUsage]
+        assert run_explain_cli(f"{kind}.standard", json_output=True) == 0
+        assert json.loads(capsys.readouterr().out)["profile"]["profile"] == f"{kind}.standard"
     api_kinds = ", ".join(json.dumps(kind) for kind in API_KINDS)
     ledger_source = Path(bridge_ledger.__file__).read_text(encoding="utf-8")
     assert f"runtime_kind\"] in ({api_kinds})" in ledger_source
@@ -329,8 +330,9 @@ def test_guide_names_the_api_peers_and_points_to_their_topic(capsys):
     api_topic = " ".join(lesson_by_id("api-peers")[0]["fix"].split())
     assert "--query-file" in api_topic and "docs/api-credits.md" in api_topic
     load_topic = " ".join(lesson_by_id("batch-and-load")[0]["fix"].split())
-    assert "PeerHub does not cap the count" in load_topic
-    assert "RAM is low or CPU load is high" in load_topic
+    assert "docs/batch.md" in load_topic
+    batch = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
+    assert "PeerHub does not cap" in batch and "RAM and CPU load" in batch
 
 
 def test_suggest_never_names_an_api_peer(tmp_path):

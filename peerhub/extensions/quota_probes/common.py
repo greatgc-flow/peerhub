@@ -15,10 +15,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import peerhub.extensions.win_job as win_job
 from peerhub.extensions.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.extensions.process_tree import kill_process_tree
+from peerhub.extensions.observation_model import EvidenceState, NOT_REPORTED_REASON
 from peerhub.extensions.quota_types import (
-    NOT_REPORTED_REASON,
     EvidenceRef,
-    EvidenceState,
     EvidenceValue,
     IdSource,
     UsageMeasurement,

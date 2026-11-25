@@ -30,11 +30,6 @@ def load_lessons() -> list[Lesson]:
                 error={code: entry.exit_code for code, entry in REGISTRY.items()},
                 diag=DIAG_EXIT_BY_STATUS,
             )
-        elif lesson["id"] == "parallel-quota":
-            from peerhub.core.load_limits import CPU_BUSY_WARN_PCT, MIN_FREE_RAM_GB, PLAN_NA_POOLS_LABEL
-
-            lesson["fix"] = lesson["fix"].format(plan_na_pools=PLAN_NA_POOLS_LABEL,
-                                                ram_min=MIN_FREE_RAM_GB, cpu_warn=CPU_BUSY_WARN_PCT)
     return sorted(lessons, key=lambda lesson: lesson["id"])
 
 
@@ -87,14 +82,16 @@ def render_lessons_reference() -> str:
         "```",
         "",
         "Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.",
-        "Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then the index (bare `peerhub explain`, `lessons` or `list`), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order; one match prints in full, several print one `id: title` line each (open one with `peerhub explain <id>`).",
+        "Guidance codes and result labels take priority, followed by exact profile IDs (for example `cc.effort`), the index (bare `peerhub explain`, `lessons` or `list`), exact lesson IDs, and keyword lookup. Keyword matches list recipes first, then sort by ID. A single match prints in full. Open one of several matches with `peerhub explain <id>`.",
     ]
+    doc_path = re.compile(r"(?<![\w/])(?:docs/[\w./-]+|README|CONTRIBUTING)\.md(?:#[\w-]+)?")
     for lesson in load_lessons():
+        fix = doc_path.sub(lambda m: f"[{m[0]}]({m[0][5:] if m[0].startswith('docs/') else '../' + m[0]})", lesson["fix"])
         lines.extend([
             "", f"## {lesson['title']} (`{lesson['id']}`)", "",
             f"- Keywords: {', '.join(lesson['keywords'])}",
             f"- Symptom: {lesson['symptom']}",
-            f"- Fix: {lesson['fix']}",
+            f"- Fix: {fix}",
             f"- Issue: {lesson['issue']}",
         ])
     return "\n".join(lines) + "\n"

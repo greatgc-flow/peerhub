@@ -175,7 +175,7 @@ def test_new_and_moved_lesson_content():
     assert "ACCOUNTS" not in by_id["monitor-states"]["fix"]
     # #374: ACCOUNTS left the compact frame; account problems reach line 1 as alerts
     account_fix = by_id["monitor-accounts"]["fix"]
-    assert "ACCOUNTS (--expand rows" in account_fix and "docs/monitor.md#accounts" in account_fix
+    assert "ACCOUNTS in --expand" in account_fix and "docs/monitor.md#accounts" in account_fix
     monitor = " ".join(Path("docs/monitor.md").read_text(encoding="utf-8").split())
     for needle in ("raise a line-1 alert", "display_plan", "plan_changed: true", "at least five minutes old"):
         assert needle in monitor, needle
@@ -184,8 +184,10 @@ def test_new_and_moved_lesson_content():
                    "routine check = ONE reviewer, FRESH", "3 independent peers, unanimity", "VERDICT / BLOCKERS / NITS"):
         assert needle in votes, needle
     timeouts = by_id["ask-timeouts"]["fix"]
-    assert "defaults to 600" in timeouts and "1800-3600" in timeouts and "7200" in timeouts
-    assert "never retry on the same stream" in timeouts and "partial edits" in timeouts
+    assert "600-second default" in timeouts and "docs/guidance-reference.md#ask_uncertain" in timeouts
+    commands = Path("docs/commands.md").read_text(encoding="utf-8")
+    ask = commands.split("## Ask", 1)[1].split("## Diagnostics", 1)[0]
+    assert "1800–3600" in ask and "7200" in ask and "600" in ask
 
 
 def test_ag_adapter_holds_the_full_recipe():
@@ -239,9 +241,9 @@ def _links(text: str) -> set[str]:
 
 
 def test_setup_lesson_points_to_the_install_table(capsys):
-    from peerhub.cli.recovery import ALIASES, REGISTRY
+    from peerhub.cli.recovery import get_guidance
 
-    assert "setup" not in REGISTRY and "setup" not in ALIASES
+    assert get_guidance("setup") is None
     (lesson,) = lesson_by_id("setup")
     fix = lesson["fix"]
     assert lesson["keywords"] and lesson["issue"] == "#385"
@@ -363,4 +365,5 @@ def test_monitor_view_explains_guide_trailer_and_matches_reference(capsys):
     (lesson,) = json.loads(capsys.readouterr().out)["lessons"]
     guide_rule = next(sentence for sentence in lesson["fix"].split(". ") if "PEERHUB_NO_LINKS" in sentence)
     assert all(word in guide_rule for word in ("OSC 8", "Guide:", "fits"))
-    assert f'- Fix: {lesson["fix"]}' in Path("docs/lessons.md").read_text(encoding="utf-8")
+    expected = lesson["fix"].replace("docs/monitor.md", "[docs/monitor.md](monitor.md)")
+    assert f"- Fix: {expected}" in Path("docs/lessons.md").read_text(encoding="utf-8")

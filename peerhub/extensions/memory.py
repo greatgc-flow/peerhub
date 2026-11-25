@@ -19,7 +19,6 @@ from typing import Any, Iterable, cast
 
 from peerhub.core.models import Record
 from peerhub.core.store import CoreStore
-from peerhub.extensions.source_records import source_records
 
 
 class MemoryError(Exception):
@@ -271,7 +270,7 @@ class MemoryStore:
         count = 0
         quarantine = self.quarantine if quarantine is None else quarantine
         self.quarantined = []
-        for rec in source_records(core_store):
+        for rec in core_store.iter_records_snapshot():
             if not rec.kind.startswith("m3.memory."):
                 continue
             if not quarantine:

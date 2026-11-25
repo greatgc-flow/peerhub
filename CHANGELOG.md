@@ -21,7 +21,17 @@ they do not claim new validation or publication evidence.
 - CI runs the full deterministic suites and the publish verification suites in parallel, with the monitor latency limit checked serially. Publish runs the G7 invariant tests as part of G0, and the release recipe puts the version bump in the last feature PR.
 - An internal refactor shares the monitor group catalog and saved preference reader below the CLI, enforces the extensions-to-CLI import boundary, and centralizes the provider usage candidate factory and shared A2A journal types. Binary resolution and peer-kind imports use their canonical modules.
 
+### Fixed
+
+- Deterministic tests use a quiet CPU and RAM sample and isolate the Antigravity transport cache. The ask gate and probe tests supply their own resource readings.
+
+### Removed
+
+- Removed internal compatibility import shims (user-facing short profile IDs, `cx.deepthink`, hidden `--format` and `monitor --legacy` stay).
+
 ### Changed (internal)
+
+- The command inventory checks that the command reference lists every argparse command, including aliases. The documentation map and offline lessons link to the owning procedures.
 
 - Split quota and account probes into provider modules with shared probe helpers.
 - Split the Claude Code, Codex, and Antigravity CLI adapters into provider modules. Antigravity owns stream parsing and transport detection.

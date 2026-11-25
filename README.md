@@ -86,7 +86,7 @@ peerhub guide
 peerhub explain ask_blocked_uncertain
 ```
 
-CLI output defaults to compact human text, including when redirected. Use `--json` for scripts; `--format` is a hidden compatibility alias. Errors carry an outcome code and `next:` hint. Run `peerhub explain exit-codes` for the process exit codes and error output by command.
+CLI output defaults to compact human text, including when redirected. Use `--json` for scripts. Errors carry an outcome code and `next:` hint. Run `peerhub explain exit-codes` for the process exit codes and error output by command.
 
 ## Everyday commands
 
@@ -290,9 +290,7 @@ Configured weekly dependencies appear together in POOLS: for example, `cc F-7D` 
 
 For automation, `--json` emits schema
 2.0 NDJSON frames for watch and one JSON object for snapshot. The frozen 0.16.1
-machine contract remains available as `--json --schema-version 1.1`; the hidden
-deprecated `--legacy` alias was removed in 0.20.0 after its 0.19.x sunset.
-Use the explicit `--json --schema-version 1.1` options for the frozen machine contract.
+machine contract is available via `--json --schema-version 1.1`.
 
 The `diag` dashboard shows a threat summary, a stable pool
 table with usage, PACE in percentage points, reset countdown, conditional
@@ -456,7 +454,7 @@ peerhub diag running
 # Per-pool spend/hold/rest/blocked with target %/h until reset (stored observations only)
 peerhub diag --plan
 
-# Spread parallel work over the least quota: peerhub explain parallel-quota (docs/batch.md J)
+# Spread parallel work over the least quota: peerhub explain parallel-quota
 ```
 
 ### Upgrade

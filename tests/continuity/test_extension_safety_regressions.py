@@ -11,7 +11,8 @@ import pytest
 
 from peerhub.core.models import Peer, Stream
 from peerhub.core.store import CoreStore
-from peerhub.extensions.artifact import ArtifactStore, ArtifactTamperedError, SecurityBoundaryError, StagedArtifact
+from peerhub.extensions.boundary import SecurityBoundaryError
+from peerhub.extensions.artifact import ArtifactStore, ArtifactTamperedError, StagedArtifact
 from peerhub.extensions.eval import EvalDataset, EvaluatorValidationError, capture_trace, dataset_digest, run_eval
 from peerhub.extensions.host import ExtensionHost, SchemaPrefixViolationError, ExtensionHookError
 from peerhub.extensions.manifest import ExtensionManifest, SchemaValidationError

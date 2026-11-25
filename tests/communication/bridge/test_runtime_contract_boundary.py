@@ -1,7 +1,6 @@
-"""Import-direction and compatibility gates for the logical Execution Kernel (#335).
+"""Import-direction gates for the logical Execution Kernel (#335).
 
-These tests are deliberately offline. They exercise module ownership and the
-historical public import path, without invoking provider CLIs or touching a DB.
+These tests are deliberately offline. They exercise module ownership without invoking provider CLIs or touching a DB.
 """
 from __future__ import annotations
 
@@ -12,26 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.extensions import bridge
 from peerhub.extensions import runtime_contract as port
 from peerhub.extensions.adapters import base as adapter
 
 
 pytestmark = [pytest.mark.architecture, pytest.mark.unit, pytest.mark.platform_sensitive]
 ROOT = Path(__file__).resolve().parents[3]
-
-
-def test_bridge_compatibility_exports_are_identical_to_runtime_port() -> None:
-    """External callers using bridge.* must receive the original types."""
-    for name in (
-        "RuntimeTargetError",
-        "PrespawnError",
-        "ContextLostError",
-        "RuntimeTarget",
-        "SteerableTarget",
-        "RuntimeEvent",
-    ):
-        assert getattr(bridge, name) is getattr(port, name)
 
 
 def test_adapter_and_bridge_share_the_same_runtime_errors() -> None:

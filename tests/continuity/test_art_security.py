@@ -12,9 +12,9 @@ import stat
 import sys
 import pytest
 
+from peerhub.extensions.boundary import SecurityBoundaryError
 from peerhub.extensions.artifact import (  # type: ignore[import-not-found]
     ArtifactStore,
-    SecurityBoundaryError,
     WindowsJunctionError,
     InvalidArtifactReferenceError,
 )

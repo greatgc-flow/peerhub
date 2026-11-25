@@ -12,7 +12,7 @@ import pytest
 from peerhub._console import ANSI_ESCAPE
 from peerhub.cli import monitor_format, monitor_layout, monitor_links, monitor_view as mv
 from peerhub.cli.monitor import register_monitor_parser, validate_monitor_args
-from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 
 
 def frame_for(members: dict[str, list[str]]) -> dict[str, Any]:

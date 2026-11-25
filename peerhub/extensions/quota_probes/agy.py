@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, cast
 
 import peerhub.extensions.win_job as win_job
+from peerhub.extensions.observation_model import DISABLED_REASON, EvidenceState
 from peerhub.extensions.quota_types import (
-    DISABLED_REASON,
     EvidenceRef,
-    EvidenceState,
     EvidenceValue,
     IdSource,
     UsageMeasurement,

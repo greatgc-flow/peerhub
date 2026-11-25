@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
-from peerhub.core.load_limits import probe_timeout_factor
+from peerhub.core.load_limits import ResourceSample, probe_timeout_factor
 from peerhub.core.peer_kinds import ALIASES, CLI_PEER_ALIASES, QUOTA_CAPABLE_PEERS
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import (
@@ -184,7 +184,8 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                   cx_pools: Sequence[str] | None = None, cc_pools: Sequence[str] | None = None,
                   ag_pools: Sequence[str] | None = None,
                   account_pollers: dict[str, Callable[[], Any]] | None = None,
-                  retry_timeouts: bool = False, cancellation: ProbeCancellation | None = None) -> dict[str, Any]:
+                  retry_timeouts: bool = False, cancellation: ProbeCancellation | None = None,
+                  resource_reader: Callable[[], ResourceSample] | None = None) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
     if not Path(db_path).is_file():
@@ -196,7 +197,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             labels = ", ".join(f"{peer}/{CLI_PEER_ALIASES[peer]}" for peer in QUOTA_CAPABLE_PEERS)
             raise ValueError(f"quota providers: {labels}")
         kinds.append(kind)
-    timeout_factor = probe_timeout_factor()
+    timeout_factor = probe_timeout_factor(resource_reader)
     busy = timeout_factor > 1
     deadline_sec *= timeout_factor
     injected_pollers = pollers is not None

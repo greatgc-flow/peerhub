@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from peerhub.core.load_limits import CALLER_RELATIONS, UNKNOWN, load_snapshot, read_resources
+from peerhub.core import load_limits
+from peerhub.core.load_limits import CALLER_RELATIONS, UNKNOWN, load_snapshot
 from peerhub.extensions.caller import OWNER_ENV, caller_facts, caller_relation, detect_caller
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.liveness import ORPHAN_RUNNING, PROCESSES_DEAD, ask_process_state
@@ -115,7 +116,7 @@ def sample_load(db_path: str | Path, *, read_at: float | None = None,
                 connection_factory: Callable[[str], sqlite3.Connection] | None = None) -> dict[str, Any]:
     """Sample lease-active asks per peer, pool and caller relation, and machine resources. Read-only."""
     report = running_report(db_path, read_at=read_at, all_rows=True, connection_factory=connection_factory)
-    resources = read_resources()
+    resources = load_limits.read_resources()
     if report["status"] != "OK" or report["truncated"]:  # a failed or cut-off read is not a count: show ?, never 0
         return load_snapshot(None, resources)
     counts: dict[str, int] = {}

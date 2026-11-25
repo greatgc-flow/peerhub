@@ -117,7 +117,7 @@ def test_legacy_store_present_emits_hint_line(polluted_subfolder_workspace, monk
     assert f"database not found: {(ws / DEFAULT_DB_PATH).resolve()}" in err
 
     # With JSON format, exit code 5 and JSON payload remain unchanged while stderr retains the hint
-    code_json = main(["peer", "list", "--format", "json"])
+    code_json = main(["peer", "list", "--json"])
     assert code_json == 5
     out_json, err_json = capsys.readouterr()
     payload = json.loads(out_json)

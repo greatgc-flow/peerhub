@@ -1,5 +1,6 @@
 """M1 public CLI cutover gate items 1, 3, 5: canonical command inventory (derived from the REAL parser), no inert options, help/exit/JSON contract."""
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,18 @@ def test_inventory_detects_divergence_positive_control(monkeypatch):
     assert inv.derive() != real and inv.main(["--check"]) == 1  # an extra parser option makes the committed-file check fail
     monkeypatch.undo()
     assert inv.derive() == real and inv.main(["--check"]) == 0
+
+
+def test_command_reference_matches_the_parser_inventory():
+    reference = (ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
+    names = re.findall(r"^\| `([^`]+)` \|", reference, re.MULTILINE)
+    assert len(names) == len(set(names)), "duplicate command reference rows"
+
+    inventory = inv.derive()
+    expected = {name for node in inventory["groups"] + inventory["commands"]
+                for name in (node["command"], *node.get("aliases", []))}
+    missing, stale = expected - set(names), set(names) - expected
+    assert not (missing or stale), f"docs/commands.md missing {sorted(missing)}, stale {sorted(stale)}"
 
 
 # ------------------------------------------------------------------ helpers
@@ -123,9 +136,6 @@ def list_effect(e, entity, option):
         first = e.j(db, *command, "--limit", "1")
         second = e.j(db, *command, "--limit", "1", "--cursor", first["next_cursor"])
         assert second["items"][0][key] > first["items"][0][key]
-    else:
-        code, out, _ = e.run(db, *command, "--format", "table")
-        assert code == 0 and "peer_id" in out if entity == "peer" else code == 0 and "stream_id" in out
 
 
 def reg_id(e):
@@ -318,12 +328,10 @@ EFFECT = {
     "* --db": x_db,
     "peer list --limit": lambda e: list_effect(e, "peer", "--limit"),
     "peer list --cursor": lambda e: list_effect(e, "peer", "--cursor"),
-    "peer list --format": lambda e: list_effect(e, "peer", "--format"),
     "peer register --peer": reg_id, "peer register --name": reg_name, "peer register --adapter": reg_adapter, "peer get --peer": get_id,
     "stream create --stream": sc_id, "stream create --title": sc_title, "stream create --members": sc_members, "stream show --stream": ss_id,
     "stream list --limit": lambda e: list_effect(e, "stream", "--limit"),
     "stream list --cursor": lambda e: list_effect(e, "stream", "--cursor"),
-    "stream list --format": lambda e: list_effect(e, "stream", "--format"),
     "record append --stream": ra_stream, "record append --author-peer": ra_author, "record append --kind": ra_kind, "record append --body": ra_body,
     "record append --idempotency-key": ra_idemp, "record append --created-at": ra_created, "record append --targets": ra_targets,
     "record read --stream": rr_stream, "record read --after": rr_after, "record read --limit": rr_limit,
@@ -408,9 +416,6 @@ def universal_json_effect(e, command):
         assert result
 
 
-# Hidden --format aliases remain accepted, but leave the published inventory.
-for _hidden in ("peer list", "stream list", "profile list", "profile show", "session list", "session show"):
-    EFFECT.pop(f"{_hidden} --format")
 for _command in (
     "*", "account", "batch", "diag health", "diag integrity", "guide", "monitor defaults",
     "observation", "observation refresh", "offset", "offset advance", "offset get", "outcome", "peer",
@@ -546,7 +551,7 @@ def test_store_selection_failure_uses_normal_cli_error(monkeypatch, capsys):
 
 def test_core_read_missing_store_emits_json_when_requested(tmp_path, capsys, monkeypatch):
     missing_db = str(tmp_path / "does_not_exist.db")
-    code = main(["--db", missing_db, "peer", "list", "--format", "json"])
+    code = main(["--db", missing_db, "peer", "list", "--json"])
     assert code == 5
     out, err = capsys.readouterr()
     assert "database not found" in err
@@ -554,9 +559,9 @@ def test_core_read_missing_store_emits_json_when_requested(tmp_path, capsys, mon
     assert payload["status"] == "UNAVAILABLE"
     assert "database not found" in payload["error"]
 
-    # --format auto remains human text on non-TTY output
+    # Default to human text on non-TTY output.
     monkeypatch.setattr("sys.stdout.isatty", lambda: False)
-    code_auto = main(["--db", missing_db, "peer", "list", "--format", "auto"])
+    code_auto = main(["--db", missing_db, "peer", "list"])
     assert code_auto == 5
     out_auto, err_auto = capsys.readouterr()
     assert out_auto == ""

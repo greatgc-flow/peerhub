@@ -398,7 +398,7 @@ def test_final_cli_counts_each_outcome(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(batch, "default_argv_builder", builder(tmp_path))
     modes = {"notstarted": "FAILED", "empty": "UNVERIFIED", "uncertain": "UNCERTAIN",
              "claimheld": "BLOCKED", "refused": "FAILED"}
-    monkeypatch.setattr(batch, "read_resources", load_limits.ResourceSample)
+    monkeypatch.setattr(load_limits, "read_resources", load_limits.ResourceSample)
     ok_count = len(modes)
     rows = [_task(f"ok-{i}") for i in range(ok_count)]
     rows.extend(_task(mode, prompt=f"mode:{mode}") for mode in modes)

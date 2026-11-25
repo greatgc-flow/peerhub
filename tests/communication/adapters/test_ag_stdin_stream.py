@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.cli.app import main
+from peerhub.core import load_limits
 from peerhub.cli.ask_cmd import _provider_limit
 from peerhub.extensions import ask as ask_module
 from peerhub.extensions.adapters import CliRuntimeTarget, SPECS, Sanitizer, ag, common, process
@@ -38,7 +39,6 @@ UNICODE = "漢字 😀 שלום é  |  a\r\nb\rc\x00 end"
 @pytest.fixture(autouse=True)
 def _real_detection(monkeypatch):
     monkeypatch.setattr(ag, "_detect_ag_transport", REAL_DETECT)
-    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: 1.0)
     ag._AG_TRANSPORT_CACHE.clear()
     yield
     ag._AG_TRANSPORT_CACHE.clear()
@@ -275,7 +275,8 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
 def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch):
     from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
 
-    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    monkeypatch.setattr(load_limits, "read_resources",
+                        lambda: load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT))
     deadlines = []
 
     def probe(base, args, *, timeout_s, **options):
@@ -292,7 +293,6 @@ def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch)
 
 
 def test_06a_busy_detection_reuses_disk_cache_and_invalidates_it_on_replacement(monkeypatch, tmp_path):
-    from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
 
     binary = tmp_path / "agy.exe"
     binary.write_bytes(b"first build")
@@ -301,7 +301,8 @@ def test_06a_busy_detection_reuses_disk_cache_and_invalidates_it_on_replacement(
     args = ([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path))
     assert ag._detect_ag_transport(*args).transport == "stream"
     ag._AG_TRANSPORT_CACHE.clear()
-    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    monkeypatch.setattr(load_limits, "read_resources",
+                        lambda: load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT))
     assert ag._detect_ag_transport(*args).version == "1.5.9"
     assert probes.calls == ["--version", "--help"]
     binary.write_bytes(b"a different build")

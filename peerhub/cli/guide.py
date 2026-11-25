@@ -7,7 +7,6 @@ The guide uses only packaged data and reads no store, profile file or provider.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from peerhub.cli.output import emit
@@ -19,9 +18,8 @@ if TYPE_CHECKING:
 GUIDE_MAX_BYTES = 1600  # enforced by tests/communication/e2e/test_cli_guide.py
 
 
-def render_guide(workspace: Path | None = None) -> str:
-    """The decisions a caller needs before its first ask. `workspace` is accepted for callers; it is not read."""
-    del workspace
+def render_guide() -> str:
+    """The decisions a caller needs before its first ask."""
     from peerhub.cli.lessons import load_lessons
     from peerhub.core.load_limits import CPU_BUSY_WARN_PCT, MIN_FREE_RAM_GB
     from peerhub.core.peer_kinds import API_PEER_KINDS

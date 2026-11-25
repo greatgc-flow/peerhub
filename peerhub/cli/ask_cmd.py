@@ -8,7 +8,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from peerhub.cli.arguments import WORKSPACE_OPTIONS
 from peerhub.cli.output import emit
@@ -177,25 +177,33 @@ def _session_trailer(session: dict[str, Any]) -> str:
     return f"session: {session['handle']} {session['mode']} gen{session['generation']}{suffix}"
 
 
-def _wait_for_ask_resources(db: Path) -> None:
+def _wait_for_ask_resources(
+    db: Path,
+    *,
+    resource_reader: Callable[[], load_limits.ResourceSample] | None = None,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
     from peerhub.extensions.diag_running import running_report
+    from peerhub.extensions.liveness import PROCESSES_DEAD
 
-    deadline = time.monotonic() + ASK_LOAD_MAX_WAIT_SECONDS
+    resource_reader = resource_reader or load_limits.read_resources
+    deadline = monotonic() + ASK_LOAD_MAX_WAIT_SECONDS
     waiting = False
-    while warnings := load_limits.load_warnings(load_limits.read_resources().facts()):
+    while warnings := load_limits.load_warnings(resource_reader().facts()):
         detail = "; ".join(warnings)
-        remaining = deadline - time.monotonic()
+        remaining = deadline - monotonic()
         if remaining <= 0:
             print(f"Warning: {detail}. Starting ask after the resource wait limit.", file=sys.stderr, flush=True)
             return
-        active = running_report(db, limit=1)["rows"]
-        if not active:
+        rows = running_report(db, all_rows=True)["rows"]
+        if not any(row.get("state") != PROCESSES_DEAD for row in rows):
             print(f"Warning: {detail}. Starting ask.", file=sys.stderr, flush=True)
             return
         if not waiting:
             print(f"Waiting to start ask while other asks are active ({detail}).", file=sys.stderr, flush=True)
             waiting = True
-        time.sleep(max(0, min(ASK_LOAD_POLL_SECONDS, deadline - time.monotonic())))
+        sleep(max(0, min(ASK_LOAD_POLL_SECONDS, deadline - monotonic())))
 
 
 def run_ask(args: argparse.Namespace) -> int:

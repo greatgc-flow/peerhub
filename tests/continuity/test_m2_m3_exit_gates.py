@@ -22,7 +22,7 @@ from peerhub.extensions.skills import SkillCatalogEngine
 from peerhub.extensions.work import WorkProjection
 
 REPO = Path(__file__).resolve().parents[2]
-M3_MODULES = ("search", "memory", "a2a", "a2a_http", "a2a_journal", "routing", "orchestration", "approval", "runtime_port", "source_records")
+M3_MODULES = ("search", "memory", "a2a", "a2a_http", "a2a_journal", "routing", "orchestration", "approval", "runtime_port")
 M2_MODULES = ("accounts", "batch", "work", "artifact", "skills", "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary", "authoritative")
 M2_M3_MODULES = M2_MODULES + M3_MODULES
 
@@ -220,7 +220,7 @@ def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1
     assert all((ext / f"{name}.py").is_file() for name in M2_M3_MODULES)  # a renamed module must not silently escape the gate
     m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
-          "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "pool_health", "peer_kinds", "schema_guard",
+          "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "pool_health", "schema_guard",
           "quota_projection", "bridge_registry", "session_receipts", "ask_budgets", "delivery_projections",
           "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "monitor_preferences", "monitor_queries",

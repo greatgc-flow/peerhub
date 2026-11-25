@@ -373,7 +373,7 @@ def test_profile_list_keeps_catalog_when_telemetry_fails(monkeypatch, capsys, js
         assert catalog["known_models"] and catalog["profiles"]
         assert all(p["stats"] == {"n": None, "stale": None} for p in catalog["profiles"])
     else:
-        assert "cx.deepthink" in output.out and "unavailable" in output.out
+        assert "cx.effort" in output.out and "unavailable" in output.out
     assert main(["profile", "stats", *flags]) == 4
     assert "unreadable telemetry" in capsys.readouterr().err
 
@@ -419,6 +419,7 @@ def test_receipt_and_query_file_warning(monkeypatch, capsys):
     (True, True, False, False), (True, False, True, False),
 ])
 def test_ask_alias_notice_uses_receipt_policy(monkeypatch, capsys, tty, json_mode, quiet, expected):
+    from peerhub.extensions.adapters import profiles
     from peerhub.extensions.adapters.base import CliRuntimeTarget, PrespawnError
     from peerhub.extensions.adapters.profiles import reset_deprecation_notices
 
@@ -429,10 +430,14 @@ def test_ask_alias_notice_uses_receipt_policy(monkeypatch, capsys, tty, json_mod
     monkeypatch.setenv("PEERHUB_NO_RECEIPT", "1" if quiet else "0")
     monkeypatch.setattr("sys.stderr.isatty", lambda: tty)
     monkeypatch.setattr(CliRuntimeTarget, "validate_execution_policy", fail_policy)
+    load_layers = profiles._load_layers
+    monkeypatch.setattr(profiles, "_load_layers", lambda workspace: [
+        *load_layers(workspace), ("workspace", {"profiles": {"cx.review_alias": {"alias_of": "cx.effort"}}}),
+    ])
     reset_deprecation_notices()
-    argv = ["--db", "unused.db", "ask", "cx", "question", "--profile", "cx.deepthink"]
+    argv = ["--db", "unused.db", "ask", "cx", "question", "--profile", "cx.review_alias"]
     assert main(argv + (["--json"] if json_mode else [])) == 1
-    assert ("cx.deepthink is deprecated" in capsys.readouterr().err) is expected
+    assert ("cx.review_alias is deprecated" in capsys.readouterr().err) is expected
 
 
 @pytest.mark.parametrize(("prompt_tokens", "turns", "warn"), [

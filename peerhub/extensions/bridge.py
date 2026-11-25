@@ -10,13 +10,6 @@ from peerhub.extensions.bridge_delivery import BridgeDelivery
 from peerhub.extensions.bridge_sessions import DEFAULT_CATCH_UP_BYTES
 from peerhub.extensions.catchup import CatchUpBudget
 
-# Historical public runtime port exports.
-from peerhub.extensions.runtime_contract import (
-    ContextLostError as ContextLostError, PrespawnError as PrespawnError, RuntimeEvent as RuntimeEvent,
-    RuntimeTarget as RuntimeTarget, RuntimeTargetError as RuntimeTargetError, SteerableTarget as SteerableTarget,
-)
-
-
 class Bridge(BridgeDelivery):
     def __init__(self, store: CoreStore, claims: ClaimStore, *, owner_id: str = "bridge-1", lease_sec: float = 30.0,
                  max_session_attempts: int = 3, catch_up_limit: int = 100, ack_retries: int = 8,

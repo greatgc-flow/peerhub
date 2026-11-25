@@ -97,7 +97,7 @@ def test_session_show_links_configured_profile_and_scoped_usage(tmp_path, capsys
     assert session["latest_telemetry"]["usage"]["scope"] == "session_cumulative"
     assert session["latest_telemetry"]["usage"]["attribution"] == "unattributed"
     assert "provider_telemetry" not in json.dumps(session)
-    assert main(["--db", str(db), "session", "list", "--format", "table"]) == 0
+    assert main(["--db", str(db), "session", "list"]) == 0
     table = capsys.readouterr().out
     assert "None" not in table
     assert "cx.standard" in table and "gpt-6-luna" in table

@@ -22,14 +22,11 @@ import uuid
 from typing import Any, cast
 
 from peerhub.core.store import IdempotencyConflictError
+import peerhub.extensions.a2a as a2a
 from peerhub.extensions.a2a import (
-    A2AClaimLostError as A2AClaimLostError,
-    A2AJournalError as A2AJournalError,
     A2AStateTransitionError,
-    A2ASubmissionExistsError as A2ASubmissionExistsError,
     A2ATaskRequest,
     A2ATaskResponse,
-    A2ATaskState as A2ATaskState,
     ExternalExecutionRef,
 )
 
@@ -49,7 +46,7 @@ class A2ATaskJournal:
 
     def _check_owner(self) -> None:
         if self.store.get_stream(self.stream_id).members != [self.author_peer_id]:
-            raise A2AJournalError("A2A evidence requires a dedicated single-author stream.")
+            raise a2a.A2AJournalError("A2A evidence requires a dedicated single-author stream.")
 
     def _append(self, kind: str, key: str, body: dict[str, Any]) -> bool:
         """Append one Record; False when the same idempotency key already holds a DIFFERENT or identical record."""
@@ -64,9 +61,9 @@ class A2ATaskJournal:
             return False
 
     # ------------------------------------------------------------------------------------------------ replay
-    def load(self) -> dict[str, A2ATaskState]:
+    def load(self) -> dict[str, a2a.A2ATaskState]:
         self._check_owner()
-        tasks: dict[str, A2ATaskState] = {}
+        tasks: dict[str, a2a.A2ATaskState] = {}
         position = 0
         while page := self.store.read_records(self.stream_id, after_position=position, limit=256):
             for record in page:
@@ -74,14 +71,14 @@ class A2ATaskJournal:
                 if not record.kind.startswith("m3.a2a.") or not isinstance(record.body, dict):
                     continue
                 if record.author_peer_id != self.author_peer_id:
-                    raise A2AJournalError("A2A evidence has a foreign authority.")
+                    raise a2a.A2AJournalError("A2A evidence has a foreign authority.")
                 body = cast(dict[str, Any], record.body)
                 task_id = str(body.get("task_id", ""))
                 state = tasks.get(task_id)
                 if record.kind == "m3.a2a.submitting":
                     if state is not None and state.abandoned:
                         continue  # a burned id never comes back
-                    tasks[task_id] = A2ATaskState(A2ATaskRequest(**json.loads(body["binding"])), body["binding"],
+                    tasks[task_id] = a2a.A2ATaskState(A2ATaskRequest(**json.loads(body["binding"])), body["binding"],
                                                   int(body["attempt"]), str(body.get("endpoint", "")))
                 elif state is None or int(body.get("attempt", -1)) != state.attempt:
                     continue  # evidence for any attempt other than the current one is stale and ignored
@@ -97,7 +94,7 @@ class A2ATaskJournal:
                     state.abandoned, state.uncertain = True, False
         return tasks
 
-    def state_of(self, task_id: str) -> A2ATaskState | None:
+    def state_of(self, task_id: str) -> a2a.A2ATaskState | None:
         return self.load().get(task_id)
 
     def _attempts(self, task_id: str) -> int:
@@ -119,16 +116,16 @@ class A2ATaskJournal:
     def claim_submission(self, request: A2ATaskRequest, endpoint: str) -> int:
         """Atomically take ownership of the next submission attempt; returns the attempt number.
 
-        Raises A2ASubmissionExistsError when the task already has evidence (adopt it, do not send) and A2AClaimLostError when
+        Raises a2a.A2ASubmissionExistsError when the task already has evidence (adopt it, do not send) and a2a.A2AClaimLostError when
         another adapter claimed the same attempt between this check and the append."""
         existing = self.state_of(request.task_id)
         if existing is not None:
-            raise A2ASubmissionExistsError(existing)
+            raise a2a.A2ASubmissionExistsError(existing)
         attempt = self._attempts(request.task_id) + 1
         body = {"task_id": request.task_id, "binding": request_binding(request), "attempt": attempt, "endpoint": endpoint,
                 "claim": uuid.uuid4().hex}  # a unique claim makes a same-attempt race a key CONFLICT, never a silent duplicate
         if not self._append("submitting", f"{request.task_id}:submitting:{attempt}", body):
-            raise A2AClaimLostError(f"submission attempt {attempt} of {request.task_id!r} was claimed by another adapter")
+            raise a2a.A2AClaimLostError(f"submission attempt {attempt} of {request.task_id!r} was claimed by another adapter")
         return attempt
 
     def record_submitting(self, request: A2ATaskRequest, endpoint: str = "") -> int:
@@ -137,7 +134,7 @@ class A2ATaskJournal:
     def record_observed(self, response: A2ATaskResponse, attempt: int | None = None) -> None:
         state = self.state_of(response.task_id)
         if state is None or state.abandoned or (attempt is not None and attempt != state.attempt):
-            raise A2AJournalError(f"no current submission attempt for {response.task_id!r} to attach this evidence to")
+            raise a2a.A2AJournalError(f"no current submission attempt for {response.task_id!r} to attach this evidence to")
         current = state.response
         if current is not None:
             if current.status in _TERMINAL:

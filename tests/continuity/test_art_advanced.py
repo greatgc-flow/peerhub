@@ -12,11 +12,11 @@ Verifies:
 from pathlib import Path
 import pytest
 
+from peerhub.extensions.boundary import SecurityBoundaryError
 from peerhub.extensions.artifact import (
     ArtifactStore,
     ArtifactNotFoundError,
     InvalidArtifactReferenceError,
-    SecurityBoundaryError,
 )
 
 

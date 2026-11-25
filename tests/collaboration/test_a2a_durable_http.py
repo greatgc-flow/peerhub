@@ -21,7 +21,8 @@ from peerhub.core.store import CoreStore
 from peerhub.extensions.a2a import (A2AAdapter, A2AExecutionUncertainError, A2AStateTransitionError, A2ATaskRequest,
                                     A2ATransportUnavailableError, AgentCard, LoopbackA2ATransport)
 from peerhub.extensions.a2a_http import HttpA2ATransport
-from peerhub.extensions.a2a_journal import A2AClaimLostError, A2AJournalError, A2ATaskJournal
+from peerhub.extensions.a2a import A2AClaimLostError, A2AJournalError
+from peerhub.extensions.a2a_journal import A2ATaskJournal
 
 
 class FakeRemote:

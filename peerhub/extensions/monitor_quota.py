@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterator, cast
 
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 from peerhub.extensions.monitor_queries import (
     ACCOUNT_ROW_CAP,
     capacity_rows,
@@ -20,7 +21,6 @@ from peerhub.extensions.monitor_queries import (
 from peerhub.extensions.monitor_values import finite_number
 from peerhub.extensions.observation_model import (
     ABSENT_FACT_REASONS,
-    LOW_QUOTA_FRACTION,
     MEASUREMENT_KEYS,
     NOT_REPORTED_REASON,
     FreshnessPolicy,

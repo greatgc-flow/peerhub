@@ -19,7 +19,6 @@ from typing import Any, cast
 
 from peerhub.core.models import Record
 from peerhub.core.store import CoreStore
-from peerhub.extensions.source_records import source_records
 
 
 class SearchError(Exception):
@@ -341,7 +340,7 @@ class SearchIndex:
             try:
                 conn.execute("DELETE FROM fts_documents")
                 conn.execute("DELETE FROM doc_meta")
-                for rec in source_records(core_store):
+                for rec in core_store.iter_records_snapshot():
                     self.index_record(rec)
                     indexed_count += 1
                 if artifact_store is not None:

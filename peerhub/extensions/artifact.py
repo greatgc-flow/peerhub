@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import stat
 import sys
-from peerhub.extensions.boundary import SecurityBoundaryError  # noqa: F401  (re-exported)
+from peerhub.extensions import boundary
 from typing import Any, Protocol
 
 
@@ -23,7 +23,7 @@ class ByteStream(Protocol):
 
 
 
-class WindowsJunctionError(SecurityBoundaryError):
+class WindowsJunctionError(boundary.SecurityBoundaryError):
     """Windows junction point or reparse point detected in artifact path."""
 
 
@@ -76,7 +76,7 @@ class ArtifactStore:
         for part in path.relative_to(self.root).parts:
             current = current / part
             if current.is_symlink():
-                raise SecurityBoundaryError("Artifact paths cannot contain symlinks")
+                raise boundary.SecurityBoundaryError("Artifact paths cannot contain symlinks")
             if current.exists() and getattr(current.lstat(), "st_file_attributes", 0) & 0x400:
                 raise WindowsJunctionError("Artifact paths cannot contain reparse points")
 
@@ -87,7 +87,7 @@ class ArtifactStore:
         """
         # Explicitly reject directory traversal sequences before any filesystem resolution
         if ".." in digest or "/" in digest or "\\" in digest or ":" in digest:
-            raise SecurityBoundaryError(f"Path traversal detected in digest reference: {digest!r}")
+            raise boundary.SecurityBoundaryError(f"Path traversal detected in digest reference: {digest!r}")
 
         if not self.validate_digest(digest):
             raise InvalidArtifactReferenceError(f"Invalid lowercase SHA-256 digest reference: {digest!r}")
@@ -102,7 +102,7 @@ class ArtifactStore:
                 resolved_target = self._win_long(resolved_target)
             resolved_target.relative_to(self.root)
         except ValueError as e:
-            raise SecurityBoundaryError(f"Resolved path escapes artifact root: {digest!r}") from e
+            raise boundary.SecurityBoundaryError(f"Resolved path escapes artifact root: {digest!r}") from e
 
         return target
 
@@ -115,7 +115,7 @@ class ArtifactStore:
 
         # 1. Symlink check (cross-platform)
         if os.path.islink(src) or src.is_symlink():
-            raise SecurityBoundaryError(f"Symlinks are strictly forbidden as artifact source: {src}")
+            raise boundary.SecurityBoundaryError(f"Symlinks are strictly forbidden as artifact source: {src}")
 
         # 2. Windows Reparse Point / Junction check
         if sys.platform == "win32" and src.exists():
@@ -197,7 +197,7 @@ class ArtifactStore:
         import hashlib
         source = staged.path
         if source.is_symlink() or source.parent.resolve() != self.tmp_dir.resolve():
-            raise SecurityBoundaryError("Artifact commit source must be a regular staging file")
+            raise boundary.SecurityBoundaryError("Artifact commit source must be a regular staging file")
         self._reject_links(source)
         if source.exists():
             hasher = hashlib.sha256()

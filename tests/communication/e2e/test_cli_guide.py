@@ -230,18 +230,8 @@ FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
     "writes-and-uncertain": ("partial edits", "same request ID", "docs/guidance-reference.md#ask_uncertain"),
     "store-and-upgrade": ("peerhub update --plan", "Back up the store", "README.md#upgrade"),
     "batch-and-load": ("--max-parallel n --dry-run", "Execution spends quota", "docs/batch.md"),
-    "discovery-commands": (
-        "peerhub explain lessons", "peerhub explain setup", "peerhub monitor --group capacity",
-        "suggest a|b = best + alternative peer; peerhub explain monitor-states", "peerhub monitor --expand",
-        "AI sessions: peerhub diag --plan", "per-pool spend/hold/rest until reset", "peerhub monitor: the human screen",
-        "peerhub profile list; slugs: agy models; --model <slug>",
-        "peerhub session list", "peerhub account list", "peerhub observation refresh", "peerhub explain peer-subagents",
-        "the line-1 'facts:' alert (needs_recheck) clears via refresh-model-profiles skill or release upgrade",
-    ),
-    "report-issues": (
-        "github.com/greatgc-flow/peerhub/issues", "gh issue list -R greatgc-flow/peerhub --search KEYWORD",
-        "peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths)",
-    ),
+    "discovery-commands": ("peerhub explain lessons", "peerhub diag --plan", "peerhub profile list", "docs/commands.md"),
+    "report-issues": ("peerhub --version", "exact command", "CONTRIBUTING.md#reporting-issues-and-requesting-features"),
     "api-peers": ("--query-file", "one ask per stream", "API credits", "docs/api-credits.md"),
 }
 

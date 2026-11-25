@@ -21,11 +21,10 @@ from jsonschema import FormatChecker
 from jsonschema.validators import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from peerhub.core.quota_policy import QUOTA_TTL_SECONDS as QUOTA_TTL_SECONDS
+from peerhub.core import quota_policy
 
 from peerhub.core.models import assert_json_value, is_rfc3339
 from peerhub.core.wire import WireValidationError
-from peerhub.core.quota_policy import LOW_QUOTA_FRACTION as LOW_QUOTA_FRACTION  # re-exported; one source in core
 
 _SCHEMAS = Path(__file__).parent / "schemas"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -186,7 +185,7 @@ def account_text(value: object, limit: int = 24) -> str | None:
 class FreshnessPolicy:
     """TTL policy per observation kind (TD-13: age >= TTL is STALE)."""
 
-    default_ttl_seconds: float = QUOTA_TTL_SECONDS
+    default_ttl_seconds: float = quota_policy.QUOTA_TTL_SECONDS
     by_kind: Mapping[str, float] = field(default_factory=dict[str, float])
 
     def __post_init__(self) -> None:

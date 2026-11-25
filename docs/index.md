@@ -1,53 +1,41 @@
-# PeerHub Documentation Map
+# PeerHub documentation
 
-PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`, `ag`, `ca`, `oa`, `ga`). The Core owns only Peer, Stream, Record, and Offset. All higher-level coordination primitives are extensions.
+## Use PeerHub
 
-## Core & Everyday Guides
-- [Account-bound Peers](accounts.md): Immutable cc/cx roots, environment isolation, and quota limitations.
-- [Reading the monitor](monitor.md): What every line, column, state word, bar glyph and alert code of `peerhub monitor` means (the target of its `Guide` link).
-- [Batch Runs](batch.md): Validate and execute flat parallel asks, interpret statuses, cancel and resume.
-- [Remote Ask](remote-ask.md): Running peerhub ask against peers on remote hosts over SSH.
-- [Command reference](commands.md) for Core, ask, diagnostics, observation refresh and help.
-- [Upgrade procedure](../README.md#upgrade) for `update --check` and `update --plan`.
-- [Profile smoke check](../CONTRIBUTING.md#installed-cli-profile-smoke) for installed-CLI nonce pings.
-- [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
-- [Common Tasks](../README.md#common-tasks): Worked recipes for default retained-session continuation, blocked stream recovery, offline diagnostics, and package lifecycle.
-- [STATUS.md](STATUS.md): Single source of truth for the remaining development work and deferred backlog; the release record is CHANGELOG plus the GitHub releases.
-- [CONTRIBUTING.md](../CONTRIBUTING.md): Developer environment setup, deterministic testing, release gates, and incident lessons.
+- [Quick start](../README.md) covers installation, provider setup, the first ask, and the Core recipe.
+- [Command reference](commands.md) lists the CLI commands and links to their procedures.
+- [Monitor guide](monitor.md) explains the dashboard, quota fields, refresh cadence, and alerts.
+- [Batch runs](batch.md) covers manifest validation, profile selection, concurrency, and recovery.
+- [Remote asks](remote-ask.md) covers dispatch over SSH.
+- [Windows operations](windows.md) covers quoting, Unicode paths, and PowerShell job lists.
+- [Recovery and session guidance](guidance-reference.md) defines outcomes and safe recovery steps.
+- [Operational lessons](lessons.md) lists searchable symptoms and fixes for `peerhub explain`.
+- [Upgrade procedure](../README.md#upgrade) covers planning, backups, and installation checks.
 
-## Architecture & Specifications
-- [M1 Very Simple Spec](m1_spec/USAGE_GUIDE.md): Architectural boundaries, frozen catalog requirements, and SQLite storage invariants.
-- [M2 Extension Contracts](m2/README.md): Specifications for work tracking, skill catalog, artifact store, and runtime adapters.
-- [M3 Extension Contracts](m3/): Specifications and test catalogs for federated intelligent collaboration (Search, Memory, A2A, Routing).
-- [MCP Surface Contract](m2/M2_4_MCP_CONTRACT.md): Integration protocols, JSON-RPC stdio boundary, and session lifecycle.
-- [Database Migrations](migrations.md) for CoreStore schema upgrades and the historical v0 migration workflow.
-- [Execution Kernel Boundaries](implementation/EXECUTION_KERNEL_BOUNDARIES.md): Core / logical Kernel / Adapter ownership, concrete refactors and test gates (#335).
+## Configure PeerHub
 
-## Configuration & Adapters
-- [Config Hierarchy](config-hierarchy.md): Workspace, global, and packaged configuration tiers.
-- [Model Profiles](model-profiles/README.md) for packaged defaults and the refresh recipe.
-- [API peers and credits](api-credits.md) for ca, oa and ga setup, outcomes and billing.
-- [Adapter Guide](adapters/README.md): Prerequisites, authentication, and execution options for CLI peers (`cc`, `cx`, `ag`) and API peers (`ca`, `oa`, `ga`).
-- [CLI Reference](adapters/peer-cli-reference.md): Low-level adapter options and platform constraints.
-- [Operational lessons](lessons.md): Searchable troubleshooting lessons for `peerhub explain <free words>`.
-- [Guidance & Session Reference](guidance-reference.md): Status outcome codes, safe recovery actions, and session lifecycle state definitions.
-- [Windows Operations](windows.md): Tested PowerShell recipes for parallel asks, quoting, and Unicode paths.
+- [Configuration hierarchy](config-hierarchy.md) covers store selection and workspace, global, and packaged settings.
+- [Accounts](accounts.md) explains isolated Claude Code and Codex account bindings.
+- [Model profiles](model-profiles/README.md) records packaged model choices and the catalog refresh procedure.
+- [Adapter reference](adapters/peer-cli-reference.md) covers execution and sandbox behavior.
+- [API peers](api-credits.md) covers credentials, billing, and provider-specific outcomes.
 
-## Active Design & Plans
-- [Design Documents Index](design/README.md): Overview of active design specifications, deferred proposals, shipped designs, and history pointers.
-- [Retained Session Contract](implementation/RETAINED_SESSIONS.md): Registry migration, retention, immutable replay, receipts and current ask output (current contract).
-- [Blocked Streams Plan](design/plan-stuck-streams-2026-10-12.md): PRs 4-6 and automated timeout settlement are deferred; see [STATUS](STATUS.md#deferred-backlog-start-triggers).
+## Develop and maintain
 
-## Archives & Evidence
-- [Work log 2026-11-12/13](history/work-log-2026-11-13.md): 0.24.7-0.24.11 requirements, unanimous decisions, ConPTY and benchmark measurements, releases and lessons.
-- [Work log 2026-11-10/11](history/work-log-2026-11-10.md): requirements, decisions, reviews, releases (0.24.5/0.24.6), environment fixes and the quota diet in one place.
-- [Archival Ledger](history/ledger-2026-10-17.md): Ledger of archived debate documents, the obsolete production call-map, and (section 1a) the Engram-era and v0 history folders, with `git show` retrieval commands.
-- [Benchmarks](benchmarks/): Release-to-release performance and comparative analysis benchmarks.
-- [Hard profile benchmark, 2026-11-10](benchmarks/profiles-hard-2026-11-10/README.md): task, grader, reference and first per-profile results; follow-up to the 2026-11-08 ceiling effect, which it only partly resolves (top profiles still tie at 100).
-- [Top-tier profile benchmark, 2026-11-10](benchmarks/profiles-top-2026-11-10/README.md): regex-matcher task (115 hidden cases), grader, reference and first results; the cc tiers tie at 115/115 again and `ag.effort` scores below `ag.standard`.
-- [Implementation Evidence](implementation/live_evidence/): Live provider canary receipts up to 0.24.12, kept as history. From 0.24.13 the evidence JSON is attached to each GitHub release instead of being committed.
-- [History Archive](history/): Work logs, session logs and audit records. The removed v0 design and review folders, and older history, are in Git (see the ledger).
-- [M1 implementation records](history/m1_impl/) for waves, delivery checklists and historical evidence.
-- [Implementation audits](history/implementation/) for migrations and milestone closure.
-- [Design audits and shipped monitor designs](history/design/) for release and design provenance.
-- [Compatibility observations](history/compatibility/README.md) and [adapter checkpoints](history/adapter-checkpoints/) for historical store and vendor behavior.
+- [Contributing](../CONTRIBUTING.md) covers development setup, testing, release gates, and issue reporting.
+- [Project status](STATUS.md) tracks current work and deferred items.
+- [Changelog](../CHANGELOG.md) records changes by release.
+- [Database migrations](migrations.md) covers CoreStore schema upgrades.
+- [Core specification](m1_spec/USAGE_GUIDE.md) defines the communication primitives and storage invariants.
+- [M2 extension contracts](m2/README.md) cover work tracking, skills, artifacts, adapters, and MCP.
+- [M3 extension contracts](m3/) cover search, memory, A2A, and routing.
+
+## Background
+
+- [Design records](design/README.md) collect proposals and design decisions.
+- [Execution kernel boundaries](implementation/EXECUTION_KERNEL_BOUNDARIES.md) records the separation of Bridge, the runtime port, and adapters.
+- [Retained session implementation](implementation/RETAINED_SESSIONS.md) records registry migration, replay, and receipts.
+- [Observation probe implementation](implementation/OBSERVATION_PROBES.md) records provider probe behavior and usage costs.
+- [History](history/) holds work logs, audits, and the [archival ledger](history/ledger-2026-10-17.md).
+- [Benchmarks](benchmarks/) hold performance and model comparisons.
+- [Archived release evidence](implementation/live_evidence/) holds canary receipts through 0.24.12. Later receipts accompany the [GitHub releases](https://github.com/greatgc-flow/peerhub/releases).

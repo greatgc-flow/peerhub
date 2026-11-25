@@ -69,6 +69,7 @@ addopts = "-ra -m 'not slow and not e2e and not live and not canary and not soak
 # SQLite commit for tens of seconds, so 60 s turned one disk stall into a lost job. 180 s still catches a real deadlock.
 timeout = 180
 markers = [
+    "real_resources: exercise the OS resource reader instead of the default quiet sample",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "e2e: marks tests as End-to-End tier (deselect with '-m \"not e2e\"')",
     "canary: local opt-in provider measurements outside the release catalog",

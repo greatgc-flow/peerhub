@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.api import API_TARGETS, ApiRuntimeTarget, RequestRejected
-from peerhub.core.peer_kinds import ALIASES as ALIASES, BUILTIN_PEER_CHOICES, peer_kind  # ALIASES: re-exported
+from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES, peer_kind
 from peerhub.extensions.bridge import Bridge
 from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED
 from peerhub.extensions.bridge_ledger import CycleResult, reap_dead_asks
@@ -508,7 +508,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                                        detail=bridge.delivery_details(refused["delivery_id"])))
         else:
             if (before_dispatch is not None and runtime is None and account_binding is None
-                    and kind in ("ag", "cc", "cx") and ALIASES.get(peer_id) == kind):
+                    and kind in ("ag", "cc", "cx") and peer_kind(None, peer_id) == kind):
                 try:
                     before_dispatch(db, kind)
                 except Exception:

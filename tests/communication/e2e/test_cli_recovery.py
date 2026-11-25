@@ -1643,7 +1643,7 @@ def test_denied_action_names_parses_agy_json_defensively():
 
 def test_with_writable_keeps_the_flag_before_a_double_dash():
     """A dash-leading prompt after `--` must stay a prompt; --writable goes before the separator (0.24.12 review)."""
-    from peerhub.cli.app import with_writable
+    from peerhub.cli.ask_cmd import with_writable
 
     assert with_writable(["ask", "ag", "--json", "--", "-5 is negative?"]) == ["ask", "ag", "--json", "--writable", "--", "-5 is negative?"]
     assert with_writable(["ask", "ag", "ping"]) == ["ask", "ag", "ping", "--writable"]

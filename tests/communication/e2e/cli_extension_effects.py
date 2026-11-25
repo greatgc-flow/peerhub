@@ -565,13 +565,9 @@ def profile_effect(e, command, option):
         argv.append("cx.standard")
     if option in WORKSPACE_OPTIONS:
         argv += [option, str(workspace)]
-    elif option == "--format":
-        argv += [option, "table"]
-    code, out, _ = e.run(e.tmp / "unused-profile.db", *argv, *([] if option == "--format" else ["--json"]))
+    code, out, _ = e.run(e.tmp / "unused-profile.db", *argv, "--json")
     assert code == 0 and not (e.tmp / "unused-profile.db").exists()
-    if option == "--format":
-        assert "PROFILE" in out if command == "list" else "FIELD" in out
-    elif option == "profile":
+    if option == "profile":
         import json
         assert json.loads(out)["profile"] == "cx.standard"
     else:
@@ -608,27 +604,22 @@ def session_inspection_effect(e, command, option):
     elif option == "--cursor":
         first = json.loads(e.run(db, "session", "list", "--limit", "1", "--json")[1])
         argv += ["--limit", "1", option, first["next_cursor"]]
-    elif option == "--format":
-        argv += [option, "table"]
-    code, out, _ = e.run(db, *argv, *([] if option == "--format" else ["--json"]))
+    code, out, _ = e.run(db, *argv, "--json")
     assert code == 0
-    if option == "--format":
-        assert "HANDLE" in out if command == "list" else "handle:" in out
+    result = json.loads(out)
+    rows = result.get("items", [])
+    if option == "--stream":
+        assert all(row["stream_id"] == "peer:cx:chat" for row in rows)
+    elif option == "--peer":
+        assert all(row["peer_id"] == "cx" for row in rows)
+    elif option == "--limit":
+        assert len(rows) == 1 and result["next_cursor"]
+    elif option == "--cursor":
+        assert len(rows) == 1 and rows[0]["generation"] < 2
+    elif command == "list":
+        assert len(rows) == 2 and all(row["peer_id"] == "cx" for row in rows)
     else:
-        result = json.loads(out)
-        rows = result.get("items", [])
-        if option == "--stream":
-            assert all(row["stream_id"] == "peer:cx:chat" for row in rows)
-        elif option == "--peer":
-            assert all(row["peer_id"] == "cx" for row in rows)
-        elif option == "--limit":
-            assert len(rows) == 1 and result["next_cursor"]
-        elif option == "--cursor":
-            assert len(rows) == 1 and rows[0]["generation"] < 2
-        elif command == "list":
-            assert len(rows) == 2 and all(row["peer_id"] == "cx" for row in rows)
-        else:
-            assert result["session"]["handle"] == argv[2]
+        assert result["session"]["handle"] == argv[2]
 
 def account_effect(e, action, option):
     db = e.fresh(False)
@@ -783,7 +774,7 @@ EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, [
                "monitor repair --chunk-size": lambda e: monitor_management_effect(e, ["monitor", "repair", "--chunk-size", "1", "--json"], needs_bridge=True),
                "monitor repair --json": lambda e: monitor_management_effect(e, ["monitor", "repair", "--json"], needs_bridge=True)})
 EFFECT.update({f"profile {command} {option}": (lambda e, command=command, option=option: profile_effect(e, command, option))
-               for command in ("list", "show") for option in (*WORKSPACE_OPTIONS, "--format")})
+               for command in ("list", "show") for option in WORKSPACE_OPTIONS})
 EFFECT["profile show profile"] = lambda e: profile_effect(e, "show", "profile")
 
 
@@ -805,6 +796,5 @@ EFFECT.update({f"profile {command} {option}": (lambda e, command=command, option
 EFFECT.update({"diag running --peer": lambda e: running_option_effect(e, "--peer"),
                "diag running --limit": lambda e: running_option_effect(e, "--limit")})
 EFFECT.update({f"session list {option}": (lambda e, option=option: session_inspection_effect(e, "list", option))
-               for option in ("--stream", "--peer", "--limit", "--cursor", "--format")})
-EFFECT.update({"session show handle": lambda e: session_inspection_effect(e, "show", "handle"),
-               "session show --format": lambda e: session_inspection_effect(e, "show", "--format")})
+               for option in ("--stream", "--peer", "--limit", "--cursor")})
+EFFECT.update({"session show handle": lambda e: session_inspection_effect(e, "show", "handle")})

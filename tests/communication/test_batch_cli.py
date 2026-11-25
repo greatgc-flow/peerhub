@@ -15,7 +15,7 @@ from peerhub.extensions import batch
 
 @pytest.fixture(autouse=True)
 def machine_resources(monkeypatch):
-    monkeypatch.setattr(batch, "read_resources", ResourceSample)
+    monkeypatch.setattr("peerhub.core.load_limits.read_resources", ResourceSample)
 
 
 FAKE = str(Path(__file__).resolve().parent / "harness" / "fake_worker.py")

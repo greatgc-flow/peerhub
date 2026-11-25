@@ -9,16 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, cast
 
+from peerhub.extensions.observation_model import EvidenceState, NOT_REPORTED_REASON, account_text
 from peerhub.extensions.quota_types import (
-    NOT_REPORTED_REASON,
     EvidenceRef,
-    EvidenceState,
     EvidenceValue,
     IdSource,
     ResetCreditObserved,
     UsageMeasurement,
     UsageObserved,
-    account_text,
 )
 
 from . import common

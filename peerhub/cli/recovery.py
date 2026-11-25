@@ -520,18 +520,14 @@ for _code, _exit, _meaning, _argv in (
         docs="docs/config-hierarchy.md", exits=[{"code": value, "context": _meaning} for value in ((1, 2) if _code == "invalid_arguments" else (4, 5) if _code == "diag_unavailable" else (_exit,))],
     )
 
-ALIASES: dict[str, str] = {
+# Result labels emitted by PeerHub can be explained directly.
+_RESULT_GUIDANCE_CODES: dict[str, str] = {
     "uncertain": "ask_uncertain",
     "blocked_uncertain": "ask_blocked_uncertain",
     "pending_earlier_record": "ask_blocked_uncertain",
-    "claim_held": "ask_claim_held",
-    "selector_error": "ask_selector_error",
     "refusal": "ask_refusal",
-    "launch_failed": "ask_launch_failed",
-    "prompt_too_large": "ask_prompt_too_large",
     "stream_peer_mismatch": "ask_stream_peer_mismatch",
     "delivery_failed": "ask_delivery_failed",
-    "unexpected_failure": "ask_unexpected_failure",
 }
 
 
@@ -574,8 +570,8 @@ def get_guidance(
     stream_id: str | None = None,
     ag_command_denied: bool = False,
 ) -> GuidanceEntry | None:
-    """Retrieve guidance entry by code or alias, optionally instantiated with execution context."""
-    canonical = ALIASES.get(code, code)
+    """Retrieve guidance entry by guidance code or result label, optionally instantiated with execution context."""
+    canonical = _RESULT_GUIDANCE_CODES.get(code, code)
     entry = REGISTRY.get(canonical)
     if entry is None:
         return None

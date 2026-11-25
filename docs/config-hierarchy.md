@@ -47,7 +47,7 @@ A card is bound to the binding it was checked against: when a higher layer chang
 inherited card is dropped and only that layer's own card keys apply. `peerhub explain ID` (an exact
 profile id is matched before lessons) and `peerhub profile show ID` print the effective card with the
 layer of each key, `profile list` shows a truncated `USE FOR`
-column, and `--format json` carries the full `card`. The loader checks card format only; the repository
+column, and `--json` carries the full `card`. The loader checks card format only; the repository
 test suite checks that packaged evidence paths and lesson ids exist (issue refs: format only) and that
 `card_checked` is not older than the profile's `checked` date.
 

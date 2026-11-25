@@ -15,7 +15,7 @@ from peerhub.cli import monitor_quota_view
 from peerhub.cli.monitor_layout import cell_width
 from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER
 from peerhub.cli.monitor_view import render_grouped_frame
-from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 from tests.communication.diag.test_monitor_plain_golden import blocks, empty_payload, full_payload, quiet_payload

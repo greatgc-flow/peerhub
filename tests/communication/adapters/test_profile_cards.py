@@ -116,7 +116,7 @@ def test_profile_cli_shows_cards(tmp_path, capsys):
     assert "use_for" in out and PACKAGED["cc.deepthink"]["use_for"] in out
     assert main(["profile", "list", "--workspace", str(tmp_path)]) == 0
     assert "USE FOR" in capsys.readouterr().out
-    assert main(["profile", "list", "--workspace", str(tmp_path), "--format", "json"]) == 0
+    assert main(["profile", "list", "--workspace", str(tmp_path), "--json"]) == 0
     listed = json.loads(capsys.readouterr().out)["profiles"]
     assert all(p["card"]["evidence"]["value"] for p in listed if p["profile"] in PACKAGED)
 

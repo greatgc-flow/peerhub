@@ -10,6 +10,7 @@ from copy import copy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from peerhub._exit_codes import DIAG_EXIT_BY_STATUS
 from peerhub.cli.output import emit
 from peerhub.cli.store_select import select_store
 from peerhub.cli.support import error_line
@@ -213,7 +214,7 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                 if entry is not None:
                     profile["next"] = {"code": action, "argv": entry.recover[0]["argv"]}
         print(json.dumps(rep, separators=(",", ":"), ensure_ascii=True) if args.json else format_readiness(rep))
-        return diag_quota.EXIT_BY_STATUS[rep["status"]]
+        return DIAG_EXIT_BY_STATUS[rep["status"]]
     if args.action == "running":  # pure reader: no CoreStore, no provider, no refresh
         from peerhub._console import FrameOutput
         from peerhub.extensions.diag_running import format_running, running_report
@@ -222,7 +223,7 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             return 5
         rep = running_report(args.db, peer=args.peer, limit=args.limit)
         print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else format_running(rep, width=FrameOutput.width()))
-        code = diag_quota.EXIT_BY_STATUS[rep["status"]]
+        code = DIAG_EXIT_BY_STATUS[rep["status"]]
         if code and not args.json:
             error_line("diag_unavailable", str(rep["error"] or rep["status"]), "peerhub diag health")
         return code
@@ -230,7 +231,7 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         report_missing_store(args.obs_db or args.db, selected=is_explicit or bool(args.obs_db), source="explicit" if args.obs_db else db_source)
         rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool,
                                      max_age_seconds=args.max_age_seconds)
-        code = {**diag_quota.EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
+        code = {**DIAG_EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
         print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else
               diag_quota.format_quota_table(rep, max_age_seconds=args.max_age_seconds))
         if code and Path(args.obs_db or args.db).is_file():

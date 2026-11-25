@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import psutil
 
@@ -63,8 +63,8 @@ def read_resources() -> ResourceSample:
     return ResourceSample(free_ram_bytes(), busy, cores or os.cpu_count())
 
 
-def probe_timeout_factor() -> float:
-    busy = read_resources().cpu_busy_pct
+def probe_timeout_factor(resource_reader: Callable[[], ResourceSample] | None = None) -> float:
+    busy = (resource_reader or read_resources)().cpu_busy_pct
     return BUSY_PROBE_TIMEOUT_FACTOR if busy is not None and busy >= CPU_BUSY_WARN_PCT else 1.0
 
 

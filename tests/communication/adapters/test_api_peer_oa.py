@@ -413,7 +413,7 @@ def test_the_opener_verifies_tls_follows_no_redirect_and_uses_no_proxy(monkeypat
     import urllib.request
 
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
-    opener = api.oa_opener()
+    opener = api.http_opener()
     (https,) = [h for h in opener.handlers if isinstance(h, urllib.request.HTTPSHandler)]
     context = https._context  # the context this handler gives every HTTPS connection
     assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname is True  # a certificate, for this host name

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from peerhub.core.load_limits import load_warnings
 from peerhub.cli.arguments import ArgumentParser
 from peerhub.cli.ask_cmd import resolve_peer_kind
 from peerhub.cli.support import error_line, print_warnings
@@ -95,7 +96,7 @@ def run_batch(args: argparse.Namespace) -> int:
             from peerhub.core.load_limits import format_load
 
             load = _batch_load_sample(db)
-            warnings.extend(batch.load_warnings(load))
+            warnings.extend(load_warnings(load))
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)

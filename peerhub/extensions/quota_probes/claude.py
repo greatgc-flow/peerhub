@@ -8,15 +8,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, TypedDict
 
+from peerhub.extensions.observation_model import EvidenceState, account_text, valid_epoch_seconds
 from peerhub.extensions.quota_types import (
     EvidenceRef,
-    EvidenceState,
     EvidenceValue,
     IdSource,
     UsageMeasurement,
     UsageObserved,
-    account_text,
-    valid_epoch_seconds,
 )
 
 from . import common

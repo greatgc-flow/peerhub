@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.support import MONITOR_QUOTA_MAX_AGE_SECONDS, MONITOR_REFRESH_LEAD_SECONDS, QUOTA_REFRESH_COOLDOWN_SECONDS
-from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION, QUOTA_MAX_AGE_SECONDS, QUOTA_NOTICE_AGE_SECONDS
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
+from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, QUOTA_NOTICE_AGE_SECONDS
 
 ROOT = Path(__file__).resolve().parents[3]
 MONITOR_DOC = "docs/monitor.md"

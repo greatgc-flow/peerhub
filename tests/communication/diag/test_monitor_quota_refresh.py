@@ -273,7 +273,7 @@ def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
 def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatch):
     from peerhub.extensions import quota_capture
     from peerhub.extensions.quota_probes.common import fail_closed
-    from peerhub.extensions.quota_types import EvidenceState
+    from peerhub.extensions.observation_model import EvidenceState
 
     class Store:
         def __init__(self, *args, **kwargs):
@@ -302,11 +302,11 @@ def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatc
 @pytest.mark.parametrize("raised", [False, True])
 def test_busy_quota_timeout_has_a_scaled_deadline_and_a_display_reason(monkeypatch, raised):
     from peerhub.cli.view import _probe_line
-    from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
+    from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR, CPU_BUSY_WARN_PCT, ResourceSample
     from peerhub.extensions import quota_capture
     from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY
     from peerhub.extensions.quota_probes.common import fail_closed
-    from peerhub.extensions.quota_types import EvidenceState
+    from peerhub.extensions.observation_model import EvidenceState
 
     class Store:
         def __init__(self, *args, **kwargs):
@@ -317,7 +317,6 @@ def test_busy_quota_timeout_has_a_scaled_deadline_and_a_display_reason(monkeypat
 
     monkeypatch.setattr(quota_capture, "ObservationStore", Store)
     monkeypatch.setattr(quota_capture, "_read_latest_facts_report", lambda store: None)
-    monkeypatch.setattr(quota_capture, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
     deadlines = []
 
     def poll(ids, instance_id, profile_id, *, deadline_sec, **options):
@@ -328,7 +327,8 @@ def test_busy_quota_timeout_has_a_scaled_deadline_and_a_display_reason(monkeypat
                              peer=instance_id, extra={"reason": "claude_usage_timeout"})]
 
     result = quota_capture.refresh_quota(__file__, ["cc"], deadline_sec=10, pollers={"cc": poll},
-                                         version_checker=lambda kind: None)
+                                         version_checker=lambda kind: None,
+                                         resource_reader=lambda: ResourceSample(cpu_busy_pct=CPU_BUSY_WARN_PCT))
     assert deadlines == [10 * BUSY_PROBE_TIMEOUT_FACTOR]
     (observation,) = result["observations"]
     assert observation["payload"]["reason"] == QUOTA_PROBE_LOAD_DELAY

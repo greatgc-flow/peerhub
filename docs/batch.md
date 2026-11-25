@@ -154,7 +154,7 @@ Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepth
    (formatting), `effort` (writing) or `deepthink` (technical claims); code = `effort`, escalate to
    `deepthink`; review = `deepthink` from an independent reviewer; design/debate = `deepthink` or an explicit top.
 2. Drop candidates with any applicable pool that has stale evidence (regardless of `STATE` shown, since a stale pool can display `low` or `fast`; check `AGE` and the `PEERS` `(aged)` tag) or is `?`, `aged`, `reset`, or under 5% LEFT, and prefer candidates without a `fast` pool (see `peerhub monitor`).
-3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`. This rule ranks the candidates for a single ask (the `suggest:` line); a wave of several tasks uses section J (lowest 7D PACE first, then size n), so the two answer different questions.
+3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`. This rule ranks the candidates for a single ask (the `suggest:` line); a wave of several tasks uses the [parallel wave procedure](#parallel-work-over-the-least-quota) (lowest 7D PACE first, then size n), so the two answer different questions.
 
 The monitor's `suggest:` line lists the best eligible profile per tier. Among
 eligible candidates, those without an applicable `fast` pool rank first, then
@@ -168,7 +168,7 @@ shown in `peerhub diag --plan`. The legacy `A-7D` window shows `n/a` when omitte
 See [Antigravity quota pools](adapters/ag.md#quota-pools) and the
 [0.26.11 release notes](../CHANGELOG.md#02611---2026-11-25) for when Antigravity stopped reporting it.
 
-For an AI planning a parallel wave, `peerhub explain parallel-quota` is the recipe (order by 7D PACE, size n by quota and load); this section is the manual reference.
+For an AI planning a parallel wave, `peerhub explain parallel-quota` summarizes the [parallel wave procedure](#parallel-work-over-the-least-quota).
 
 ## Suggest an ask
 
@@ -196,15 +196,18 @@ when the wait expires or no other ask is active.
 
 If a provider throttles, reduce concurrency; do not reroute the same work to another peer.
 
-**J. Parallel work over the least quota** (rule H picks the peer for a single ask; J sizes and orders a wave; advice only; PeerHub gives the facts and the AI decides; `peerhub explain parallel-quota` has the same default plan)
+### Parallel work over the least quota
+
+Rule H ranks candidates for a single ask. Use the stored quota facts to order the pools and the load line to size the wave.
 
 1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. For old or `(stale)` evidence, run `peerhub observation refresh`, then read again. See [probe costs](implementation/OBSERVATION_PROBES.md) for when agy can consume model tokens.
    A parent-limited child uses effective quota and time to reset for its displayed `BUDGET%/h`. Advice ranks the pool's own action, its effective parent action, and applicable gates for the same profile on the same account in order of `spend`, `hold`, `rest`, and `blocked`. The most restrictive action wins. A fresh zero for a shared pool can gate other configured pools on the same account even when another reporter supplied the displayed reading. When a gate wins, the reason and JSON `binding` name its pool, and an exhausted gate reports `gate: <pool> out`. A stale zero keeps its refresh reason. In JSON, `target_pct_per_hour`, `left_pct`, `pace_pt` and `resets_in_seconds` describe the child's own window, and `health` carries its effective state, pace and reset.
-2. Order usable pools by 7D PACE, lowest first; rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. See the lesson for the other JSON row fields.
+2. Order usable pools by 7D PACE, lowest first; rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. JSON rows also include profiles, age_seconds, ttl_seconds, fast, family, and parent. A profile listed under several pools spends each of them.
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
 4. Start with the usable pools in order. Choose `n` based on their quota and the available machine resources, then run `peerhub batch run tasks.json --batch-id ID --max-parallel n`.
 5. After each wave run `peerhub observation refresh`, then `peerhub diag --plan` again; asks still running are in-flight spend the readings do not show yet, so keep a margin; a task refused for quota is reported per task and the rest of that manifest still runs (one wave per manifest); the same batch ID replays settled tasks; a pool that turned `rest` or `blocked` drops out. No usable pool: defer.
    Parallel ag asks were seen to spike G-5H, so watch G-5H after each wave.
    The load line lists in-flight counts for pools with applicable table rows. Its
    `n/a pools` clause lists other mapped in-flight pools, with `+K` for any names
-   beyond the display limit. JSON `load.by_pool` includes all mapped pools.
+   beyond the display limit. Leave margin for in-flight and unmapped asks. JSON `load.by_pool` includes all mapped pools.
+6. After an uncertain ask, check `peerhub diag running` and `peerhub diag health --stream STREAM`, then reconcile the workspace before retrying.

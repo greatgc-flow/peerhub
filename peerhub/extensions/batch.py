@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
 from peerhub._console import format_shell_command
-from peerhub.core.load_limits import LOAD_WARNING_MESSAGES, ResourceSample, load_warnings as load_warnings, read_resources
+from peerhub.core import load_limits
+from peerhub.core.load_limits import LOAD_WARNING_MESSAGES, ResourceSample
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES
 from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
@@ -403,7 +404,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
               resource_reader: Callable[[], ResourceSample] | None = None) -> dict[str, Any]:
     check_max_parallel(max_parallel)
     cancel = cancel or threading.Event()
-    resource_reader = resource_reader or read_resources
+    resource_reader = resource_reader or load_limits.read_resources
     rows: dict[str, dict[str, Any]] = {}
 
     def blocked(t: Task, reason: str) -> dict[str, Any]:
@@ -504,7 +505,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             # Low resources hold further launches while asks run; with none running the task starts (with the
             # warning), so a machine that never recovers cannot stall the batch forever.
             while not cancel.is_set():
-                warnings = load_warnings(resource_reader().facts())
+                warnings = load_limits.load_warnings(resource_reader().facts())
                 in_flight = {future for future in in_flight if not future.done()}
                 if not warnings or not in_flight:
                     if warnings:

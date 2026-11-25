@@ -96,6 +96,9 @@ For security vulnerabilities, see [SECURITY.md](SECURITY.md); for Dependabot PRs
 
 Use the GitHub bug-report or feature-request templates when applicable. They
 collect the reproduction and environment details needed to work on an issue.
+Search for existing reports with `gh issue list -R greatgc-flow/peerhub --search KEYWORD`.
+Include `peerhub --version`, the OS, the exact command, the outcome or exit code,
+and any workaround. Remove secrets and private paths.
 Include lessons/feedback from using the docs or CLI: what was confusing, what
 you tried, and the wording or behavior that would have helped. See the
 [development/operation closed loop](docs/m1_spec/USAGE_GUIDE.md#developmentoperation-closed-loop).
