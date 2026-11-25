@@ -11,6 +11,7 @@ from tools import ci_platform
 
 pytestmark = [pytest.mark.package, pytest.mark.ci]
 ROOT = Path(__file__).resolve().parents[3]
+SERIAL_TIMING_RUN = "python -u -m pytest -q -m serial_timing tests/communication/diag/test_diag_monitor_read_model.py"
 
 
 def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
@@ -39,6 +40,9 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     windows_run = "\n".join(step.get("run", "") for step in jobs["windows-platform"]["steps"])
     assert "-m platform_sensitive" in windows_run and "verify-junit" in windows_run
     windows_steps = jobs["windows-platform"]["steps"]
+    targeted = next(step for step in windows_steps if "-m platform_sensitive" in step.get("run", ""))
+    assert "-n" not in targeted["run"].split()
+    assert targeted.get("env", {}).get("PEERHUB_CI_SERIAL_TIMING") is None
     for step in windows_steps:
         if step.get("uses", "").startswith("actions/setup-python@") or step.get("name") == "Install dependencies":
             assert step.get("if") == "steps.suite.outputs.windows_suite != 'skip'"
@@ -59,9 +63,17 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     assert "github.run_id" in wf["concurrency"]["group"]
     assert wf["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     for job_name in ("ubuntu-full", "windows-platform", "full-matrix"):
-        checkout = next(step for step in jobs[job_name]["steps"] if step.get("uses", "").startswith("actions/checkout@"))
+        steps = jobs[job_name]["steps"]
+        checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
         assert checkout["with"].get("fetch-depth") == 0
-        uploads = [step for step in jobs[job_name]["steps"]
+        parallel = next(step for step in steps if "pytest -q -n auto" in step.get("run", ""))
+        serial = next(step for step in steps if step.get("run") == SERIAL_TIMING_RUN)
+        assert parallel["env"]["PEERHUB_CI_SERIAL_TIMING"] == "1"
+        assert serial.get("if") == parallel.get("if")
+        assert "PEERHUB_CI_SERIAL_TIMING" not in serial.get("env", {})
+        assert not serial.get("continue-on-error")
+        assert steps.index(serial) == steps.index(parallel) + 1
+        uploads = [step for step in steps
                    if step.get("uses", "").startswith("actions/upload-artifact@") and step.get("if") == "failure()"]
         assert len(uploads) == 1
         assert uploads[0]["with"]["retention-days"] == 7
@@ -219,4 +231,5 @@ def test_ci_dispatch_stamps_and_uploads_source_reports_for_every_candidate_cell(
     assert upload["with"]["path"] == report
     assert upload["with"]["if-no-files-found"] == "error"
     assert upload["with"]["overwrite"] is True
-    assert steps.index(suite) < steps.index(stamp) < steps.index(upload)
+    timing = next(step for step in steps if step.get("run") == SERIAL_TIMING_RUN)
+    assert steps.index(suite) < steps.index(timing) < steps.index(stamp) < steps.index(upload)

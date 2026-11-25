@@ -133,10 +133,8 @@ Before wiring any library-only component (A2A, MCP, ExtensionHost, Work/Skills, 
 
 If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model for the gate run; it is recorded per case in the JUnit and in the evidence JSON (`model_override` field). The JUnit files and the evidence JSON on the GitHub release are the record of the swap (#191).
 
-A release is one PR plus the steps after its merge; there is no post-release docs PR.
-
-1. Open one release PR updating `peerhub/_version.py`, the
-   `## Current source: v0.x.y` heading in `docs/STATUS.md`, and the matching
+1. Include the version bump in the last feature PR for the release. Update
+   `peerhub/_version.py`, the `## Current source: v0.x.y` heading in `docs/STATUS.md`, and the matching
    `CHANGELOG.md` section. Wait for CI to be green: `gh pr checks`
    must show zero pending or failed checks before merging. Never merge before
    checks finish.
@@ -242,7 +240,8 @@ contradictions, stale text and layout glitches before publishing, and record wha
 Every monitor change must look and behave the same in compact and expand.
 
 Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
-G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. The
+G0/G1/G2 verification, including the G7 invariant tests in G0, the M2/M3
+catalog tests in G2, and the traceability scan. The
 `candidate-ci` job selects the successful dispatch on the candidate SHA and
 verifies all ten G2 reports before `live-validation` fetches the three G3 JUnit
 assets. The local evidence JSON is a fourth, informational asset. `build`
@@ -273,8 +272,8 @@ gh auth refresh -h github.com -s workflow
 ### Release lessons
 
 - Release only after the completeness audit scores 100 on every axis; re-run G3 on the final target.
-- `tests/communication/package/test_release_notes.py` pins the version and must change in the bump PR. A CHANGELOG heading for a never-published version needs `(superseded ...)`.
-- Python 3.15 has no pyyaml wheel: test files that import yaml run in CI only; the local `-n 8` suite covers the rest (setuptools errors: see AGENTS.md).
+- Update the version pinned by `tests/communication/package/test_release_notes.py` in the same PR as the version bump. A CHANGELOG heading for a never-published version needs `(superseded ...)`.
+- For missing `yaml` or `setuptools` imports, check the dev extras in a disposable environment. See AGENTS.md for the Windows sandbox limits.
 - The live gate writes `.peerhub/work/live-gate/<date>-v<version>.json` (dates UTC, git-ignored); attach it to the GitHub release instead of committing it. Evidence files committed up to 0.24.12 stay in `docs/implementation/live_evidence/` as history. Before a repeated run for the same date and version, rename the earlier file to `-attemptN`.
 - Never type a SHA by hand; derive it from Git.
 - Delete a blocked or aborted release and its tag before retrying.

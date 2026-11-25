@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import sqlite3
 import json
+import os
+import sqlite3
 
 import pytest
+from xdist import is_xdist_worker
 
 pytestmark = [pytest.mark.unit, pytest.mark.diag, pytest.mark.platform_sensitive]
 
@@ -128,7 +130,8 @@ def test_required_scope_failure_propagates_only_to_dependent_selected_groups(tmp
     assert frame["groups"]["store"]["status"] == "OK"
 
 
-def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path):
+@pytest.mark.serial_timing
+def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path, request):
     from math import ceil
     from time import perf_counter
     from datetime import date, timedelta
@@ -182,7 +185,9 @@ def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path):
     assert frame is not None and frame["query_families"] <= 6
     assert frame["groups"]["execution"]["data"]["sample_size"] == 60
     p95_ms = sorted(samples)[ceil(len(samples) * 0.95) - 1] * 1000
-    assert p95_ms < 250
+    # The CI companion step enforces the same wall-clock budget without competing pytest workers.
+    if not (os.environ.get("PEERHUB_CI_SERIAL_TIMING") == "1" and is_xdist_worker(request)):
+        assert p95_ms < 250
 
 
 def test_session_latency_reads_only_named_scope_and_thirty_utc_days():

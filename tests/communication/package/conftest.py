@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import os
+import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from filelock import FileLock
+from xdist import is_xdist_worker
 
 from tests.communication.harness import pkg_env
 
@@ -30,31 +34,59 @@ class Installed:
 
 
 @pytest.fixture(scope="session")
-def dist(tmp_path_factory) -> Dist:
-    supplied = os.environ.get("PEERHUB_DIST_DIR")
-    if supplied is not None:
-        directory = Path(supplied).resolve()
-        wheels = sorted(p for p in directory.glob("*.whl") if p.is_file())
-        sdists = sorted(p for p in directory.glob("*.tar.gz") if p.is_file())
-        if not supplied or len(wheels) != 1 or len(sdists) != 1:
-            raise pytest.UsageError(
-                f"PEERHUB_DIST_DIR={supplied!r} must contain exactly one wheel (*.whl) "
-                f"and one sdist (*.tar.gz); found {len(wheels)} wheel(s), {len(sdists)} sdist(s)"
-            )
-        return Dist(pkg_env.REPO, wheels[0], sdists[0])
-    root = tmp_path_factory.mktemp("pkg-build")
-    src = pkg_env.copy_checkout(root / "checkout")
-    wheel, sdist = pkg_env.build_dist(src, root / "dist")
-    return Dist(src, wheel, sdist)
+def package_session_root(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = tmp_path_factory.getbasetemp()
+    return root.parent if is_xdist_worker(request) else root
+
+
+def _prepare_once(session_root: Path, name: str, prepare: Callable[[Path], None]) -> Path:
+    # The pytest session root is unique to this run. Other workers can reuse the
+    # artifacts only after setup succeeds, and can retry an interrupted setup.
+    root = session_root / name
+    ready = root / ".ready"
+    with FileLock(str(session_root / f"{name}.lock")):
+        if not ready.is_file():
+            if root.exists():
+                shutil.rmtree(root)
+            root.mkdir()
+            prepare(root)
+            ready.touch()
+    return root
 
 
 @pytest.fixture(scope="session")
-def installed(dist, tmp_path_factory) -> Installed:
+def dist(request: pytest.FixtureRequest) -> Dist:
+    supplied = os.environ.get("PEERHUB_DIST_DIR")
+    if supplied is None:
+        def build(root: Path) -> None:
+            src = pkg_env.copy_checkout(root / "checkout")
+            pkg_env.build_dist(src, root / "dist")
+
+        root = _prepare_once(request.getfixturevalue("package_session_root"), "pkg-build", build)
+        source, directory = root / "checkout", root / "dist"
+    else:
+        source, directory = pkg_env.REPO, Path(supplied).resolve()
+
+    wheels = sorted(p for p in directory.glob("*.whl") if p.is_file())
+    sdists = sorted(p for p in directory.glob("*.tar.gz") if p.is_file())
+    if supplied == "" or len(wheels) != 1 or len(sdists) != 1:
+        location = f"PEERHUB_DIST_DIR={supplied!r}" if supplied is not None else str(directory)
+        raise pytest.UsageError(
+            f"{location} must contain exactly one wheel (*.whl) "
+            f"and one sdist (*.tar.gz); found {len(wheels)} wheel(s), {len(sdists)} sdist(s)"
+        )
+    return Dist(source, wheels[0], sdists[0])
+
+
+@pytest.fixture(scope="session")
+def installed(dist: Dist, package_session_root: Path) -> Installed:
     """Fresh venv; ONLY the built wheel (and its declared runtime dependencies) is installed: no editable path, no dev extras."""
-    root = tmp_path_factory.mktemp("pkg-venv")
-    py = pkg_env.make_venv(root / "venv")
-    pkg_env.run([str(py), "-m", "pip", "install", str(dist.wheel)], cwd=root, check=True)
-    return Installed(root / "venv", py)
+    def install(root: Path) -> None:
+        py = pkg_env.make_venv(root / "venv")
+        pkg_env.run([str(py), "-m", "pip", "install", str(dist.wheel)], cwd=root, check=True)
+
+    venv = _prepare_once(package_session_root, "pkg-venv", install) / "venv"
+    return Installed(venv, pkg_env.venv_python(venv))
 
 
 @pytest.fixture

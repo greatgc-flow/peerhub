@@ -287,8 +287,9 @@ def test_known_guidance_and_alias_take_priority(capsys):
         assert "Guidance Code: ask_uncertain" in capsys.readouterr().out
 
 
-def test_exact_lesson_id_is_its_own_step_before_keywords(capsys):
+def test_exact_lesson_id_is_its_own_step_before_keywords(capsys, monkeypatch):
     """#328 C: ids are printed in output, so querying one finds exactly that lesson (a separate step, not part of keyword search)."""
+    from peerhub.cli import app, lessons
     from peerhub.cli.lessons import lesson_by_id
     assert [lesson["id"] for lesson in lesson_by_id("monitor-probe-age")] == ["monitor-probe-age"]
     assert [lesson["id"] for lesson in lesson_by_id("  Monitor-Probe-Age ")] == ["monitor-probe-age"]
@@ -299,7 +300,11 @@ def test_exact_lesson_id_is_its_own_step_before_keywords(capsys):
     assert len(out.splitlines()) <= 5
     assert main(["explain", "monitor-probe-age", "--json"]) == 0
     assert [lesson["id"] for lesson in json.loads(capsys.readouterr().out)["lessons"]] == ["monitor-probe-age"]
-    for lesson in load_lessons():  # every printed id resolves to itself through explain
+    catalog = load_lessons()
+    parser = app.build_parser()
+    monkeypatch.setattr(app, "build_parser", lambda **_: parser)
+    monkeypatch.setattr(lessons, "load_lessons", lambda: catalog)
+    for lesson in catalog:  # every printed id resolves to itself through explain
         assert main(["explain", lesson["id"]]) == 0
         assert capsys.readouterr().out.splitlines()[0].startswith(f"{lesson['id']}:")
 

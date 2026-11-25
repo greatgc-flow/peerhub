@@ -278,6 +278,10 @@ def test_watch_defers_a_lock_timeout_without_reporting_failure(monkeypatch, expa
         nonlocal now
         if now >= last:
             raise KeyboardInterrupt
+        # Observe the first deferred frame and both sides of the retry deadline.
+        if now == last - support.QUOTA_REFRESH_COOLDOWN_SECONDS:
+            now = last - support.MONITOR_TICK_SECONDS
+            return
         now += seconds
 
     monkeypatch.setattr(monitor_refresh.RefreshJob, "start", staticmethod(launch))

@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from tools import release_evidence
 from tests.communication.harness.pkg_env import REPO
 from tests.communication.package.test_cut_candidate_evidence import Env
 from tests.communication.package.test_rel_007_evidence_bundle import M23_CATALOG, all_ids
@@ -101,10 +102,25 @@ def test_m23_function_name_groups_match_traceability(evidence, name, ids):
 def test_catalog_markers_really_reach_junit_properties(tmp_path):
     shutil.copy2(REPO / "tests/conftest.py", tmp_path / "conftest.py")
     probe = tmp_path / "test_probe.py"
-    probe.write_text("import pytest\n@pytest.mark.catalog_id('EXT-001')\n@pytest.mark.catalog_id('SRC-001')\ndef test_behavior():\n    pass\n", encoding="utf-8")
+    probe.write_text(
+        "import pytest\n"
+        "@pytest.mark.catalog_id('EXT-001')\n"
+        "@pytest.mark.catalog_id('SRC-001')\n"
+        "@pytest.mark.parametrize('value', [1, 2])\n"
+        "def test_behavior(value):\n"
+        "    pass\n"
+        "def test_core_001_behavior():\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
     junit = tmp_path / "probe.xml"
-    result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-c", str(REPO / "pyproject.toml"),
+    result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-n", "2", "-p", "no:cacheprovider", "-c", str(REPO / "pyproject.toml"),
                              "--confcutdir", str(tmp_path), str(probe), "--junitxml", str(junit)], cwd=REPO, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    case = next(ET.parse(junit).getroot().iter("testcase"))
-    assert {p.get("value") for p in case.findall("properties/property") if p.get("name") == "catalog_id"} == {"EXT-001", "SRC-001"}
+    cases = {case.get("name"): case for case in ET.parse(junit).getroot().iter("testcase")}
+    assert set(cases) == {"test_behavior[1]", "test_behavior[2]", "test_core_001_behavior"}
+    marker_ids = {"EXT-001", "SRC-001"}
+    for name in ("test_behavior[1]", "test_behavior[2]"):
+        assert {p.get("value") for p in cases[name].findall("properties/property") if p.get("name") == "catalog_id"} == marker_ids
+    ids = ["CORE-001", *sorted(marker_ids)]
+    assert release_evidence.junit_outcomes([junit], ids, marker_ids) == dict.fromkeys(ids, "passed")

@@ -369,7 +369,9 @@ def test_preflight_refuses_before_dispatch_or_live(fake, capsys, attribute, valu
 
 @pytest.mark.parametrize(("path", "contents", "message"), [
     ("CHANGELOG.md", "## [Unreleased]\n", f"No CHANGELOG section for {VERSION}"),
-    ("peerhub/_version.py", '__version__ = "2.0.0"\n', "peerhub/_version.py is 2.0.0"),
+    ("peerhub/_version.py", '__version__ = "2.0.0"\n',
+     f"peerhub/_version.py is 2.0.0. Expected {VERSION}. "
+     "Include the version bump, STATUS heading and changelog in the last feature PR for the release."),
 ])
 def test_preflight_checks_version_and_notes(fake, capsys, path, contents, message):
     (fake.root / path).write_text(contents, encoding="utf-8")
