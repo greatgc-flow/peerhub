@@ -4,7 +4,7 @@ Freeze Invariants:
 1. Core & M2 unchanged; M3 removable.
 7. Routing selects; it does not execute. Exact evidence replayable.
 8. UNKNOWN stays unknown per policy.
-Requires no development dependencies.
+Python standard library only.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from peerhub.core.scalars import finite_number
+from peerhub.core.scalars import is_finite_number
 
 
 class RoutingError(Exception):
@@ -150,12 +150,12 @@ class Router:
             raise RoutingPolicyViolationError("Unsupported routing weight.")
         if not _positive_int(request.timeout_ms):
             raise RoutingPolicyViolationError("timeout_ms must be a positive integer.")
-        if finite_number(request.cost_sensitivity, overflow_is_missing=True) is None or not 0 <= request.cost_sensitivity <= 1:
+        if not is_finite_number(request.cost_sensitivity, overflow_is_missing=True) or not 0 <= request.cost_sensitivity <= 1:
             raise RoutingPolicyViolationError("cost_sensitivity must be finite and within [0, 1].")
         required_caps = set(request.required_capabilities)
         w_eval = policy.weights.get("eval_score", 0.5)
         w_quota = policy.weights.get("quota_headroom", 0.5)
-        if any(finite_number(w, overflow_is_missing=True) is None or w < 0 for w in (w_eval, w_quota)) or w_eval + w_quota <= 0:
+        if any(not is_finite_number(w, overflow_is_missing=True) or w < 0 for w in (w_eval, w_quota)) or w_eval + w_quota <= 0:
             raise RoutingPolicyViolationError("Weights must be finite, nonnegative, and have a positive sum.")
         if len({cand.peer_id for cand in candidates}) != len(candidates):
             raise RoutingPolicyViolationError("Candidate peer IDs must be unique.")
@@ -168,7 +168,7 @@ class Router:
                 raise RoutingPolicyViolationError("Evidence references must be nonempty source refs or UNKNOWN.")
             if not cand.peer_id or cand.health_status not in ("HEALTHY", "DEGRADED", "UNKNOWN", "UNHEALTHY"):
                 raise RoutingPolicyViolationError("Candidate requires a peer ID and a declared health state.")
-            if finite_number(cand.eval_score, overflow_is_missing=True) is None or not 0 <= cand.eval_score <= 1:
+            if not is_finite_number(cand.eval_score, overflow_is_missing=True) or not 0 <= cand.eval_score <= 1:
                 raise RoutingPolicyViolationError("Evaluation score must be finite and within [0, 1].")
             if cand.quota_remaining is not None and (
                 not _nonnegative_int(cand.quota_remaining)

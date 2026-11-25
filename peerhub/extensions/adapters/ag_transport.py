@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -16,7 +17,9 @@ from peerhub.extensions.adapters.process import DEFAULT_MAX_BYTES, ProcessResult
 
 AG_TRANSPORT_ENV = "PEERHUB_AG_TRANSPORT"
 _AG_PROBE_TIMEOUT_S = 10.0
-_AG_TRANSPORT_CACHE: dict[tuple[tuple[str, int, int, int, int, int], str], str] = {}
+_FileIdentity = tuple[str, int, int, int, int, int]
+_TransportIdentity = tuple[_FileIdentity, ...]
+_AG_TRANSPORT_CACHE: dict[tuple[_TransportIdentity, str], str] = {}
 _AG_TRANSPORT_LOCK = threading.Lock()
 
 
@@ -39,11 +42,48 @@ def _probe_failure(probe: str, r: ProcessResult) -> str | None:
     return None if r.returncode == 0 else f"{probe} exit {r.returncode}"
 
 
-def _transport_cache_path(identity: tuple[str, int, int, int, int, int], env: Mapping[str, str]) -> Path:
+def _transport_cache_path(identity: _TransportIdentity, env: Mapping[str, str]) -> Path:
     configured = env.get("PEERHUB_CONFIG_HOME", "").strip()
     root = Path(configured).expanduser() if configured else Path.home() / ".peerhub" / "cache"
     digest = hashlib.sha256(json.dumps(identity).encode("ascii")).hexdigest()
-    return root / "ag-transport-v1" / f"{digest}.json"
+    return root / "ag-transport-v2" / f"{digest}.json"
+
+
+def _fingerprint(path: Path) -> _FileIdentity:
+    real = os.path.normcase(str(path.resolve(strict=True)))
+    st = os.stat(real)
+    return real, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns
+
+
+_LAUNCHER_EXE = re.compile(r'^[ \t]*@?(?:call[ \t]+)?(?:"([^"\r\n]+\.exe)"|([^\s"]+\.exe))[ \t]+%\*[ \t]*\r?$',
+                           re.IGNORECASE | re.MULTILINE)
+_LAUNCHER_ENV = re.compile(r"%([^%]+)%")
+
+
+def _transport_identity(base: list[str], env: Mapping[str, str]) -> _TransportIdentity | None:
+    if len(base) != 1:
+        return None  # a multi-argument command can run code independent of base[0]
+    launcher = Path(base[0])
+    identity = (_fingerprint(launcher),)
+    if launcher.suffix.lower() not in (".cmd", ".bat"):
+        return identity
+    with launcher.open("rb") as script:
+        content = script.read(8193)
+    if len(content) > 8192:
+        return None
+    source = content.decode("utf-8-sig", errors="replace")
+    variables = {name.casefold(): value for name, value in env.items()}
+    candidates: set[Path] = set()
+    for match in _LAUNCHER_EXE.finditer(source):
+        raw = re.sub(r"%~dp0|%dp0%", lambda _: str(launcher.absolute().parent) + os.sep,
+                     match[1] or match[2], flags=re.IGNORECASE)
+        raw = _LAUNCHER_ENV.sub(lambda m: variables.get(m[1].casefold(), m[0]), raw)
+        exe = Path(raw)
+        if "%" not in raw and exe.is_absolute() and exe.is_file():
+            candidates.add(exe.resolve())
+    if len(candidates) == 1:
+        return (*identity, _fingerprint(candidates.pop()))
+    return None  # unrecognized or ambiguous launchers are always probed
 
 
 def _read_transport_cache(path: Path) -> AgTransport | None:
@@ -78,27 +118,25 @@ def _write_transport_cache(path: Path, version: str, transport: str) -> None:
                 pass
 
 
-def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str) -> AgTransport:
+def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str, *,
+                         renew: Callable[[], None] | None = None) -> AgTransport:
     """`stream` when `agy --help` documents stream-json input, `argv` when it lacks --input-format; else undetermined."""
     def undetermined(why: str, version: str | None = None) -> AgTransport:
         return AgTransport("undetermined", "help", version, f"cannot determine agy stdin support: {why}")
 
     try:
-        real = os.path.normcase(os.path.realpath(base[0]))
-        st = os.stat(real)
-        identity = (real, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
-        # A multi-argument wrapper can change independently of its executable.
-        cache_path = _transport_cache_path(identity, env) if len(base) == 1 else None
+        identity = _transport_identity(base, env)
+        cache_path = _transport_cache_path(identity, env) if identity is not None else None
     except (OSError, RuntimeError):
         identity, cache_path = None, None
     factor = probe_timeout_factor()
-    if cache_path is not None and factor > 1 and (cached := _read_transport_cache(cache_path)) is not None:
-        return cached
     retry = True
 
     def probe(arg: str) -> ProcessResult | str:
         nonlocal factor, retry
         while True:
+            if renew is not None:
+                renew()
             try:
                 r = common.probe_cli(base, [arg], env=env, cwd=cwd, timeout_s=_AG_PROBE_TIMEOUT_S * factor,
                                      max_bytes=DEFAULT_MAX_BYTES)
@@ -117,13 +155,16 @@ def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str) -> A
     if m is None:
         return undetermined("--version printed no version")
     version = m.group(0)
-    if identity is None:
-        return undetermined("cannot identify the agy executable", version)
-    key = (identity, version)
-    with _AG_TRANSPORT_LOCK:
-        cached = _AG_TRANSPORT_CACHE.get(key)
-    if cached is not None:
-        return AgTransport(cached, "help", version)
+    key = (identity, version) if identity is not None else None
+    if key is not None:
+        with _AG_TRANSPORT_LOCK:
+            cached = _AG_TRANSPORT_CACHE.get(key)
+        if cached is not None:
+            return AgTransport(cached, "help", version)
+    if cache_path is not None and factor > 1:
+        disk = _read_transport_cache(cache_path)
+        if disk is not None and disk.version == version:
+            return disk
     h = probe("--help")
     if isinstance(h, str):
         return undetermined(h, version)
@@ -134,15 +175,16 @@ def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str) -> A
         transport = "stream"
     else:
         return undetermined("--help lists --input-format without stream-json", version)
-    with _AG_TRANSPORT_LOCK:
-        _AG_TRANSPORT_CACHE[key] = transport
+    if key is not None:
+        with _AG_TRANSPORT_LOCK:
+            _AG_TRANSPORT_CACHE[key] = transport
     if cache_path is not None:
         _write_transport_cache(cache_path, version, transport)
     return AgTransport(transport, "help", version)
 
 
 def select_transport(resolve_command: Callable[[], list[str] | None], env: Mapping[str, str], cwd: str,
-                     binary: str) -> AgTransport:
+                     binary: str, *, renew: Callable[[], None] | None = None) -> AgTransport:
     """PEERHUB_AG_TRANSPORT=argv forces argv; unset or empty detects; anything else is a configuration error."""
     forced = env.get(AG_TRANSPORT_ENV)
     if forced == "argv":
@@ -152,4 +194,4 @@ def select_transport(resolve_command: Callable[[], list[str] | None], env: Mappi
     base = resolve_command()
     if base is None:
         return AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {common.executable_not_found(binary)}")
-    return _detect_ag_transport(base, env, cwd)
+    return _detect_ag_transport(base, env, cwd, renew=renew)

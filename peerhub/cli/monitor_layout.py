@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from peerhub._console import ANSI_ESCAPE
 from peerhub.core.text import clean_text
-from peerhub.core.scalars import finite_number
+from peerhub.core.scalars import finite_converted_number as finite_number
 
 
 RULE_PREFIX_WIDTH = 3

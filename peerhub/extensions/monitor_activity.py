@@ -135,7 +135,11 @@ def _liveness_of(caller: dict[str, Any], liveness: Callable[..., object] | None,
     created = caller.get("caller_created", caller.get("ask_created"))
     if liveness is not None:
         try:
-            alive = liveness(caller["host"], caller.get("ns"), pid, created)
+            if liveness is ask_alive:
+                stable = caller.get("caller_identity", caller.get("ask_identity"))
+                alive = ask_alive(caller["host"], caller.get("ns"), pid, created, stable=stable)
+            else:
+                alive = liveness(caller["host"], caller.get("ns"), pid, created)
         except Exception:  # noqa: BLE001 - liveness is a best-effort source: any failure is "unknown", never a group error
             alive = None
     if isinstance(alive, bool):
@@ -220,8 +224,9 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
         reasons.append("start time unreadable")
     terminal_at = iso_seconds(r["terminal_at"])
     lease_based = state in ("run", "overdue")
-    may_have_orphan = state == "unsure" and not superseded and r["result_ok"] is None and r["provider_detail"] is not None
-    if ((lease_based or may_have_orphan) and gen_match and r["wsgen_match"] and gen_reason is None
+    may_have_orphan = (r["result_ok"] is None and r["abandonment"] is None and r["provider_detail"] is not None
+                       and (r["certainty"] in ("STARTED", "MAY_HAVE_STARTED") or last in START_KINDS))
+    if (((lease_based and gen_match) or may_have_orphan) and r["wsgen_match"] and gen_reason is None
             and (liveness is None or (caller is not None and "caller_pid" in caller))):
         process_state = ask_process_state(r["caller_detail"], r["provider_detail"])
         if process_state == PROCESSES_DEAD and lease_based:

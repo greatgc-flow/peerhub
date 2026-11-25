@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from peerhub.core.scalars import finite_number
+from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_layout import (
     ACTIVITY_SNIPPET_COLS,
     RICH_GLYPHS,

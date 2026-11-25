@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from typing import Callable, Literal, cast
 
 from peerhub.extensions import caller, process_tree
@@ -30,22 +31,31 @@ def _local(host: object, ns: object, this_host: str | None, this_ns: str | None)
             and isinstance(ns, str) and bool(ns) and ns == (this_ns if this_ns is not None else caller.pid_namespace()))
 
 
-def _identity_alive(pid: int, created: float | None, probe: ProcessInfo, *, reused: bool | None) -> bool | None:
+def _linux_identity(value: object) -> str | None:
+    return value if isinstance(value, str) and re.fullmatch(r"linux:[0-9a-f-]{36}:[0-9]+", value) else None
+
+
+def _identity_alive(pid: int, created: float | None, stable: str | None, probe: ProcessInfo) -> bool | None:
+    if stable is not None:
+        return stable.split(":")[1] == process_tree.boot_id() and process_tree.process_identity(pid) == stable
+    if created is None:
+        return None
     actual = probe(pid)
     if actual is None:
         return False
-    if created is None or _number(actual) is None:
+    if _number(actual) is None:
         return None
-    return True if actual == created else reused
+    return True if actual == created else None
 
 
 def ask_alive(host: object, ns: object, pid: object, created: object, *, this_host: str | None = None,
-              this_ns: str | None = None, process_info: ProcessInfo | None = None) -> bool | None:
+              this_ns: str | None = None, process_info: ProcessInfo | None = None,
+              stable: object = None) -> bool | None:
     """Report the caller badge's liveness, leaving creation time mismatches unknown."""
     try:
         identity, born = _pid(pid), _number(created)
-        if identity is not None and born is not None and _local(host, ns, this_host, this_ns):
-            return _identity_alive(identity, born, process_info or process_tree.process_created, reused=None)
+        if identity is not None and _local(host, ns, this_host, this_ns):
+            return _identity_alive(identity, born, _linux_identity(stable), process_info or process_tree.process_created)
     except Exception:
         return None
     return None
@@ -53,6 +63,18 @@ def ask_alive(host: object, ns: object, pid: object, created: object, *, this_ho
 
 PROCESSES_DEAD = "gone, processes dead"
 ORPHAN_RUNNING = "orphan running"
+
+
+def claim_wrapper_alive(caller_detail: object) -> bool | None:
+    """Before invocation only the process holding the claim can dispatch."""
+    try:
+        detail = _detail(caller_detail)
+        if detail.get("v") == 1:
+            return ask_alive(detail.get("host"), detail.get("ns"), detail.get("ask_pid"),
+                             detail.get("ask_created"), stable=detail.get("ask_identity"))
+    except Exception:
+        pass
+    return None
 
 
 def ask_process_state(caller_detail: object, provider_detail: object, *, this_host: str | None = None,
@@ -69,11 +91,10 @@ def ask_process_state(caller_detail: object, provider_detail: object, *, this_ho
             return None
         probe = process_info or process_tree.process_created
         wrapper_created = _number(detail.get("ask_created"))
-        if wrapper_created is None:
-            return None  # without the wrapper's start time, we cannot attribute a surviving child
-        wrapper_alive = _identity_alive(wrapper, wrapper_created, probe, reused=False)
+        wrapper_alive = _identity_alive(wrapper, wrapper_created, _linux_identity(detail.get("ask_identity")), probe)
         parent_alive = (wrapper_alive if parent == wrapper else
-                        _identity_alive(parent, _number(detail.get("caller_created")), probe, reused=False))
+                        _identity_alive(parent, _number(detail.get("caller_created")),
+                                        _linux_identity(detail.get("caller_identity")), probe))
         if wrapper_alive is True or parent_alive is True:
             return "alive"
         if wrapper_alive is not False or parent_alive is not False:
@@ -81,14 +102,17 @@ def ask_process_state(caller_detail: object, provider_detail: object, *, this_ho
         started = _detail(provider_detail)
         provider = _pid(started.get("provider_pid"))
         provider_created = _number(started.get("provider_created"))
-        if provider is not None:
-            provider_alive = _identity_alive(provider, provider_created, probe, reused=False)
-            if provider_alive is True:
-                return ORPHAN_RUNNING
-        else:
-            provider_alive = False
-        if process_tree.provider_descendant(wrapper, wrapper_created, provider, provider_created):
+        provider_identity = _linux_identity(started.get("provider_identity"))
+        if provider is None:
+            return None
+        provider_alive = _identity_alive(provider, provider_created, provider_identity, probe)
+        if provider_alive is True:
             return ORPHAN_RUNNING
-        return PROCESSES_DEAD if provider_alive is False else None
+        if provider_alive is None:
+            return None
+        descendant = process_tree.provider_descendant(wrapper, wrapper_created, provider, provider_created, provider_identity)
+        if descendant is True:
+            return ORPHAN_RUNNING
+        return PROCESSES_DEAD if descendant is False else None
     except Exception:  # inaccessible or invalid process evidence cannot justify release
         return None

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from peerhub.core.scalars import finite_number
+from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.core.text import clean_text
 from peerhub.cli.monitor_layout import (
     LEAD_LABEL_COLS,

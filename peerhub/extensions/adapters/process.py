@@ -5,6 +5,7 @@ import io
 import math
 import os
 import queue
+import select
 import subprocess
 import sys
 import threading
@@ -18,6 +19,21 @@ DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_MAX_BYTES = 1_048_576
 STDIN_CHUNK = 65_536
 _CMD_UNSAFE = set('&|<>^%"\r\n\0!')
+
+# The pipe's write end belongs only to the ask. EOF means the ask died before approval.
+_WAIT_FOR_LAUNCH = (
+    "import os, sys\n"
+    "gate, status = map(int, sys.argv[1:3])\n"
+    "os.set_inheritable(status, False)\n"
+    "allowed = os.read(gate, 1) == b'1'\n"
+    "os.close(gate)\n"
+    "if not allowed: sys.exit(125)\n"
+    "try:\n"
+    "    os.execvpe(sys.argv[3], sys.argv[3:], os.environ)\n"
+    "except OSError as exc:\n"
+    "    os.write(status, str(exc.strerror or exc).encode('utf-8', 'replace')[:1024])\n"
+    "    sys.exit(126)\n"
+)
 
 
 class SpawnFailure(OSError):
@@ -156,6 +172,8 @@ class BoundedProcess:
         self._on_stdout = on_stdout
         self._on_display = on_display
         self._proc: subprocess.Popen[bytes] | None = None
+        self._launch_gate: int | None = None
+        self._launch_status: int | None = None
         self._t0 = 0.0
         self._bufs: dict[str, _HeadTailBuffer] = {"out": _HeadTailBuffer(max_bytes), "err": _HeadTailBuffer(max_bytes)}
         self._aborted = threading.Event()
@@ -194,15 +212,31 @@ class BoundedProcess:
     def parser_failed(self) -> bool:
         return self._parser_failed
 
-    def start(self) -> "BoundedProcess":
+    def start(self, *, suspended: bool = False) -> "BoundedProcess":
         check_argv(self._argv)
         self._t0 = time.monotonic()
         self._last_output = self._t0
         try:
-            self._proc = subprocess.Popen(self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          cwd=self._cwd, env=self._env, shell=False,
-                                          start_new_session=sys.platform != "win32")
+            if suspended:
+                read_gate, self._launch_gate = os.pipe()
+                try:
+                    self._launch_status, write_status = os.pipe()
+                    try:
+                        argv = [sys.executable, "-I", "-S", "-c", _WAIT_FOR_LAUNCH,
+                                str(read_gate), str(write_status), *self._argv]
+                        self._proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                                      cwd=self._cwd, env=self._env, start_new_session=True,
+                                                      pass_fds=(read_gate, write_status))
+                    finally:
+                        os.close(write_status)
+                finally:
+                    os.close(read_gate)
+            else:
+                self._proc = subprocess.Popen(self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                              cwd=self._cwd, env=self._env, shell=False,
+                                              start_new_session=sys.platform != "win32")
         except (OSError, ValueError) as e:
+            self.cancel_launch()
             raise SpawnFailure(f"{type(e).__name__}: {getattr(e, 'strerror', None) or e}") from e
         p = self._proc
         # default bufsize=-1 => the pipes are io.BufferedReader (read1 available)
@@ -218,6 +252,32 @@ class BoundedProcess:
         for t in self._threads:
             t.start()
         return self
+
+    def release_launch(self) -> None:
+        gate, status = self._launch_gate, self._launch_status
+        assert gate is not None and status is not None
+        try:
+            try:
+                os.write(gate, b"1")
+            except BrokenPipeError as e:
+                raise SpawnFailure("supervised launch exited before release") from e
+            remaining = max(0.0, self._t0 + self._timeout_s - time.monotonic())
+            ready, _, _ = select.select([status], [], [], min(5.0, remaining))
+            if not ready:
+                raise TimeoutError("supervised launch did not confirm exec")
+            error = os.read(status, 1024)
+            if error:
+                raise SpawnFailure(error.decode("utf-8", "replace"))
+        finally:
+            self.cancel_launch()
+
+    def cancel_launch(self) -> None:
+        gate, status = self._launch_gate, self._launch_status
+        self._launch_gate = self._launch_status = None
+        if gate is not None:
+            os.close(gate)
+        if status is not None:
+            os.close(status)
 
     def _drain_display(self) -> None:
         while True:

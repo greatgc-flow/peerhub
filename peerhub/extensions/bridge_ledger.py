@@ -25,7 +25,8 @@ from peerhub.extensions.bridge_errors import (
     IllegalCertaintyTransition, InvalidTerminalResultError, InvocationMarkerError, NoDeliveryError,
     OffsetAckConflictError, ReconcileRejectedError, RecordRejectedError, TerminalConflictError,
 )
-from peerhub.extensions.liveness import PROCESSES_DEAD, ask_process_state
+from peerhub.extensions.delivery_reads import LATEST_INVOCATION, invocation_marker_join, invocation_process_fields
+from peerhub.extensions.liveness import PROCESSES_DEAD, ask_process_state, claim_wrapper_alive
 from peerhub.extensions.schema_guard import refuse_future_schema
 from peerhub.extensions.sqlite_tx import sqlite_tx
 
@@ -35,7 +36,6 @@ _ALLOWED = {
     STARTED: {STARTED, TERMINAL},
     TERMINAL: {TERMINAL},
 }
-
 
 @dataclass(frozen=True)
 class PersistedRecord:
@@ -172,7 +172,8 @@ class BridgeLedger(BridgeControl):
                              (delivery_id, token.stream_id, token.peer_id, "caller", NOT_STARTED,
                               json.dumps(self.caller, sort_keys=True, default=str)))
             self._evidence(conn, token.stream_id, token.peer_id, "about_to_invoke", delivery_id, NOT_STARTED,
-                           invocation_no=n, quota_invoked_at=self.claims.now(), **detail)
+                           invocation_no=n, claim_generation=token.generation, caller=self.caller,
+                           quota_invoked_at=self.claims.now(), **detail)
             return n
 
     _CALLER_IDENTITY = ("host", "ns", "ask_pid", "ask_created")
@@ -192,9 +193,12 @@ class BridgeLedger(BridgeControl):
         if not isinstance(newest, dict):
             return True
         newest = cast("dict[str, Any]", newest)
-        if any(newest.get(key) is None or self.caller.get(key) is None for key in self._CALLER_IDENTITY):
+        keys = self._CALLER_IDENTITY
+        if newest.get("ask_identity") is not None or self.caller.get("ask_identity") is not None:
+            keys = ("host", "ns", "ask_pid", "ask_identity")
+        if any(newest.get(key) is None or self.caller.get(key) is None for key in keys):
             return True
-        return any(newest[key] != self.caller[key] for key in self._CALLER_IDENTITY)
+        return any(newest[key] != self.caller[key] for key in keys)
 
     @staticmethod
     def open_invocation(conn: sqlite3.Connection, delivery_id: str) -> int | None:
@@ -240,40 +244,77 @@ class BridgeLedger(BridgeControl):
         conn.execute("INSERT INTO bridge_invocation_resolutions (delivery_id, invocation_no, reason, claim_generation) VALUES (?,?,?,?)",
                      (did, invocation_no, "promoted_may_have_started", generation))
 
+    @staticmethod
+    def _claim_activity(conn: sqlite3.Connection, workspace_generation: str, now: float,
+                        *, include_expired: bool = False) -> sqlite3.Cursor:
+        has_callers = conn.execute("SELECT 1 FROM sqlite_master WHERE name='bridge_claim_callers'").fetchone() is not None
+        claim_join = ("LEFT JOIN bridge_claim_callers a ON a.stream_id=c.stream_id AND a.peer_id=c.peer_id "
+                      "AND a.claim_generation=c.generation " if has_callers else "")
+        claim_detail = "a.detail" if has_callers else "NULL"
+        return conn.execute(
+            "SELECT c.stream_id,c.peer_id,c.generation,c.expires_at,d.delivery_id,d.certainty,i.invocation_no,"
+            "i.claim_generation AS invocation_generation,r.reason AS resolution,"
+            "d.claim_generation AS delivery_generation,d.acked,d.result_json IS NULL AS no_result,"
+            f"{claim_detail} AS claim_detail,"
+            "(SELECT e.kind FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind IN "
+            "('about_to_invoke','launch_reserved','started','prespawn_failure','control_halt','no_terminal',"
+            "'start_uncertain','processes_dead','refusal_detected') ORDER BY e.seq DESC LIMIT 1) AS last_kind,"
+            + invocation_process_fields("d.delivery_id")
+            + "FROM bridge_claims c "
+            + claim_join
+            + "LEFT JOIN bridge_deliveries d ON d.delivery_id=(SELECT delivery_id FROM bridge_deliveries "
+            "WHERE stream_id=c.stream_id AND peer_id=c.peer_id ORDER BY seq DESC LIMIT 1) "
+            + LATEST_INVOCATION
+            + "LEFT JOIN bridge_invocation_resolutions r ON r.delivery_id=i.delivery_id AND r.invocation_no=i.invocation_no "
+            + invocation_marker_join("d.delivery_id")
+            + "WHERE c.workspace_generation=? AND (c.expires_at>? OR "
+            "(? AND i.claim_generation=c.generation AND d.acked=0 AND d.result_json IS NULL AND d.certainty!='TERMINAL'))",
+            (workspace_generation, now, include_expired))
+
+    @staticmethod
+    def _current_invocation(row: sqlite3.Row) -> bool:
+        return (row["acked"] == 0 and bool(row["no_result"]) and row["certainty"] != TERMINAL
+                and row["invocation_generation"] == row["generation"]
+                and row["resolution"] not in ("prespawn_failure", "control_halt")
+                and row["last_kind"] not in ("processes_dead", "refusal_detected"))
+
+    @classmethod
+    def has_active_asks(cls, conn: sqlite3.Connection, workspace_generation: str, now: float) -> bool:
+        """Read activity inside the transaction that will reserve the next launch."""
+        for row in cls._claim_activity(conn, workspace_generation, now):
+            if cls._current_invocation(row):
+                if ask_process_state(row["caller_detail"], row["provider_detail"]) != PROCESSES_DEAD:
+                    return True
+            elif row["claim_detail"] is not None:
+                if claim_wrapper_alive(row["claim_detail"]) is not False:
+                    return True
+            elif (row["delivery_generation"] == row["generation"] and row["acked"] == 0
+                  and row["certainty"] in (NOT_STARTED, STARTED)
+                  and row["last_kind"] not in ("processes_dead", "refusal_detected")):
+                if ask_process_state(row["caller_detail"], row["provider_detail"]) != PROCESSES_DEAD:
+                    return True  # legacy lease-active delivery
+        return False
+
     @classmethod
     def release_dead_asks(cls, conn: sqlite3.Connection, workspace_generation: str, now: float) -> int:
         """Record abandonment and expire the current claim in the caller's BEGIN IMMEDIATE transaction."""
-        candidates = conn.execute(
-            "SELECT d.delivery_id,d.stream_id,d.peer_id,d.certainty,c.generation,"
-            "(SELECT detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='caller' "
-            "ORDER BY e.seq DESC LIMIT 1) AS caller_detail,"
-            "(SELECT detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='started' "
-            "ORDER BY e.seq DESC LIMIT 1) AS provider_detail "
-            "FROM bridge_claims c CROSS JOIN bridge_deliveries d ON d.delivery_id=("
-            "SELECT delivery_id FROM bridge_deliveries WHERE stream_id=c.stream_id AND peer_id=c.peer_id "
-            "ORDER BY seq DESC LIMIT 1) AND d.claim_generation=c.generation "
-            "WHERE c.workspace_generation=? AND d.acked=0 AND d.result_json IS NULL AND d.certainty!='TERMINAL' "
-            "AND NOT EXISTS (SELECT 1 FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id "
-            "AND e.kind IN ('processes_dead','refusal_detected')) "
-            "AND (c.expires_at>? OR (SELECT kind FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id "
-            "AND e.kind IN ('about_to_invoke','started','prespawn_failure','control_halt','no_terminal','start_uncertain') "
-            "ORDER BY e.seq DESC LIMIT 1) IN ('about_to_invoke','started'))",
-            (workspace_generation, now)).fetchall()
         count = 0
-        for row in candidates:
-            did = row["delivery_id"]
-            marker = cls.open_invocation(conn, did) if row["certainty"] == NOT_STARTED else None
-            if row["certainty"] == NOT_STARTED and marker is None:
-                continue  # preserve a proven pre-spawn failure or halt
-            if ask_process_state(row["caller_detail"], row["provider_detail"]) != PROCESSES_DEAD:
+        for row in cls._claim_activity(conn, workspace_generation, now, include_expired=True).fetchall():
+            if cls._current_invocation(row):
+                if row["expires_at"] <= now and row["last_kind"] not in ("about_to_invoke", "launch_reserved", "started"):
+                    continue
+                if ask_process_state(row["caller_detail"], row["provider_detail"]) != PROCESSES_DEAD:
+                    continue
+                certainty = row["certainty"]
+                did = row["delivery_id"]
+                if certainty == NOT_STARTED:
+                    cls._promote_invocation(conn, did, row["invocation_no"], row["generation"], now)
+                    certainty = MAY_HAVE_STARTED
+                cls._evidence(conn, row["stream_id"], row["peer_id"], "processes_dead", did, certainty,
+                              reason="processes_dead", outcome="UNCERTAIN", observed_at_s=now,
+                              invocation_no=row["invocation_no"])
+            elif row["expires_at"] <= now or claim_wrapper_alive(row["claim_detail"]) is not False:
                 continue
-            # Keep the stronger STARTED evidence. An unresolved invocation becomes MAY_HAVE_STARTED.
-            certainty = row["certainty"]
-            if marker is not None:
-                cls._promote_invocation(conn, did, marker, row["generation"], now)
-                certainty = MAY_HAVE_STARTED
-            cls._evidence(conn, row["stream_id"], row["peer_id"], "processes_dead", did, certainty,
-                          reason="processes_dead", outcome="UNCERTAIN", observed_at_s=now)
             conn.execute("UPDATE bridge_claims SET expires_at=MIN(expires_at,?) WHERE stream_id=? AND peer_id=? "
                          "AND generation=? AND workspace_generation=?",
                          (now, row["stream_id"], row["peer_id"], row["generation"], workspace_generation))

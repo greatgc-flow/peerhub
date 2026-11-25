@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from peerhub.extensions.delivery_reads import invocation_marker_join, invocation_process_fields
 from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, QUOTA_PROJECTION_SAMPLE_COUNT_SQL
 
 
@@ -100,7 +101,7 @@ TEXT_NEWEST_ROWS = 20
 
 
 # Evidence kinds (bridge.py) -> state, for a delivery without a stored result. The newest kind that is not bookkeeping decides.
-START_KINDS = ("about_to_invoke", "started", "session_call", "output")  # the provider may be running
+START_KINDS = ("about_to_invoke", "launch_reserved", "started", "session_call", "output")  # the provider may be running
 PRESTART_KINDS = ("attempt_created",)  # nothing invoked yet
 
 
@@ -129,16 +130,18 @@ _ACTIVITY_SQL = (
     "kept AS (SELECT k.*,d.claim_generation,d.record_id,d.result_json,d.terminal_at FROM ranked k "
     "JOIN bridge_deliveries d ON d.delivery_id=k.delivery_id WHERE k.sup=0 OR k.sup_rank<=:sup_cap), "
     "ev AS (SELECT kept.*,"
+    "COALESCE(json_extract(CASE WHEN json_valid(m.detail) THEN m.detail END,'$.claim_generation'),"
+    "kept.claim_generation) AS invocation_generation,"
     "(SELECT e.kind FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind NOT IN (" + _sql_list(_BOOKKEEPING_KINDS) + ") "
     "ORDER BY e.seq DESC LIMIT 1) AS last_kind,"
     "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='session_call' AND e.certainty='STARTED' "
     "ORDER BY e.seq DESC LIMIT 1) AS start_detail,"
-    "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='caller' ORDER BY e.seq DESC LIMIT 1) AS caller_detail,"
-    "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='started' ORDER BY e.seq DESC LIMIT 1) AS provider_detail,"
+    + invocation_process_fields("kept.delivery_id") + ","
     "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='processes_dead' "
     "ORDER BY e.seq DESC LIMIT 1) AS abandonment,"
     "COALESCE(CAST(strftime('%s',kept.terminal_at) AS REAL),kept.expires_at) AS end_bound,"
-    "CASE WHEN kept.result_json IS NULL THEN NULL WHEN json_valid(kept.result_json) THEN 1 ELSE 0 END AS result_ok FROM kept), "
+    "CASE WHEN kept.result_json IS NULL THEN NULL WHEN json_valid(kept.result_json) THEN 1 ELSE 0 END AS result_ok FROM kept "
+    + invocation_marker_join("kept.delivery_id") + "), "
     # Open = may be `run` or `overdue`; its text is always read. Ended rows are ranked by their (bounded) end time.
     "op AS (SELECT ev.*,CASE WHEN ev.sup=0 AND ev.result_json IS NULL AND ev.certainty IN ('NOT_STARTED','STARTED') "
     "AND ev.expires_at>=:window_start "  # an overdue row is open only for ALERT_WINDOW_S after its lease expired
@@ -155,7 +158,7 @@ _ACTIVITY_SQL = (
     "AND tx.peer_id=h.peer_id)) "
     "SELECT tx.stream_id,tx.peer_id,tx.c_generation,tx.expires_at,tx.lease_sec,"
     "CASE WHEN :wsgen IS NULL THEN 1 WHEN tx.c_wsgen=:wsgen THEN 1 ELSE 0 END AS wsgen_match,"
-    "tx.scope_total,tx.sup_total,tx.seq,tx.certainty,tx.claim_generation,tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
+    "tx.scope_total,tx.sup_total,tx.seq,tx.certainty,tx.invocation_generation AS claim_generation,tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
     "tx.caller_detail,tx.provider_detail,tx.abandonment,tx.result_ok,tx.want_text,r.record_id,"
     "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.response') END AS response_type,"
     "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' "

@@ -300,11 +300,77 @@ def test_06a_busy_detection_reuses_disk_cache_and_invalidates_it_on_replacement(
     ag_transport._AG_TRANSPORT_CACHE.clear()
     monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: load_limits.BUSY_PROBE_TIMEOUT_FACTOR)
     assert ag_transport._detect_ag_transport(*args).version == "1.5.9"
-    assert probes.calls == ["--version", "--help"]
+    assert probes.calls == ["--version", "--help", "--version"]
     binary.write_bytes(b"a different build")
     probes.help = b"usage: agy -p PROMPT"
     assert ag_transport._detect_ag_transport(*args).transport == "argv"
-    assert probes.calls == ["--version", "--help", "--version", "--help"]
+    assert probes.calls == ["--version", "--help", "--version", "--version", "--help"]
+
+
+def test_busy_cache_checks_the_launcher_target_and_the_running_version(monkeypatch):
+    from io import BytesIO
+
+    launcher, executable = (Path.cwd() / name for name in ("agy.cmd", "agy.exe"))
+    original_open = Path.open
+    build = 1
+
+    def open_script(self, *args, **kwargs):
+        if self == launcher:
+            return BytesIO(b'@"%~dp0agy.exe" %*\n')
+        return original_open(self, *args, **kwargs)
+
+    original_is_file = Path.is_file
+    monkeypatch.setattr(Path, "open", open_script)
+    monkeypatch.setattr(Path, "is_file", lambda p: True if p == executable else original_is_file(p))
+    monkeypatch.setattr(ag_transport, "_fingerprint",
+                        lambda p: (str(p), 0, 0, build if p == executable else 0, 0, 0))
+    monkeypatch.setattr(ag_transport, "_transport_cache_path", lambda identity, env: identity)
+    cache = {}
+    monkeypatch.setattr(ag_transport, "_read_transport_cache", cache.get)
+    monkeypatch.setattr(ag_transport, "_write_transport_cache", lambda key, v, t: cache.update({key: ag_transport.AgTransport(t, "help", v)}))
+    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: 2)
+    probes = Probes()
+    monkeypatch.setattr(common, "probe_cli", probes)
+
+    def detect():
+        ag_transport._AG_TRANSPORT_CACHE.clear()  # another process starts with only the disk cache
+        return ag_transport._detect_ag_transport([str(launcher)], {}, str(launcher.parent)).transport
+
+    assert detect() == detect() == "stream"
+    assert probes.calls == ["--version", "--help", "--version"]
+    probes.version = b"agy 1.7.0"
+    probes.help = b"usage: agy -p PROMPT"
+    assert detect() == "argv"  # Same file fingerprint, different observed version.
+    build += 1
+    probes.help = b"--input-format stream-json"
+    assert detect() == "stream"  # Same version and launcher, different executable.
+    assert probes.calls[3:] == ["--version", "--help", "--version", "--help"]
+
+
+def test_slow_preflight_renews_before_each_probe_and_retry(monkeypatch):
+    now = 0.0
+    expires = 60.1
+    renewals = []
+
+    def renew():
+        nonlocal expires
+        assert now < expires
+        renewals.append(now)
+        expires = now + 60.1
+
+    def probe(base, args, **kwargs):
+        nonlocal now
+        now += 23 if now == 0 else 19
+        if len(renewals) == 1:
+            return _probe_result(timed_out=True)
+        return _probe_result(b"agy 1.5.17" if args[0] == "--version" else b"--input-format stream-json")
+
+    monkeypatch.setattr(common, "probe_cli", probe)
+    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: 2)
+    target = CliRuntimeTarget("ag", Path.cwd(), writable=True, command=[PY, FAKE])
+    assert target.execution_metadata(renew=renew)["ag_transport"] == "stream"
+    assert renewals == [0, 23, 42]
+    assert 60.1 < now < expires
 
 
 @pytest.mark.parametrize("probe", ["--version", "--help"])

@@ -7,7 +7,7 @@ from typing import Any
 
 from peerhub._console import ANSI_ESCAPE
 from peerhub.core.text import clean_text
-from peerhub.core.scalars import finite_number
+from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_layout import (
     RICH_GLYPHS,
     RICH_SGR,

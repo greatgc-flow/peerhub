@@ -17,6 +17,7 @@ from typing import cast, Any, Callable
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.core.read_only_probe import probe_table_roots
+from peerhub.extensions.delivery_reads import running_delivery_rows
 from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     ObservationCorruptError,
@@ -419,28 +420,8 @@ class ReadonlyDiag:
         conn = None
         try:
             conn = self._open()
-            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if not {"bridge_claims", "bridge_deliveries", "bridge_evidence"} <= tables:
-                return out  # no Bridge activity ever recorded
-            # CROSS JOIN fixes the join order: the small claims table (one row per stream/peer) is filtered first and only a live
-            # claim's own deliveries are looked up through the (stream_id, peer_id) index, so finished scopes' history is never read.
-            # idx_bd_scope_claim_generation (#330) also covers claim_generation, so a live scope's own earlier generations are skipped
-            # too. A store last opened by peerhub 0.24.17 or older has no such index yet: the same query then reads the live scope's
-            # own delivery history through the (stream_id, peer_id) prefix (cost grows with it), and stays correct and read-only.
-            rows = [dict(r) for r in conn.execute(
-                "SELECT d.delivery_id,d.peer_id,d.stream_id,d.certainty,c.expires_at,r.idempotency_key,r.metadata_json,"
-                "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='session_call' "
-                "AND e.certainty='STARTED' ORDER BY e.seq DESC LIMIT 1) AS start_detail,"
-                "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='caller' "
-                "ORDER BY e.seq DESC LIMIT 1) AS caller_detail,"
-                "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='started' "
-                "ORDER BY e.seq DESC LIMIT 1) AS provider_detail "
-                "FROM bridge_claims c CROSS JOIN bridge_deliveries d ON d.stream_id=c.stream_id AND d.peer_id=c.peer_id "
-                "AND d.claim_generation=c.generation LEFT JOIN records r ON r.record_id=d.record_id "
-                "WHERE c.expires_at>? AND (? IS NULL OR c.workspace_generation=?) AND d.acked=0 "
-                "AND (? IS NULL OR c.peer_id=?) AND d.certainty IN ('NOT_STARTED','STARTED') "
-                "ORDER BY d.seq,d.delivery_id LIMIT ?",
-                (read_at, workspace_generation, workspace_generation, peer, peer, -1 if limit is None else limit + 1))]
+            rows = [dict(row) for row in running_delivery_rows(
+                conn, read_at=read_at, limit=limit, workspace_generation=workspace_generation, peer=peer)]
             return dict(out, rows=rows[:limit], truncated=limit is not None and len(rows) > limit)
         except SchemaVersionError as exc:
             return dict(out, status="SCHEMA_VERSION", error=f"{type(exc).__name__}: {exc}")

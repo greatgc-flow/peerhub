@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from peerhub.core.text import clean_text
-from peerhub.core.scalars import finite_number
+from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, DISABLED_REASON, NOT_REPORTED_REASON
 from peerhub.extensions.quota_projection import scoped_parent_ref
 

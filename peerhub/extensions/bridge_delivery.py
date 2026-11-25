@@ -5,7 +5,7 @@ import json
 import re
 import sqlite3
 import time
-from typing import Any, Callable, cast
+from typing import Any, Callable, Iterable, cast
 
 from peerhub.core.models import Record, json_digest
 from peerhub.extensions import ask_budgets, session_receipts
@@ -14,7 +14,7 @@ from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STA
 from peerhub.extensions.bridge_errors import InvocationMarkerError, NoDeliveryError, OffsetAckConflictError, SessionBridgeError
 from peerhub.extensions.bridge_ledger import CycleResult
 from peerhub.extensions.bridge_sessions import BridgeSessions
-from peerhub.extensions.runtime_contract import ContextLostError, PrespawnError, RuntimeTarget, RuntimeTargetError
+from peerhub.extensions.runtime_contract import ContextLostError, PrespawnError, RuntimeEvent, RuntimeTarget, RuntimeTargetError
 
 
 class BridgeDelivery(BridgeSessions):
@@ -71,7 +71,7 @@ class BridgeDelivery(BridgeSessions):
     # ------------------------------------------------------------------ delivery cycle
 
     def delivery_cycle(self, peer_id: str, stream_id: str, runtime: RuntimeTarget) -> CycleResult:
-        token = self.claims.acquire(peer_id, stream_id, self.owner_id, self.lease_sec)
+        token = self.claims.acquire(peer_id, stream_id, self.owner_id, self.lease_sec, caller=self.caller)
         self._fire("claim.after_acquire")
         return self.run_cycle(token, runtime)
 
@@ -162,7 +162,7 @@ class BridgeDelivery(BridgeSessions):
         did = self.begin_attempt(token, rec, reconcile_of=reconcile_of)
         execution_metadata = getattr(runtime, "execution_metadata", None)
         if callable(execution_metadata):
-            metadata = cast("dict[str, Any]", execution_metadata())
+            metadata = cast("dict[str, Any]", execution_metadata(renew=lambda: self.claims.heartbeat(token)))
             if metadata:
                 self._note(token, did, "execution_metadata", NOT_STARTED, **metadata)
         if rec.kind == "prompt":
@@ -247,8 +247,8 @@ class BridgeDelivery(BridgeSessions):
         # D-OWN-A4/TD-11: durable invocation marker BEFORE the runtime can possibly act; certainty stays NOT_STARTED while pending,
         # an unresolved marker after a crash is promoted to MAY_HAVE_STARTED by recovery (never re-invoked)
         quota_scope: Callable[[], list[str] | None] | None = getattr(runtime, "quota_pools", None)
-        self._mark_invocation(token, did, external_session_id=ext, session_generation=gen,
-                              quota_pools=quota_scope() if quota_scope is not None else None)
+        invocation = self._mark_invocation(token, did, external_session_id=ext, session_generation=gen,
+                                           quota_pools=quota_scope() if quota_scope is not None else None)
         self._fire("bridge.before_runtime_invoke")
         gated = self._gate(token, runtime, rec, did, after_marker=True)  # intent committed up to the very invoke still wins
         if gated is not None:
@@ -261,8 +261,16 @@ class BridgeDelivery(BridgeSessions):
             return CycleResult("fenced", rec.record_id, did, NOT_STARTED, session_generation=gen)
         if warn_budget and self._on_stream_budget is not None:
             self._on_stream_budget()
+
+        def publish_launch(process: dict[str, Any]) -> None:
+            self._note(token, did, "launch_reserved", NOT_STARTED, invocation_no=invocation, **process)
+            self._fire("bridge.after_launch_reserved")
+
         try:
-            for ev in runtime.deliver(ext, rec, catch_up):
+            supervised = getattr(runtime, "deliver_supervised", None)
+            events = (cast("Iterable[RuntimeEvent]", supervised(ext, rec, catch_up, publish_launch)) if callable(supervised)
+                      else runtime.deliver(ext, rec, catch_up))
+            for ev in events:
                 try:
                     self.claims.heartbeat(token)
                 except StaleClaimError as e:
@@ -273,8 +281,9 @@ class BridgeDelivery(BridgeSessions):
                     process = cast(dict[str, Any], ev[2]) if len(ev) > 2 and isinstance(ev[2], dict) else {}
                     with self.claims.fenced(token) as conn:
                         self._transition_in(conn, did, STARTED, "started", token=token, execution_id=ev[1],
-                                            external_session_id=ext, session_generation=gen,
-                                            **{key: process[key] for key in ("provider_pid", "provider_created") if key in process})
+                                            external_session_id=ext, session_generation=gen, invocation_no=invocation,
+                                            **{key: process[key] for key in ("provider_pid", "provider_created", "provider_identity")
+                                               if key in process})
                         conn.execute("UPDATE bridge_deliveries SET execution_id=? WHERE delivery_id=?", (ev[1], did))
                     started = True
                     self._fire("bridge.after_runtime_start")

@@ -210,15 +210,18 @@ for an ended or overdue ask is 30 minutes.
 | `a6` | `store`: a group could not be read; or (low severity) `facts`: the model facts need a recheck. Its reasons are `<peer>: version_drift` (the installed CLI's version differs from the one the facts were checked against, for example `cc: version_drift`) and `ag: unknown_pool` (agy reported a pool the facts do not know). The footer adds `DRIFT:cc,ag`. |
 | `a7` | the live monitor stopped before an `ag` quota probe that would use a token; `--allow-agy-token-use` continues. |
 
-For a lease recorded on this host and in this PID namespace, PeerHub compares recorded process start times to detect
-reused PIDs. When the caller, wrapper and provider processes are gone, monitor shows `gone, processes dead` in RECENT
-and clears `a2` immediately. `diag running` shows the same outcome while the lease remains active. The result is unknown
-and may have been lost. Older leases that only recorded the wrapper use that identity as their caller evidence. A live
-orphan keeps its `a2` alert and is left running for a human to handle. Other hosts retain their lease-based behavior.
+For a lease recorded on this host and in this PID namespace, PeerHub checks process identities for PID reuse. Linux
+identities use the boot ID and process start ticks. A legacy timestamp mismatch, missing launch identity, or
+unverified leaderless session leaves process liveness unknown. When the caller, wrapper and provider are confirmed
+gone, monitor shows `gone, processes dead` in RECENT and clears `a2` immediately. `diag running` shows the same
+outcome while the lease remains active. The result may have been lost. Older leases that recorded only the wrapper
+use that identity as their caller evidence. A live orphan keeps its `a2` alert even after another ask takes over the
+claim. Other hosts retain their lease-based behavior.
 
 The next `peerhub ask` start, `peerhub batch run`, or explicit `peerhub monitor repair` releases the dead ask's lease and
-records `processes_dead` as uncertain abandonment. The existing replay and reconciliation rules still apply. Monitor
-snapshots and diagnostics only report the evidence.
+records `processes_dead` as uncertain abandonment. When the wrapper died before invocation, the same recovery can
+expire its claim without changing delivery certainty. The existing replay and reconciliation rules still apply.
+Monitor snapshots and diagnostics only report the evidence.
 
 After the alerts, `--expand` lists every source that was not read completely (`source quota: stale`, then a `hint:`).
 `OK?` / `ATTN n?` on line 1 means such a source exists.

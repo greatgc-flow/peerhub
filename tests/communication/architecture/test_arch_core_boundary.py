@@ -114,7 +114,9 @@ def test_arch_003_no_vendor_peer_cardinality_ceiling(harness):
 
 
 DIAG_MOD = "peerhub.extensions.diag"
-DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", "peerhub.core.models", "peerhub.core.schema_version", "peerhub.core.read_only_probe"}  # pure models + freshness + schema contract + bounded read-only table-root probe
+DELIVERY_READS_MOD = "peerhub.extensions.delivery_reads"
+DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", DELIVERY_READS_MOD, "peerhub.core.models",
+                         "peerhub.core.schema_version", "peerhub.core.read_only_probe"}
 DIAG_BANNED_STDLIB = {"subprocess", "socket", "shutil", "multiprocessing", "threading", "os", "tempfile", "ctypes", "http", "urllib",
                       "asyncio", "signal", "pty", "webbrowser", "smtplib", "ftplib", "pickle", "shelve"}
 DIAG_BANNED_NAMES = {"CoreStore", "ObservationStore", "SessionBridge", "Bridge", "ClaimStore", "register_peer", "create_stream", "append_record",
@@ -155,16 +157,24 @@ def diag_module_violations(text: str, mod: str = DIAG_MOD) -> list[str]:
             bad.append(f"write SQL {s[:40]!r}")
         if words[:2] == ["BEGIN", "IMMEDIATE"] or words[:2] == ["BEGIN", "EXCLUSIVE"]:
             bad.append(f"write transaction {s[:40]!r}")
-    for n in ast.walk(tree):  # dynamic SQL construction can hide any statement from the literal scan: only literal first args
+    for n in ast.walk(tree):  # Keep SQL literal apart from the read query's fixed schema variants.
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("execute", "executescript", "executemany"):
-            if not n.args or not (isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)):
+            query = n.args[0] if n.args else None
+            literal = isinstance(query, ast.Constant) and isinstance(query.value, str)
+            running_query = (mod == DELIVERY_READS_MOD and n.func.attr == "execute"
+                             and isinstance(query, ast.Call) and isinstance(query.func, ast.Name)
+                             and query.func.id == "_running_deliveries_sql")
+            if not (literal or running_query):
                 bad.append(f"non-literal SQL passed to {n.func.attr}")
     for n in ast.walk(tree):  # every open() must be read-only; every sqlite3.connect must be mode=ro
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "open":
             modes = [a.value for a in n.args[1:2] if isinstance(a, ast.Constant)] + [k.value.value for k in n.keywords if k.arg == "mode" and isinstance(k.value, ast.Constant)]
             if any(set(str(m)) & set("wax+") for m in modes):
                 bad.append("writable open()")
-    if text.count("sqlite3.connect(") != text.count("mode=ro") or text.count("sqlite3.connect(") < 1:
+    connects = text.count("sqlite3.connect(")
+    if mod == DELIVERY_READS_MOD and connects:
+        bad.append("delivery reads must use an existing connection")
+    elif mod == DIAG_MOD and (connects != text.count("mode=ro") or not connects):
         bad.append("sqlite3.connect without mode=ro (or no connect)")
     return bad
 
@@ -175,6 +185,8 @@ def test_arch_004_diag_dependency_surface_is_read_only():
     assert path.exists() and not (ROOT / "peerhub/extensions/observation_and_diag.py").exists()  # ReadonlyDiag owns its module (D-W0-4)
     text = path.read_text(encoding="utf-8")
     assert diag_module_violations(text) == []
+    delivery_reads = (ROOT / "peerhub/extensions/delivery_reads.py").read_text(encoding="utf-8")
+    assert diag_module_violations(delivery_reads, DELIVERY_READS_MOD) == []
     assert "class ReadonlyDiag" in text and "class ObservationStore" not in text
     # the checker itself rejects each kind of violation (a checker that accepts everything would make this test vacuous)
     mutants = {"internal import": "from peerhub.extensions.observation import ObservationStore\n",
@@ -224,12 +236,12 @@ def test_arch_005_core_identity_is_not_runtime_identity(harness):
 # ----------------------------------------------------------------------------- extension independence (composition root = peerhub/cli)
 _OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py", "quota_probes", "quota_types.py",
                      "diag.py", "diag_quota.py", "diag_read_model.py", "diag_watch.py", "schema_guard.py",
-                     "quota_projection.py", "quota_windows.py")
+                     "quota_projection.py", "quota_windows.py", "delivery_reads.py")
 _ALLOWED_EXTENSION_IMPORTS = {"peerhub.extensions.observation", "peerhub.extensions.observation_model", "peerhub.extensions.quota_types",
                               "peerhub.extensions.schema_guard", "peerhub.extensions.diag", "peerhub.extensions.quota_probes",
                               "peerhub.extensions.binary_resolution", "peerhub.extensions.process_tree", "peerhub.extensions.win_job",
                               "peerhub.extensions.diag_quota", "peerhub.extensions.pool_health", "peerhub.extensions.quota_projection",
-                              "peerhub.extensions.quota_windows"}  # shared helpers inside the M1 trio
+                              "peerhub.extensions.quota_windows", DELIVERY_READS_MOD}  # shared M1 readers and helpers
 
 
 def _extension_imports(path):

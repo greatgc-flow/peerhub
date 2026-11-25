@@ -16,7 +16,7 @@ from pathlib import Path, PurePath
 from typing import Any, cast
 
 from peerhub.core.load_limits import MINE, OTHER, UNKNOWN
-from peerhub.extensions.process_tree import process_created
+from peerhub.extensions.process_tree import capture_process_identity, process_created
 
 SCHEMA_VERSION = 1
 LABEL_MAX = 40
@@ -178,6 +178,7 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
                 if query_file is not None and workspace is not None else None)
         pid = os.getpid()
         created = _process_created(pid)
+        identity = capture_process_identity(pid)
         detail = {
             "v": SCHEMA_VERSION,
             "tool": "cc" if session_raw else "?",
@@ -188,6 +189,7 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
             "ns": pid_namespace(),
             "ask_pid": pid,
             "ask_created": created,
+            "ask_identity": identity,
             "cwd": cwd[:CWD_MAX] if cwd is not None else None,
             "batch": _batch_value(source.get("PEERHUB_BATCH_ID")),
             "task": _batch_value(source.get("PEERHUB_BATCH_TASK")),
@@ -198,11 +200,17 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
         if include_parent:
             parent = os.getppid()
             parent_created = _process_created(parent) if parent > 0 else None
-            if parent_created is not None and created is not None and parent_created > created:
+            parent_identity = capture_process_identity(parent) if parent > 0 else None
+            if identity and parent_identity:
+                replacement = int(parent_identity.rsplit(":", 1)[1]) > int(identity.rsplit(":", 1)[1])
+            else:
+                replacement = parent_created is not None and created is not None and parent_created > created
+            if replacement:
                 # The parent PID already names a different process.
-                parent, parent_created = pid, created
+                parent, parent_created, parent_identity = pid, created, identity
             detail.update(caller_pid=parent if parent > 0 else pid,
-                          caller_created=parent_created if parent > 0 else created)
+                          caller_created=parent_created if parent > 0 else created,
+                          caller_identity=parent_identity if parent > 0 else identity)
         return detail
     except Exception:  # never raises: an unreadable environment still yields the schema
         return {"v": SCHEMA_VERSION, "tool": "?", "label": "?", "session": None, "owner": None, "host": None, "ns": None,

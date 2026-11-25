@@ -19,11 +19,11 @@ from peerhub.extensions.adapters.api import API_TARGETS, ApiRuntimeTarget, Reque
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES, peer_kind
 from peerhub.extensions.bridge import Bridge
 from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED
-from peerhub.extensions.bridge_ledger import CycleResult, reap_dead_asks
+from peerhub.extensions.bridge_ledger import BridgeLedger, CycleResult, reap_dead_asks
 from peerhub.extensions.bridge_sessions import normalize_session_selector
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTarget
 from peerhub.extensions.caller import detect_caller
-from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
+from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, LaunchBusyError, StaleClaimError
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.core.store import AlreadyExistsError, CoreStore, IdempotencyConflictError, StorageCorruptError, storage_errors
@@ -275,6 +275,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         on_output: Callable[[str], None] | None = None,
         on_stream_budget: Callable[[], None] | None = None,
         before_claim: Callable[[Path], None] | None = None,
+        launch_gate: Callable[[Callable[[bool], ClaimToken | None]], ClaimToken] | None = None,
         before_dispatch: Callable[[Path, str], None] | None = None,
         query_file: str | Path | None = None, notice_alias: bool = False,
         dry_run: bool = False) -> dict[str, Any]:
@@ -468,9 +469,17 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     caller = detect_caller(query_file=query_file, workspace=execution_workspace, include_parent=True)
     bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=caller,
                     stream_budget=limits, on_stream_budget=on_stream_budget)
-    with storage_errors():
-        reap_dead_asks(db)
-    token = claims.acquire(peer_id, sid, bridge.owner_id, lease_sec)
+    def acquire(under_pressure: bool) -> ClaimToken | None:
+        with storage_errors():
+            reap_dead_asks(db)
+        try:
+            return claims.acquire(peer_id, sid, bridge.owner_id, lease_sec, caller=caller,
+                                  busy=BridgeLedger.has_active_asks if under_pressure else None)
+        except LaunchBusyError:
+            return None
+
+    token = launch_gate(acquire) if launch_gate is not None else acquire(False)
+    assert token is not None  # the unconditional acquisition either returns a token or raises
     started_at = time.monotonic()
     try:
         if account_binding is not None:

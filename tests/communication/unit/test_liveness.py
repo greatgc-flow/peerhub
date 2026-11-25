@@ -122,9 +122,9 @@ def test_process_start_time_is_readable_until_the_process_exits():
     ({PID: CREATED}, HOST, False, "alive"),
     ({PID + 1: CREATED - 1}, HOST, False, "alive"),
     ({}, HOST, False, liveness.PROCESSES_DEAD),
-    ({PID: CREATED + 1, PID + 1: CREATED}, HOST, False, liveness.PROCESSES_DEAD),
+    ({PID: CREATED + 1, PID + 1: CREATED}, HOST, False, None),
     ({PID + 2: CREATED + 1}, HOST, False, liveness.ORPHAN_RUNNING),
-    ({PID + 2: CREATED + 2}, HOST, False, liveness.PROCESSES_DEAD),
+    ({PID + 2: CREATED + 2}, HOST, False, None),
     ({}, HOST, True, liveness.ORPHAN_RUNNING),
     ({}, "remote|linux", False, None),
 ])
@@ -133,7 +133,7 @@ def test_ask_process_state_checks_both_identities_and_provider(table, host, desc
 
     def descendants(*args):
         assert host == HOST
-        assert args == (PID, CREATED, PID + 2, CREATED + 1)
+        assert args == (PID, CREATED, PID + 2, CREATED + 1, None)
         return descendant
 
     def probe(pid):
@@ -147,6 +147,48 @@ def test_ask_process_state_checks_both_identities_and_provider(table, host, desc
     assert liveness.ask_process_state(detail, provider, this_host=HOST, this_ns=NS, process_info=probe) == expected
     if host != HOST:
         assert probes == []
+
+
+BOOT = "12345678-1234-1234-1234-123456789abc"
+
+
+def test_linux_process_identity_survives_a_backward_clock_step(monkeypatch):
+    identity = f"linux:{BOOT}:123"
+    monkeypatch.setattr(process_tree, "boot_id", lambda: BOOT)
+    monkeypatch.setattr(process_tree, "process_identity", lambda pid: identity if pid == PID else None)
+    wrapper = dict(v=1, host=HOST, ns=NS, ask_pid=PID, ask_created=CREATED, ask_identity=identity)
+    shifted = info({PID: CREATED - 90})
+    assert liveness.ask_alive(HOST, NS, PID, CREATED, stable=identity, this_host=HOST, this_ns=NS,
+                              process_info=shifted) is True
+    assert liveness.ask_process_state(json.dumps(wrapper), None, this_host=HOST, this_ns=NS,
+                                      process_info=shifted) == "alive"
+    del wrapper["ask_identity"]
+    assert liveness.ask_process_state(json.dumps(wrapper), None, this_host=HOST, this_ns=NS,
+                                      process_info=shifted) is None
+
+
+def test_missing_launch_identity_never_proves_abandonment():
+    wrapper = json.dumps(dict(v=1, host=HOST, ns=NS, ask_pid=PID, ask_created=CREATED))
+    assert liveness.ask_process_state(wrapper, None, this_host=HOST, this_ns=NS, process_info=info({})) is None
+    assert liveness.ask_process_state(wrapper, '{"provider_pid":4300}', this_host=HOST, this_ns=NS,
+                                      process_info=info({})) is None
+
+
+@pytest.mark.parametrize("leader,expected", [(None, None), ("replacement", False), ("original", True)])
+def test_posix_session_requires_the_original_leader(monkeypatch, leader, expected):
+    from unittest.mock import Mock
+
+    original = f"linux:{BOOT}:123"
+    replacement = f"linux:{BOOT}:456"
+    child = Mock(spec=psutil.Process, pid=PID + 1)
+    child.status.return_value = psutil.STATUS_RUNNING
+    monkeypatch.setattr(process_tree.sys, "platform", "linux")
+    monkeypatch.setattr(process_tree.os, "getsid", lambda _: PID, raising=False)
+    monkeypatch.setattr(process_tree, "boot_id", lambda: BOOT)
+    monkeypatch.setattr(process_tree, "process_identity",
+                        lambda *a, **kw: {"original": original, "replacement": replacement}.get(leader))
+    monkeypatch.setattr(psutil, "process_iter", lambda: iter([child]))
+    assert process_tree.provider_descendant(PID - 1, CREATED - 1, PID, CREATED, original) is expected
 
 
 def test_windows_orphan_parent_link_checks_when_the_child_was_born(monkeypatch):
