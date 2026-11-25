@@ -1,5 +1,4 @@
 """M2 ask metrics exercised with SQLite and scripted provider evidence."""
-from argparse import Namespace
 import json
 import sqlite3
 from contextlib import closing
@@ -38,7 +37,7 @@ def test_pool_delta_requires_exclusive_same_window_readings(second_start, second
 
 
 def test_pool_cost_uses_all_accepted_asks_in_cohort():
-    from peerhub.cli.profile_stats import aggregate_profile
+    from peerhub.extensions.profile_stats import aggregate_profile
 
     rows = [
         {"wall_seconds": 0, "input_tokens": 0, "pool_delta_pp": 6, "outcome": "rejected"},
@@ -75,7 +74,7 @@ def old_bridge():
 
 @pytest.fixture
 def recorded_usage(old_bridge, monkeypatch):
-    from peerhub.cli import profile_stats
+    from peerhub.extensions import profile_stats
     from peerhub.extensions.usage_normalization import normalize_provider_usage
 
     conn = old_bridge
@@ -134,7 +133,8 @@ def recorded_usage(old_bridge, monkeypatch):
 
 
 def test_stats_and_receipts_use_per_ask_token_deltas(recorded_usage, capsys):
-    from peerhub.cli.profile_stats import ask_measurements, ask_receipt
+    from peerhub.cli.profile_stats import render_ask_receipt
+    from peerhub.extensions.profile_stats import ask_measurements, read_receipt_measurements
 
     rows = {row["ask_id"]: row for row in ask_measurements(__file__)}
     assert [(rows[ask_id]["input_tokens"], rows[ask_id]["output_tokens"], rows[ask_id]["cache_read_pct"])
@@ -142,11 +142,9 @@ def test_stats_and_receipts_use_per_ask_token_deltas(recorded_usage, capsys):
         (None, None, None), (30_000, 500, 30), (None, None, None), (30_000, 500, 30),
         (None, None, None), (200_000, 50, 0), (None, None, None), (4000, 0, None),
     ]
-    args = Namespace(db=__file__, profile=None)
-    assert "tokens 30000/500/30%" in ask_receipt(args, {"requested_record_id": "ask-4"})
-    for ask_id in ("ask-id", "ask-5"):
-        assert "tokens -/-/-" in ask_receipt(args, {"requested_record_id": ask_id})
-    assert "tokens 4000/0/-" in ask_receipt(args, {"requested_record_id": "ask-9"})
+    for ask_id, tokens in (("ask-4", "30000/500/30%"), ("ask-id", "-/-/-"), ("ask-5", "-/-/-"), ("ask-9", "4000/0/-")):
+        metrics = read_receipt_measurements(__file__, ask_id)
+        assert f"tokens {tokens}" in render_ask_receipt(ask_id, None, metrics)
     assert main(["--db", __file__, "profile", "stats", "--json"]) == 0
     stats = {row["profile"]: row for row in json.loads(capsys.readouterr().out)["profiles"]}
     assert stats["cx.standard"]["tokens_per_ask"]["input_tokens"] == pytest.approx(260_000 / 3)
@@ -167,7 +165,7 @@ def test_resumed_budget_uses_selected_session_per_ask_prompt(recorded_usage):
 
 
 def test_profile_stats_text_is_a_compact_table(monkeypatch, capsys):
-    from peerhub.cli import profile_stats
+    from peerhub.extensions import profile_stats
     from peerhub._console import visible_len
 
     def profile(name, n, wall, cache, tokens_in, tokens_out, pool, bench, stale, coverage):
@@ -203,7 +201,7 @@ def test_profile_stats_text_is_a_compact_table(monkeypatch, capsys):
 
 
 def test_old_bridge_read_and_additive_outcome_migration(old_bridge):
-    from peerhub.cli.profile_stats import _ask_rows
+    from peerhub.extensions.profile_stats import _ask_rows
 
     conn = old_bridge
     before = conn.execute("SELECT * FROM records").fetchone()
@@ -322,7 +320,7 @@ def test_stream_budget_warning_precedes_only_a_resumed_invocation(tmp_path, monk
 
 
 def test_profile_check_uses_catalog_evidence_and_measurement_age(monkeypatch, capsys):
-    from peerhub.cli import profile_stats
+    from peerhub.extensions import profile_stats
 
     monkeypatch.setattr(profile_stats, "installed_models", lambda provider, workspace: {"gpt-6-luna"} if provider == "cx" else None)
     monkeypatch.setattr(profile_stats, "read_profile_stats", lambda db, workspace, profiles: [
@@ -338,7 +336,7 @@ def test_profile_check_uses_catalog_evidence_and_measurement_age(monkeypatch, ca
 def test_stats_marks_changed_bindings_and_reads_latest_benchmark(monkeypatch):
     from io import StringIO
     from pathlib import Path
-    from peerhub.cli import profile_stats
+    from peerhub.extensions import profile_stats
     from peerhub.extensions.adapters.profiles import list_profiles
 
     workspace = Path.cwd()
@@ -357,7 +355,7 @@ def test_stats_marks_changed_bindings_and_reads_latest_benchmark(monkeypatch):
 
 @pytest.mark.parametrize("json_mode", [False, True])
 def test_profile_list_keeps_catalog_when_telemetry_fails(monkeypatch, capsys, json_mode):
-    from peerhub.cli import profile_stats
+    from peerhub.extensions import profile_stats
     from peerhub.core.store import StorageCorruptError
 
     def unreadable(db):
@@ -380,7 +378,7 @@ def test_profile_list_keeps_catalog_when_telemetry_fails(monkeypatch, capsys, js
 
 def test_receipt_and_query_file_warning(monkeypatch, capsys):
     from pathlib import Path
-    from peerhub.cli import profile_stats
+    from peerhub.extensions import profile_stats
     from peerhub.extensions import ask as ask_module
 
     query = b"a" * (64 * 1024 + 1)

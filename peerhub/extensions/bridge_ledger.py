@@ -7,17 +7,15 @@ MAY_HAVE_STARTED to STARTED or TERMINAL. RETRY authorizes a new attempt row.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, cast
 
-from peerhub.core.models import Record
+from peerhub.core.models import Record, iso_timestamp, json_digest
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 from peerhub.core.store import CasMismatchError
 from peerhub.extensions import ask_budgets, bridge_registry, delivery_projections, session_receipts
@@ -63,14 +61,6 @@ class CycleResult:
     session_generation: int | None = None
     detail: dict[str, Any] = field(default_factory=dict[str, Any])
     session: dict[str, Any] | None = None
-
-
-def digest(obj: Any) -> str:
-    return hashlib.sha256(json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()).hexdigest()
-
-
-def iso_timestamp(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def reap_dead_asks(db_path: str | Path) -> int:
@@ -437,7 +427,7 @@ class BridgeLedger(BridgeControl):
         if not isinstance(result, dict) or "response" not in result:
             raise InvalidTerminalResultError("terminal result must be a dict with a 'response' key")
         try:
-            return digest(result)
+            return json_digest(result, strict=False)
         except (TypeError, ValueError) as e:
             raise InvalidTerminalResultError(f"terminal result is not strict JSON: {e}") from e
 
@@ -543,7 +533,7 @@ class BridgeLedger(BridgeControl):
                  m["vendor_session_id"], m["context_watermark"], m["usage_json"])).rowcount
             if won:
                 detail["session_bound"] = dict(
-                    vendor_session_digest=digest(vendor_id) if vendor_id else None,
+                    vendor_session_digest=json_digest(vendor_id, strict=False) if vendor_id else None,
                     watermark=watermark, binding=m["binding"], adapter_fingerprint=m["adapter_fingerprint"],
                     claim_generation=token.generation, session_generation=m["session_generation"],
                     execution_id=delivery["execution_id"])

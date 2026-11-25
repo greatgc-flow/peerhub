@@ -5,7 +5,8 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from peerhub._console import clean_text, finite_number
+from peerhub.core.text import clean_text
+from peerhub.core.scalars import finite_number
 from peerhub.cli.monitor_format import (
     PoolEntry,
     compact_pool,

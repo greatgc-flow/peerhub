@@ -5,7 +5,8 @@ import re
 from collections.abc import Mapping
 from typing import Any, cast
 
-from peerhub._console import clean_text, finite_number
+from peerhub.core.text import clean_text
+from peerhub.core.scalars import finite_number
 from peerhub.cli.monitor_layout import (
     PILL_SGR,
     RICH_SGR,

@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.cli import app, core_cmd, profile_stats
+from peerhub.cli import app, core_cmd
+from peerhub.extensions import profile_stats
 from peerhub.core import load_limits
 from peerhub.core.models import Peer
 

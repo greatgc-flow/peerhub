@@ -6,9 +6,8 @@ import sqlite3
 import sys
 from typing import Any
 
+from peerhub.cli.monitor_refresh import agy_token_command, agy_token_stop_message, monitor_auto_probe, refresh_monitor_quota
 from peerhub.cli.store_select import report_missing_store
-from peerhub.cli.support import (agy_token_command, agy_token_stop_message, monitor_auto_probe, refresh_monitor_quota,
-                                 refresh_with_profile_pools)
 
 
 def _cycle_exit_code(report: Any, refresh_code: int) -> int:
@@ -54,6 +53,8 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
             result = None
             if done % args.collect_every == 0:
                 if args.probe:
+                    from peerhub.cli.monitor_refresh import refresh_with_profile_pools
+
                     result = refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir,
                                                         deadline_sec=args.timeout)
                 elif auto_probe:

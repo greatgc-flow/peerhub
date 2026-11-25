@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from peerhub._console import clean_text, finite_number
+from peerhub.core.text import clean_text
+from peerhub.core.scalars import finite_number
 from peerhub.cli.monitor_activity_view import compact_activity, compact_leads, expanded_recent
 from peerhub.cli.monitor_alert_view import alert_section, decorate_verdict, verdict_line
 from peerhub.cli.monitor_format import na_pool_note, pool_gap

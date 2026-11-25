@@ -35,7 +35,7 @@ def test_helpers():
 
 @pytest.mark.parametrize("color", [False, True])
 def test_untrusted_peer_pool_and_reason_cannot_emit_terminal_controls(color):
-    from peerhub._console import strip_controls
+    from peerhub.core.text import strip_controls
     from peerhub.cli.view import _activity_lines, _credit_lines, _quota_table
     from peerhub.extensions.diag_read_model import QuotaRow
     payload = "peer\x1b[2J\x00\x07\x85pool"

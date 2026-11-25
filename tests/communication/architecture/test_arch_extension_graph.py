@@ -18,11 +18,12 @@ ALLOWED: dict[str, set[str]] = {
                         "bridge_sessions", "runtime_contract", "session_receipts"},
     "bridge_ledger": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_registry",
                       "delivery_projections", "liveness", "schema_guard", "session_receipts", "sqlite_tx"},
-    "bridge_schema": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_ledger", "bridge_registry", "schema_guard"},
+    "bridge_schema": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_registry", "schema_guard"},
     "bridge_sessions": {"bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger", "bridge_registry",
                         "catchup", "runtime_contract", "session_receipts"},
     "bridge_registry": {"delivery_projections", "session_receipts"},
     "ask_budgets": {"session_receipts"},
+    "profile_stats": {"ask_budgets", "quota_probes", "schema_guard", "session_receipts"},
     "delivery_projections": {"session_receipts", "usage_normalization"},
     "bridge_control": {"bridge_claims", "bridge_errors", "bridge_registry", "runtime_contract"},
     "session_receipts": {"usage_normalization"},
@@ -32,7 +33,7 @@ ALLOWED: dict[str, set[str]] = {
                          "monitor_values"},
     "monitor_alerts": {"liveness", "monitor_activity", "monitor_preferences", "monitor_queries", "monitor_quota", "monitor_values"},
     "monitor_queries": {"observation_model"},
-    "monitor_quota": {"monitor_queries", "monitor_values", "observation_model", "quota_projection", "quota_windows"},
+    "monitor_quota": {"monitor_queries", "observation_model", "quota_projection", "quota_windows"},
     "monitor_sessions": {"adapters", "monitor_queries", "monitor_values", "session_receipts", "usage_normalization"},
     "monitor_values": {"adapters"},
     "caller": {"process_tree"},
@@ -127,7 +128,7 @@ def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
           "ask_budgets", "delivery_projections", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",
-          "diag_read_model", "quota_windows"}
+          "diag_read_model", "quota_windows", "profile_stats"}
     helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:

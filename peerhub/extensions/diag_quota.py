@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, cast
 
 from peerhub._exit_codes import DIAG_EXIT_BY_STATUS
+from peerhub.core.models import iso_timestamp
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
 from peerhub.extensions.observation_model import (
+    QUOTA_MAX_AGE_SECONDS,
     FreshnessPolicy,
     MEASUREMENT_KEYS,
     QUOTA_NOTICE_AGE_SECONDS,
@@ -80,10 +81,6 @@ def projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
 
 
 
-def _iso(ts: int) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _ts(v: object) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 253402300800 else None
 
@@ -106,14 +103,14 @@ def _reset_credit_view(it: dict[str, Any], now: float) -> dict[str, Any]:
                 continue
             left = exp - now
             credits.append({"id_hash": hashlib.sha256(str(c.get("id_ref")).encode()).hexdigest()[:12], "reset_type": c.get("reset_type"),
-                            "status": c.get("status"), "granted_at": c.get("granted_at"), "expires_at": _iso(exp),
+                            "status": c.get("status"), "granted_at": c.get("granted_at"), "expires_at": iso_timestamp(exp),
                             "hours_until_expiry": left / _SECONDS_PER_HOUR, "title": c.get("title"),
                             "warn": c.get("status") == "available" and left < RESET_CREDIT_WARN_SECONDS})
     nearest = _ts(p.get("nearest_expires_at")) if shown else None
     left_n = None if nearest is None else nearest - now
     return {"subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "state": it["state"], "age_seconds": it["age_seconds"],
             "source": it["source"], "condition": p.get("condition"), "available_count": count if shown else None,
-            "nearest_expires_at": None if nearest is None else _iso(nearest),
+            "nearest_expires_at": None if nearest is None else iso_timestamp(nearest),
             "hours_until_nearest_expiry": None if left_n is None else left_n / _SECONDS_PER_HOUR,
             "warn": left_n is not None and left_n < RESET_CREDIT_WARN_SECONDS, "credits": credits}
 
@@ -194,6 +191,14 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
         out["status"] = "PARTIAL"
     out["overall"] = "OK" if any(i["state"] in ("MEASURED", "STALE") for g in pools for i in g["items"]) else "UNKNOWN"
     return out
+
+
+def quota_items(db_path: str | Path, *, peer: str | None = None) -> list[dict[str, Any]]:
+    """Read quota items for scheduling with the advisory age limit inclusive."""
+    # Observation freshness compares age >= TTL at microsecond precision. Keep readings exactly at the age limit fresh.
+    policy = FreshnessPolicy(by_kind={"quota": QUOTA_MAX_AGE_SECONDS + .000001})
+    report = quota_report(db_path, peer=peer, policy=policy)
+    return [item for group in report["pools"] for item in group["items"] if item["kind"] == "quota"]
 
 
 def _num(value: object) -> float | None:

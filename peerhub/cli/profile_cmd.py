@@ -68,7 +68,8 @@ def run_profile(args: argparse.Namespace) -> int:
             profile = inspect_profile(args.profile, workspace, include_meta=True)
             payload: dict[str, Any] = {"schema_version": "1.0", "workspace": str(workspace), **profile}
         else:
-            from peerhub.cli.profile_stats import check_profiles, read_profile_stats, render_profile_stats
+            from peerhub.cli.profile_stats import render_profile_stats
+            from peerhub.extensions.profile_stats import check_profiles, read_profile_stats
             profiles = list_profiles(workspace, include_meta=True)
             try:
                 stats = read_profile_stats(args.db, workspace, profiles)

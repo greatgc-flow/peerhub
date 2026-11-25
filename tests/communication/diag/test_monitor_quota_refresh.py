@@ -9,7 +9,8 @@ from threading import Event
 import pytest
 
 from peerhub._console import ANSI_ESCAPE
-from peerhub.cli import monitor, monitor_layout, monitor_view, support
+from peerhub.cli import monitor, monitor_layout, monitor_view, monitor_refresh
+from peerhub.extensions import diag_quota, quota_capture
 from peerhub.cli.app import main
 from peerhub.extensions.diag_quota import format_quota_table
 from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, QUOTA_NOTICE_AGE_SECONDS
@@ -172,8 +173,8 @@ class _Terminal(io.StringIO):
 
 
 @pytest.mark.parametrize("options,disabled,age,expected", [
-    ([], False, None, True), ([], False, support.QUOTA_TTL_SECONDS + 1, True),
-    ([], False, support.QUOTA_TTL_SECONDS, False),
+    ([], False, None, True), ([], False, monitor_refresh.QUOTA_TTL_SECONDS + 1, True),
+    ([], False, monitor_refresh.QUOTA_TTL_SECONDS, False),
     (["--no-probe"], False, None, False), ([], True, None, False),
 ])
 def test_finite_watch_retains_automatic_collection_cadence(monkeypatch, options, disabled, age, expected):
@@ -181,9 +182,9 @@ def test_finite_watch_retains_automatic_collection_cadence(monkeypatch, options,
     monkeypatch.setattr("peerhub._console.enable_vt", lambda: False)
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: _frame([]))
-    monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [] if age is None else [
+    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [] if age is None else [
         {"kind": "quota", "subject_ref": "cc", "age_seconds": age}])
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True), raising=False)
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True), raising=False)
     monkeypatch.delenv("PEERHUB_MONITOR_PROBE", raising=False)
     if disabled:
         monkeypatch.setenv("PEERHUB_MONITOR_PROBE", "off")
@@ -195,13 +196,13 @@ def test_finite_watch_retains_automatic_collection_cadence(monkeypatch, options,
 
 
 def test_dispatch_skips_when_guard_is_busy_or_peer_refreshed(monkeypatch):
-    monkeypatch.setattr(support, "refresh_with_profile_pools", lambda *a: pytest.fail("unexpected refresh"))
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(False), raising=False)
-    monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [])
-    support.refresh_dispatch_quota(Path(__file__), "cc")
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True))
-    monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [{"subject_ref": "cc", "age_seconds": 60}])
-    support.try_quota_refresh(__file__, ["cc"])
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", lambda *a: pytest.fail("unexpected refresh"))
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(False), raising=False)
+    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [])
+    monitor_refresh.refresh_dispatch_quota(Path(__file__), "cc")
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [{"subject_ref": "cc", "age_seconds": 60}])
+    monitor_refresh.try_quota_refresh(__file__, ["cc"])
 
 
 @pytest.mark.parametrize("failure", ["reader", "collector"])
@@ -212,10 +213,10 @@ def test_dispatch_refresh_failure_is_quiet(monkeypatch, capsys, failure):
         calls.append(failure)
         raise ValueError("invalid quota profile configuration")
 
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True))
-    monkeypatch.setattr(support, "quota_items", fail if failure == "reader" else lambda *a, **kw: [])
-    monkeypatch.setattr(support, "refresh_with_profile_pools", fail)
-    support.refresh_dispatch_quota(Path(__file__), "cc")
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr(diag_quota, "quota_items", fail if failure == "reader" else lambda *a, **kw: [])
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", fail)
+    monitor_refresh.refresh_dispatch_quota(Path(__file__), "cc")
     assert calls == [failure]
     assert capsys.readouterr() == ("", "")
 
@@ -228,11 +229,11 @@ def test_dispatch_does_not_wait_for_a_blocked_collector(monkeypatch):
         release.wait(5)
         done.set()
 
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True))
-    monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [])
-    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [])
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
     try:
-        support.refresh_dispatch_quota(Path(__file__), "cc")
+        monitor_refresh.refresh_dispatch_quota(Path(__file__), "cc")
         assert collecting.wait(1) and not done.is_set()
     finally:
         release.set()
@@ -243,10 +244,10 @@ def test_live_watch_rechecks_after_acquiring_guard(monkeypatch):
     from argparse import Namespace
 
     readings = iter([[], [{"subject_ref": "cc", "age_seconds": 30}]])
-    monkeypatch.setattr(support, "quota_items", lambda *_: next(readings))
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True))
-    monkeypatch.setattr(support, "refresh_with_profile_pools", lambda *a, **kw: pytest.fail("duplicate refresh"))
-    assert support.refresh_monitor_quota(Namespace(db=__file__, peers=["cc"])) is None
+    monkeypatch.setattr(diag_quota, "quota_items", lambda *_: next(readings))
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", lambda *a, **kw: pytest.fail("duplicate refresh"))
+    assert monitor_refresh.refresh_monitor_quota(Namespace(db=__file__, peers=["cc"])) is None
 
 
 @pytest.mark.parametrize("command", [["monitor", "--snapshot", "--group", "capacity"],
@@ -260,7 +261,7 @@ def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: _frame([]))
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: pytest.fail("refresh in reader"))
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a: pytest.fail("lock in reader"))
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a: pytest.fail("lock in reader"))
     rep = DiagnosticReport(status="OK", read_at=1_800_000_000, snapshot={}, sections={
         "observations": Section("observations", "OK", {"items": []}),
         "resource_pools": Section("resource_pools", "OK", {"pools": []}),
@@ -271,7 +272,6 @@ def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
 
 
 def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatch):
-    from peerhub.extensions import quota_capture
     from peerhub.extensions.quota_probes.common import fail_closed
     from peerhub.extensions.quota_types import EvidenceState
 
@@ -303,7 +303,6 @@ def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatc
 def test_busy_quota_timeout_has_a_scaled_deadline_and_a_display_reason(monkeypatch, raised):
     from peerhub.cli.view import _probe_line
     from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
-    from peerhub.extensions import quota_capture
     from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY
     from peerhub.extensions.quota_probes.common import fail_closed
     from peerhub.extensions.quota_types import EvidenceState
@@ -340,22 +339,22 @@ def test_busy_quota_timeout_has_a_scaled_deadline_and_a_display_reason(monkeypat
 
 
 def test_pid_lock_reaps_dead_owner_and_bounds_wait_for_live_owner(tmp_path, monkeypatch):
-    from peerhub.extensions.batch import store_scratch_dir
+    from peerhub.core.workspace import store_scratch_dir
 
     db = tmp_path / "custom.db"
     lock_file = store_scratch_dir(db) / "quota-refresh.lock"
     lock_file.parent.mkdir(parents=True)
     lock_file.write_text(str(os.getpid()), encoding="ascii")
     os.utime(lock_file, (1_700_000_000, 1_700_000_000))
-    monkeypatch.setattr(support, "QUOTA_LOCK_WAIT_SECONDS", .02)
-    with support.quota_refresh_lock(db) as locked:
+    monkeypatch.setattr(quota_capture, "QUOTA_LOCK_WAIT_SECONDS", .02)
+    with quota_capture.quota_refresh_lock(db) as locked:
         assert not locked
     monkeypatch.setattr("psutil.pid_exists", lambda pid: pid == os.getpid())
     lock_file.write_text(str(os.getpid() + 1), encoding="ascii")
-    with support.quota_refresh_lock(db) as locked:
+    with quota_capture.quota_refresh_lock(db) as locked:
         assert locked
         assert lock_file.read_text(encoding="ascii") == str(os.getpid())
-        with support.quota_refresh_lock(db) as second:
+        with quota_capture.quota_refresh_lock(db) as second:
             assert not second
-    with support.quota_refresh_lock(db) as locked:
+    with quota_capture.quota_refresh_lock(db) as locked:
         assert locked

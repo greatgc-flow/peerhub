@@ -1,7 +1,6 @@
-"""Validate scalar values and sanitize public monitor text."""
+"""Sanitize and interpret public monitor text."""
 from __future__ import annotations
 
-import math
 import re
 import unicodedata
 from datetime import datetime
@@ -69,15 +68,6 @@ def display_text(value: object, cap: int, secrets: list[str]) -> str | None:
     from peerhub.extensions.adapters.sanitize import Sanitizer
     shown = fit_line(Sanitizer(secrets).clean(_strip_controls(value)), cap)
     return shown or None
-
-
-def finite_number(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        return float(value) if math.isfinite(value) else None
-    except OverflowError:  # an integer of 2**1024 or more
-        return None
 
 
 def iso_seconds(value: object) -> float | None:

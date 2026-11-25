@@ -18,10 +18,12 @@ from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.support import (MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
-                                 print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
 from peerhub.cli.monitor_legend import MONITOR_LEGEND, POOL_LEGEND
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
+from peerhub.cli.monitor_refresh import (
+    MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, monitor_auto_probe, refresh_monitor_quota,
+)
+from peerhub.cli.support import error_line, print_warnings
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
 from peerhub.core.monitor_groups import GROUP_IDS
 
@@ -449,6 +451,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 if args.probe:
                     if output.live:
                         redraw("REFRESHING", 0)
+                    from peerhub.cli.monitor_refresh import refresh_with_profile_pools
+
                     result = refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir,
                                                         deadline_sec=args.timeout)
                 elif auto_probe:

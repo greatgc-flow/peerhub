@@ -17,7 +17,7 @@ from peerhub.extensions.monitor_queries import (
     quota_age_rows,
     quota_evidence_rows,
 )
-from peerhub.extensions.monitor_values import finite_number
+from peerhub.core.scalars import finite_number
 from peerhub.extensions.observation_model import (
     ABSENT_FACT_REASONS,
     LOW_QUOTA_FRACTION,
@@ -245,16 +245,16 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
             evidence = item.get("stored_state")  # an aged ABSENT or failed reading is not a stale measurement
         raw_m: object = item.get("measurements")
         measured = cast(dict[str, Any], raw_m) if isinstance(raw_m, dict) else {}
-        remaining = finite_number(measured.get("remaining_fraction")) if evidence == "MEASURED" else None
+        remaining = finite_number(measured.get("remaining_fraction"), overflow_is_missing=True) if evidence == "MEASURED" else None
         if remaining is not None and not 0 <= remaining <= 1:
             remaining = None
         fresh = remaining is not None
         raw_p: object = item.get("projection")
         projection = cast(dict[str, Any], raw_p) if isinstance(raw_p, dict) else {}
-        reset_in = finite_number(item.get("reset_in_seconds"))
-        count = finite_number(item.get("projection_samples"))
+        reset_in = finite_number(item.get("reset_in_seconds"), overflow_is_missing=True)
+        count = finite_number(item.get("projection_samples"), overflow_is_missing=True)
         if count is None:
-            count = finite_number((samples or {}).get(str(item.get("observation_id"))))
+            count = finite_number((samples or {}).get(str(item.get("observation_id"))), overflow_is_missing=True)
         threat = projection.get("state") == "threat" and (count or 0) >= 2
 
         def graded(fraction: float, otherwise: str) -> str:
@@ -367,10 +367,10 @@ def read_quota_groups(conn: sqlite3.Connection, groups: list[str], output: dict[
                 )
                 measurements = None
                 reset_in_seconds = None
-                checked_remaining = finite_number(remaining) if used_fraction is not None else None  # the value validated above
+                checked_remaining = finite_number(remaining, overflow_is_missing=True) if used_fraction is not None else None  # the value validated above
                 if freshness.state.value == "STALE" and checked_remaining is not None:  # alerts only: public value stays None
                     stale_resets: object = observation.payload.get("resets_at")
-                    last_known[observation.observation_id] = (checked_remaining, finite_number(stale_resets))
+                    last_known[observation.observation_id] = (checked_remaining, finite_number(stale_resets, overflow_is_missing=True))
                 if row["projection_samples"] is not None:  # from the capacity statement itself, on every path
                     sample_counts[observation.observation_id] = int(row["projection_samples"])
                 if freshness.state.value == "MEASURED":

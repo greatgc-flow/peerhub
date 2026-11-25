@@ -1,32 +1,18 @@
-"""Terminal output, display cells, and shell command formatting."""
+"""Terminal output and display cells."""
 from __future__ import annotations
 
-import math
 import os
 import re
-import shlex
 import shutil
 import sys
 import unicodedata
 from collections.abc import Mapping
 from typing import Any, TextIO
 
+from peerhub.core.text import strip_controls
+
 _warned_encoding = False
-_POWERSHELL_QUOTES = str.maketrans({quote: quote * 2 for quote in "'‘’"})
-
-_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x1b\\|\x07)")  # SGR, and OSC 8 (a hyperlink's open and close)
-_BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
-         *[chr(code) for code in range(0x2066, 0x206A)]}
-
-
-def format_shell_command(argv: list[str]) -> str:
-    """Render argv for PowerShell on Windows or a POSIX shell elsewhere."""
-    if os.name == "nt":
-        # PowerShell also treats typographic single quotes as delimiters.
-        return " ".join(arg if arg.replace(".", "").replace("-", "").isalnum()
-                        else "'" + arg.translate(_POWERSHELL_QUOTES) + "'" for arg in argv)
-    return shlex.join(argv)
 
 
 class _EncodingWarningStream:
@@ -227,23 +213,9 @@ class FrameOutput:
         return 100, 24
 
 
-def strip_controls(value: object) -> str:
-    """Remove terminal controls from data before adding presentation escapes."""
-    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(value))
-
-
 def visible_len(text: str) -> int:
     return sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
                for c in ANSI_ESCAPE.sub("", text))
-
-
-def clean_text(value: object) -> str:
-    """Normalize untrusted text to a single printable monitor label."""
-    text = str(value).replace("\r\n", " ").replace("\n", " ").replace("\r", " ").replace("\t", " ")
-    text = _CONTROL.sub("�", text)
-    return "".join("�" if char in _BIDI or unicodedata.category(char) in {"Cf", "Cn", "Cs", "Zl", "Zp"}
-                   and char != "\u200d" else char
-                   for char in text).strip()
 
 
 def ellipsize(text: str, limit: int, unicode: bool = True) -> str:
@@ -266,13 +238,6 @@ def pad_cell(text: str, width: int) -> str:
 def format_text_cell(text: str, width: int) -> str:
     """Fit a data label to a fixed number of terminal columns."""
     return pad_cell(ellipsize(strip_controls(text), width, unicode=False), width)
-
-
-def finite_number(value: object) -> float | None:
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return None
-    number = float(value)
-    return number if math.isfinite(number) else None
 
 
 def use_color(stream_is_tty: bool, env: Mapping[str, str]) -> bool:

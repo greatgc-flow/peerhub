@@ -33,6 +33,12 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
+def store_scratch_dir(db: str | Path) -> Path:
+    """Locate scratch files beside the selected store."""
+    store_dir = Path(db).resolve().parent
+    return (store_dir if store_dir.name == ".peerhub" else store_dir / ".peerhub") / "tmp"
+
+
 def restore_intent_path(root: Path) -> Path:
     """Marker written (durably) before restore_authoritative moves a workspace aside; names the fallback directory."""
     root = Path(root).resolve()

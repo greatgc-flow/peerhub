@@ -32,7 +32,7 @@ def run_observation(args: argparse.Namespace) -> int:
         return 5
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     CoreStore(args.db)  # explicit --db/PEERHUB_DB retains collection bootstrap semantics
-    from peerhub.cli.support import refresh_with_profile_pools
+    from peerhub.cli.monitor_refresh import refresh_with_profile_pools
     result = refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
     emit(result, args.json)
     print_warnings(result)

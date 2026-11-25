@@ -83,8 +83,8 @@ def test_arch_extensions_do_not_import_cli():
     extensions = _package_modules("extensions")
     assert "peerhub.extensions.monitor_read_model" in extensions
     bad = {mod: via for mod, via in _reachable(extensions).items()
-           if mod == "peerhub.cli" or mod.startswith("peerhub.cli.")}
-    assert not bad, f"Extensions reach CLI: {bad}"
+           if mod.split(".")[:2] in (["peerhub", "cli"], ["peerhub", "_console"])}
+    assert not bad, f"Extensions reach terminal or CLI code: {bad}"
 
 
 @pytest.mark.catalog_id("ARCH-002")

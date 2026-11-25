@@ -13,22 +13,25 @@ from tests.communication.fakes import FakeRuntimeTarget
 
 @pytest.mark.parametrize("failure", ["collector", "callback"])
 def test_cli_ask_dispatches_despite_quota_refresh_value_error(tmp_path, monkeypatch, capsys, failure):
-    from peerhub.cli import main, support
+    from peerhub.cli import main, monitor_refresh
+    from peerhub.extensions import diag_quota, quota_capture
     from peerhub.extensions import ask as module
 
     runtime = FakeRuntimeTarget()
     runtime.script_deliver(("started", "exec-1"), ("terminal", {"response": "answer"}))
     monkeypatch.setattr(module, "CliRuntimeTarget", lambda *a, **kw: runtime)
-    monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [])
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [])
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
     calls = []
 
     def fail(*args, **kwargs):
         calls.append(failure)
         raise ValueError("invalid quota profile configuration")
 
-    name = "refresh_with_profile_pools" if failure == "collector" else "refresh_dispatch_quota"
-    monkeypatch.setattr(support, name, fail)
+    if failure == "collector":
+        monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", fail)
+    else:
+        monkeypatch.setattr(monitor_refresh, "refresh_dispatch_quota", fail)
     db = tmp_path / "core.db"
     assert main(["--db", str(db), "ask", "cx", "question", "--json"]) == 0
     out = capsys.readouterr()

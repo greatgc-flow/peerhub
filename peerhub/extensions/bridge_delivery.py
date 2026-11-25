@@ -7,12 +7,12 @@ import sqlite3
 import time
 from typing import Any, Callable, cast
 
-from peerhub.core.models import Record
+from peerhub.core.models import Record, json_digest
 from peerhub.extensions import ask_budgets, session_receipts
 from peerhub.extensions.bridge_claims import ClaimStore, ClaimToken, StaleClaimError
 from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED, TERMINAL, is_control_kind
 from peerhub.extensions.bridge_errors import InvocationMarkerError, NoDeliveryError, OffsetAckConflictError, SessionBridgeError
-from peerhub.extensions.bridge_ledger import CycleResult, digest
+from peerhub.extensions.bridge_ledger import CycleResult
 from peerhub.extensions.bridge_sessions import BridgeSessions
 from peerhub.extensions.runtime_contract import ContextLostError, PrespawnError, RuntimeTarget, RuntimeTargetError
 
@@ -204,7 +204,7 @@ class BridgeDelivery(BridgeSessions):
             result = dict(response=None, error=error, session=session_receipts.snapshot(row))
             if row["result_digest"] is None:
                 conn.execute("UPDATE bridge_deliveries SET result_json=?,result_digest=? WHERE delivery_id=?",
-                             (session_receipts.dumps(result), digest(result), did))
+                             (session_receipts.dumps(result), json_digest(result, strict=False), did))
                 self._evidence(conn, token.stream_id, token.peer_id, "request_rejected", did, NOT_STARTED, **result)
             off = conn.execute("SELECT revision,read_through_position FROM offsets WHERE stream_id=? AND peer_id=?", (token.stream_id, token.peer_id)).fetchone()
             if off is None:
@@ -400,7 +400,8 @@ class BridgeDelivery(BridgeSessions):
             row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
             if row["result_digest"] is None:
                 refused = dict(response=None, session=session_receipts.snapshot(row), error=dict(code=detail["reason"], message=detail.get("message", detail["reason"])), **detail)
-                conn.execute("UPDATE bridge_deliveries SET result_json=?,result_digest=? WHERE delivery_id=?", (session_receipts.dumps(refused), digest(refused), did))
+                conn.execute("UPDATE bridge_deliveries SET result_json=?,result_digest=? WHERE delivery_id=?",
+                             (session_receipts.dumps(refused), json_digest(refused, strict=False), did))
                 session_receipts.telemetry(conn, row, self.claims.now(), provider_candidate)
         # Durable refusal evidence authorizes recovery at each boundary. Keep the
         # delivery in flight until both session invalidation and offset commit.

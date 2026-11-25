@@ -23,6 +23,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed (internal)
 
+- Consolidate scalar, text, timestamp, and digest helpers in Core, unify CLI quota refresh scheduling, and move profile telemetry into its extension.
 - Split quota and account probes into provider modules with shared probe helpers.
 - Split the Claude Code, Codex, and Antigravity CLI adapters into provider modules. Antigravity owns stream parsing and transport detection.
 - Split session receipts, delivery projections, and ask budgets into separate modules and moved provider usage validation alongside normalization.

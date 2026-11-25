@@ -12,7 +12,8 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub import _console
-from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_view, support
+from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_view, monitor_refresh
+from peerhub.extensions import quota_capture
 from peerhub.cli.app import main
 from peerhub.extensions import monitor_read_model
 from peerhub.extensions.quota_probes import common, poll_claude_usage
@@ -45,10 +46,10 @@ def test_per_peer_due_at_lead_with_missing_and_partial_pools():
     from peerhub.cli.monitor_refresh import RefreshSchedule
     from peerhub.extensions.observation_model import QUOTA_TTL_SECONDS, FreshnessPolicy
 
-    lead = support.MONITOR_REFRESH_LEAD_SECONDS
+    lead = monitor_refresh.MONITOR_REFRESH_LEAD_SECONDS
     due = QUOTA_TTL_SECONDS - lead
     assert FreshnessPolicy().ttl_for("quota") == QUOTA_TTL_SECONDS
-    assert 0 < support.MONITOR_PROBE_MAX_TIMEOUT_SECONDS < lead < QUOTA_TTL_SECONDS
+    assert 0 < monitor_refresh.MONITOR_PROBE_MAX_TIMEOUT_SECONDS < lead < QUOTA_TTL_SECONDS
     configured = {"cc": {"quota:cc:C-7D", "quota:cc:C-5H"}, "cx": {"quota:cx:X-7D"}}
     schedule = RefreshSchedule(configured)
     now = 500.0
@@ -70,7 +71,7 @@ def test_per_peer_due_at_lead_with_missing_and_partial_pools():
     schedule.completed(("cc", "cx"), {"status": "PARTIAL", "observations": [
         _result("cc", "C-7D"), _result("cx", "X-7D"),
     ]}, finish)
-    cooldown = support.QUOTA_REFRESH_COOLDOWN_SECONDS
+    cooldown = monitor_refresh.QUOTA_REFRESH_COOLDOWN_SECONDS
     assert schedule.next_in(finish) == cooldown
     assert schedule.due(finish + cooldown - 1) == ()
     assert schedule.due(finish + cooldown) == ("cc",)
@@ -96,7 +97,7 @@ def test_prior_fresh_window_does_not_make_partial_probe_complete():
     schedule.completed(("cc", "cx"), {"status": "OK", "observations": [
         _result("cc", "C-7D"), _result("cx", "X-7D"),
     ]}, now)
-    assert schedule.due(now + support.QUOTA_REFRESH_COOLDOWN_SECONDS) == ("cc",)
+    assert schedule.due(now + monitor_refresh.QUOTA_REFRESH_COOLDOWN_SECONDS) == ("cc",)
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -104,7 +105,7 @@ def test_slow_failed_refresh_ages_the_same_committed_value(expand):
     from peerhub.extensions.observation_model import QUOTA_TTL_SECONDS
 
     row = pool("cc", "C-7D", .5)
-    row.update(age_seconds=support.MONITOR_QUOTA_MAX_AGE_SECONDS, ttl_seconds=QUOTA_TTL_SECONDS)
+    row.update(age_seconds=monitor_refresh.MONITOR_QUOTA_MAX_AGE_SECONDS, ttl_seconds=QUOTA_TTL_SECONDS)
     payload = _payload([], [row])
     payload["_live_refresh"] = {"heartbeat": 0, "peers": ["cc"], "elapsed": 0}
 
@@ -115,11 +116,11 @@ def test_slow_failed_refresh_ages_the_same_committed_value(expand):
         return next(line.split()[2] for line in frame.splitlines() if line.startswith(" cc C-7D"))
 
     assert pool_state(rendered()) == "ok"
-    payload["display_elapsed_seconds"] = support.MONITOR_REFRESH_LEAD_SECONDS
-    payload["_live_refresh"]["elapsed"] = support.MONITOR_REFRESH_LEAD_SECONDS
+    payload["display_elapsed_seconds"] = monitor_refresh.MONITOR_REFRESH_LEAD_SECONDS
+    payload["_live_refresh"]["elapsed"] = monitor_refresh.MONITOR_REFRESH_LEAD_SECONDS
     during = rendered()
     assert pool_state(during) == "aged" and "refreshing cc" in during
-    payload["_live_refresh"].update(peers=[], failed_ago=0, retry_in=support.QUOTA_REFRESH_COOLDOWN_SECONDS)
+    payload["_live_refresh"].update(peers=[], failed_ago=0, retry_in=monitor_refresh.QUOTA_REFRESH_COOLDOWN_SECONDS)
     failed = rendered()
     assert pool_state(failed) == "aged" and "refresh failed" in failed
     assert row["state"] == "MEASURED"
@@ -183,7 +184,7 @@ def test_job_commits_each_peer_before_starting_the_next(monkeypatch, second_stat
     second = _result("cx", "X-7D")
 
     def collect(db, peers, **options):
-        assert options["deadline_sec"] == support.MONITOR_PROBE_MAX_TIMEOUT_SECONDS
+        assert options["deadline_sec"] == monitor_refresh.MONITOR_PROBE_MAX_TIMEOUT_SECONDS
         calls.append(peers)
         if peers == ("cc",):
             committed.append(first)
@@ -195,9 +196,9 @@ def test_job_commits_each_peer_before_starting_the_next(monkeypatch, second_stat
             committed.append(second)
         return {"status": second_status, "observations": [second], "warnings": ["cx warning"]}
 
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
-    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
-    args = argparse.Namespace(db=__file__, sys_dir=None, timeout=support.MONITOR_REFRESH_LEAD_SECONDS)
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
+    args = argparse.Namespace(db=__file__, sys_dir=None, timeout=monitor_refresh.MONITOR_REFRESH_LEAD_SECONDS)
     peers = ("cc", "cx")
     job = RefreshJob(args, peers, dict.fromkeys(peers, set()), force=True, retry=())
     job._run(args, dict.fromkeys(peers, set()), True, ())
@@ -213,8 +214,8 @@ def test_job_commits_each_peer_before_starting_the_next(monkeypatch, second_stat
 def test_job_reports_failed_if_every_peer_fails(monkeypatch):
     from peerhub.cli.monitor_refresh import RefreshJob
 
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
-    monkeypatch.setattr(support, "refresh_with_profile_pools", lambda db, peers, **kw: {
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", lambda db, peers, **kw: {
         "status": "FAILED", "warnings": list(peers),
     })
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
@@ -236,8 +237,8 @@ def test_job_cancelled_during_one_peer_skips_the_next(monkeypatch):
         options["cancellation"].stop()
         return {"status": "OK"}
 
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
-    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
     peers = ("cc", "cx")
     required = dict.fromkeys(peers, set())
@@ -250,11 +251,10 @@ def test_job_cancelled_during_one_peer_skips_the_next(monkeypatch):
 
 @pytest.mark.parametrize("expand", [False, True])
 def test_watch_defers_a_lock_timeout_without_reporting_failure(monkeypatch, expand):
-    from peerhub.cli import monitor_refresh
 
     now = 100.0
     launches, frames = [], []
-    last = now + support.MONITOR_TICK_SECONDS + support.QUOTA_REFRESH_COOLDOWN_SECONDS
+    last = now + monitor_refresh.MONITOR_TICK_SECONDS + monitor_refresh.QUOTA_REFRESH_COOLDOWN_SECONDS
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
@@ -263,8 +263,8 @@ def test_watch_defers_a_lock_timeout_without_reporting_failure(monkeypatch, expa
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *a, **kw: full_payload())
     monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
-    monkeypatch.setattr(support, "configured_pools", lambda *a: ["C-7D"])
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(False))
+    monkeypatch.setattr(monitor_refresh, "configured_pools", lambda *a: ["C-7D"])
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(False))
     monkeypatch.setattr(monitor, "monotonic", lambda: now)
     start_job = monitor_refresh.RefreshJob.start
 
@@ -281,8 +281,8 @@ def test_watch_defers_a_lock_timeout_without_reporting_failure(monkeypatch, expa
         if now >= last:
             raise KeyboardInterrupt
         # Observe the first deferred frame and both sides of the retry deadline.
-        if now == last - support.QUOTA_REFRESH_COOLDOWN_SECONDS:
-            now = last - support.MONITOR_TICK_SECONDS
+        if now == last - monitor_refresh.QUOTA_REFRESH_COOLDOWN_SECONDS:
+            now = last - monitor_refresh.MONITOR_TICK_SECONDS
             return
         now += seconds
 
@@ -297,7 +297,6 @@ def test_watch_defers_a_lock_timeout_without_reporting_failure(monkeypatch, expa
 
 @pytest.mark.parametrize("forced", [False, True])
 def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, forced):
-    from peerhub.cli import monitor_refresh
 
     started, release = Event(), Event()
     frames, reads, captures, geometries, jobs = [], [], [], [], []
@@ -313,8 +312,8 @@ def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, 
     monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *a, **kw: reads.append(now) or full_payload())
     monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: (
         [_reading("cc", "C-7D", now - 103)] if release.is_set() else []))
-    monkeypatch.setattr(support, "configured_pools", lambda *a: ["C-7D"])
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(monitor_refresh, "configured_pools", lambda *a: ["C-7D"])
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
     monkeypatch.setattr(monitor, "monotonic", lambda: now)
 
     def collect(db, peers, **options):
@@ -323,7 +322,7 @@ def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, 
         assert release.wait(2)
         return {"status": "OK", "observations": [_result("cc", "C-7D")]}
 
-    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
     start_job = monitor_refresh.RefreshJob.start
 
     def launch(*args, **kwargs):
@@ -359,7 +358,7 @@ def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, 
     finally:
         release.set()
     assert len(captures) == 1 and captures[0][0] != ui_thread
-    assert list(captures[0][1]) == ["cc"] and captures[0][2] == support.MONITOR_PROBE_MAX_TIMEOUT_SECONDS
+    assert list(captures[0][1]) == ["cc"] and captures[0][2] == monitor_refresh.MONITOR_PROBE_MAX_TIMEOUT_SECONDS
     assert len(reads) == 2
     assert len(geometries) == len(frames) >= 4 and all(thread == ui_thread for thread, _ in frames)
     titles = [frame.splitlines()[1] for _, frame in frames]
@@ -374,7 +373,6 @@ def posix_probe_cleanup(monkeypatch):
 
 
 def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monkeypatch, posix_probe_cleanup):
-    from peerhub.cli import monitor_refresh
 
     started, killed = Event(), Event()
     processes = []
@@ -406,8 +404,8 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
     monkeypatch.setattr(subprocess, "Popen", Process)
     monkeypatch.setattr(common, "kill_process_tree", kill)
     monkeypatch.setattr(common, "real_command", lambda *a: ["fake-claude"])
-    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
-    monkeypatch.setattr(support, "configured_pools", lambda *a: [])
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(monitor_refresh, "configured_pools", lambda *a: [])
     monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.setattr(_console, "enable_vt", lambda: True)
@@ -425,7 +423,7 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
                                        cancellation=options["cancellation"])
         return {"status": "OK"}
 
-    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
     args = argparse.Namespace(db=__file__, db_source="explicit", json=False, view="plain", cycles=0,
                               interval=60, collect_every=1, peers=["cc"], probe=True, no_probe=False,
                               sys_dir=None, timeout=15, allow_agy_token_use=False)
@@ -472,8 +470,8 @@ def test_job_cleans_up_a_lingering_probe_before_releasing_the_guard(monkeypatch,
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: process)
     monkeypatch.setattr(common, "kill_process_tree", lambda proc, **kw: events.append(proc) or True)
-    monkeypatch.setattr(support, "quota_refresh_lock", guard)
-    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", guard)
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
     job = RefreshJob.start(args, ("cc",), force=True, required={"cc": set()})
     assert job is not None
@@ -537,13 +535,13 @@ def test_a_deferred_peer_that_another_process_refreshed_is_not_due_again_at_the_
     from peerhub.cli.monitor_refresh import RefreshSchedule
 
     schedule = RefreshSchedule({"cc": {"quota:cc:C-7D"}})
-    stale = support.MONITOR_QUOTA_MAX_AGE_SECONDS + 5
+    stale = monitor_refresh.MONITOR_QUOTA_MAX_AGE_SECONDS + 5
     schedule.update([_reading("cc", "C-7D", stale)], 100.0)
     assert schedule.due(100.0) == ("cc",)
     schedule.deferred(("cc",), 100.0)  # the refresh lock was held elsewhere
-    cooldown = 100.0 + support.QUOTA_REFRESH_COOLDOWN_SECONDS
+    cooldown = 100.0 + monitor_refresh.QUOTA_REFRESH_COOLDOWN_SECONDS
     assert schedule.due(cooldown - 1) == ()
     schedule.update([_reading("cc", "C-7D", 3)], cooldown)  # the other process committed a fresh reading
     assert schedule.due(cooldown) == () and schedule.next_in(cooldown) > 0  # no tight loop of useless jobs
-    schedule.update([_reading("cc", "C-7D", stale)], cooldown + support.MONITOR_QUOTA_MAX_AGE_SECONDS)
-    assert schedule.due(cooldown + support.MONITOR_QUOTA_MAX_AGE_SECONDS) == ("cc",)
+    schedule.update([_reading("cc", "C-7D", stale)], cooldown + monitor_refresh.MONITOR_QUOTA_MAX_AGE_SECONDS)
+    assert schedule.due(cooldown + monitor_refresh.MONITOR_QUOTA_MAX_AGE_SECONDS) == ("cc",)

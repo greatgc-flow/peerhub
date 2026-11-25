@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from peerhub._console import format_shell_command
+from peerhub.core.shell import format_shell_command
 from peerhub.cli.app import main
 from peerhub.cli import suggest as suggest_mod
 from peerhub.cli.suggest import MAX_5H_USAGE
@@ -58,7 +58,7 @@ def quota_world(monkeypatch):
 
     monkeypatch.setattr("peerhub.extensions.diag_quota.quota_report", report)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
-    monkeypatch.setattr("peerhub.cli.support.quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr("peerhub.extensions.quota_capture.quota_refresh_lock", lambda db: nullcontext(True))
     return items, refreshed, calls
 
 
@@ -164,7 +164,7 @@ def test_exhausted_candidates_are_visible_when_suggest_is_unavailable(quota, cap
 
 @pytest.mark.parametrize("age,refreshed", [(QUOTA_MAX_AGE_SECONDS, False), (QUOTA_MAX_AGE_SECONDS + 1, True), (None, True)])
 def test_dispatch_only_refreshes_an_expired_or_missing_snapshot(quota, age, refreshed):
-    from peerhub.cli.support import refresh_dispatch_quota
+    from peerhub.cli.monitor_refresh import refresh_dispatch_quota
     items, _, calls = quota
     if age is not None:
         items.extend(readings("cx", age=age))

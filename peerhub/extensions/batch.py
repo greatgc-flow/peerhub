@@ -20,9 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
-from peerhub._console import format_shell_command
 from peerhub.core.load_limits import LOAD_WARNING_MESSAGES, ResourceSample, load_warnings as load_warnings, read_resources
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES
+from peerhub.core.shell import format_shell_command
+from peerhub.core.workspace import store_scratch_dir
 from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
 DEFAULT_TIMEOUT_S = 600.0
@@ -62,11 +63,6 @@ _OUTCOME_BY_STATUS = {
     "UNCERTAIN": "uncertain",
     "UNVERIFIED": "uncertain",
 }
-
-
-def store_scratch_dir(db: str | Path) -> Path:
-    store_dir = Path(db).resolve().parent
-    return (store_dir if store_dir.name == ".peerhub" else store_dir / ".peerhub") / "tmp"
 
 
 class ManifestError(ValueError):
