@@ -40,9 +40,9 @@ def _imports(path: Path, mod: str) -> set[str]:
     return out
 
 
-def _core_modules() -> dict[str, Path]:
+def _package_modules(package: str) -> dict[str, Path]:
     mods = {}
-    for p in (PKG / "core").rglob("*.py"):
+    for p in (PKG / package).rglob("*.py"):
         parts = list(p.relative_to(ROOT).with_suffix("").parts)
         if parts[-1] == "__init__":
             parts.pop()
@@ -72,11 +72,19 @@ def _reachable(start: dict[str, Path]) -> dict[str, str]:
 
 @pytest.mark.catalog_id("ARCH-001")
 def test_arch_001_core_import_graph_forbids_extension_dependency():
-    core = _core_modules()
+    core = _package_modules("core")
     assert "peerhub.core.store" in core and "peerhub.core.models" in core
     reach = _reachable(core)
     bad = {m: via for m, via in reach.items() if m.startswith(FORBIDDEN_PREFIXES)}
     assert not bad, f"Core reaches extensions: {bad}"
+
+
+def test_arch_extensions_do_not_import_cli():
+    extensions = _package_modules("extensions")
+    assert "peerhub.extensions.monitor_read_model" in extensions
+    bad = {mod: via for mod, via in _reachable(extensions).items()
+           if mod == "peerhub.cli" or mod.startswith("peerhub.cli.")}
+    assert not bad, f"Extensions reach CLI: {bad}"
 
 
 @pytest.mark.catalog_id("ARCH-002")

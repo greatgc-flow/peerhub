@@ -11,6 +11,7 @@ import pytest
 
 from peerhub import __version__
 from peerhub.cli import monitor, monitor_preferences, monitor_refresh, monitor_view, support, view
+from peerhub.core import monitor_preferences as saved_preferences
 from peerhub.extensions import monitor_read_model
 from peerhub.extensions.pool_health import PoolState
 from tests.communication.diag.test_monitor_plain_golden import _payload
@@ -89,8 +90,8 @@ def test_existing_db_path_has_a_link_with_unchanged_visible_text(monkeypatch: py
 def test_defaults_show_links_only_the_existing_config_file(monkeypatch: pytest.MonkeyPatch,
                                                          capsys: pytest.CaptureFixture[str]) -> None:
     config = Path(__file__).resolve().parents[3] / "pyproject.toml"
-    monkeypatch.setattr(monitor_preferences, "_preference_paths", lambda *a: (config, config))
-    monkeypatch.setattr(monitor_preferences, "_decode", lambda *a: {
+    monkeypatch.setattr(saved_preferences, "preference_paths", lambda *a: (config, config))
+    monkeypatch.setattr(saved_preferences, "_decode", lambda *a: {
         "status": "OK", "source": "workspace", "reason": None, "selected_groups": [],
     })
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)

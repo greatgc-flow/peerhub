@@ -19,8 +19,9 @@ from typing import Any, cast
 
 from peerhub.cli.support import (MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
                                  print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
-from peerhub.cli.monitor_preferences import GROUP_IDS, MONITOR_LEGEND, POOL_LEGEND
+from peerhub.cli.monitor_legend import MONITOR_LEGEND, POOL_LEGEND
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
+from peerhub.core.monitor_preferences import GROUP_IDS, effective_preferences
 
 RUNNING_REFRESH_SECONDS = 5
 
@@ -233,7 +234,6 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
         if conflicts:
             parser.error("--snapshot cannot be combined with watch or collection options: " + ", ".join(sorted(conflicts)))
         return _run_monitor_snapshot(args, parser)
-    from peerhub.cli.monitor_preferences import effective_preferences
     if args.group:
         requested = list(dict.fromkeys(args.group))
         if "all" in requested and len(requested) > 1:
@@ -485,7 +485,6 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
 
 
 def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    from peerhub.cli.monitor_preferences import GROUP_IDS, effective_preferences
     from peerhub.cli.store_select import report_missing_store
 
     requested = args.group

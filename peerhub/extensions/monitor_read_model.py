@@ -1101,7 +1101,7 @@ def _decode_text(raw: bytes) -> str:
 def _saved_defaults_source(groups: list[str]) -> str | None:
     """The saved-defaults layer when `groups` is exactly what it selects; the read model has no other view of the selection."""
     try:
-        from peerhub.cli.monitor_preferences import effective_preferences
+        from peerhub.core.monitor_preferences import effective_preferences
         preference = effective_preferences()
     except (ImportError, OSError, ValueError, KeyError, TypeError):
         return None
