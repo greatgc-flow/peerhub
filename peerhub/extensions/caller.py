@@ -16,6 +16,7 @@ from pathlib import Path, PurePath
 from typing import Any, cast
 
 from peerhub.core.load_limits import MINE, OTHER, UNKNOWN
+from peerhub.extensions.process_tree import process_created
 
 SCHEMA_VERSION = 1
 LABEL_MAX = 40
@@ -53,10 +54,9 @@ def pid_namespace() -> str | None:
         return None
 
 
-def _process_created() -> float | None:
+def _process_created(pid: int) -> float | None:
     try:
-        import psutil
-        return float(psutil.Process(os.getpid()).create_time())
+        return process_created(pid)
     except Exception:
         return None
 
@@ -168,7 +168,7 @@ def caller_relation(reader: Mapping[str, object], stored: Mapping[str, object]) 
 
 
 def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Path | None = None,
-                  workspace: str | Path | None = None) -> dict[str, Any]:
+                  workspace: str | Path | None = None, include_parent: bool = False) -> dict[str, Any]:
     """The v1 caller detail, with an eligible query file and its execution workspace when available."""
     try:
         source: Mapping[str, str] = os.environ if env is None else env
@@ -176,7 +176,9 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
         cwd = _cwd()
         file = (local_workspace_file(str(query_file), str(workspace), from_cwd=True)
                 if query_file is not None and workspace is not None else None)
-        return {
+        pid = os.getpid()
+        created = _process_created(pid)
+        detail = {
             "v": SCHEMA_VERSION,
             "tool": "cc" if session_raw else "?",
             "label": _label(source, cwd),
@@ -184,8 +186,8 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
             "owner": _identity_token(source.get(OWNER_ENV)),
             "host": host_id(),
             "ns": pid_namespace(),
-            "ask_pid": os.getpid(),
-            "ask_created": _process_created(),
+            "ask_pid": pid,
+            "ask_created": created,
             "cwd": cwd[:CWD_MAX] if cwd is not None else None,
             "batch": _batch_value(source.get("PEERHUB_BATCH_ID")),
             "task": _batch_value(source.get("PEERHUB_BATCH_TASK")),
@@ -193,6 +195,15 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
             "query_file": str(file[0]) if file is not None else None,
             "stream_file": None,
         }
+        if include_parent:
+            parent = os.getppid()
+            parent_created = _process_created(parent) if parent > 0 else None
+            if parent_created is not None and created is not None and parent_created > created:
+                # The parent PID already names a different process.
+                parent, parent_created = pid, created
+            detail.update(caller_pid=parent if parent > 0 else pid,
+                          caller_created=parent_created if parent > 0 else created)
+        return detail
     except Exception:  # never raises: an unreadable environment still yields the schema
         return {"v": SCHEMA_VERSION, "tool": "?", "label": "?", "session": None, "owner": None, "host": None, "ns": None,
                 "ask_pid": None, "ask_created": None, "cwd": None, "batch": None, "task": None,

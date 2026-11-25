@@ -25,7 +25,7 @@ class ContextLostError(PrespawnError):
     """Adapter reports context/session loss (compaction, context limit) before the run began: safe NOT_STARTED retry on a fresh generation."""
 
 
-RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
+RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id[, process_identity]) | ("timeout", seconds) | ...
 
 
 class RuntimeTarget(Protocol):

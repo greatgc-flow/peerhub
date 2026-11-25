@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from peerhub.extensions.liveness import ORPHAN_RUNNING
 from peerhub.extensions.monitor_activity import BAD_ASK_STATES
 from peerhub.extensions.monitor_queries import ACTIVITY_SCOPE_CAP, ALERT_WINDOW_S
 from peerhub.extensions.monitor_quota import QuotaSnapshot, capacity_source
@@ -30,7 +31,9 @@ def build_alerts(*, asks: list[dict[str, Any]] | None, pools: list[dict[str, Any
             continue
         subject = f"{row.get('profile') or row.get('peer') or '?'} {row.get('name') or '?'}"
         state = row.get("state")
-        if state == "run" and row.get("alive") is False:
+        if state == ORPHAN_RUNNING:
+            gone.append(_alert("a2", ORPHAN_RUNNING, subject, row.get("elapsed_s"), "high"))
+        elif state == "run" and row.get("alive") is False:
             gone.append(_alert("a2", "gone", subject, row.get("elapsed_s"), "high"))
         elif state == "overdue":
             left = finite_number(row.get("lease_left_s"))

@@ -134,6 +134,9 @@ _ACTIVITY_SQL = (
     "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='session_call' AND e.certainty='STARTED' "
     "ORDER BY e.seq DESC LIMIT 1) AS start_detail,"
     "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='caller' ORDER BY e.seq DESC LIMIT 1) AS caller_detail,"
+    "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='started' ORDER BY e.seq DESC LIMIT 1) AS provider_detail,"
+    "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='processes_dead' "
+    "ORDER BY e.seq DESC LIMIT 1) AS abandonment,"
     "COALESCE(CAST(strftime('%s',kept.terminal_at) AS REAL),kept.expires_at) AS end_bound,"
     "CASE WHEN kept.result_json IS NULL THEN NULL WHEN json_valid(kept.result_json) THEN 1 ELSE 0 END AS result_ok FROM kept), "
     # Open = may be `run` or `overdue`; its text is always read. Ended rows are ranked by their (bounded) end time.
@@ -153,7 +156,7 @@ _ACTIVITY_SQL = (
     "SELECT tx.stream_id,tx.peer_id,tx.c_generation,tx.expires_at,tx.lease_sec,"
     "CASE WHEN :wsgen IS NULL THEN 1 WHEN tx.c_wsgen=:wsgen THEN 1 ELSE 0 END AS wsgen_match,"
     "tx.scope_total,tx.sup_total,tx.seq,tx.certainty,tx.claim_generation,tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
-    "tx.caller_detail,tx.result_ok,tx.want_text,r.record_id,"
+    "tx.caller_detail,tx.provider_detail,tx.abandonment,tx.result_ok,tx.want_text,r.record_id,"
     "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.response') END AS response_type,"
     "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' "
     "THEN length(json_extract(" + _R + ",'$.response')) END END AS reply_len,"

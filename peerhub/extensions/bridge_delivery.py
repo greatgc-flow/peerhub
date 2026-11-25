@@ -270,8 +270,11 @@ class BridgeDelivery(BridgeSessions):
                     return CycleResult("fenced", rec.record_id, did, STARTED if started else NOT_STARTED, session_generation=gen)
                 kind = ev[0]
                 if kind == "started":
-                    self.transition(token, did, STARTED, "started", execution_id=ev[1], external_session_id=ext, session_generation=gen)
+                    process = cast(dict[str, Any], ev[2]) if len(ev) > 2 and isinstance(ev[2], dict) else {}
                     with self.claims.fenced(token) as conn:
+                        self._transition_in(conn, did, STARTED, "started", token=token, execution_id=ev[1],
+                                            external_session_id=ext, session_generation=gen,
+                                            **{key: process[key] for key in ("provider_pid", "provider_created") if key in process})
                         conn.execute("UPDATE bridge_deliveries SET execution_id=? WHERE delivery_id=?", (ev[1], did))
                     started = True
                     self._fire("bridge.after_runtime_start")

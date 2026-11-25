@@ -97,7 +97,7 @@ def register_monitor_parser(subparsers: Any) -> None:
             action.add_argument("--group", choices=GROUP_IDS, nargs="+", required=True, metavar=_GROUP_METAVAR,
                                 help="Groups to show by default. See peerhub monitor groups." + _GROUP_CHOICES_HELP)
         action.add_argument("--json", action="store_true")
-    repair = actions.add_parser("repair", help="Rebuild monitor projections from durable PeerHub evidence")
+    repair = actions.add_parser("repair", help="Release dead asks and rebuild monitor projections from durable evidence")
     repair.add_argument("--chunk-size", type=int, default=500, help="Bounded delivery read chunk (1-5000)")
     repair.add_argument("--json", action="store_true")
 
@@ -595,8 +595,11 @@ def run_monitor_repair(args: argparse.Namespace) -> int:
     if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5
     from peerhub.extensions.delivery_projections import rebuild_delivery_projections
+    from peerhub.extensions.bridge_ledger import reap_dead_asks
     try:
+        released = reap_dead_asks(args.db) if 1 <= args.chunk_size <= 5000 else 0
         result = rebuild_delivery_projections(args.db, chunk_size=args.chunk_size)
+        result["released_dead_asks"] = released
     except (OSError, ValueError, sqlite3.Error) as exc:
         result = {"status": "ERROR", "reason": type(exc).__name__}
         if args.json:

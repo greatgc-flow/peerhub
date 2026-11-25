@@ -17,7 +17,7 @@ they do not claim new validation or publication evidence.
 - Lowered the CPU warning threshold for asks and batches to 80%. The guide and parallel quota lesson tell callers to check load before starting work and count other sessions' asks.
 - Quota and Antigravity transport probes get twice the timeout at high CPU load. Transport detection retries a timeout once and can reuse a successful result for the same installed binary when the machine is busy.
 - Packaged defaults record agy 1.5.17 in revision 2026-11-25.2. The model lists are unchanged and will be rechecked when the machine is idle.
-
+- Monitor and `diag running` identify local asks whose caller, wrapper and provider processes have exited. The `a2` alert clears immediately for dead asks and remains visible for live orphans. The next ask start, batch run or monitor repair releases dead leases and records uncertain abandonment.
 - CI runs the full deterministic suites and the publish verification suites in parallel, with the monitor latency limit checked serially. Publish runs the G7 invariant tests as part of G0, and the release recipe puts the version bump in the last feature PR.
 - An internal refactor shares the monitor group catalog and saved preference reader below the CLI, enforces the extensions-to-CLI import boundary, and centralizes the provider usage candidate factory and shared A2A journal types. Binary resolution and peer-kind imports use their canonical modules.
 

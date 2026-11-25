@@ -11,8 +11,10 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping, cast
 
 from peerhub.core.models import Record
@@ -25,6 +27,9 @@ from peerhub.extensions.bridge_errors import (
     IllegalCertaintyTransition, InvalidTerminalResultError, InvocationMarkerError, NoDeliveryError,
     OffsetAckConflictError, ReconcileRejectedError, RecordRejectedError, TerminalConflictError,
 )
+from peerhub.extensions.liveness import PROCESSES_DEAD, ask_process_state
+from peerhub.extensions.schema_guard import refuse_future_schema
+from peerhub.extensions.sqlite_tx import sqlite_tx
 
 _ALLOWED = {
     NOT_STARTED: {NOT_STARTED, MAY_HAVE_STARTED, STARTED},
@@ -68,6 +73,24 @@ def iso_timestamp(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def reap_dead_asks(db_path: str | Path) -> int:
+    """Release abandoned asks in an existing workspace, without initializing a store."""
+    db = Path(db_path).resolve()
+    generation = db.parent / "workspace.generation"
+    if not db.is_file() or not generation.is_file():
+        return 0
+    refuse_future_schema(db)
+    with sqlite_tx(db.as_uri() + "?mode=rw", uri=True, timeout=30.0) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("BEGIN IMMEDIATE")
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"bridge_claims", "bridge_deliveries", "bridge_evidence", "bridge_invocations",
+                "bridge_invocation_resolutions", "bridge_monitor_delivery_scope", "bridge_sessions",
+                "bridge_session_history", "bridge_session_events"} <= tables:
+            return 0
+        return BridgeLedger.release_dead_asks(conn, generation.read_text(encoding="utf-8"), time.time())
+
+
 class BridgeLedger(BridgeControl):
     """Durable delivery facts and their fenced writes."""
 
@@ -89,11 +112,16 @@ class BridgeLedger(BridgeControl):
 
     def _transition_in(self, conn: sqlite3.Connection, delivery_id: str, to: str, kind: str, *,
                        token: ClaimToken | None = None, **detail: Any) -> None:
+        self._transition_at(conn, delivery_id, to, kind, self.claims.now(), token=token, **detail)
+
+    @classmethod
+    def _transition_at(cls, conn: sqlite3.Connection, delivery_id: str, to: str, kind: str, observed_at: float, *,
+                       token: ClaimToken | None = None, **detail: Any) -> None:
         row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
         if row is None:
             raise NoDeliveryError(delivery_id)
         if token is not None:
-            self._check_scope(row, token)  # BEFORE any mutation
+            cls._check_scope(row, token)  # BEFORE any mutation
         old_certainty = str(row["certainty"])
         if to not in _ALLOWED.get(old_certainty, set()):
             raise IllegalCertaintyTransition(f"{row['certainty']} -> {to} is forbidden (TD-11/TD-26)")
@@ -101,17 +129,17 @@ class BridgeLedger(BridgeControl):
             conn.execute("UPDATE bridge_deliveries SET certainty=? WHERE delivery_id=?", (to, delivery_id))
         if to == TERMINAL and kind == "terminal" and old_certainty != to:
             detail["peerhub_timing"] = session_receipts.terminal_timing(conn, row)
-        self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, to, **detail)
+        cls._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, to, **detail)
         current_row = row
         if old_certainty != to or (to == TERMINAL and kind == "terminal"):
             current_row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
             assert current_row is not None
         if old_certainty != to:
-            delivery_projections.record_delivery_transition(conn, current_row, old_certainty, to, observed_at=self.claims.now())
+            delivery_projections.record_delivery_transition(conn, current_row, old_certainty, to, observed_at=observed_at)
         if to == TERMINAL and kind == "terminal" and old_certainty != to:
-            delivery_projections.record_latency(conn, current_row, self.claims.now(), detail["peerhub_timing"])
+            delivery_projections.record_latency(conn, current_row, observed_at, detail["peerhub_timing"])
         if to == STARTED:
-            session_receipts.call(conn, row, self.claims.now())
+            session_receipts.call(conn, row, observed_at)
         if to == MAY_HAVE_STARTED:
             mapping = bridge_registry.generation(conn, row["stream_id"], row["peer_id"], row["session_generation"])
             won = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
@@ -120,11 +148,11 @@ class BridgeLedger(BridgeControl):
                                (row["stream_id"], row["peer_id"], row["session_generation"], row["external_session_id"],
                                 *BUILTIN_PEER_KINDS)).rowcount
             if won:
-                bridge_registry.repair(conn, row["stream_id"], row["peer_id"], self.claims.now())
+                bridge_registry.repair(conn, row["stream_id"], row["peer_id"], observed_at)
                 assert mapping is not None
                 conn.execute("INSERT INTO bridge_session_events(stream_id,peer_id,event,from_state,to_state,generation,detail) VALUES (?,?,'session_lost',?,'LOST',?,?)",
                              (row["stream_id"], row["peer_id"], mapping["state"], row["session_generation"], session_receipts.dumps({"reason": "tainted"})))
-                self._evidence(conn, row["stream_id"], row["peer_id"], "session_tainted", delivery_id, to,
+                cls._evidence(conn, row["stream_id"], row["peer_id"], "session_tainted", delivery_id, to,
                                reason="tainted", session_generation=row["session_generation"])
 
     def transition(self, token: ClaimToken, delivery_id: str, to: str, kind: str = "transition", **detail: Any) -> None:
@@ -212,9 +240,55 @@ class BridgeLedger(BridgeControl):
                 return  # nothing dangling: a read-only (possibly stale) cycle writes nothing
         with self.claims.fenced(token) as conn:
             for did, n in conn.execute(q, args).fetchall():
-                self._transition_in(conn, did, MAY_HAVE_STARTED, "invocation_unresolved_recovered", token=token, invocation_no=n)
-                conn.execute("INSERT INTO bridge_invocation_resolutions (delivery_id, invocation_no, reason, claim_generation) VALUES (?,?,?,?)",
-                             (did, n, "promoted_may_have_started", token.generation))
+                self._promote_invocation(conn, did, n, token.generation, self.claims.now(), token=token)
+
+    @classmethod
+    def _promote_invocation(cls, conn: sqlite3.Connection, did: str, invocation_no: int, generation: int,
+                            now: float, *, token: ClaimToken | None = None) -> None:
+        cls._transition_at(conn, did, MAY_HAVE_STARTED, "invocation_unresolved_recovered", now,
+                           token=token, invocation_no=invocation_no)
+        conn.execute("INSERT INTO bridge_invocation_resolutions (delivery_id, invocation_no, reason, claim_generation) VALUES (?,?,?,?)",
+                     (did, invocation_no, "promoted_may_have_started", generation))
+
+    @classmethod
+    def release_dead_asks(cls, conn: sqlite3.Connection, workspace_generation: str, now: float) -> int:
+        """Record abandonment and expire the current claim in the caller's BEGIN IMMEDIATE transaction."""
+        candidates = conn.execute(
+            "SELECT d.delivery_id,d.stream_id,d.peer_id,d.certainty,c.generation,"
+            "(SELECT detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='caller' "
+            "ORDER BY e.seq DESC LIMIT 1) AS caller_detail,"
+            "(SELECT detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='started' "
+            "ORDER BY e.seq DESC LIMIT 1) AS provider_detail "
+            "FROM bridge_claims c CROSS JOIN bridge_deliveries d ON d.delivery_id=("
+            "SELECT delivery_id FROM bridge_deliveries WHERE stream_id=c.stream_id AND peer_id=c.peer_id "
+            "ORDER BY seq DESC LIMIT 1) AND d.claim_generation=c.generation "
+            "WHERE c.workspace_generation=? AND d.acked=0 AND d.result_json IS NULL AND d.certainty!='TERMINAL' "
+            "AND NOT EXISTS (SELECT 1 FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id "
+            "AND e.kind IN ('processes_dead','refusal_detected')) "
+            "AND (c.expires_at>? OR (SELECT kind FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id "
+            "AND e.kind IN ('about_to_invoke','started','prespawn_failure','control_halt','no_terminal','start_uncertain') "
+            "ORDER BY e.seq DESC LIMIT 1) IN ('about_to_invoke','started'))",
+            (workspace_generation, now)).fetchall()
+        count = 0
+        for row in candidates:
+            did = row["delivery_id"]
+            marker = cls.open_invocation(conn, did) if row["certainty"] == NOT_STARTED else None
+            if row["certainty"] == NOT_STARTED and marker is None:
+                continue  # preserve a proven pre-spawn failure or halt
+            if ask_process_state(row["caller_detail"], row["provider_detail"]) != PROCESSES_DEAD:
+                continue
+            # Keep the stronger STARTED evidence. An unresolved invocation becomes MAY_HAVE_STARTED.
+            certainty = row["certainty"]
+            if marker is not None:
+                cls._promote_invocation(conn, did, marker, row["generation"], now)
+                certainty = MAY_HAVE_STARTED
+            cls._evidence(conn, row["stream_id"], row["peer_id"], "processes_dead", did, certainty,
+                          reason="processes_dead", outcome="UNCERTAIN", observed_at_s=now)
+            conn.execute("UPDATE bridge_claims SET expires_at=MIN(expires_at,?) WHERE stream_id=? AND peer_id=? "
+                         "AND generation=? AND workspace_generation=?",
+                         (now, row["stream_id"], row["peer_id"], row["generation"], workspace_generation))
+            count += 1
+        return count
 
     @staticmethod
     def _authentic_record(conn: sqlite3.Connection, token: ClaimToken, record: object) -> "PersistedRecord":

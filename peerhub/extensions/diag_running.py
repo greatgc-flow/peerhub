@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping
 from peerhub.core.load_limits import CALLER_RELATIONS, UNKNOWN, load_snapshot, read_resources
 from peerhub.extensions.caller import OWNER_ENV, caller_facts, caller_relation, detect_caller
 from peerhub.extensions.diag import ReadonlyDiag
+from peerhub.extensions.liveness import ORPHAN_RUNNING, PROCESSES_DEAD, ask_process_state
 
 MAX_ROWS = 20
 
@@ -57,13 +58,13 @@ def _profile(binding: str | None) -> str | None:
     return parts[0] if len(parts) == 3 and _PROFILE_ID.fullmatch(parts[0]) else None
 
 
-def _row(raw: dict[str, Any], now: float, reader: Mapping[str, object]) -> dict[str, Any]:
+def _row(raw: dict[str, Any], now: float, reader: Mapping[str, Any]) -> dict[str, Any]:
     binding = _binding(raw["metadata_json"])
     key = raw["idempotency_key"]
     started = _started_at(raw["start_detail"])
     caller = caller_facts(raw.get("caller_detail"))
     relation, basis = caller_relation(reader, caller or {})
-    return {
+    row: dict[str, Any] = {
         "peer_id": raw["peer_id"],
         "profile": _profile(binding),
         "binding": binding,
@@ -78,6 +79,13 @@ def _row(raw: dict[str, Any], now: float, reader: Mapping[str, object]) -> dict[
         "relation": relation,
         "relation_basis": basis,
     }
+    process_state = ask_process_state(raw.get("caller_detail"), raw.get("provider_detail"),
+                                      this_host=reader.get("host"), this_ns=reader.get("ns"))
+    if process_state == PROCESSES_DEAD:
+        row.update(state=PROCESSES_DEAD, certainty="UNKNOWN", ended_at=now, ended_exact=False, elapsed_s=None)
+    elif process_state == ORPHAN_RUNNING:
+        row.update(state=ORPHAN_RUNNING)
+    return row
 
 
 def running_report(db_path: str | Path, *, read_at: float | None = None, peer: str | None = None,
@@ -116,6 +124,8 @@ def sample_load(db_path: str | Path, *, read_at: float | None = None,
     unmapped = 0
     pool_mapping = pools_of_profile or {}
     for row in report["rows"]:
+        if row.get("state") == PROCESSES_DEAD:
+            continue
         counts[row["peer_id"]] = counts.get(row["peer_id"], 0) + 1
         by_relation[row.get("relation", UNKNOWN)] += 1
         if pools_of_profile is None:
@@ -167,7 +177,8 @@ def format_running(report: dict[str, Any], *, width: int | None = None) -> str:
         widths = [max(len(str(line[i])) for line in table) for i in range(len(table[0]))]
         formatted = ["  ".join(str(cell).ljust(w) for cell, w in zip(line, widths)) for line in table]
         lines.append(formatted[0] + "  CALLER")
-        lines.extend(f"{line}  {_caller_suffix(row)}" for line, row in zip(formatted[1:], rows))
+        lines.extend(f"{line}  {_caller_suffix(row)}" + (f"  {row['state']}" if "state" in row else "")
+                     for line, row in zip(formatted[1:], rows))
     if report["truncated"]:
         lines.append(f"(more rows not shown; limit {report.get('limit', MAX_ROWS)})")
     elif not rows and report["status"] == "OK":

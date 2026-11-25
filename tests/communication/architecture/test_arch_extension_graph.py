@@ -17,7 +17,7 @@ ALLOWED: dict[str, set[str]] = {
     "bridge_delivery": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger",
                         "bridge_sessions", "runtime_contract", "session_receipts"},
     "bridge_ledger": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_registry",
-                      "delivery_projections", "session_receipts"},
+                      "delivery_projections", "liveness", "schema_guard", "session_receipts", "sqlite_tx"},
     "bridge_schema": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_ledger", "bridge_registry", "schema_guard"},
     "bridge_sessions": {"bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger", "bridge_registry",
                         "catchup", "runtime_contract", "session_receipts"},
@@ -30,12 +30,13 @@ ALLOWED: dict[str, set[str]] = {
                            "monitor_sessions"},
     "monitor_activity": {"adapters", "caller", "diag_running", "liveness", "monitor_queries", "monitor_sessions",
                          "monitor_values"},
-    "monitor_alerts": {"monitor_activity", "monitor_preferences", "monitor_queries", "monitor_quota", "monitor_values"},
+    "monitor_alerts": {"liveness", "monitor_activity", "monitor_preferences", "monitor_queries", "monitor_quota", "monitor_values"},
     "monitor_queries": {"observation_model"},
     "monitor_quota": {"monitor_queries", "monitor_values", "observation_model", "quota_projection", "quota_windows"},
     "monitor_sessions": {"adapters", "monitor_queries", "monitor_values", "session_receipts", "usage_normalization"},
     "monitor_values": {"adapters"},
-    "liveness": {"caller"},  # this host and pid namespace, as caller records them (neutral)
+    "caller": {"process_tree"},
+    "liveness": {"caller", "process_tree"},
     "lead_sessions": {"monitor_queries", "monitor_values",  # the activity window and display cleaners (#376)
                       "process_tree"},  # the creation FILETIME reader (neutral)
     # Read-only current-profile inspection, canonical observation evaluation,
@@ -49,7 +50,7 @@ ALLOWED: dict[str, set[str]] = {
     # M1 Diag
     "diag": {"observation_model"},
     "diag_readiness": {"adapters", "diag", "observation_model", "quota_projection"},
-    "diag_running": {"caller", "diag"},
+    "diag_running": {"caller", "diag", "liveness"},
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
     "diag_read_model": {"diag", "diag_quota", "observation_model", "pool_health", "quota_windows"},

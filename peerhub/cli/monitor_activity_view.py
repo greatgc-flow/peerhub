@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 from peerhub._console import clean_text, finite_number
+from peerhub.extensions.liveness import ORPHAN_RUNNING
 from peerhub.cli.monitor_alert_view import group_error
 from peerhub.cli.monitor_layout import (
     RICH_GLYPHS,
@@ -63,6 +64,7 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
         left = finite_number(row.get("lease_left_s"))
         reason = (f"lease expired {compact_age(-left)} ago" if flag == "!overdue" and left is not None and left < 0
                   else "lease expired" if flag == "!overdue" else "caller process gone" if flag == "!gone"
+                  else "provider process still alive" if flag == "!orphan"
                   else txt(row.get("alive_reason"), "liveness unknown") if flag == "?" else "caller alive")
         fields.append(f"flag {flag or 'none'} ({reason})")
     fields.append(f"state {state}" + (f" {SUPERSEDED_MARK}" if row.get("superseded") else ""))
@@ -436,6 +438,8 @@ def _activity_notes(data: dict[str, Any], width: int, sep: str = " | ") -> list[
 
 
 def _flag(row: dict[str, Any]) -> str:
+    if row.get("state") == ORPHAN_RUNNING:
+        return "!orphan"
     if row.get("state") == "overdue":
         return "!overdue"
     if row.get("alive") is False:
@@ -444,8 +448,7 @@ def _flag(row: dict[str, Any]) -> str:
 
 
 def _is_open(row: dict[str, Any]) -> bool:
-    """`run`, or `overdue` without an end: the read model ends an overdue row once the alert window has passed."""
-    return row.get("state") == "run" or (row.get("state") == "overdue" and row.get("ended_at") is None)
+    return row.get("ended_at") is None and row.get("state") in ("run", "overdue", ORPHAN_RUNNING)
 
 
 def ask_split(data: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -475,7 +478,7 @@ def _recent_text(row: dict[str, Any]) -> object:
 
 
 _RUN_MARKS = {"": ("run", "", "ok"), "!gone": ("gone", " gone", "bad"), "!overdue": ("", "! overdue", "warn"),
-              "?": ("", "?", "warn")}  # a RUNNING row's flag: its glyph, the word beside it, its colour
+              "!orphan": ("gone", " orphan", "bad"), "?": ("", "?", "warn")}  # glyph, word, colour
 _RECENT_COLOURS = {"ok": "ok", "unsure": "warn", "overdue": "warn"}  # every other ended state is bad
 
 

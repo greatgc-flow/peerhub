@@ -134,7 +134,9 @@ def run_batch(args: argparse.Namespace) -> int:
                 return 5
         # Workers race to create workspace.generation on first use of a new workspace (WinError 32): create it once here.
         from peerhub.core.workspace import Workspace
+        from peerhub.extensions.bridge_ledger import reap_dead_asks
         Workspace(Path(db).parent)
+        reap_dead_asks(db)
         cancel = threading.Event()
 
         def request_cancel(signum: int, frame: object) -> None:

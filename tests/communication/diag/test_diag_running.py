@@ -6,12 +6,16 @@ import time
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.extensions import bridge_claims, bridge_schema
+from peerhub.extensions import bridge_claims, bridge_registry, bridge_schema, caller, delivery_projections, process_tree
+from peerhub.extensions.bridge_ledger import BridgeLedger
 from peerhub.extensions.diag_running import MAX_ROWS, format_running, running_report
+from peerhub.extensions.monitor_activity import read_activity_group
+from peerhub.extensions.monitor_alerts import build_alerts
 from tests.communication.harness.core import CoreHarness
 
 pytestmark = [pytest.mark.integration, pytest.mark.diag]
@@ -85,7 +89,8 @@ def lease_store(monkeypatch):
     from peerhub.extensions.diag import ReadonlyDiag
 
     with closing(sqlite3.connect(":memory:")) as store:
-        store.execute("CREATE TABLE records (record_id TEXT PRIMARY KEY, idempotency_key TEXT, metadata_json TEXT)")
+        store.row_factory = sqlite3.Row
+        store.execute("CREATE TABLE records (record_id TEXT PRIMARY KEY, idempotency_key TEXT, metadata_json TEXT, body_json TEXT)")
         for statement in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             store.execute(statement)
         store.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
@@ -161,6 +166,82 @@ def test_plan_counts_all_active_leases_while_running_report_limits_rows(lease_st
     load = sample_load(__file__, read_at=NOW)
     assert load["active"] == count and load["peers"]["cx"] == {"active": count}
     assert load["active_by_relation"] == {"mine": 0, "other": 0, "unknown": count}
+
+
+@pytest.fixture
+def abandoned_leases(lease_store: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connection:
+    monkeypatch.setattr(caller, "host_id", lambda: "test-host")
+    monkeypatch.setattr(caller, "pid_namespace", lambda: "test-ns")
+    monkeypatch.setattr(process_tree, "process_created", lambda pid: NOW - 30 if pid == 300 else None)
+    monkeypatch.setattr(process_tree, "provider_descendant", lambda *_: False)
+    seed_leases(lease_store, 4)
+    with lease_store:
+        for stmt in (*bridge_registry.DDL, *delivery_projections.DDL):
+            lease_store.execute(stmt)
+        lease_store.execute("UPDATE bridge_deliveries SET certainty='STARTED' WHERE delivery_id!='d2'")
+        for i in range(4):
+            stream, delivery = f"s{i}", f"d{i}"
+            detail = dict(v=1, host="remote-host" if i == 3 else "test-host", ns="test-ns", tool="?", label="lead",
+                          ask_pid=200 + i, ask_created=NOW - 60, caller_pid=100 + i, caller_created=NOW - 120)
+            lease_store.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                                "VALUES (?,?,'cx','caller','NOT_STARTED',?)", (delivery, stream, json.dumps(detail)))
+            lease_store.execute("INSERT INTO bridge_invocations (delivery_id,invocation_no,stream_id,peer_id,claim_generation) "
+                                "VALUES (?,1,?,'cx',1)", (delivery, stream))
+            kind, certainty = ("about_to_invoke", "NOT_STARTED") if i == 2 else ("started", "STARTED")
+            provider = dict(provider_pid=300, provider_created=NOW - 30) if i == 1 else {}
+            lease_store.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                                "VALUES (?,?,'cx',?,?,?)", (delivery, stream, kind, certainty, json.dumps(provider)))
+    return lease_store
+
+
+def test_monitor_and_diag_report_dead_asks_and_orphans_without_writes(abandoned_leases: sqlite3.Connection) -> None:
+    from peerhub.extensions.diag_running import sample_load
+
+    def activity(at: float) -> dict[str, Any]:
+        data = read_activity_group(abandoned_leases, __file__, at, human=True, text_on=True,
+                                   liveness=None, process_probe=None, output={}, errors={})
+        assert data is not None
+        return data
+
+    before = list(abandoned_leases.iterdump())
+    data = activity(NOW)
+    asks = {row["name"]: row for row in data["asks"]}
+    assert data["counts"]["running"] == 2
+    assert (asks["s0"]["state"], asks["s0"]["certainty"], asks["s0"]["ended_exact"]) == (
+        "gone, processes dead", "UNKNOWN", False)
+    assert asks["s1"]["state"] == "orphan running" and asks["s1"]["ended_at"] is None
+    for activity_at in (data, activity(NOW + 3000)):
+        alerts = build_alerts(asks=activity_at["asks"], pools=None, accounts=None, facts_report=None, failures=[], now=NOW)
+        assert [(a["code"], a["kind"], a["subject"]) for a in alerts] == [("a2", "orphan running", "cx s1")]
+    alerts = build_alerts(asks=activity(NOW + 61)["asks"], pools=None, accounts=None, facts_report=None,
+                          failures=[], now=NOW + 61)
+    assert [(a["kind"], a["subject"]) for a in alerts] == [("orphan running", "cx s1"), ("overdue", "cx s3")]
+    diag = report(__file__)
+    assert [row.get("state") for row in diag["rows"]] == [
+        "gone, processes dead", "orphan running", "gone, processes dead", None]
+    assert "gone, processes dead" in format_running(diag) and "orphan running" in format_running(diag)
+    assert sample_load(__file__, read_at=NOW)["active"] == 2
+    assert list(abandoned_leases.iterdump()) == before
+
+
+def test_dead_ask_release_is_idempotent_and_preserves_uncertainty(abandoned_leases: sqlite3.Connection) -> None:
+    for now, expected in ((NOW, 2), (NOW + 1, 0)):
+        with abandoned_leases:
+            abandoned_leases.execute("BEGIN IMMEDIATE")
+            assert BridgeLedger.release_dead_asks(abandoned_leases, "test", now) == expected
+    assert [tuple(row) for row in abandoned_leases.execute(
+        "SELECT stream_id,expires_at,generation FROM bridge_claims ORDER BY stream_id")] == [
+        ("s0", NOW, 1), ("s1", NOW + 60, 1), ("s2", NOW, 1), ("s3", NOW + 60, 1)]
+    assert [tuple(row) for row in abandoned_leases.execute(
+        "SELECT delivery_id,certainty,result_json,acked FROM bridge_deliveries ORDER BY seq")] == [
+        ("d0", "STARTED", None, 0), ("d1", "STARTED", None, 0),
+        ("d2", "MAY_HAVE_STARTED", None, 0), ("d3", "STARTED", None, 0)]
+    assert [tuple(row) for row in abandoned_leases.execute(
+        "SELECT delivery_id,json_extract(detail,'$.reason'),json_extract(detail,'$.outcome') "
+        "FROM bridge_evidence WHERE kind='processes_dead' ORDER BY delivery_id")] == [
+        ("d0", "processes_dead", "UNCERTAIN"), ("d2", "processes_dead", "UNCERTAIN")]
+    assert BridgeLedger.open_invocation(abandoned_leases, "d2") is None
+    assert {row["delivery_id"] for row in report(__file__)["rows"]} == {"d1", "d3"}
 
 
 def test_expired_claim_is_excluded(db):

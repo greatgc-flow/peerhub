@@ -19,7 +19,7 @@ from peerhub.extensions.adapters.api import API_TARGETS, ApiRuntimeTarget, Reque
 from peerhub.core.peer_kinds import ALIASES as ALIASES, BUILTIN_PEER_CHOICES, peer_kind  # ALIASES: re-exported
 from peerhub.extensions.bridge import Bridge
 from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED
-from peerhub.extensions.bridge_ledger import CycleResult
+from peerhub.extensions.bridge_ledger import CycleResult, reap_dead_asks
 from peerhub.extensions.bridge_sessions import normalize_session_selector
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTarget
 from peerhub.extensions.caller import detect_caller
@@ -465,9 +465,11 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     claims = ClaimStore(db_path, generation=lineage.generation)
     # Runtime events may be silent until completion; keep the claim alive for the bounded run.
     lease_sec = timeout_s + 60
-    caller = detect_caller(query_file=query_file, workspace=execution_workspace)
+    caller = detect_caller(query_file=query_file, workspace=execution_workspace, include_parent=True)
     bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=caller,
                     stream_budget=limits, on_stream_budget=on_stream_budget)
+    with storage_errors():
+        reap_dead_asks(db)
     token = claims.acquire(peer_id, sid, bridge.owner_id, lease_sec)
     started_at = time.monotonic()
     try:
