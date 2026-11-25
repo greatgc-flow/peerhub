@@ -69,7 +69,7 @@ def _latest(tool: str) -> str | None:
 
 
 def _local_command(tool: str) -> list[str]:
-    from peerhub.extensions.quota_probes import real_command
+    from peerhub.extensions.quota_probes.common import real_command
 
     try:
         if tool == "ant":

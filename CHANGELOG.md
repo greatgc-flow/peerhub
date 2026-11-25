@@ -24,6 +24,8 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- The command reference records retained compatibility forms and their canonical replacements.
+- Fixed the monitor defaults reset example and retired adapter links in historical reviews. User-facing Markdown is checked for common encoding damage.
 - Batch runs validate every task's effective local profile before workers start and use request IDs for Windows-safe prompt filenames (from PR #470).
 - Continuous monitor watch updates activity alerts and read status with the activity rows. JSON `min_quota.state` reports stale zero as `aged` (from PR #470).
 - `diag readiness` stops using remaining quota at reset, including when a parent pool would otherwise limit a child (from PR #470).
@@ -42,11 +44,13 @@ they do not claim new validation or publication evidence.
 
 ### Removed
 
-- Removed internal compatibility import shims (user-facing short profile IDs, `cx.deepthink`, hidden `--format` and `monitor --legacy` stay).
+- Removed internal compatibility import shims. See the [command compatibility reference](docs/commands.md#compatibility) for retained forms.
 
 ### Changed (internal)
 
 - Documented the repository maintenance tools' import and packaging boundaries and added architecture checks.
+- Moved plan models, durable journaling, deadline execution, skill source and projection code, and delivery projection rebuilds to dedicated modules.
+- Architecture tests enforce the Core, extensions, and CLI import direction and public cross-layer imports.
 - The command inventory checks that the command reference lists every argparse command, including aliases. The documentation map and offline lessons link to the owning procedures.
 - Split provider lookup, CLI subprocess lifecycle, output parsing and display, and Antigravity transport detection into dedicated adapter modules.
 - Separate recovery guidance data, outcome classification, and CLI rendering, and split monitor activity rendering into running asks, recent asks, and lead sessions.

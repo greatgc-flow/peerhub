@@ -25,6 +25,7 @@ ALLOWED: dict[str, set[str]] = {
     "ask_budgets": {"session_receipts"},
     "recovery_classification": {"adapters", "ask", "bridge_claims", "bridge_errors", "runtime_contract"},
     "profile_stats": {"ask_budgets", "quota_probes", "schema_guard", "session_receipts"},
+    "delivery_projection_rebuild": {"delivery_projections", "session_receipts"},
     "delivery_projections": {"session_receipts", "usage_normalization"},
     "bridge_control": {"bridge_claims", "bridge_errors", "bridge_registry", "runtime_contract"},
     "session_receipts": {"usage_normalization"},
@@ -64,11 +65,16 @@ ALLOWED: dict[str, set[str]] = {
     "batch": {"process_tree"},
     "host": {"manifest", "sqlite_tx"},
     "work": {"authoritative", "sqlite_tx"},
-    "skills": {"authoritative", "boundary", "sqlite_tx"},
+    "skills": {"authoritative", "skill_models", "skill_projection", "skill_source", "sqlite_tx"},
+    "skill_projection": {"skill_models", "sqlite_tx"},
+    "skill_source": {"boundary", "skill_models"},
     "artifact": {"boundary"},
     # M3
     "a2a_http": {"a2a"},
     "a2a_journal": {"a2a"},
+    "orchestration": {"orchestration_deadline", "orchestration_journal", "orchestration_model"},
+    "orchestration_deadline": {"orchestration_model"},
+    "orchestration_journal": {"orchestration_model"},
 }
 
 
@@ -143,15 +149,22 @@ def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
-          "ask_budgets", "delivery_projections", "delivery_reads", "monitor_read_model", "usage_normalization", "runtime_contract",
+          "ask_budgets", "delivery_projection_rebuild", "delivery_projections", "delivery_reads", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",
           "diag_read_model", "quota_read_model", "quota_windows", "recovery_classification", "profile_stats"}
-    helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "manifest", "a2a"}  # neutral helpers / same-slice modules
+    helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "manifest"}
+    families = (
+        {"a2a", "a2a_http", "a2a_journal"},
+        {"skills", "skill_models", "skill_projection", "skill_source"},
+        {"orchestration", "orchestration_deadline", "orchestration_journal", "orchestration_model"},
+    )
     for src, dst in edges().items():
         if src in m1:
             continue
-        assert dst <= helpers, f"{src} imports {sorted(dst - helpers)}: M2/M3 slices connect through public ports, not imports"
+        local = next((family for family in families if src in family), set())
+        unexpected = dst - helpers - local
+        assert not unexpected, f"{src} imports {sorted(unexpected)}: M2/M3 slices connect through public ports, not imports"
 
 
 def test_the_allowlist_has_no_dead_entries():

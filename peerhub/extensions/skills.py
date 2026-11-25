@@ -9,12 +9,7 @@ Adheres strictly to M2_3_SKILL_CATALOG_CONTRACT.md and architecture invariants:
 
 from __future__ import annotations
 
-import os
-
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import hashlib
-import json
 from pathlib import Path
 import sqlite3
 from typing import Any, ClassVar, Iterable, cast
@@ -23,78 +18,27 @@ from peerhub.extensions.authoritative import authoritative_item, stream_records
 from peerhub.extensions.sqlite_tx import sqlite_tx
 from peerhub.core.models import Record
 from peerhub.core.store import CoreStore, IdempotencyConflictError
-from peerhub.extensions.boundary import SecurityBoundaryError
+from peerhub.extensions import skill_projection, skill_source
+from peerhub.extensions.skill_models import (
+    CapabilityConflictError,
+    CapabilityItem,
+    CapabilityNotFoundError,
+    ForbiddenTransitionError,
+    SkillCatalogError,
+    SkillItem,
+    SkillManifestError,
+    SkillNotFoundError,
+    SkillRevisionConflictError,
+    SkillTamperedError,
+    UnauthorizedSkillError,
+    VolatileFactRejectedError,
+)
 
-
-class SkillCatalogError(Exception):
-    """Base exception for Skill and Capability Catalog errors."""
-
-
-class SkillNotFoundError(SkillCatalogError, LookupError):
-    """Referenced skill_id does not exist in catalog."""
-
-
-class CapabilityNotFoundError(SkillCatalogError, LookupError):
-    """Referenced capability_id does not exist in catalog."""
-
-
-class SkillRevisionConflictError(SkillCatalogError, RuntimeError):
-    """Mutation expected_revision does not match current skill revision."""
-
-
-class CapabilityConflictError(SkillCatalogError, RuntimeError):
-    """Mutation expected_revision does not match current capability revision."""
-
-
-class ForbiddenTransitionError(SkillCatalogError, RuntimeError):
-    """Attempting an invalid state machine transition."""
-
-
-class SkillManifestError(SkillCatalogError, ValueError):
-    """SKILL.md frontmatter is missing, unparseable, or fails schema validation."""
-
-
-class SkillTamperedError(SkillCatalogError, RuntimeError):
-    """On-disk skill directory contents hash differs from indexed canonical digest."""
-
-
-class UnauthorizedSkillError(SkillCatalogError, PermissionError):
-    """Attempt to invoke or authorize an inactive, unvalidated, or suspended skill."""
-
-
-class VolatileFactRejectedError(SkillCatalogError, ValueError):
-    """Attempt to register volatile runtime measurement into curated capability catalog."""
-
-
-@dataclass(frozen=True)
-class SkillItem:
-    """Represents a projected view of a skill derived from directory source and stream records."""
-
-    skill_id: str
-    stream_id: str
-    name: str
-    description: str
-    version: str
-    state: str
-    revision: int
-    tree_digest: str
-    file_count: int
-    path: str
-    tags: list[str] = field(default_factory=lambda: cast(list[str], []))
-    created_at: str = ""
-    updated_at: str = ""
-
-
-@dataclass(frozen=True)
-class CapabilityItem:
-    """Represents a curated declared capability view."""
-
-    capability_id: str
-    stream_id: str
-    spec: dict[str, Any]
-    revision: int
-    created_at: str = ""
-    updated_at: str = ""
+__all__ = [
+    "CapabilityConflictError", "CapabilityItem", "CapabilityNotFoundError", "ForbiddenTransitionError",
+    "SkillCatalogEngine", "SkillCatalogError", "SkillItem", "SkillManifestError", "SkillNotFoundError",
+    "SkillRevisionConflictError", "SkillTamperedError", "UnauthorizedSkillError", "VolatileFactRejectedError",
+]
 
 
 class SkillCatalogEngine:
@@ -128,36 +72,7 @@ class SkillCatalogEngine:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite_tx(self.db_path) as conn:
-            conn.execute("PRAGMA journal_mode = WAL;")
-            conn.execute("PRAGMA foreign_keys = ON;")
-            conn.execute("""
-            CREATE TABLE IF NOT EXISTS ext_skills (
-                skill_id TEXT PRIMARY KEY,
-                stream_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                version TEXT NOT NULL DEFAULT '1.0.0',
-                state TEXT NOT NULL,
-                revision INTEGER NOT NULL,
-                tree_digest TEXT NOT NULL,
-                file_count INTEGER NOT NULL,
-                path TEXT NOT NULL,
-                tags_json TEXT NOT NULL DEFAULT '[]',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """)
-            conn.execute("""
-            CREATE TABLE IF NOT EXISTS ext_capabilities (
-                capability_id TEXT PRIMARY KEY,
-                stream_id TEXT NOT NULL,
-                spec_json TEXT NOT NULL DEFAULT '{}',
-                revision INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """)
+        skill_projection.initialize(self.db_path)
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -173,111 +88,7 @@ class SkillCatalogEngine:
             return peer.peer_id
         raise SkillCatalogError(f"No valid author peer could be resolved for stream {stream_id!r}")
 
-    @staticmethod
-    def compute_directory_digest(skill_dir: Path) -> tuple[str, int]:
-        """Compute deterministic SHA-256 tree digest over sorted relative paths and file contents."""
-        hasher = hashlib.sha256()
-        file_count = 0
-        resolved_dir = skill_dir.resolve()
-
-        all_files: list[tuple[str, Path]] = []
-        for p in resolved_dir.rglob("*"):
-            if p.is_symlink():
-                raise SecurityBoundaryError("Skill source symlinks are not allowed")
-            if p.is_file():
-                rel_path = p.relative_to(resolved_dir).as_posix()
-                if ".git" in p.relative_to(resolved_dir).parts:
-                    continue
-                all_files.append((rel_path, p))
-
-        all_files.sort(key=lambda x: x[0])
-        # Length-prefixed framing (8-byte big-endian lengths): no byte sequence inside a path or a file can be mistaken for a
-        # boundary, so two different directory trees can never share a digest. Files are streamed, memory stays bounded.
-        for rel_path, file_path in all_files:
-            name = rel_path.encode("utf-8")
-            hasher.update(len(name).to_bytes(8, "big"))
-            hasher.update(name)
-            with file_path.open("rb") as stream:
-                size = os.fstat(stream.fileno()).st_size  # the length of THIS open file, not of a path that may change
-                hasher.update(size.to_bytes(8, "big"))
-                seen = 0
-                while chunk := stream.read(65536):
-                    hasher.update(chunk)
-                    seen += len(chunk)
-                if seen != size:  # appended to / truncated while being hashed: the framed length would not match the bytes
-                    raise SecurityBoundaryError(f"Skill file {rel_path!r} changed while it was being hashed")
-            file_count += 1
-
-        return hasher.hexdigest(), file_count
-
-    @staticmethod
-    def _parse_yaml_frontmatter(text: str) -> dict[str, Any]:
-        """Parse YAML frontmatter using pyyaml if available, or lightweight stdlib parser."""
-        try:
-            import importlib
-            yaml_module = importlib.import_module("yaml")
-            safe_load_fn = getattr(yaml_module, "safe_load", None)
-            if callable(safe_load_fn):
-                try:
-                    parsed: object = safe_load_fn(text)
-                    if isinstance(parsed, dict):
-                        return cast(dict[str, Any], parsed)
-                except Exception as e:
-                    raise SkillManifestError(f"Failed to parse YAML frontmatter: {e}") from e
-        except ImportError:
-            pass
-
-        # Standard-library fallback parser for basic YAML frontmatter
-        result: dict[str, Any] = {}
-        current_key: str | None = None
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("- "):
-                if current_key:
-                    val = line[2:].strip().strip("\"'")
-                    if current_key not in result:
-                        result[current_key] = []
-                    if isinstance(result[current_key], list):
-                        cast(list[Any], result[current_key]).append(val)
-                continue
-            if ":" in line:
-                k, v = line.split(":", 1)
-                k = k.strip()
-                v = v.strip()
-                current_key = k
-                if v.startswith("[") and v.endswith("]"):  # inline list, as PyYAML reads `tags: [a, b]`
-                    result[k] = [i.strip().strip("\"'") for i in v[1:-1].split(",") if i.strip()]
-                    continue
-                v = v.strip("\"'")
-                if v:
-                    result[k] = v
-                else:
-                    result[k] = []
-        return result
-
-    @classmethod
-    def _parse_skill_manifest(cls, manifest_path: Path) -> dict[str, Any]:
-        """Parse YAML frontmatter from SKILL.md."""
-        if not manifest_path.is_file():
-            raise SkillManifestError(f"SKILL.md not found in {manifest_path.parent}")
-
-        content = manifest_path.read_text(encoding="utf-8")
-        if not content.startswith("---"):
-            raise SkillManifestError("SKILL.md must begin with YAML frontmatter delimiter '---'")
-
-        parts = content.split("---", 2)
-        if len(parts) < 3:
-            raise SkillManifestError("Unclosed YAML frontmatter in SKILL.md")
-
-        frontmatter_text = parts[1]
-        data = cls._parse_yaml_frontmatter(frontmatter_text)
-
-        if "name" not in data or not isinstance(data["name"], str) or not data["name"]:
-            raise SkillManifestError("SKILL.md frontmatter missing required non-empty 'name' field")
-
-        return data
+    compute_directory_digest = staticmethod(skill_source.compute_directory_digest)
 
     def index_skill(
         self,
@@ -288,7 +99,7 @@ class SkillCatalogEngine:
         """Scan and index a skill directory source into read-model projection."""
         sdir = Path(skill_dir).resolve()
         manifest_path = sdir / "SKILL.md"
-        meta = self._parse_skill_manifest(manifest_path)
+        meta = skill_source.parse_skill_manifest(manifest_path)
 
         name = cast(str, meta["name"])
         skill_id = name
@@ -602,34 +413,7 @@ class SkillCatalogEngine:
 
     def get_skill(self, skill_id: str) -> SkillItem:
         """Fetch skill projection by ID."""
-        with sqlite_tx(self.db_path) as conn:
-            row = conn.execute(
-                """
-                SELECT skill_id, stream_id, name, description, version, state,
-                       revision, tree_digest, file_count, path, tags_json, created_at, updated_at
-                FROM ext_skills WHERE skill_id = ?
-                """,
-                (skill_id,),
-            ).fetchone()
-
-        if row is None:
-            raise SkillNotFoundError(f"Skill {skill_id!r} not found in catalog")
-
-        return SkillItem(
-            skill_id=row[0],
-            stream_id=row[1],
-            name=row[2],
-            description=row[3],
-            version=row[4],
-            state=row[5],
-            revision=row[6],
-            tree_digest=row[7],
-            file_count=row[8],
-            path=row[9],
-            tags=json.loads(row[10]),
-            created_at=row[11],
-            updated_at=row[12],
-        )
+        return skill_projection.get_skill(self.db_path, skill_id)
 
     def search_skills(self, query: str, tags: list[str] | None = None) -> list[SkillItem]:
         """Search curated skill metadata, not provider runtime observations."""
@@ -642,242 +426,26 @@ class SkillCatalogEngine:
 
     def get_capability(self, capability_id: str) -> CapabilityItem:
         """Fetch capability projection by ID."""
-        with sqlite_tx(self.db_path) as conn:
-            row = conn.execute(
-                """
-                SELECT capability_id, stream_id, spec_json, revision, created_at, updated_at
-                FROM ext_capabilities WHERE capability_id = ?
-                """,
-                (capability_id,),
-            ).fetchone()
-
-        if row is None:
-            raise CapabilityNotFoundError(f"Capability {capability_id!r} not found in catalog")
-
-        return CapabilityItem(
-            capability_id=row[0],
-            stream_id=row[1],
-            spec=json.loads(row[2]),
-            revision=row[3],
-            created_at=row[4],
-            updated_at=row[5],
-        )
+        return skill_projection.get_capability(self.db_path, capability_id)
 
     def _save_skill_projection(self, skill: SkillItem, conn: sqlite3.Connection | None = None) -> None:
         if conn is None:
             with sqlite_tx(self.db_path) as own:
                 self._save_skill_projection(skill, own)
             return
-        conn.execute(
-            """
-            INSERT INTO ext_skills (
-                skill_id, stream_id, name, description, version, state,
-                revision, tree_digest, file_count, path, tags_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(skill_id) DO UPDATE SET
-                stream_id = excluded.stream_id,
-                name = excluded.name,
-                description = excluded.description,
-                version = excluded.version,
-                state = excluded.state,
-                revision = excluded.revision,
-                tree_digest = excluded.tree_digest,
-                file_count = excluded.file_count,
-                path = excluded.path,
-                tags_json = excluded.tags_json,
-                updated_at = excluded.updated_at
-            """,
-            (
-                skill.skill_id,
-                skill.stream_id,
-                skill.name,
-                skill.description,
-                skill.version,
-                skill.state,
-                skill.revision,
-                skill.tree_digest,
-                skill.file_count,
-                skill.path,
-                json.dumps(skill.tags),
-                skill.created_at,
-                skill.updated_at,
-            ),
-        )
+        skill_projection.save_skill(conn, skill)
 
     def _save_capability_projection(self, cap: CapabilityItem, conn: sqlite3.Connection | None = None) -> None:
         if conn is None:
             with sqlite_tx(self.db_path) as own:
                 self._save_capability_projection(cap, own)
             return
-        conn.execute(
-            """
-            INSERT INTO ext_capabilities (
-                capability_id, stream_id, spec_json, revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(capability_id) DO UPDATE SET
-                stream_id = excluded.stream_id,
-                spec_json = excluded.spec_json,
-                revision = excluded.revision,
-                updated_at = excluded.updated_at
-            """,
-            (
-                cap.capability_id,
-                cap.stream_id,
-                json.dumps(cap.spec),
-                cap.revision,
-                cap.created_at,
-                cap.updated_at,
-            ),
-        )
+        skill_projection.save_capability(conn, cap)
 
     def _fold(self, records: Iterable[Record], accepted: set[str] | None = None
               ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], int]:
-        """The single ordered-Record reducer for skills and capabilities: pure, no database access.
-        `accepted` collects the record ids the reducer applied."""
-        applied_count = 0
-        skills_state: dict[str, dict[str, Any]] = {}
-        capabilities_state: dict[str, dict[str, Any]] = {}
-
-        for record in records:
-            raw_body: object = record.body
-            if not isinstance(raw_body, dict):
-                continue
-
-            p = cast(dict[str, object], raw_body)
-            kind = record.kind
-
-            if kind == "m2.skill.transitioned":
-                sid = p.get("skill_id")
-                if not isinstance(sid, str) or sid not in skills_state:
-                    continue
-                existing = skills_state[sid]
-                expected, revision = p.get("expected_revision"), p.get("new_revision")
-                if (record.stream_id != existing["stream_id"] or type(expected) is not int
-                        or type(revision) is not int or expected != existing["revision"]
-                        or revision != expected + 1 or not isinstance(p.get("to_state"), str)
-                        or p.get("from_state") != existing["state"]
-                        or (existing["state"], p.get("to_state")) not in self.ALLOWED_SKILL_TRANSITIONS):
-                    continue
-            if kind == "m2.catalog.updated":
-                cid = p.get("capability_id")
-                if not isinstance(cid, str) or cid not in capabilities_state:
-                    continue
-                existing = capabilities_state[cid]
-                expected, revision = p.get("expected_revision"), p.get("new_revision")
-                if (record.stream_id != existing["stream_id"] or type(expected) is not int
-                        or type(revision) is not int or expected != existing["revision"] or revision != expected + 1):
-                    continue
-            if kind in {"m2.catalog.declared", "m2.catalog.updated"}:
-                raw_spec = p.get("spec")
-                if not isinstance(raw_spec, dict):
-                    continue
-                try:
-                    self._validate_capability_spec(cast(dict[str, Any], raw_spec))
-                except VolatileFactRejectedError:
-                    continue
-
-            if kind == "m2.skill.registered":
-                raw_sid = p.get("skill_id")
-                if not isinstance(raw_sid, str) or not raw_sid or raw_sid in skills_state:
-                    continue
-                skill_id: str = raw_sid
-                raw_name = p.get("name")
-                name_str: str = raw_name if isinstance(raw_name, str) else skill_id
-                raw_desc = p.get("description")
-                desc_str: str = raw_desc if isinstance(raw_desc, str) else ""
-                raw_ver = p.get("version")
-                ver_str: str = raw_ver if isinstance(raw_ver, str) else "1.0.0"
-                raw_tags = p.get("tags")
-                tags_list: list[str] = [str(x) for x in cast(list[object], raw_tags)] if isinstance(raw_tags, list) else []
-                raw_digest = p.get("tree_digest")
-                digest_str: str = raw_digest if isinstance(raw_digest, str) else ""
-                raw_fc = p.get("file_count")
-                fc_num: int = raw_fc if isinstance(raw_fc, int) else 0
-                raw_path = p.get("path")
-                path_str: str = raw_path if isinstance(raw_path, str) else ""
-                raw_state = p.get("state")
-                state_str: str = raw_state if isinstance(raw_state, str) else "DISCOVERED"
-                raw_rev = p.get("revision")
-                rev_num: int = raw_rev if isinstance(raw_rev, int) else 1
-                raw_created = p.get("indexed_at")
-                created_str: str = raw_created if isinstance(raw_created, str) else record.created_at
-
-                skills_state[skill_id] = {
-                    "skill_id": skill_id,
-                    "stream_id": record.stream_id,
-                    "name": name_str,
-                    "description": desc_str,
-                    "version": ver_str,
-                    "tags": tags_list,
-                    "tree_digest": digest_str,
-                    "file_count": fc_num,
-                    "path": path_str,
-                    "state": state_str,
-                    "revision": rev_num,
-                    "created_at": created_str,
-                    "updated_at": created_str,
-                }
-                applied_count += 1
-                if accepted is not None:
-                    accepted.add(record.record_id)
-
-            elif kind == "m2.skill.transitioned":
-                raw_sid = p.get("skill_id")
-                if not isinstance(raw_sid, str) or raw_sid not in skills_state:
-                    continue
-                sk = skills_state[raw_sid]
-                raw_to = p.get("to_state")
-                if isinstance(raw_to, str):
-                    sk["state"] = raw_to
-                    raw_new_rev = p.get("new_revision")
-                    sk["revision"] = raw_new_rev if isinstance(raw_new_rev, int) else cast(int, sk["revision"]) + 1
-                    raw_trans_at = p.get("transitioned_at")
-                    sk["updated_at"] = raw_trans_at if isinstance(raw_trans_at, str) else record.created_at
-                    applied_count += 1
-                    if accepted is not None:
-                        accepted.add(record.record_id)
-
-            elif kind == "m2.catalog.declared":
-                raw_cid = p.get("capability_id")
-                if not isinstance(raw_cid, str) or not raw_cid or raw_cid in capabilities_state:
-                    continue
-                cap_id: str = raw_cid
-                raw_spec = p.get("spec")
-                spec_dict: dict[str, Any] = cast(dict[str, Any], raw_spec) if isinstance(raw_spec, dict) else {}
-                raw_rev = p.get("revision")
-                rev_num: int = raw_rev if isinstance(raw_rev, int) else 1
-                raw_created = p.get("declared_at")
-                created_str: str = raw_created if isinstance(raw_created, str) else record.created_at
-
-                capabilities_state[cap_id] = {
-                    "capability_id": cap_id,
-                    "stream_id": record.stream_id,
-                    "spec": spec_dict,
-                    "revision": rev_num,
-                    "created_at": created_str,
-                    "updated_at": created_str,
-                }
-                applied_count += 1
-                if accepted is not None:
-                    accepted.add(record.record_id)
-
-            elif kind == "m2.catalog.updated":
-                raw_cid = p.get("capability_id")
-                if not isinstance(raw_cid, str) or raw_cid not in capabilities_state:
-                    continue
-                cp = capabilities_state[raw_cid]
-                raw_spec = p.get("spec")
-                if isinstance(raw_spec, dict):
-                    cp["spec"] = cast(dict[str, Any], raw_spec)
-                    raw_new_rev = p.get("new_revision")
-                    cp["revision"] = raw_new_rev if isinstance(raw_new_rev, int) else cast(int, cp["revision"]) + 1
-                    raw_upd_at = p.get("updated_at")
-                    cp["updated_at"] = raw_upd_at if isinstance(raw_upd_at, str) else record.created_at
-                    applied_count += 1
-                    if accepted is not None:
-                        accepted.add(record.record_id)
-
-        return skills_state, capabilities_state, applied_count
+        return skill_projection.fold_records(records, accepted, allowed_transitions=self.ALLOWED_SKILL_TRANSITIONS,
+                                             validate_spec=self._validate_capability_spec)
 
     def rebuild_index(self, records: Iterable[Record]) -> int:
         """Rebuild the projection from the authoritative stream Records only.

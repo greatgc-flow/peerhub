@@ -26,9 +26,9 @@ All four are optional; the loader checks their format in every layer (an invalid
 | `suggest` | `true` / `false` | `true` | `false` = never recommended automatically (explicit use still works). |
 | `measurement` | `measured` / `unmeasured` | `measured` | `unmeasured` = no recorded measurement for the model id (the API peers `ca`, `oa` and `ga` until each has one). |
 
-Packaged: `cx.deepthink` is `alias_of = "cx.effort"` with `effort_override = "xhigh"` (the same model and effort as
-before); `cc.deepthink`, `ag.effort` and `cx.deepthink` have `suggest = false`; every `ca.*`, `oa.*` and `ga.*`
-profile has `measurement = "unmeasured"`.
+The packaged `cc.deepthink` and `ag.effort` profiles have `suggest = false`.
+Every `ca.*`, `oa.*` and `ga.*` profile has `measurement = "unmeasured"`.
+See [Compatibility](../commands.md#compatibility) for the packaged Codex alias.
 
 Personal opt-in profile (not packaged), in `~/.peerhub/config/models.toml`:
 

@@ -12,304 +12,38 @@ from __future__ import annotations
 
 import collections
 import concurrent.futures
-import dataclasses
+import copy
 import datetime
 import math
-import time
-import hashlib
-import json
-import uuid
-import copy
-import sqlite3
 import threading
-from typing import Any, Callable, cast
+import time
+import uuid
+from typing import Any, Callable
 
+from peerhub.extensions.orchestration_deadline import HardDeadlineStepRunner
+from peerhub.extensions.orchestration_journal import RecordPlanJournal
+from peerhub.extensions.orchestration_model import (
+    AmbiguousExecutionReplayForbiddenError,
+    CostBoundExceededError,
+    OrchestrationError,
+    Plan,
+    PlanBoundExceededError,
+    PlanBounds,
+    PlanDependencyCycleError,
+    PlanExecutionSummary,
+    PlanStateTransitionError,
+    PlanStep,
+    PlanStepExecutionError,
+    StepExecutionResult,
+    UnsupportedExecutionBoundError,
+)
 
-class OrchestrationError(Exception):
-    """Base exception for orchestration."""
-
-
-class PlanBoundExceededError(OrchestrationError):
-    """Raised when plan bounds (steps, depth, fanout, timeout) are exceeded (Invariant 9)."""
-
-
-class AmbiguousExecutionReplayForbiddenError(OrchestrationError):
-    """Raised when blind retry of MAY_HAVE_STARTED step is forbidden (Invariant 10)."""
-
-
-class PlanDependencyCycleError(OrchestrationError):
-    """Raised when step dependency graph has circular dependencies."""
-
-
-class PlanStateTransitionError(OrchestrationError):
-    """Raised on invalid plan lifecycle transitions."""
-
-
-class PlanStepExecutionError(OrchestrationError):
-    """Raised when a step permanently fails."""
-
-
-class UnsupportedExecutionBoundError(OrchestrationError):
-    """No hard-cancellable runtime binding is available for strict execution."""
-
-
-class CostBoundExceededError(PlanBoundExceededError):
-    """Reported cost reached or exceeded the accepted plan's cost budget (Invariant 9)."""
-
-
-@dataclasses.dataclass(frozen=True)
-class PlanBounds:
-    max_depth: int = 5
-    max_steps: int = 50
-    max_fanout: int = 10
-    max_attempts: int = 3
-    timeout_seconds: float = 300.0
-    cost_budget: float | None = None  # None = no budget. With a budget every attempt result must report a finite cost >= 0.
-
-    def to_dict(self) -> dict[str, Any]:
-        return dataclasses.asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> PlanBounds:
-        return cls(
-            max_depth=int(data.get("max_depth", 5)),
-            max_steps=int(data.get("max_steps", 50)),
-            max_fanout=int(data.get("max_fanout", 10)),
-            max_attempts=int(data.get("max_attempts", 3)),
-            timeout_seconds=float(data.get("timeout_seconds", 300.0)),
-            cost_budget=None if data.get("cost_budget") is None else float(data["cost_budget"]),
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class PlanStep:
-    step_id: str
-    action_type: str
-    payload: dict[str, Any]
-    idempotent: bool = True
-    depends_on: list[str] = dataclasses.field(default_factory=lambda: list[str]())
-    max_attempts: int = 3
-    # Deterministic conditions over COMMITTED outputs (no expression language):
-    #   when    = {"step_id": <a dependency>, "key": k, "equals": v}  -> the step is SKIPPED unless that output matches exactly
-    #   stop_if = {"key": k, "equals": v}                             -> after this step, a match STOPS the plan cleanly
-    when: dict[str, Any] | None = None
-    stop_if: dict[str, Any] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return dataclasses.asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> PlanStep:
-        raw_deps = data.get("depends_on", [])
-        deps = [str(d) for d in raw_deps]
-        return cls(
-            step_id=str(data["step_id"]),
-            action_type=str(data["action_type"]),
-            payload=dict(data.get("payload", {})),
-            idempotent=bool(data.get("idempotent", True)),
-            depends_on=deps,
-            max_attempts=int(data.get("max_attempts", 3)),
-            when=dict(data["when"]) if data.get("when") is not None else None,
-            stop_if=dict(data["stop_if"]) if data.get("stop_if") is not None else None,
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class StepExecutionResult:
-    step_id: str
-    attempt: int
-    status: str  # COMPLETED | FAILED | MAY_HAVE_STARTED | SKIPPED (engine decision, never a runner result)
-    output: dict[str, Any] | None = None
-    error: str | None = None
-    cost: float | None = None  # None = not reported (UNKNOWN, never treated as zero)
-
-    def to_dict(self) -> dict[str, Any]:
-        return dataclasses.asdict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> StepExecutionResult:
-        return cls(
-            step_id=str(data["step_id"]),
-            attempt=int(data["attempt"]),
-            status=str(data["status"]),
-            output=dict(data["output"]) if data.get("output") is not None else None,
-            error=str(data["error"]) if data.get("error") is not None else None,
-            cost=float(data["cost"]) if data.get("cost") is not None else None,
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class Plan:
-    plan_id: str
-    title: str
-    steps: list[PlanStep]
-    bounds: PlanBounds = dataclasses.field(default_factory=PlanBounds)
-    created_at: str = dataclasses.field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat()
-    )
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "plan_id": self.plan_id,
-            "title": self.title,
-            "steps": [s.to_dict() for s in self.steps],
-            "bounds": self.bounds.to_dict(),
-            "created_at": self.created_at,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Plan:
-        return cls(
-            plan_id=str(data["plan_id"]),
-            title=str(data["title"]),
-            steps=[PlanStep.from_dict(s) for s in data.get("steps", [])],
-            bounds=PlanBounds.from_dict(data.get("bounds", {})),
-            created_at=str(
-                data.get(
-                    "created_at",
-                    datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                )
-            ),
-        )
-
-
-@dataclasses.dataclass(frozen=True)
-class PlanExecutionSummary:
-    plan_id: str
-    status: str  # COMPLETED | STOPPED | FAILED | BOUNDS_EXCEEDED | CANCELLED
-    steps_executed: int
-    step_results: dict[str, StepExecutionResult]
-    elapsed_seconds: float
-    total_cost: float = 0.0  # sum of REPORTED costs over every attempt, including earlier runs of the same durable plan
-
-
-def _plan_json(plan: Plan) -> str:
-    return json.dumps(plan.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
-class RecordPlanJournal:
-    """Authoritative evidence through public Core ports, no private database.
-
-    Requires a dedicated single-author Stream so append idempotency enforces
-    one owner per invocation attempt across executor instances. Evidence refs
-    can bind an Artifact or approval Record; their verification belongs to the
-    accepting authority, not to invented journal approval logic.
-    """
-
-    def __init__(self, store: Any, stream_id: str, author_peer_id: str) -> None:
-        self.store = store
-        self.stream_id = stream_id
-        self.author_peer_id = author_peer_id
-
-    def _check_owner(self) -> None:
-        if self.store.get_stream(self.stream_id).members != [self.author_peer_id]:
-            raise PlanStateTransitionError("Durable execution requires a dedicated single-author stream.")
-
-    def _records(self, plan_id: str) -> list[Any]:
-        self._check_owner()
-        records: list[Any] = []
-        after = 0
-        while True:
-            page = self.store.read_records(self.stream_id, after_position=after, limit=256)
-            if not page:
-                break
-            for record in page:
-                body = record.body
-                if record.kind.startswith("m3.orchestration.") and isinstance(body, dict) and cast(dict[str, Any], body).get("plan_id") == plan_id:
-                    if record.author_peer_id != self.author_peer_id:
-                        raise PlanStateTransitionError("Plan evidence has a foreign authority.")
-                    records.append(record)
-            after = page[-1].position
-        return records
-
-    def _append(self, plan: Plan, kind: str, suffix: str, body: dict[str, Any]) -> Any:
-        self._check_owner()
-        def owner_guard(conn: sqlite3.Connection, *, stream_id: str, peer_id: str) -> None:
-            members = [row[0] for row in conn.execute(
-                "SELECT peer_id FROM stream_members WHERE stream_id=?", (stream_id,)
-            )]
-            if members != [peer_id] or peer_id != self.author_peer_id:
-                raise PlanStateTransitionError("Execution stream ownership changed before durable append.")
-        return self.store.append_record(
-            guard=owner_guard,
-            stream_id=self.stream_id, author_peer_id=self.author_peer_id,
-            kind=f"m3.orchestration.{kind}", body={"plan_id": plan.plan_id, **body},
-            idempotency_key="orchestration:" + hashlib.sha256(json.dumps([plan.plan_id, suffix]).encode()).hexdigest(),
-            created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        )
-
-    def accept_plan(self, plan: Plan, *, accepted_by: str,
-                    evidence_refs: list[str] | None = None) -> str:
-        if not accepted_by:
-            raise PlanStateTransitionError("Accepted plan requires an explicit accepting authority.")
-        if not math.isfinite(plan.bounds.timeout_seconds) or plan.bounds.timeout_seconds <= 0:
-            raise PlanBoundExceededError("Accepted plan requires a finite positive deadline.")
-        if evidence_refs is not None and any(not isinstance(cast(object, ref), str) or not ref for ref in evidence_refs):
-            raise PlanStateTransitionError("Acceptance evidence references must be nonempty strings.")
-        serialized = _plan_json(plan)
-        digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-        accepted = [r for r in self._records(plan.plan_id) if r.kind == "m3.orchestration.accepted"]
-        if accepted:
-            body = accepted[0].body
-            if body["plan_digest"] != digest or body["accepted_by"] != accepted_by or body["evidence_refs"] != (evidence_refs or []):
-                raise PlanStateTransitionError("Plan ID already binds different acceptance evidence.")
-            return accepted[0].record_id
-        now = datetime.datetime.now(datetime.timezone.utc)
-        deadline = (now + datetime.timedelta(seconds=plan.bounds.timeout_seconds)).isoformat()
-        record = self._append(plan, "accepted", "accepted", {
-            "plan_json": serialized, "plan_digest": digest,
-            "accepted_by": accepted_by, "evidence_refs": evidence_refs or [],
-            "accepted_at": now.isoformat(), "deadline": deadline,
-            "cost_budget": plan.bounds.cost_budget,
-            "cost_accounting": "RESULT_REPORTED" if plan.bounds.cost_budget is not None else "NOT_CONFIGURED",
-        })
-        return record.record_id
-
-    def recover(self, plan: Plan) -> tuple[dict[str, StepExecutionResult], str]:
-        records = self._records(plan.plan_id)
-        accepted = [r for r in records if r.kind == "m3.orchestration.accepted"]
-        digest = hashlib.sha256(_plan_json(plan).encode("utf-8")).hexdigest()
-        if len(accepted) != 1 or accepted[0].body.get("plan_digest") != digest:
-            raise PlanStateTransitionError("Execution requires this exact explicitly accepted plan.")
-        results: dict[str, StepExecutionResult] = {}
-        for record in records:
-            if record.kind in ("m3.orchestration.running", "m3.orchestration.result"):
-                body = record.body
-                if body.get("plan_digest") != digest:
-                    raise PlanStateTransitionError("Step evidence binds another plan digest.")
-                result = StepExecutionResult.from_dict(body["result"])
-                results[result.step_id] = result
-        return results, str(accepted[0].body["deadline"])
-
-    def recover_cost(self, plan: Plan) -> float:
-        """Total REPORTED cost over every committed attempt of this plan (all runs and resumes)."""
-        seen: dict[tuple[str, int], float] = {}
-        for record in self._records(plan.plan_id):
-            if record.kind == "m3.orchestration.result":
-                result = StepExecutionResult.from_dict(record.body["result"])
-                if result.cost is not None:
-                    seen[(result.step_id, result.attempt)] = result.cost
-        return float(sum(seen.values()))
-
-    def record_attempt(self, plan: Plan, result: StepExecutionResult, owner: str, *, running: bool) -> None:
-        if not owner or result.step_id not in {s.step_id for s in plan.steps} or result.attempt < 1:
-            raise PlanStateTransitionError("Attempt evidence must bind a valid plan step, attempt and owner.")
-        if running and result.status != "MAY_HAVE_STARTED":
-            raise PlanStateTransitionError("Pre-invocation evidence cannot assert a terminal outcome.")
-        if not running and result.status not in ("COMPLETED", "FAILED", "MAY_HAVE_STARTED", "SKIPPED"):
-            raise PlanStateTransitionError("Unsupported execution certainty.")
-        if not running and result.status != "SKIPPED":
-            prior = [r for r in self._records(plan.plan_id) if r.kind == "m3.orchestration.running"
-                     and r.body["result"]["step_id"] == result.step_id
-                     and r.body["result"]["attempt"] == result.attempt]
-            if len(prior) != 1 or prior[0].body["owner"] != owner:
-                raise PlanStateTransitionError("Terminal evidence requires its committed invocation owner.")
-        self._append(plan, "running" if running else "result",
-                     f"{result.step_id}:{result.attempt}:{'running' if running else 'result'}", {
-            "plan_digest": hashlib.sha256(_plan_json(plan).encode("utf-8")).hexdigest(),
-            "owner": owner, "certainty": "MAY_HAVE_STARTED" if running else result.status,
-            "result": result.to_dict(),
-        })
+__all__ = [
+    "AmbiguousExecutionReplayForbiddenError", "CostBoundExceededError", "HardDeadlineStepRunner",
+    "OrchestrationError", "Plan", "PlanBoundExceededError", "PlanBounds", "PlanDependencyCycleError",
+    "PlanExecutionSummary", "PlanExecutor", "PlanStateTransitionError", "PlanStep", "PlanStepExecutionError",
+    "RecordPlanJournal", "StepExecutionResult", "UnsupportedExecutionBoundError",
+]
 
 
 class PlanExecutor:
@@ -318,7 +52,7 @@ class PlanExecutor:
     Serial by default; `parallel=True` runs up to `bounds.max_fanout` independent ready steps at once (the runner must then be
     thread-safe; durable journal appends are serialized). Without a hard-cancellable runner a callback that overruns the deadline
     is only *detected* after it returns: `require_hard_deadline=True` therefore needs a runner that declares
-    `hard_cancellable = True` (see `runtime_port.HardDeadlineStepRunner`), which kills its work at the deadline.
+    `hard_cancellable = True` (see `orchestration_deadline.HardDeadlineStepRunner`), which kills its work at the deadline.
 
     Cost: with `bounds.cost_budget` every attempt must report a finite cost (unreported = unknown, never zero). Spending is summed
     from the durable journal across attempts and resumes and checked BEFORE each attempt and after each result, so a restart
@@ -399,7 +133,7 @@ class PlanExecutor:
     ) -> PlanExecutionSummary:
         if self.require_hard_deadline and getattr(step_runner, "hard_cancellable", False) is not True:
             raise UnsupportedExecutionBoundError(
-                "Strict execution needs a step runner that declares hard_cancellable (e.g. runtime_port.HardDeadlineStepRunner).")
+                "Strict execution needs a step runner that declares hard_cancellable (e.g. orchestration_deadline.HardDeadlineStepRunner).")
         owner = uuid.uuid4().hex
         deadline: datetime.datetime | None = None
         if self.journal is not None:
@@ -672,49 +406,3 @@ class PlanExecutor:
                     if indeg[s.step_id] == 0:
                         queue.append(s.step_id)
         return order
-
-
-class HardDeadlineStepRunner:
-    """Step runner over a runtime port that can really cancel: at the plan deadline the work is KILLED, not merely noticed.
-
-    The port is duck-typed (`submit/get/cancel` plus `hard_cancel = True`, as `runtime_port.ProcessRuntimeAdapter` declares), so
-    this module imports no other extension; the composition root wires them. `PlanExecutor(require_hard_deadline=True)` accepts only
-    runners declaring `hard_cancellable`. A confirmed kill yields a FAILED result (the effect stopped); an unconfirmed kill
-    (the port's `cancel` raised) yields MAY_HAVE_STARTED, which is never blindly replayed.
-    """
-
-    hard_cancellable = True
-
-    def __init__(self, port: Any, *, poll_seconds: float = 0.05, cost_key: str = "cost") -> None:
-        if getattr(port, "hard_cancel", False) is not True:
-            raise TypeError("A hard-deadline runner needs a runtime port that declares hard_cancel (cancellation that is confirmed).")
-        self._port = port
-        self._poll = poll_seconds
-        self._cost_key = cost_key
-        self._deadline: float | None = None
-
-    def set_deadline(self, monotonic_deadline: float) -> None:
-        self._deadline = monotonic_deadline
-
-    def __call__(self, step: PlanStep, attempt: int) -> StepExecutionResult:
-        try:
-            job = self._port.submit(step.action_type, step.payload)
-        except Exception as exc:  # rejected before any process started: a safe, certain failure
-            return StepExecutionResult(step.step_id, attempt, "FAILED", error=f"not started: {exc}")
-        terminal = ("COMPLETED", "FAILED", "CANCELLED")
-        while job.status not in terminal:
-            if self._deadline is not None and time.monotonic() >= self._deadline:
-                try:
-                    job = self._port.cancel(job.job_id)
-                except Exception as exc:
-                    return StepExecutionResult(step.step_id, attempt, "MAY_HAVE_STARTED", error=f"deadline reached; {exc}")
-                if job.status == "CANCELLED":
-                    return StepExecutionResult(step.step_id, attempt, "FAILED", error="deadline reached; work cancelled (process tree killed)")
-                break  # the job had already finished on its own: its real outcome (and cost) is used, never discarded or replayed
-            time.sleep(self._poll)
-            job = self._port.get(job.job_id)
-        if job.status == "COMPLETED" and job.output is not None:
-            raw_cost = job.output.get(self._cost_key)
-            cost = float(raw_cost) if isinstance(raw_cost, (int, float)) and not isinstance(raw_cost, bool) else None
-            return StepExecutionResult(step.step_id, attempt, "COMPLETED", output=job.output, cost=cost)
-        return StepExecutionResult(step.step_id, attempt, "FAILED", error=job.error or job.status)

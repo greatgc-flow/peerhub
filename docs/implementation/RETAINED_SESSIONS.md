@@ -113,5 +113,6 @@ unsupported context occupancy remains unknown. See
 Writer implementations: [registry](../../peerhub/extensions/bridge_registry.py),
 [receipts](../../peerhub/extensions/session_receipts.py),
 [delivery projections](../../peerhub/extensions/delivery_projections.py),
+[projection rebuilds](../../peerhub/extensions/delivery_projection_rebuild.py),
 [ask budgets](../../peerhub/extensions/ask_budgets.py),
 [Bridge](../../peerhub/extensions/bridge.py), [ask](../../peerhub/extensions/ask.py).

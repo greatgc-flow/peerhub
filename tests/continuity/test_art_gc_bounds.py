@@ -57,10 +57,10 @@ def test_commit_fsyncs_the_shard_directory_on_posix(tmp_path, monkeypatch):
 def test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml(monkeypatch):
     import importlib
 
-    from peerhub.extensions.skills import SkillCatalogEngine
+    from peerhub.extensions.skill_source import parse_yaml_frontmatter
 
     text = "name: demo\ntags: [a, 'b', \"c\"]\nempty: []\nplain: value\n"
-    with_yaml = SkillCatalogEngine._parse_yaml_frontmatter(text)
+    with_yaml = parse_yaml_frontmatter(text)
     real = importlib.import_module
 
     def no_yaml(name, *a, **k):
@@ -69,7 +69,7 @@ def test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml(monkeypatch)
         return real(name, *a, **k)
 
     monkeypatch.setattr(importlib, "import_module", no_yaml)
-    assert SkillCatalogEngine._parse_yaml_frontmatter(text) == with_yaml == {"name": "demo", "tags": ["a", "b", "c"], "empty": [], "plain": "value"}
+    assert parse_yaml_frontmatter(text) == with_yaml == {"name": "demo", "tags": ["a", "b", "c"], "empty": [], "plain": "value"}
 
 
 @pytest.mark.catalog_id("SKL-018")

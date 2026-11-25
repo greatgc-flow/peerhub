@@ -23,7 +23,7 @@ configuration, then packaged defaults). The adapter only translates a resolved
 binding into CLI flags.
 
 Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
-`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them. `python -m tools.model_ping` proves the answering model and effort (session log). Each profile has an evidence card: `peerhub explain cx.<profile>`. Since 0.25.0 `cx.deepthink` is a deprecated alias of `cx.effort` with effort `xhigh` (same model and effort as before; one stderr line when an ask uses it) and is not suggested.
+`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them. `python -m tools.model_ping` proves the answering model and effort (session log). Each profile has an evidence card: `peerhub explain cx.<profile>`. See [Compatibility](../commands.md#compatibility) for the deprecated Codex profile alias.
 
 `cx.astra` (`gpt-6.2-astra`, high) is an opt-in top profile on X-5H/X-7D; `ultra` gave the same benchmark score
 for more latency ([benchmark](../benchmarks/profiles-2026-11-08.md)). Plans may omit a window (see lesson `plan-windows`).

@@ -143,7 +143,8 @@ peerhub monitor --json --schema-version 1.1 --cycles 1
 # Customize grouped watch and snapshot defaults (workspace by default).
 peerhub monitor defaults set --group overview activity peers execution sessions usage context capacity coverage
 peerhub monitor defaults show
-peerhub monitor defaults reset   # saved before 0.24.16? reset to get the new `activity` group
+# Reset defaults saved before 0.24.16 to include the new activity group.
+peerhub monitor defaults reset
 
 # Review with a second provider using a declared profile.
 peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
