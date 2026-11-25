@@ -28,7 +28,7 @@ M3_MODULES = (
 )
 M2_MODULES = (
     "accounts", "batch", "work", "artifact", "skills", "skill_models", "skill_projection", "skill_source",
-    "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary", "authoritative",
+    "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary", "authoritative", "billing", "billing_secret",
 )
 M2_M3_MODULES = M2_MODULES + M3_MODULES
 
@@ -69,13 +69,28 @@ M1_SCRIPT = PRELUDE + textwrap.dedent("""
     runtime.script_deliver(("started", "exec-1"), ("terminal", {"response": "answer"}))
     first = ask(db, "cx", "question", request_id="req", runtime=runtime)
     replay = ask(db, "cx", "question", request_id="req", runtime=FakeRuntimeTarget())
+    from pathlib import Path
+    from peerhub.extensions.adapters.api import OaRuntimeTarget
+    class OfflineAPI(OaRuntimeTarget):
+        def _call(self, prompt):
+            return self._reply("api answer", {"input_tokens": 1}, complete=True, truncated=False, why="")
+        def _call_with_key(self, prompt, key):
+            return self._call(prompt)
+    api = ask(db, "oa", "question", request_id="api", runtime=OfflineAPI(Path(db).parent, model="gpt-test"))
     # Diag reads it all back (the dashboard shows the per-peer ask history built from Observation evidence)
     import io, contextlib
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         codes.append(main(["--db", db, "diag", "--view", "rich"]))
         codes.append(main(["--db", db, "diag", "health"]))
-    print("RESULT" + json.dumps({"control": control("peerhub.extensions.work"), "codes": codes, "loaded": loaded(),
+    api_views = io.StringIO()
+    with contextlib.redirect_stdout(api_views):
+        codes.append(main(["--db", db, "diag", "--json"]))
+        codes.append(main(["--db", db, "monitor", "--snapshot", "--json", "--group", "peers"]))
+    print("RESULT" + json.dumps({"control": control("peerhub.extensions.work"),
+                                 "billing_control": control("peerhub.extensions.billing"),
+                                 "codes": codes, "loaded": loaded(), "api": [api["status"], api["response"]],
+                                 "billing_panel": '"billing":' in api_views.getvalue(),
                                  "ask": [first["status"], first["response"], replay["status"], replay["response"]],
                                  "dashboard_has_asks": "Asks cx delivered " in out.getvalue()}))
 """)
@@ -134,8 +149,10 @@ def run_script(script: str, blocked: tuple[str, ...], arg: Path) -> dict:
 def test_m1_works_with_every_m2_and_m3_extension_disabled(tmp_path):
     result = run_script(M1_SCRIPT, M2_M3_MODULES, tmp_path / "core.db")
     assert result["control"] == "blocked"  # the blocker really blocks (control for the assertions below)
-    assert result["codes"] == [0, 0, 0, 0, 0, 0, 0] and result["loaded"] == []  # Core CRUD, the dashboard and health all succeed
+    assert result["billing_control"] == "blocked" and not result["billing_panel"]
+    assert result["codes"] == [0] * 9 and result["loaded"] == []  # Core CRUD, the dashboards and health all succeed
     assert result["ask"] == ["delivered", "answer", "recovered_terminal", "answer"]  # Bridge + Observation work, the retry is idempotent
+    assert result["api"] == ["delivered", "api answer"]
     assert result["dashboard_has_asks"] is True  # Diag shows what Observation recorded
 
 
@@ -226,7 +243,7 @@ def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1
     modules = {p.stem for p in ext.glob("*.py") if p.stem != "__init__"}
     modules.update(p.parent.name for p in ext.glob("*/__init__.py"))
     assert set(M2_M3_MODULES) <= modules  # a renamed module must not silently escape the gate
-    m1 = {"adapters", "ask", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
+    m1 = {"adapters", "ask", "billing_port", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
           "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "pool_health", "schema_guard",
           "quota_projection", "bridge_registry", "session_receipts", "ask_budgets", "delivery_projection_rebuild", "delivery_projections",

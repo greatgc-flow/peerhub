@@ -82,6 +82,19 @@ def _estimate(context: dict[str, Any], now: float | None) -> str | None:
         "age ?" if age is None else f"{compact_age(age)} ago")
 
 
+def billing_summary(peer: dict[str, Any]) -> str | None:
+    billing = as_dict(peer.get("billing"))
+    if not billing:
+        return None
+    facts = dict_items(billing.get("observations"))
+    usage = next((fact for fact in facts if fact.get("kind") == "billing_usage"), None)
+    if usage is not None and usage.get("status") == "unreconciled":
+        return "billing unreconciled"
+    if billing.get("status") == "ERROR":
+        return "billing read error"
+    return "billing evidence" if facts else "billing unknown"
+
+
 def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
                  elapsed_seconds: float = 0.0, read_at: float | None = None,
                  expand: bool = False, color: bool = False, bounded: bool = False,
@@ -224,10 +237,14 @@ def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bo
                     estimate = _estimate(c_obj, now)
                     c_wide, c_narr = estimate or "unknown", estimate or "unk"
 
-            if width < 48:
-                narrow_peers.append([f"{pid}: quota {q_narr}", p_narr, s_narr, f"ctx: {c_narr}" if c_narr != "unk" else ""])
+            if (summary := billing_summary(item)) is not None:
+                wide_quota = narrow_quota = summary
             else:
-                rows.append(f"{pid:<4}quota: {q_wide} -> {p_wide}")
+                wide_quota, narrow_quota = f"quota: {q_wide}", f"quota {q_narr}"
+            if width < 48:
+                narrow_peers.append([f"{pid}: {narrow_quota}", p_narr, s_narr, f"ctx: {c_narr}" if c_narr != "unk" else ""])
+            else:
+                rows.append(f"{pid:<4}{wide_quota} -> {p_wide}")
                 prefix = f"{pid} " if bounded else "    "
                 rows.append(f"{prefix}-> latest session: {s_wide}{' -> context: ' + c_wide if c_wide != 'unknown' else ''}")
 

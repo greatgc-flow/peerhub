@@ -16,7 +16,7 @@ Each target adds only its transport and field names; the base maps one `Outcome`
 
 For these peers "started" means that inference may have started: the call runs to its end before the first event, so an
 answer that proves no inference (a listed HTTP status with an error object) stays NOT_STARTED although `ant` ran or a request
-was sent. PeerHub never reads, stores or prints a credential; error text passes the sanitizer.
+was sent. Credentials stay in the transport and its account-scope signer. Error text passes the sanitizer.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ import threading
 import urllib.error
 import urllib.request
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 
@@ -75,9 +75,9 @@ class RequestRejected(ValueError):
 @dataclass(frozen=True)
 class Outcome:
     kind: str  # complete | truncated | incomplete | provider_limit | not_started | timeout | uncertain
-    text: str = ""  # the reply text (complete, truncated, incomplete)
+    text: str = field(default="", repr=False)  # the reply text (complete, truncated, incomplete)
     detail: str = ""  # sanitized, bounded text for the error
-    usage: object = None  # the provider's usage object, unvalidated
+    usage: dict[str, int] = field(default_factory=dict[str, int])
     termination_confirmed: bool | None = None
 
 
@@ -88,6 +88,13 @@ def _json_object(text: str) -> dict[str, Any] | None:
     except (ValueError, RecursionError):
         return None
     return cast("dict[str, Any]", value) if isinstance(value, dict) else None
+
+
+def _http_error_detail(provider: str, status: int, code: object, message: object, san: Sanitizer) -> str:
+    # The parser has decoded these strings. Never interpolate a raw body or a nested provider object.
+    fields = [f"{provider}: HTTP {status}"]
+    fields.extend(value for value in (code, message) if isinstance(value, str))
+    return san.clean(": ".join(fields), EXCERPT_CHARS)
 
 
 def _joined_text(blocks: object, block_type: str) -> str | None:
@@ -218,6 +225,14 @@ class ApiRuntimeTarget:
         return "unsupported"
 
     def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]:
+        return self._deliver(record, catch_up, self._call)
+
+    def prepare_billing_delivery(self, record: Any, catch_up: list[Any],
+                                 sign: Callable[[str], str | None] | None) -> tuple[str | None, Iterable[RuntimeEvent]]:
+        # The ant login is opaque to PeerHub. No environment value establishes its scope.
+        return None, self._deliver(record, catch_up, self._call)
+
+    def _deliver(self, record: Any, catch_up: list[Any], call: Callable[[str], Outcome]) -> Iterable[RuntimeEvent]:
         kind = self.runtime_kind
         prompt = render_prompt(record, catch_up)
         n_bytes = len(prompt.encode("utf-8", "replace"))
@@ -226,27 +241,25 @@ class ApiRuntimeTarget:
                                 f"(catch-up history is never truncated silently; lower the catch-up budget)")
         if not Path(self._workspace).is_dir():
             raise PrespawnError("workspace is not a directory")
-        outcome = self._call(prompt)
+        outcome = call(prompt)
         if outcome.kind == "not_started":
             raise PrespawnError(outcome.detail)
         yield ("started", f"{kind}:{uuid.uuid4().hex[:8]}")
         if outcome.kind == "timeout":
             yield ("timeout", self._timeout_s, outcome.termination_confirmed)
             return
-        if outcome.kind == "uncertain":
-            raise RuntimeTargetError(outcome.detail, termination_confirmed=outcome.termination_confirmed)
         if outcome.kind == "provider_limit":
             yield ("refusal", {"outcome": "NOT_EXECUTED", "reason": "quota_exhausted", "message": outcome.detail,
                                "reset_time": None})
             return
-        text = Sanitizer(env_secrets()).clean(outcome.text)  # secrets redacted; the prompt may legitimately be quoted
-        usage: object = outcome.usage
-        reported = {key: value for key, value in cast("dict[str, Any]", usage).items()
-                    if key in REPORTED_FIELDS[kind] and isinstance(value, int) and not isinstance(value, bool) and value >= 0
-                    } if isinstance(usage, dict) else {}
+        text = outcome.text  # sanitized with the same credential snapshot used by the call
+        reported = outcome.usage
         telemetry = unknown_usage("usage_absent") if not reported else {
             "schema_version": 1, "scope": "delivery", "source": self._usage_source, "reported": reported,
             "normalized": normalize_provider_usage(kind, reported), "coverage": {"state": "MEASURED", "reason": None}}
+        if outcome.kind == "uncertain":
+            raise RuntimeTargetError(outcome.detail, termination_confirmed=outcome.termination_confirmed,
+                                     provider_telemetry=telemetry if reported else None)
         payload: dict[str, Any] = {"response": text, "provider_telemetry": telemetry}
         counters = {key: reported[key] for key in ("input_tokens", "output_tokens") if key in reported}
         if counters:
@@ -262,12 +275,20 @@ class ApiRuntimeTarget:
     def _call(self, prompt: str) -> Outcome:
         raise NotImplementedError
 
+    def _usage_counters(self, usage: object) -> dict[str, int]:
+        if not isinstance(usage, dict):
+            return {}
+        raw = cast(dict[str, object], usage)
+        return {key: value for key in REPORTED_FIELDS[self.runtime_kind] if isinstance(value := raw.get(key), int)
+                and not isinstance(value, bool) and 0 <= value < 2**63}
+
     def _reply(self, text: str, usage: object, *, complete: bool, truncated: bool, why: str) -> Outcome:
+        counters = self._usage_counters(usage)
         if complete:
-            return Outcome("complete", text, usage=usage)
+            return Outcome("complete", text, usage=counters)
         if truncated:
-            return Outcome("truncated", text, f"{self.runtime_kind} reply cut at {self.max_output_tokens} output tokens ({why})", usage)
-        return Outcome("incomplete", text, f"{self.runtime_kind} reply is not complete ({why})", usage)
+            return Outcome("truncated", text, f"{self.runtime_kind} reply cut at {self.max_output_tokens} output tokens ({why})", counters)
+        return Outcome("incomplete", text, f"{self.runtime_kind} reply is not complete ({why})", counters)
 
     @staticmethod
     def _error(status: int | None, limit: bool, detail: str) -> Outcome:
@@ -292,7 +313,8 @@ class CaRuntimeTarget(ApiRuntimeTarget):
 
     def _call(self, prompt: str) -> Outcome:
         merged = {**os.environ, **self._env_extra}
-        san = Sanitizer(env_secrets(merged)).with_prompt(prompt)
+        reply_san = Sanitizer(env_secrets(merged))
+        san = reply_san.with_prompt(prompt)
         found = shutil.which("ant") if self._command is None else None
         base = self._command if self._command is not None else [found] if found else None
         if base is None:
@@ -300,7 +322,8 @@ class CaRuntimeTarget(ApiRuntimeTarget):
         # Keys, tokens, base URL and profile overrides are removed: the call uses the `ant` login and the official endpoint.
         # The batch ids describe the ask process only (#374).
         env = {name: value for name, value in merged.items()
-               if not name.upper().startswith("ANTHROPIC_") and name.upper() not in ("PEERHUB_BATCH_ID", "PEERHUB_BATCH_TASK")}
+               if not name.upper().startswith(("ANTHROPIC_", "PEERHUB_BILLING_"))
+               and name.upper() not in (OA_KEY_ENV, GA_KEY_ENV, "PEERHUB_BATCH_ID", "PEERHUB_BATCH_TASK")}
         body = json.dumps({"model": self._model_id, "max_tokens": self.max_output_tokens,
                            "messages": [{"role": "user", "content": f"{CA_HEADER}\n\n{prompt}"}]}).encode("utf-8")
         proc = BoundedProcess([*base, "messages", "create", "--format", "json"], stdin=body, cwd=self._workspace, env=env,
@@ -308,7 +331,7 @@ class CaRuntimeTarget(ApiRuntimeTarget):
         try:
             proc.start()
         except SpawnFailure as e:
-            raise PrespawnError(san.clean(f"cannot spawn ant: {e}", EXCERPT_CHARS)) from e
+            raise PrespawnError(san.clean(f"cannot spawn ant: {e}", EXCERPT_CHARS)) from None
         finished = False
         try:
             res = proc.wait()
@@ -328,21 +351,22 @@ class CaRuntimeTarget(ApiRuntimeTarget):
             stop: object = message.get("stop_reason")
             reply = _joined_text(message.get("content"), "text")
             if reply is not None and isinstance(stop, str):  # a wrong shape is never a reply: it falls through to uncertain
-                return self._reply(reply, message.get("usage"), complete=stop in ("end_turn", "stop_sequence"),
+                return self._reply(reply_san.clean(reply), message.get("usage"), complete=stop in ("end_turn", "stop_sequence"),
                                    truncated=stop == "max_tokens", why=san.clean(f"stop_reason {stop}", 80))
         output = out + "\n" + decode_stderr(res.stderr)
         status_match = _ANT_STATUS.search(output)
         status = int(status_match.group(1)) if status_match else None
         error = self._error_object(output)
         if status is not None and error is not None:
-            kind, text = error.get("type"), str(error.get("message"))
+            kind, text = error.get("type"), error.get("message")
             # Measured (ant 2.9.0): without a login the API answers 401 authentication_error "x-api-key header is required".
             who = ("ant is not signed in or its login expired (run: ant auth login)"
                    if status == 401 and kind == "authentication_error" else "ca")
-            return self._error(status, status in _CA_CREDIT_STATUS and _CA_CREDIT_TEXT in text.lower(),
-                               san.clean(f"{who}: HTTP {status}: {kind}: {text}", EXCERPT_CHARS))
-        excerpt = san.clean(" ".join(output.split()), EXCERPT_CHARS)
-        return Outcome("uncertain", detail=f"ca call ended without a complete reply (exit {res.returncode}): {excerpt}")
+            return self._error(status, status in _CA_CREDIT_STATUS and isinstance(text, str) and _CA_CREDIT_TEXT in text.lower(),
+                               _http_error_detail(who, status, kind, text, san))
+        usage = message.get("usage") if res.returncode == 0 and message is not None and message.get("type") == "message" else None
+        return Outcome("uncertain", detail=f"ca call ended without a complete reply (exit {res.returncode})",
+                       usage=self._usage_counters(usage))
 
     @staticmethod
     def _error_object(output: str) -> dict[str, Any] | None:
@@ -394,12 +418,21 @@ class HttpRuntimeTarget(ApiRuntimeTarget):
     url: str
 
     def _call(self, prompt: str) -> Outcome:
+        return self._call_with_key(prompt, os.environ.get(self.key_env))
+
+    def prepare_billing_delivery(self, record: Any, catch_up: list[Any],
+                                 sign: Callable[[str], str | None] | None) -> tuple[str | None, Iterable[RuntimeEvent]]:
         key = os.environ.get(self.key_env)
+        scope = sign(key) if key and sign is not None else None
+        return scope, self._deliver(record, catch_up, lambda prompt: self._call_with_key(prompt, key))
+
+    def _call_with_key(self, prompt: str, key: str | None) -> Outcome:
         if not key:
             raise PrespawnError(f"set {self.key_env} {SETUP_HINT}")
         if not key.isascii() or not key.isprintable() or " " in key:  # http.client would quote a refused header value in its error
             raise PrespawnError(f"{self.key_env} is not usable in a header (printable ASCII without spaces)")
-        san = Sanitizer([*env_secrets(), key]).with_prompt(prompt)
+        reply_san = Sanitizer([*env_secrets(), key])
+        san = reply_san.with_prompt(prompt)
         request = self._request(prompt, key)
         per_operation = min(self._timeout_s, self._silence_timeout_s or self._timeout_s)
         answers: list[tuple[int, bytes] | Exception] = []
@@ -425,9 +458,9 @@ class HttpRuntimeTarget(ApiRuntimeTarget):
         if isinstance(answer, Exception):
             if isinstance(answer, TimeoutError) or isinstance(getattr(answer, "reason", None), TimeoutError):
                 return Outcome("timeout")
-            return Outcome("uncertain", detail=san.clean(f"{self.runtime_kind} request failed: {type(answer).__name__}: {answer}",
-                                                         EXCERPT_CHARS))
-        return self._classify(*answer, san)
+            return Outcome("uncertain", detail=f"{self.runtime_kind} request failed")
+        outcome = self._classify(*answer, san)
+        return replace(outcome, text=reply_san.clean(outcome.text))
 
     # ---- the hooks
     def _request(self, prompt: str, key: str) -> urllib.request.Request:
@@ -474,12 +507,12 @@ class OaRuntimeTarget(HttpRuntimeTarget):
         if status != 200 and isinstance(error, dict):
             detail = cast("dict[str, Any]", error)
             return self._error(status, detail.get("code") in OA_LIMIT_CODES,
-                               san.clean(f"oa: HTTP {status}: {detail.get('code')}: {detail.get('message')}", EXCERPT_CHARS))
+                               _http_error_detail("oa", status, detail.get("code"), detail.get("message"), san))
         state: object = doc.get("status") if doc is not None else None
         reply = _oa_text(doc.get("output")) if doc is not None else None
         if status != 200 or doc is None or not isinstance(state, str) or reply is None or (state == "completed" and error is not None):
-            excerpt = san.clean(" ".join(raw[:EXCERPT_CHARS * 4].decode("utf-8", "replace").split()), EXCERPT_CHARS)
-            return Outcome("uncertain", detail=f"oa: HTTP {status}: unexpected answer: {excerpt}")
+            usage = doc.get("usage") if status == 200 and doc is not None else None
+            return Outcome("uncertain", detail=f"oa: HTTP {status}: unexpected answer", usage=self._usage_counters(usage))
         details: object = doc.get("incomplete_details")
         reason: object = cast("dict[str, Any]", details).get("reason") if isinstance(details, dict) else None
         return self._reply(reply, doc.get("usage"), complete=state == "completed",
@@ -531,15 +564,15 @@ class GaRuntimeTarget(HttpRuntimeTarget):
         if status != 200 and isinstance(error, dict):
             detail = cast("dict[str, Any]", error)
             name: object = detail.get("status")
-            text = san.clean(f"ga: HTTP {status}: {name}: {detail.get('message')}", EXCERPT_CHARS)
+            text = _http_error_detail("ga", status, name, detail.get("message"), san)
             if "status" not in detail:
                 return self._error(status, False, text)
             if (status, name) in GA_LIMITS:
                 return Outcome("provider_limit", detail=text)
             listed = status == 413 or (isinstance(name, str) and name in GA_NOT_STARTED.get(status, ()))
             return Outcome("not_started" if listed else "uncertain", detail=text)
+        usage = _ga_usage(doc.get("usageMetadata")) if status == 200 and doc is not None else None
         if status == 200 and doc is not None and error is None:
-            usage = _ga_usage(doc.get("usageMetadata"))
             candidates: object = doc.get("candidates", [])
             if candidates == []:  # missing or an empty list: only a blocked prompt explains it
                 feedback: object = doc.get("promptFeedback")
@@ -553,8 +586,7 @@ class GaRuntimeTarget(HttpRuntimeTarget):
                 if isinstance(finish, str) and reply is not None:
                     return self._reply(reply, usage, complete=finish == "STOP", truncated=finish == "MAX_TOKENS",
                                        why=san.clean(f"finishReason {finish}", 80))
-        excerpt = san.clean(" ".join(raw[:EXCERPT_CHARS * 4].decode("utf-8", "replace").split()), EXCERPT_CHARS)
-        return Outcome("uncertain", detail=f"ga: HTTP {status}: unexpected answer: {excerpt}")
+        return Outcome("uncertain", detail=f"ga: HTTP {status}: unexpected answer", usage=self._usage_counters(usage))
 
 
 API_TARGETS: dict[str, Callable[..., ApiRuntimeTarget]] = {"ca": CaRuntimeTarget, "oa": OaRuntimeTarget, "ga": GaRuntimeTarget}

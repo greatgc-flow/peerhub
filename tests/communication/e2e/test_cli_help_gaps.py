@@ -14,6 +14,7 @@ BLANK_HELP = {
     ("", "--version"): "The global version flag is self-describing.",
 }
 HIDDEN_COMPAT_OPTIONS = {
+    ("monitor", "--legacy"),
     ("peer list", "--format"),
     ("profile list", "--format"),
     ("profile show", "--format"),

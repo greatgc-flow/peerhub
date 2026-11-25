@@ -374,6 +374,8 @@ class BridgeLedger(BridgeControl):
 
     def _note(self, token: ClaimToken, delivery_id: str | None, kind: str, certainty: str | None = None, **detail: Any) -> None:
         with self.claims.fenced(token) as conn:
+            if delivery_id is not None and certainty == STARTED and kind in ("runtime_error", "no_terminal"):
+                detail["observed_at_s"] = self.claims.now()
             self._evidence(conn, token.stream_id, token.peer_id, kind, delivery_id, certainty, **detail)
 
     def _late(self, token: ClaimToken, did: str | None, kind: str, **detail: Any) -> None:

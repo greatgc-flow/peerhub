@@ -39,7 +39,7 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
             "schema_version": "1.1", "cycle": 0, "phase": "initial",
             "refresh": {"status": "NOT_STARTED"},
             "store_selection": {"path": store_path, "source": store_source},
-            "snapshot": dashboard_data(initial),
+            "snapshot": dashboard_data(initial, include_billing=False),
         }, ensure_ascii=True, separators=(",", ":")), flush=True)
 
         done = 0
@@ -75,7 +75,7 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
                 "schema_version": "1.1", "cycle": done, "phase": "complete",
                 "refresh": refresh_info,
                 "store_selection": {"path": store_path, "source": store_source},
-                "snapshot": dashboard_data(report),
+                "snapshot": dashboard_data(report, include_billing=False),
             }, ensure_ascii=True, separators=(",", ":")), flush=True)
             done += 1
             if total > 0 and done >= total:

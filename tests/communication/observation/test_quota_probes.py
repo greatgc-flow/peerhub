@@ -1,7 +1,10 @@
-import pytest
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
+
 from peerhub.extensions.quota_probes import (
     resolve_sys_dir,
     poll_claude_usage,
@@ -16,6 +19,11 @@ from peerhub.extensions.observation_model import EvidenceState
 class DummyIdSource:
     def new_id(self, prefix: str) -> str:
         return f"{prefix}-123"
+
+def test_provider_discovery_stub_leaves_system_executable_lookup_available():
+    assert common.which(sys.executable) is None
+    assert shutil.which(sys.executable) is not None
+
 
 def test_real_binary_returns_literal_path_not_resolved(monkeypatch, tmp_path):
     # On this portable install, env/nodejs/npm-global is a junction whose
@@ -55,7 +63,7 @@ def test_real_binary_falls_back_to_path_without_portable_runtime(
     standalone_binary.parent.mkdir()
     standalone_binary.write_text("", encoding="utf-8")
     monkeypatch.setattr(
-        "peerhub.extensions.quota_probes.common.shutil.which",
+        "peerhub.extensions.quota_probes.common.which",
         lambda name: str(standalone_binary) if name == binary_name else None,
     )
 
@@ -624,7 +632,7 @@ def test_real_binary_default_and_overrides(monkeypatch, tmp_path):
     monkeypatch.delenv("PEERHUB_CC_BINARY", raising=False)
     monkeypatch.delenv("PEERHUB_CX_BINARY", raising=False)
 
-    monkeypatch.setattr("peerhub.extensions.quota_probes.common.shutil.which", lambda name: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.which", lambda name: None)
     assert _real_binary("cc", sys_dir) is None
     assert _real_binary("cx", sys_dir) is None
 
@@ -761,7 +769,7 @@ def _mock_probe_cleanup(monkeypatch):
 def test_missing_explicit_binary_never_searches_path(monkeypatch, tmp_path, peer):
     key = f"PEERHUB_{peer.upper()}_BINARY"
     monkeypatch.setenv(key, str(tmp_path / "missing"))
-    monkeypatch.setattr("peerhub.extensions.quota_probes.common.shutil.which",
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.which",
                         lambda name: pytest.fail("explicit override must not fall through"))
     with pytest.raises(FileNotFoundError, match=key):
         _real_binary(peer)

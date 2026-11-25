@@ -32,6 +32,7 @@ from peerhub.extensions.observation_model import (
 )
 from peerhub.extensions.quota_projection import project_quota_payload, quota_used_fraction
 from peerhub.extensions.quota_read_model import LastKnown, pool_states as pool_states
+from peerhub.extensions.quota_windows import quota_reset_at
 
 
 def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -369,6 +370,7 @@ def read_quota_groups(conn: sqlite3.Connection, groups: list[str], output: dict[
                 checked_remaining = finite_number(observation.payload.get("remaining_fraction"))
                 if checked_remaining is not None and not 0 <= checked_remaining <= 1:
                     checked_remaining = None
+                resets_at = quota_reset_at({"observed_at": observed_at}, observation.payload, now)
                 projection = project_quota_payload(
                     observation.payload, quota_used_fraction(checked_remaining), measured_at, now,
                     evidence_state=freshness.state.value,
@@ -376,14 +378,11 @@ def read_quota_groups(conn: sqlite3.Connection, groups: list[str], output: dict[
                 measurements = None
                 reset_in_seconds = None
                 if freshness.state.value == "STALE" and checked_remaining is not None:  # alerts only: public value stays None
-                    stale_resets: object = observation.payload.get("resets_at")
-                    last_known[observation.observation_id] = (checked_remaining, finite_number(stale_resets, overflow_is_missing=True))
+                    last_known[observation.observation_id] = (checked_remaining, resets_at)
                 if row["projection_samples"] is not None:  # from the capacity statement itself, on every path
                     sample_counts[observation.observation_id] = int(row["projection_samples"])
                 if freshness.state.value == "MEASURED":
-                    resets_at = observation.payload.get("resets_at")
-                    if (isinstance(resets_at, (int, float)) and not isinstance(resets_at, bool)
-                            and math.isfinite(resets_at)):
+                    if resets_at is not None:
                         reset_in_seconds = max(0.0, resets_at - now)
                     measured: dict[str, int | float] = {}
                     for key in MEASUREMENT_KEYS.intersection(observation.payload):

@@ -5,7 +5,8 @@ import signal
 import sqlite3
 import sys
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+from types import SimpleNamespace
 
 import pytest
 
@@ -170,6 +171,29 @@ def test_batch_profile_resolution_uses_each_task_workspace(tmp_path, monkeypatch
     error = json.loads(capsys.readouterr().out)["error"]
     assert "task other:" in error["message"] and "unknown model profile" in error["message"]
     assert not (tmp_path / "missing").exists()
+
+
+def test_batch_profile_cache_distinguishes_windows_workspace_case(monkeypatch, capsys):
+    configured = PureWindowsPath("C:/Repo")
+    other = PureWindowsPath("C:/repo")
+    task = batch.Task("configured", "cx", "offline", configured, "cx.review-local", False, batch.DEFAULT_TIMEOUT_S)
+    tasks = [task, replace(task, task_id="other", workspace=other)]
+    monkeypatch.setattr(batch, "load_manifest", lambda *a, **kw: tasks)
+    monkeypatch.setattr(batch, "validate_tasks", lambda *a, **kw: {t.task_id: str(t.workspace) for t in tasks})
+    monkeypatch.setattr(batch, "run_batch", lambda *a, **kw: pytest.fail("dry run has no workers"))
+    opened = []
+
+    def build_target(kind, workspace, *, profile, writable):
+        opened.append(str(workspace))
+        if str(workspace) == str(other):
+            raise ValueError("unknown model profile")
+        return SimpleNamespace(session_binding=lambda: {"profile": profile})
+
+    monkeypatch.setattr("peerhub.extensions.ask.build_ask_target", build_target)
+    assert main(argv(Path(__file__), "tasks.json", "--dry-run", "--json")) == 1
+    assert opened == [str(configured), str(other)]
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert "task other:" in error["message"] and "unknown model profile" in error["message"]
 
 
 @pytest.mark.parametrize("adapter", ["codex", "agy", "unsupported", None])

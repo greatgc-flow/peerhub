@@ -130,6 +130,24 @@ def test_stored_relative_reset_stops_aging_the_title(quota_age_connection, group
             assert "cc C-7D n/a (quota window expired)" in screen
 
 
+def test_json_minimum_and_alerts_retire_relative_resets(quota_age_connection):
+    from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    now = 1_800_000_000
+    _store_quota(quota_age_connection, now, "cc", "C-7D", 0, "MEASURED",
+                 {"remaining_fraction": 0, "reset_in_seconds": 10})
+
+    before = render_monitor_frame(__file__, ["capacity"], read_at=now + 9)
+    assert before["min_quota"] == {"pool": "cc C-7D", "left_pct": 0, "state": "out", "aged": False}
+    assert any(alert["kind"] == "pool_out" and alert["subject"] == "cc C-7D" for alert in before["alerts"])
+    for age, evidence in ((10, "MEASURED"), (20, "MEASURED"), (QUOTA_TTL_SECONDS + 1, "STALE")):
+        after = render_monitor_frame(__file__, ["capacity"], read_at=now + age)
+        assert after["groups"]["capacity"]["data"]["observations"][0]["state"] == evidence
+        assert after["min_quota"] is None
+        assert all(alert["kind"] != "pool_out" for alert in after["alerts"])
+
+
 def test_newer_probe_failure_cannot_retain_a_relative_reading_past_its_reset(quota_age_connection):
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.extensions.observation_model import epoch_to_iso

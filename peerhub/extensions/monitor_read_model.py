@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
+from peerhub.core.peer_kinds import API_PEER_KINDS, peer_kind
 from peerhub.extensions import monitor_activity, monitor_alerts, monitor_quota
+from peerhub.extensions.billing_port import billing_consumer
 from peerhub.extensions.monitor_queries import PEER_CAP, delivery_scope_rows, peer_rows, recent_quota_payloads
 from peerhub.extensions.monitor_sessions import current_profile, monitor_workspace, read_session_groups
 from peerhub.extensions.quota_read_model import pool_states
@@ -119,7 +121,7 @@ def _read_scope_groups(conn: sqlite3.Connection, groups: list[str], output: dict
 def _assemble_peers(conn: sqlite3.Connection, db_path: str, workspace: str | Path | None,
                     peers: list[dict[str, Any]], peer_sample_truncated: bool, peers_total: int,
                     sessions: list[dict[str, Any]], truncated: bool, quota: monitor_quota.QuotaSnapshot,
-                    output: dict[str, Any], errors: dict[str, str]) -> dict[str, list[str]]:
+                    output: dict[str, Any], errors: dict[str, str], read_at: float) -> dict[str, list[str]]:
     latest_facts_report = quota.facts_report
     config_workspace = monitor_workspace(db_path, workspace)
     peer_records: list[dict[str, Any]] = []
@@ -190,13 +192,17 @@ def _assemble_peers(conn: sqlite3.Connection, db_path: str, workspace: str | Pat
                     "observed_at": tel_ctx.get("observed_at"),  # the end of the ask the estimate belongs to
                     "state": tel_ctx.get("state"),
                 }
-        peer_records.append({
+        peer_record = {
             "peer_id": pid,
             "quota": q_data,
             "profile": prof_data,
             "session": sess_data,
             "context": ctx_data,
-        })
+        }
+        kind = peer_kind(p["adapter_ref"], pid)
+        if kind in API_PEER_KINDS and (billing := billing_consumer()) is not None:
+            peer_record["billing"] = billing.peer_billing(conn, pid, kind, read_at)
+        peer_records.append(peer_record)
     from peerhub.extensions.adapters.profiles import packaged_defaults_meta
     defaults_meta = packaged_defaults_meta()
     if latest_facts_report is None:
@@ -276,7 +282,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         _read_scope_groups(conn, groups, output, errors, start_day, end_day)
         quota = monitor_quota.read_quota_groups(conn, groups, output, errors, now)
         mapped_pools = (_assemble_peers(conn, db_path, workspace, peers, peer_sample_truncated, peers_total,
-                                      sessions, truncated, quota, output, errors) if "peers" in groups else {})
+                                      sessions, truncated, quota, output, errors, now) if "peers" in groups else {})
         text_on = os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off"
         activity_data = (monitor_activity.read_activity_group(conn, db_path, now, human=human, text_on=text_on,
                                                               liveness=liveness, process_probe=process_probe,

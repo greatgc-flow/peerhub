@@ -71,7 +71,7 @@ def run_batch(args: argparse.Namespace) -> int:
         return resolve_peer_kind(db, peer)
 
     @cache
-    def resolved_profile(kind: str, workspace: Path, profile: str | None, writable: bool) -> str | None:
+    def resolved_profile(kind: str, workspace: str, profile: str | None, writable: bool) -> str | None:
         # Target construction resolves local settings without contacting providers.
         return build_ask_target(kind, workspace, profile=profile, writable=writable).session_binding()["profile"]
 
@@ -84,7 +84,7 @@ def run_batch(args: argparse.Namespace) -> int:
         for task in tasks:
             kind = cast(str, kind_of(task.peer))  # validate_tasks checked every cached kind
             try:
-                profiles[task.task_id] = resolved_profile(kind, task.workspace or Path.cwd(), task.profile, task.writable)
+                profiles[task.task_id] = resolved_profile(kind, str(task.workspace or Path.cwd()), task.profile, task.writable)
             except (OSError, ValueError, PrespawnError) as exc:
                 raise batch.ManifestError(f"task {task.task_id}: invalid runtime settings: {exc}") from exc
         if warnings is not None:

@@ -8,13 +8,16 @@ import time
 from typing import Any, Callable, Iterable, cast
 
 from peerhub.core.models import Record, json_digest
+from peerhub.core.peer_kinds import API_PEER_KINDS
 from peerhub.extensions import ask_budgets, session_receipts
+from peerhub.extensions.billing_port import billing_consumer
 from peerhub.extensions.bridge_claims import ClaimStore, ClaimToken, StaleClaimError
 from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED, TERMINAL, is_control_kind
 from peerhub.extensions.bridge_errors import InvocationMarkerError, NoDeliveryError, OffsetAckConflictError, SessionBridgeError
 from peerhub.extensions.bridge_ledger import CycleResult
 from peerhub.extensions.bridge_sessions import BridgeSessions
 from peerhub.extensions.runtime_contract import ContextLostError, PrespawnError, RuntimeEvent, RuntimeTarget, RuntimeTargetError
+from peerhub.extensions.usage_normalization import validate_provider_usage
 
 
 class BridgeDelivery(BridgeSessions):
@@ -244,11 +247,20 @@ class BridgeDelivery(BridgeSessions):
         refusal_payload: dict[str, Any] | None = None
         incomplete: dict[str, Any] | None = None
         last_termination_confirmed: bool | None = None
+        prepared_events = None
+        billing_binding: dict[str, str | None] = {}
+        prepare_billing = getattr(runtime, "prepare_billing_delivery", None)
+        if (runtime.runtime_kind in API_PEER_KINDS and callable(prepare_billing)
+                and (billing := billing_consumer()) is not None):
+            sign = billing.key_signer(self.claims.db_path, runtime.runtime_kind) if runtime.runtime_kind != "ca" else None
+            scope, prepared_events = cast("tuple[object, Iterable[RuntimeEvent]]", prepare_billing(rec, catch_up, sign))
+            billing_binding = {"billing_provider": runtime.runtime_kind,
+                               "billing_account_scope": scope if billing.valid_fingerprint(scope) else None}
         # D-OWN-A4/TD-11: durable invocation marker BEFORE the runtime can possibly act; certainty stays NOT_STARTED while pending,
         # an unresolved marker after a crash is promoted to MAY_HAVE_STARTED by recovery (never re-invoked)
         quota_scope: Callable[[], list[str] | None] | None = getattr(runtime, "quota_pools", None)
         invocation = self._mark_invocation(token, did, external_session_id=ext, session_generation=gen,
-                                           quota_pools=quota_scope() if quota_scope is not None else None)
+                                           quota_pools=quota_scope() if quota_scope is not None else None, **billing_binding)
         self._fire("bridge.before_runtime_invoke")
         gated = self._gate(token, runtime, rec, did, after_marker=True)  # intent committed up to the very invoke still wins
         if gated is not None:
@@ -268,8 +280,10 @@ class BridgeDelivery(BridgeSessions):
 
         try:
             supervised = getattr(runtime, "deliver_supervised", None)
-            events = (cast("Iterable[RuntimeEvent]", supervised(ext, rec, catch_up, publish_launch)) if callable(supervised)
-                      else runtime.deliver(ext, rec, catch_up))
+            events = prepared_events
+            if events is None:
+                events = (cast("Iterable[RuntimeEvent]", supervised(ext, rec, catch_up, publish_launch)) if callable(supervised)
+                          else runtime.deliver(ext, rec, catch_up))
             for ev in events:
                 try:
                     self.claims.heartbeat(token)
@@ -341,7 +355,10 @@ class BridgeDelivery(BridgeSessions):
             if not started:
                 self.transition(token, did, MAY_HAVE_STARTED, "start_uncertain", **detail)
                 return CycleResult("uncertain", rec.record_id, did, MAY_HAVE_STARTED, session_generation=gen, detail=detail)
-            self._note(token, did, "runtime_error", STARTED, **detail)
+            evidence: dict[str, Any] = dict(detail)
+            if runtime.runtime_kind in API_PEER_KINDS and e.provider_telemetry is not None:
+                evidence["usage"] = validate_provider_usage(e.provider_telemetry, runtime.runtime_kind)
+            self._note(token, did, "runtime_error", STARTED, **evidence)
             self._mark_lost(token, "tainted")
             return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
         if have_refusal and refusal_payload is not None:

@@ -29,6 +29,8 @@ _DDL = [
     "CREATE INDEX IF NOT EXISTS idx_be_delivery_seq ON bridge_evidence(delivery_id,seq)",
     "CREATE INDEX IF NOT EXISTS idx_bd_record_peer_attempt ON bridge_deliveries(record_id,peer_id,attempt)",
     "CREATE INDEX IF NOT EXISTS idx_bd_scope_generation ON bridge_deliveries(stream_id,peer_id,session_generation)",
+    "CREATE INDEX IF NOT EXISTS idx_bd_peer_outcomes ON bridge_deliveries(peer_id,seq DESC) "
+    "WHERE certainty IN ('MAY_HAVE_STARTED','STARTED','TERMINAL')",
     "CREATE INDEX IF NOT EXISTS idx_be_stream_kind_seq ON bridge_evidence(stream_id,kind,seq)",
     # #330: `diag running` reads only the live claim generation of a scope. No schema version change: older writers on the same
     # store keep it up to date, and the read-only reader works (more slowly) on a store that does not have it yet.

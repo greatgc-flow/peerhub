@@ -496,6 +496,14 @@ def test_default_argv_passes_absolute_db_and_ask_flags(tmp_path):
     assert "--writable" in argv and "--json" in argv and "cx" in argv
 
 
+def test_worker_parser_accepts_hyphen_prefixed_profile():
+    from peerhub.cli.app import build_parser
+
+    task = Task("a", "cx", "p", None, "-review", False, 30.0)
+    argv = batch.default_argv_builder(task, stream="S", request_id="R", db="D:/x.db", query_file=Path("q"))
+    assert build_parser().parse_args(argv[3:]).profile == task.profile
+
+
 def test_default_argv_omits_optional_flags():
     argv = batch.default_argv_builder(Task("a", "cc", "p", None, None, False, 30.0), stream="S", request_id="R", db="D:/x.db", query_file=Path("q"))
     assert "--writable" not in argv and "--profile" not in argv and "-w" not in argv

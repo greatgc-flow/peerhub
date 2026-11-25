@@ -17,6 +17,8 @@ from typing import cast, Any, Callable
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.core.read_only_probe import probe_table_roots
+from peerhub.core.peer_kinds import API_PEER_KINDS, peer_kind
+from peerhub.extensions.billing_port import billing_consumer
 from peerhub.extensions.delivery_reads import running_delivery_rows
 from peerhub.extensions.observation_model import (
     FreshnessPolicy,
@@ -159,10 +161,15 @@ class ReadonlyDiag:
         return conn
 
     # ------------------------------------------------------------------ sections (all read from the same snapshot)
-    @staticmethod
-    def _peers(conn: sqlite3.Connection, _us: int) -> Section:
+    def _peers(self, conn: sqlite3.Connection, read_us: int) -> Section:
         rows = conn.execute("SELECT peer_id, display_name, adapter_ref, created_at FROM peers ORDER BY peer_id").fetchall()
-        return Section("peers", "OK", {"peers": [dict(zip(("peer_id", "display_name", "adapter_ref", "created_at"), tuple(r))) for r in rows]})
+        keys = ("peer_id", "display_name", "adapter_ref", "created_at")
+        peers: list[dict[str, Any]] = [dict(zip(keys, r)) for r in rows]
+        for peer in peers:
+            kind = peer_kind(peer["adapter_ref"], peer["peer_id"])
+            if kind in API_PEER_KINDS and (billing := billing_consumer()) is not None:
+                peer["billing"] = billing.peer_billing(conn, peer["peer_id"], kind, read_us / 1_000_000, policy=self.policy)
+        return Section("peers", "OK", {"peers": peers})
 
     @staticmethod
     def _streams(conn: sqlite3.Connection, _us: int) -> Section:

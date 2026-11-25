@@ -57,7 +57,7 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 | `diag running` | Lease-active asks, with caller relation `mine`, `other` or `unknown`. The peer filter applies before the limit. A lease can outlast the process. See [caller ownership](lessons.md#identify-your-sessions-running-asks-caller-ownership). |
 | `diag integrity` | Full SQLite integrity check, which may take time. |
 
-Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. Plan load still comes from the selected store. See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing. A missing selected store exits 5.
+Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. These commands exit 5 if the observation store is missing. Without an override, the selected store supplies observations. With an existing observation store and a missing selected store, `diag --plan` still reports the observations and shows the active ask count as unknown (`load.active: null` in JSON). See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing.
 
 | Command | Purpose |
 |---|---|
@@ -105,6 +105,7 @@ commands, code, and documentation.
 | Short profile IDs such as `standard` | `PEER.NAME` for the selected provider, such as `cc.standard` with `ask cc` | Existing asks and batch manifests can keep their provider-relative profile names. |
 | Profile alias `cx.deepthink` | `--profile cx.effort --effort xhigh` with packaged defaults | Existing Codex asks keep their model and effort defaults. Suggestions use the canonical profiles, and a terminal text ask using the alias can print a deprecation notice. |
 | Hidden `--format` on `peer list`, `profile list`, `profile show`, `session list`, `session show`, and `stream list` | `--json` for `--format json`, or the default human output for `--format auto` and `--format table` | Existing scripts can keep their output selection. |
+| Hidden `--legacy` on `monitor` | `monitor --json --schema-version 1.1` for JSON, or `monitor` for human output | Existing monitor scripts can keep selecting schema 1.1 while they migrate. |
 | Python export `peerhub.cli.app.with_writable` | `peerhub.cli.ask_cmd.with_writable` | Existing Python callers can keep their import. The helper inserts `--writable` before the `--` separator or appends it when there is no separator. |
 
 ## Batch and suggestions

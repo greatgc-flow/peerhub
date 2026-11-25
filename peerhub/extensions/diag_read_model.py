@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from peerhub.core.text import strip_controls
 from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
+from peerhub.extensions.billing_port import billing_consumer
+from peerhub.extensions.observation_model import BILLING_KINDS
 from peerhub.extensions.quota_projection import observation_projection
 from peerhub.extensions.quota_read_model import PoolReading, PoolRow, project_pool_rows
 from peerhub.extensions.quota_windows import (
@@ -125,6 +127,9 @@ def _scrub_payload(kind: object, payload: object) -> dict[str, object]:
     if not isinstance(payload, Mapping):
         return {}
     p = cast(Mapping[str, object], payload)
+    if isinstance(kind, str) and kind in BILLING_KINDS:
+        billing = billing_consumer()
+        return billing.billing_payload(kind, p) if billing is not None else {}
     if kind == "reset_credit":
         out = _payload_fields(p, ("available_count", "nearest_expires_at", "condition", "reason", "evidence_ref"))
         raw_credits = p.get("credits")
@@ -183,7 +188,7 @@ def _serialize_obs_item(item: object, read_at: float) -> dict[str, object]:
     return obs
 
 
-def _serialize_section(name: str, sec: Section, read_at: float) -> dict[str, object]:
+def _serialize_section(name: str, sec: Section, read_at: float, *, include_billing: bool) -> dict[str, object]:
     errors: list[dict[str, object]] = [
         _payload_fields(e, ("error_type", "observation_id", "capture_seq", "status", "condition"))
         for e in sec.errors
@@ -194,8 +199,9 @@ def _serialize_section(name: str, sec: Section, read_at: float) -> dict[str, obj
     raw_data: Obj = sec.data
     data: dict[str, object] = {}
     if name == "peers":
+        keys = ("peer_id", "display_name", "adapter_ref", "created_at") + (("billing",) if include_billing else ())
         data["peers"] = [
-            {k: p[k] for k in ("peer_id", "display_name", "adapter_ref", "created_at") if k in p}
+            {k: p[k] for k in keys if k in p}
             for p in object_items(raw_data.get("peers"))
         ]
     elif name == "streams":
@@ -218,14 +224,15 @@ def _serialize_section(name: str, sec: Section, read_at: float) -> dict[str, obj
     elif name == "log":
         data = {k: raw_data[k] for k in ("size_bytes",) if k in raw_data}
     elif name == "observations":
-        data["items"] = [_serialize_obs_item(it, read_at) for it in object_items(raw_data.get("items"))]
+        data["items"] = [_serialize_obs_item(it, read_at) for it in object_items(raw_data.get("items"))
+                         if include_billing or it.get("kind") not in BILLING_KINDS]
     return {"name": sec.name, "status": sec.status, "data": data, "errors": errors}
 
 
-def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
+def dashboard_data(report: DiagnosticReport, *, include_billing: bool = True) -> dict[str, object]:
     """Dashboard JSON uses the same evidence coverage and projections as text."""
     sections_dict = {
-        name: _serialize_section(name, sec, report.read_at)
+        name: _serialize_section(name, sec, report.read_at, include_billing=include_billing)
         for name, sec in report.sections.items()
     }
     data: dict[str, object] = {

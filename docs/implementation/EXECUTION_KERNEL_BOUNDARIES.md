@@ -112,7 +112,17 @@ schema churn, not a universal speed claim. The Bridge DDL/lock cost is tracked u
 
 - No DB schema change or migration; no CLI or JSON surface change.
 - No change to certainty, claims, vendor invocation or session handling.
-- Revert groups independently: `runtime_contract.py` + `bridge.py` + `adapters/base.py`;
-  Core snapshot delegation (`core/store.py`, `extensions/source_records.py`); trigger
-  reconciliation (`bridge.py`, `bridge_claims.py`, `test_bridge_init_reconciliation.py`,
-  `test_claim_reopen_atomicity.py` and the inventory entry). Never rewrite user data.
+- Revert the runtime port together with its Bridge and adapter callers in
+  [runtime_contract.py](../../peerhub/extensions/runtime_contract.py),
+  [bridge_delivery.py](../../peerhub/extensions/bridge_delivery.py), and
+  [cli_runtime.py](../../peerhub/extensions/adapters/cli_runtime.py). Follow the
+  launch and event paths in [process.py](../../peerhub/extensions/adapters/process.py),
+  [ag_transport.py](../../peerhub/extensions/adapters/ag_transport.py),
+  [event_parser.py](../../peerhub/extensions/adapters/event_parser.py), and
+  [live_output.py](../../peerhub/extensions/adapters/live_output.py).
+- Revert the snapshot scan in [core/store.py](../../peerhub/core/store.py) with
+  its direct callers in [memory.py](../../peerhub/extensions/memory.py) and
+  [search.py](../../peerhub/extensions/search.py).
+- Revert trigger reconciliation in `bridge.py` and `bridge_claims.py` with its
+  tests in `test_bridge_init_reconciliation.py` and `test_claim_reopen_atomicity.py`
+  and the inventory entry. Preserve user data during rollback.

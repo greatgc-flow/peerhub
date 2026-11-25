@@ -257,11 +257,7 @@ def test_monitor_schema_11_rejects_snapshot(tmp_path):
     assert exc.value.code == 2
 
 
-def test_monitor_legacy_alias_is_removed(tmp_path, capsys):
-    from peerhub.cli.monitor import _legacy_alias_available
-
-    assert _legacy_alias_available("0.19.9") is True
-    assert _legacy_alias_available("0.20.0") is False
+def test_monitor_legacy_alias_selects_schema_11(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         main(["monitor", "--help"])
     assert exc.value.code == 0
@@ -270,11 +266,16 @@ def test_monitor_legacy_alias_is_removed(tmp_path, capsys):
     assert "monitor --legacy" not in option_keys(derive())
 
     db = _db(tmp_path)
-    for options in (["--snapshot", "--group", "store"], ["--json", "--cycles", "1"]):
-        with pytest.raises(SystemExit) as exc:
-            main(["--db", str(db), "monitor", "--legacy", *options])
-        assert exc.value.code == 2
-        assert "unrecognized arguments: --legacy" in capsys.readouterr().err
+    assert main(["--db", str(db), "monitor", "--legacy", "--json", "--no-probe", "--cycles", "1"]) == 0
+    output = capsys.readouterr()
+    frames = [json.loads(line) for line in output.out.splitlines()]
+    assert frames and all(frame["schema_version"] == "1.1" and "snapshot" in frame for frame in frames)
+    assert "--legacy is deprecated; use --schema-version 1.1" in output.err
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--db", str(db), "monitor", "--legacy", "--json", "--schema-version", "2.0"])
+    assert exc.value.code == 2
+    assert "--legacy conflicts with --schema-version 2.0" in capsys.readouterr().err
 
 
 def test_monitor_schema_version_is_json_only_and_schema_11_rejects_grouped_views(tmp_path, capsys):

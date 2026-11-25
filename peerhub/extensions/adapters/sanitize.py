@@ -39,7 +39,8 @@ def path_secrets(path: str) -> list[str]:
 
 class Sanitizer:
     def __init__(self, secrets: Iterable[str] = (), prompts: Iterable[str] = ()) -> None:
-        self._literals: list[str] = sorted({s for s in (*secrets, *prompts) if s and len(s) >= 2}, key=len, reverse=True)
+        self._literals: list[str] = sorted({s for s in secrets if s} | {p for p in prompts if len(p) >= 2},
+                                          key=len, reverse=True)
 
     def with_prompt(self, prompt: str) -> "Sanitizer":
         s = Sanitizer()

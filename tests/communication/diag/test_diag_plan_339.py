@@ -248,6 +248,17 @@ def test_cli_plan_json_is_read_only(plan_store, capsys):
     assert hashlib.sha256(plan_store.read_bytes()).hexdigest() == before
 
 
+def test_cli_plan_reads_observation_override_without_a_selected_store(plan_store, capsys):
+    missing = plan_store.with_name("missing.db")
+    command = ["--db", str(missing), "diag", "--plan", "--json"]
+    assert main([*command, "--observation-db", str(plan_store)]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["load"]["active"] is None
+    assert any(pool["pool"] == "C-7D" for pool in plan["pools"])
+    assert main(command) == 5
+    assert not missing.exists()
+
+
 def test_cli_plan_table(plan_store, capsys):
     assert main(["--db", str(plan_store), "diag", "--plan"]) == 0
     out = capsys.readouterr().out

@@ -1,6 +1,8 @@
+import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Barrier
@@ -8,11 +10,14 @@ from threading import Barrier
 import pytest
 
 from peerhub.cli import ask_cmd
+from peerhub.cli.app import main
 from peerhub.core import load_limits
 from peerhub.extensions import bridge_schema
 from peerhub.extensions.bridge_claims import ClaimStore, ClaimToken, LaunchBusyError
 from peerhub.extensions.bridge_ledger import BridgeLedger
 from peerhub.extensions.caller import detect_caller
+from tests.communication.fakes import FakeRuntimeTarget
+from tests.communication.harness.bridge import BridgeHarness
 
 
 @pytest.mark.parametrize("outcome", ["idle", "clears", "expires"])
@@ -41,6 +46,37 @@ def test_ask_gate_waits_only_with_active_leases(monkeypatch, capsys, outcome, pr
     stderr = capsys.readouterr().err.splitlines()
     assert sum(line.startswith("Waiting") for line in stderr) == (outcome in ("clears", "expires"))
     assert sum(line.startswith("Warning") for line in stderr) == (outcome != "clears")
+
+
+def test_ask_cli_waits_for_an_active_claim_under_load(tmp_path, monkeypatch, capsys):
+    harness = BridgeHarness(tmp_path / "ws")
+    harness.create_peer({"peer_id": "cx", "adapter_ref": "cx"})
+    harness.create_stream({"stream_id": "first", "members": ["cx"]})
+    claims = ClaimStore(harness.db_path, generation=harness.ws.generation)
+    first = claims.acquire("cx", "first", "first", 60, caller=detect_caller())
+
+    target = FakeRuntimeTarget().script_deliver(("started", "second-exec"), ("terminal", {"response": "answer"}))
+    monkeypatch.setattr("peerhub.extensions.ask.build_ask_target", lambda *a, **kw: target)
+    monkeypatch.setattr("peerhub.cli.monitor_refresh.refresh_dispatch_quota", lambda *a, **kw: None)
+    busy = load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT)
+    monkeypatch.setattr(load_limits, "read_resources", lambda: busy)
+    sleeps = []
+
+    def finish_first(seconds):
+        assert target.count("deliver") == 0
+        sleeps.append(seconds)
+        claims.release(first)
+
+    monkeypatch.setattr(ask_cmd, "_wait_for_ask_resources",
+                        partial(ask_cmd._wait_for_ask_resources, monotonic=lambda: sum(sleeps), sleep=finish_first))
+    assert main(["--db", str(harness.db_path), "ask", "cx", "second prompt", "--stream", "second",
+                 "--request-id", "second", "--json"]) == 0
+    output = capsys.readouterr()
+    assert sleeps == [ask_cmd.ASK_LOAD_POLL_SECONDS]
+    assert "Waiting to start ask while other asks are active" in output.err
+    result = json.loads(output.out)
+    assert result["status"] == "delivered" and result["response"] == "answer"
+    assert target.count("deliver") == 1
 
 
 def test_two_busy_asks_on_distinct_streams_cannot_both_reserve_the_store():

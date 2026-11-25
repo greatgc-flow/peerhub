@@ -180,8 +180,9 @@ def test_arch_003_no_vendor_peer_cardinality_ceiling(harness):
 
 DIAG_MOD = "peerhub.extensions.diag"
 DELIVERY_READS_MOD = "peerhub.extensions.delivery_reads"
-DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", DELIVERY_READS_MOD, "peerhub.core.models",
-                         "peerhub.core.schema_version", "peerhub.core.read_only_probe"}
+BILLING_PORT_MOD = "peerhub.extensions.billing_port"
+DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", DELIVERY_READS_MOD, BILLING_PORT_MOD,
+                         "peerhub.core.models", "peerhub.core.peer_kinds", "peerhub.core.schema_version", "peerhub.core.read_only_probe"}
 DIAG_BANNED_STDLIB = {"subprocess", "socket", "shutil", "multiprocessing", "threading", "os", "tempfile", "ctypes", "http", "urllib",
                       "asyncio", "signal", "pty", "webbrowser", "smtplib", "ftplib", "pickle", "shelve"}
 DIAG_BANNED_NAMES = {"CoreStore", "ObservationStore", "SessionBridge", "Bridge", "ClaimStore", "register_peer", "create_stream", "append_record",
@@ -255,6 +256,7 @@ def test_arch_004_diag_dependency_surface_is_read_only():
     assert "class ReadonlyDiag" in text and "class ObservationStore" not in text
     # the checker itself rejects each kind of violation (a checker that accepts everything would make this test vacuous)
     mutants = {"internal import": "from peerhub.extensions.observation import ObservationStore\n",
+               "direct billing import": "import peerhub.extensions.billing\n",
                "stdlib import": "import subprocess\n",
                "store import": "from peerhub.core.store import CoreStore\n",
                "write sql": "X = 'INSERT INTO t VALUES (1)'\n",
@@ -301,12 +303,13 @@ def test_arch_005_core_identity_is_not_runtime_identity(harness):
 # ----------------------------------------------------------------------------- extension independence (composition root = peerhub/cli)
 _OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py", "quota_probes", "quota_types.py",
                      "diag.py", "diag_quota.py", "diag_read_model.py", "diag_watch.py", "schema_guard.py",
-                     "quota_projection.py", "quota_windows.py", "delivery_reads.py")
+                     "quota_projection.py", "quota_read_model.py", "quota_windows.py", "delivery_reads.py")
 _ALLOWED_EXTENSION_IMPORTS = {"peerhub.extensions.observation", "peerhub.extensions.observation_model", "peerhub.extensions.quota_types",
                               "peerhub.extensions.schema_guard", "peerhub.extensions.diag", "peerhub.extensions.quota_probes",
                               "peerhub.extensions.binary_resolution", "peerhub.extensions.process_tree", "peerhub.extensions.win_job",
                               "peerhub.extensions.diag_quota", "peerhub.extensions.pool_health", "peerhub.extensions.quota_projection",
-                              "peerhub.extensions.quota_windows", DELIVERY_READS_MOD}  # shared M1 readers and helpers
+                              "peerhub.extensions.quota_read_model", "peerhub.extensions.quota_windows", DELIVERY_READS_MOD,
+                              BILLING_PORT_MOD}  # shared M1 readers and helpers
 
 
 def _extension_imports(path):

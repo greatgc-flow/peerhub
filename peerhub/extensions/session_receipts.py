@@ -267,12 +267,13 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
         usage_keys = dict(cast("dict[str, Any]", provider_candidate))
         context = usage_keys.pop("context")
         usage_candidate = usage_keys
+    usage = validate_provider_usage(usage_candidate, provider_kind)
     detail = dict(handle=accepted["handle"], generation=accepted["generation"], observed_at=now,
                   **_context_fields(context, provider_kind, now),
                   configured_model=binding_detail["model"], resolved_model=None, schema_version=3,
                   provider_kind=provider_kind, captured_at=now, adapter_version=adapter_version,
                   provider_cli_version=None, configured_binding=binding_detail,
-                  usage=validate_provider_usage(usage_candidate, provider_kind),
+                  usage=usage,
                   steps=[], step_coverage={"state": "UNKNOWN", "measured": 0, "dropped": 0})
     seq = conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,'session_telemetry',?,?)",
                        (delivery["delivery_id"], delivery["stream_id"], delivery["peer_id"], delivery["certainty"], dumps(detail))).lastrowid

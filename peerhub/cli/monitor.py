@@ -63,8 +63,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--json", action="store_true")
     p.add_argument("--schema-version", choices=("1.1", "2.0"), default=None,
                    help="JSON contract version (requires --json; default: 2.0)")
-    if _legacy_alias_available():
-        p.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage or /credits consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"],
@@ -133,21 +132,6 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("schema 1.1 cannot represent --snapshot; use schema 2.0")
     if args.snapshot and args.probe:
         parser.error("--snapshot cannot be combined with --probe")
-
-
-def _legacy_alias_available(version: str | None = None) -> bool:
-    """Check whether the deprecated --legacy alias is active in this release.
-
-    Sunset is explicitly extended to 0.20.0 (removal deferred; no removal evidence needed).
-    """
-    from peerhub._version import __version__
-
-    value = (version or __version__).split("+", 1)[0]
-    try:
-        major, minor, *_ = (int(part.split("-", 1)[0]) for part in value.split("."))
-    except ValueError:
-        return True
-    return (major, minor) < (0, 20)
 
 
 @lru_cache(maxsize=32)
@@ -233,14 +217,12 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     schema = getattr(args, "schema_version", None) or ("1.1" if legacy and args.json else "2.0")
     if args.json and schema == "1.1":
         if legacy:
-            print("warning: --legacy is deprecated; use --schema-version 1.1 "
-                  "(removed in 0.20.0; sunset extended, removal deferred as no removal evidence needed)",
+            print("warning: --legacy is deprecated; use --schema-version 1.1",
                   file=sys.stderr, flush=True)
         from peerhub.cli.monitor_schema11 import run_schema_11_watch
         return run_schema_11_watch(args, sleep_fn=sleep, monotonic_fn=monotonic)
     if legacy:
-        print("warning: --legacy is deprecated; the grouped visual dashboard is now the default "
-              "(removed in 0.20.0; sunset extended, removal deferred as no removal evidence needed)",
+        print("warning: --legacy is deprecated; the grouped visual dashboard is now the default",
               file=sys.stderr, flush=True)
     if args.snapshot:
         provided_options = cast(set[str], getattr(args, "_provided_options", set[str]()))
@@ -600,8 +582,8 @@ def run_monitor_repair(args: argparse.Namespace) -> int:
     is_explicit = db_source in ("explicit", "env")
     if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5
-    from peerhub.extensions.delivery_projections import rebuild_delivery_projections
     from peerhub.extensions.bridge_ledger import reap_dead_asks
+    from peerhub.extensions.delivery_projection_rebuild import rebuild_delivery_projections
     try:
         released = reap_dead_asks(args.db) if 1 <= args.chunk_size <= 5000 else 0
         result = rebuild_delivery_projections(args.db, chunk_size=args.chunk_size)

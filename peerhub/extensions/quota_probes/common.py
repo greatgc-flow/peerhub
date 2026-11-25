@@ -2,12 +2,12 @@
 import json
 import math
 import os
-import shutil
 import subprocess
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta, timezone, tzinfo
 from pathlib import Path
+from shutil import which
 from threading import Event, Lock
 from typing import Any, Optional, Sequence, TypeGuard, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -61,7 +61,7 @@ def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
         npm = os.environ.get("PEERHUB_NPM_GLOBAL_DIR")
         configured = Path(npm) / names[peer][0] if npm and peer in ("cc", "cx") else None
         discovered = str(configured) if configured and configured.is_file() else next(
-            (found for name in names[peer] if (found := shutil.which(name))), None)
+            (found for name in names[peer] if (found := which(name))), None)
         if discovered is None:
             return None
         cand = Path(discovered)

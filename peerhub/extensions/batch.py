@@ -292,7 +292,7 @@ def default_argv_builder(t: Task, *, stream: str, request_id: str, db: str, quer
     argv = [sys.executable, "-m", "peerhub", "--db", os.path.abspath(db), "ask", t.peer, "--query-file", str(query_file),
             "--stream", stream, "--request-id", request_id, "--json", "--timeout-seconds", str(t.timeout_s)]
     if t.profile:
-        argv += ["--profile", t.profile]
+        argv += [f"--profile={t.profile}"] if t.profile.startswith("-") else ["--profile", t.profile]
     if t.workspace is not None:
         argv += ["-w", str(t.workspace)]
     if t.writable:

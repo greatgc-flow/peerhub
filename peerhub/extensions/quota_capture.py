@@ -388,10 +388,10 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                 store.register_resource_pool(ResourcePool(resource_pool_id=pool_ref, provider=kind, kind="QUOTA"))
                 payload.update(remaining_fraction=measurement.remaining_fraction,
                                window_started_at=measurement.window_started_at, resets_at=measurement.resets_at)
-            elif state == EvidenceState.ABSENT:
-                absent_extra: dict[str, Any] = getattr(reading, "extra", None) or {}
-                scope, reason = absent_extra.get("pool_scope"), absent_extra.get("reason")
-                if isinstance(scope, str) and scope and isinstance(reason, str):  # X1: pool the provider did not report
+            elif state in (EvidenceState.ABSENT, EvidenceState.UNKNOWN):
+                pool_extra: dict[str, Any] = getattr(reading, "extra", None) or {}
+                scope, reason = pool_extra.get("pool_scope"), pool_extra.get("reason")
+                if isinstance(scope, str) and scope and isinstance(reason, str):  # configured pool without a measurement
                     pool_ref = f"quota:{kind}:{scope}"
                     store.register_resource_pool(ResourcePool(resource_pool_id=pool_ref, provider=kind, kind="QUOTA"))
                     payload["reason"] = reason
