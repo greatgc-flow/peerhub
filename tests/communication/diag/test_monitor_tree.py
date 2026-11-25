@@ -176,7 +176,7 @@ def test_folded_na_combines_suffix_after_last_column_without_losing_numbers(expa
         if not item["pool_ref"].endswith("C-7D"):
             item.update(state="ABSENT", reason="not reported by provider", measurements=None)
     before = json.dumps(frame, sort_keys=True)
-    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, expand=expand)
+    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, expand=expand, show_quota_notes=True)
     assert "(F-7D,C-5H n/a)" in screen
     assert "`- C-5H" not in screen and "`- F-7D" not in screen
     assert "30%" in screen if width >= 60 else True  # narrower expanded tables may drop REM whole
@@ -269,6 +269,8 @@ def test_na_root_is_counted_and_its_peer_gets_a_marker(expand: bool, monkeypatch
     frame = frame_for({"cc.a": ["C-5H"]})
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state="ABSENT", reason="not reported by provider", measurements=None)
+    hidden = mv.render_grouped_frame(frame, view="rich", width=180, expand=expand)
+    assert "POOLS 0" in hidden and "C-5H" not in hidden
     screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
     assert "POOLS 1" in mv._ANSI.sub("", screen) and "(C-5H n/a)" in screen
     dim = mv.RICH_SGR["dim"]

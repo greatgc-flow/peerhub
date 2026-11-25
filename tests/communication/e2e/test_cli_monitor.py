@@ -3,11 +3,13 @@
 import json
 import os
 import re
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from peerhub.cli.app import main
+from peerhub.cli.monitor_preferences import GROUPS, GROUP_IDS, SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.view import _ANSI
 from tests.communication.e2e.cli_extension_effects import lead_isolated_env
 
@@ -162,20 +164,23 @@ def test_monitor_groups_is_read_only_and_does_not_require_a_store(tmp_path, monk
     assert not db.parent.exists()
 
 
-def test_monitor_groups_human_output_lists_ids_and_descriptions(tmp_path, monkeypatch, capsys):
-    monkeypatch.chdir(tmp_path)
+def test_monitor_groups_human_output_lists_ids_and_descriptions(monkeypatch, capsys):
+    workspace = Path(__file__).parent
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(workspace / "no-global"))
+    columns = 80
+    monkeypatch.setenv("COLUMNS", str(columns))
     assert main(["monitor", "groups"]) == 0
-    output = capsys.readouterr().out
-    for group_id in ("overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"):
-        assert group_id in output
-    assert "delivery certainty" in output
-    assert "quota" in output.lower()
-    from peerhub.cli.monitor_preferences import GROUP_IDS
+    rows = capsys.readouterr().out.splitlines()
+    for group in GROUPS:
+        row = next(line for line in rows if line.startswith(group["id"] + " "))
+        assert row.endswith(group["description"])
     with pytest.raises(SystemExit) as exc:
         main(["monitor", "--help"])
     assert exc.value.code == 0
     help_output = capsys.readouterr().out
     assert all(group_id in help_output for group_id in GROUP_IDS)
+    assert all(len(line) <= columns for line in help_output.splitlines())
 
 
 def test_monitor_groups_human_output_explains_invalid_preference(tmp_path, monkeypatch, capsys):
@@ -1517,26 +1522,40 @@ def test_monitor_explicit_compact_matches_default(tmp_path, monkeypatch, capsys,
     assert capsys.readouterr().out == default
 
 
-@pytest.mark.parametrize("mode", ["--snapshot", "--cycles"])
+@pytest.mark.parametrize("mode", [["--snapshot"], ["--cycles", "1"], ["--cycles", "0", "--no-probe"]],
+                         ids=["snapshot", "one-cycle", "live"])
 @pytest.mark.parametrize("expand", [False, True])
-def test_monitor_quota_notes_option_reaches_human_renderer(tmp_path, monkeypatch, capsys, mode, expand):
-    from peerhub.cli import monitor
-    from tests.communication.diag.test_monitor_plain_golden import full_payload
+def test_monitor_quota_notes_reach_human_frames_and_leave_json_evidence(monkeypatch, capsys, mode, expand):
+    from peerhub.cli import monitor, monitor_refresh, view
+    from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
 
-    db = _db(tmp_path)
-    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: full_payload())
-    monkeypatch.setattr(monitor, "refresh_with_profile_pools",
-                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
-    seen = []
-    monkeypatch.setattr(monitor, "_render_human_frame",
-                        lambda payload, **kw: seen.append(kw["show_quota_notes"]) or "monitor")
-    args = ["--db", str(db), "monitor", mode, *(["1"] if mode == "--cycles" else []),
-            *(["--expand"] if expand else ["--compact"])]
-    assert main(args) == 0
-    assert seen and not any(seen)
-    seen.clear()
-    assert main([*args, "--show-quota-notes"]) == 0
-    assert seen and all(seen)
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: na_payload())
+    monkeypatch.setenv("COLUMNS", "150")
+    live = "0" in mode
+    if live:
+        def interrupt(_delay):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+        monkeypatch.setattr(view, "enable_vt", lambda: False)
+        monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (150, 40)))
+        monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
+        monkeypatch.setattr(monitor, "sleep", interrupt)
+
+    args = ["--db", __file__, "monitor", "--group", "capacity", *mode]
+    layout = "--expand" if expand else "--compact"
+    notes = "cc C-5H n/a not reported (plan prolite)"
+    assert main([*args, layout]) == 0
+    assert (notes in capsys.readouterr().out) == SHOW_QUOTA_NOTES_DEFAULT
+    assert main([*args, layout, "--show-quota-notes"]) == 0
+    assert notes in capsys.readouterr().out
+
+    if not live:
+        assert main([*args, "--json"]) == 0
+        frames = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+        payload = frames[-1].get("snapshot", frames[-1])
+        observations = na_payload()["groups"]["capacity"]["data"]["observations"]
+        assert payload["groups"]["capacity"]["data"]["observations"] == observations
 
 
 def test_monitor_expand_snapshot_human_renders_all_rows(tmp_path, capsys):

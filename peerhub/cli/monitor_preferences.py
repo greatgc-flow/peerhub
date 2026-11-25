@@ -26,6 +26,7 @@ GROUPS: tuple[dict[str, Any], ...] = (
 )
 GROUP_IDS = tuple(str(item["id"]) for item in GROUPS)
 DEFAULT_GROUPS = ("overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage")
+SHOW_QUOTA_NOTES_DEFAULT = False
 
 POOL_MARGIN_COLUMN = "MARGIN"
 POOL_MARGIN_LEGEND = f"{POOL_MARGIN_COLUMN}=EXH-RESET, - = early"

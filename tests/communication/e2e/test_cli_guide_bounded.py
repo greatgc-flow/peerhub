@@ -10,6 +10,7 @@ import json
 import pytest
 
 from peerhub.cli.app import main
+from peerhub.cli.guide import GUIDE_MAX_BYTES
 
 
 @pytest.mark.unit
@@ -40,7 +41,7 @@ def test_custom_profile_cannot_extend_or_inject_guide(model, tmp_path, monkeypat
     assert main(["guide"]) == 0
     output = capsys.readouterr().out
     assert output == baseline
-    assert len(output.encode("utf-8")) <= 1600
+    assert len(output.encode("utf-8")) <= GUIDE_MAX_BYTES
     assert "\x1b" not in output and "INJECTED HEADING" not in output
     assert not {"‮", " ", " "} & set(output)
 
@@ -61,4 +62,4 @@ def test_guide_does_not_call_the_profile_loader(tmp_path, monkeypatch, capsys):
     assert main(["guide"]) == 0
     output = capsys.readouterr().out
     assert "error loading profiles" not in output and "disk unreadable" not in output
-    assert len(output.encode("utf-8")) <= 1600
+    assert len(output.encode("utf-8")) <= GUIDE_MAX_BYTES

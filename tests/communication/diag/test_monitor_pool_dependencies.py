@@ -119,7 +119,7 @@ def test_dependency_is_recomputed_as_each_redraw_ages_or_resets_the_parent(elaps
 @pytest.mark.parametrize("view,expand", [("plain", False), ("rich", False), ("plain", True), ("rich", True)])
 @pytest.mark.parametrize("reason,expected", [("not reported by provider; plan=pro", "not reported"),
                                             ("disabled by provider", "disabled by provider")])
-def test_quota_notes_are_opt_in_without_hiding_na_state_or_blocked_dependency(view, expand, reason, expected):
+def test_quota_notes_are_opt_in_without_hiding_blocked_dependency(view, expand, reason, expected):
     frame = payload()
     frame["_human_observations"][2]["reason"] = reason
     omitted = deepcopy(frame["_human_observations"][2])
@@ -128,8 +128,9 @@ def test_quota_notes_are_opt_in_without_hiding_na_state_or_blocked_dependency(vi
     before = deepcopy(frame)
     hidden = mv.render_grouped_frame(frame, view=view, expand=expand, width=180)
     shown = mv.render_grouped_frame(frame, view=view, expand=expand, width=180, show_quota_notes=True)
-    assert (expected in hidden) == expand and (expected in shown) == expand
-    assert "n/a" in hidden and "C-30D" in hidden
+    assert expected not in hidden
+    assert expected in shown
+    assert "C-30D" not in hidden
     if view == "rich" or not expand:
         assert "C-7D out" in hidden and "blocked" in pool_rows(hidden, "F-7D")[0]
     assert frame == before

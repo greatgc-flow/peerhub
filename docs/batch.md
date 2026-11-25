@@ -12,7 +12,7 @@ peerhub batch run tasks.json --batch-id review-001 --max-parallel n --json
 
 Use global `--db PATH` before `batch` to select a store. The parent resolves one
 absolute store path for every worker, including tasks with different workspaces.
-Dry runs validate without spawning workers or creating the store.
+Dry runs validate the manifest and resolve explicit profiles without spawning workers or creating the store.
 `--batch-id` and `--max-parallel` are required. PeerHub does not cap the count.
 
 Dry-run warnings cover equal or nested workspaces for writable pairs
@@ -56,7 +56,7 @@ included only with `--responses` (see below):
 | --- | --- |
 | COMPLETED | Terminal delivery with a nonempty response and no error. |
 | UNVERIFIED | Terminal delivery with an empty response. |
-| FAILED | Positive evidence of no execution, or worker spawn failure. |
+| FAILED | A worker spawn failure, an unusable reply, or evidence of no execution. Quota refusals have reason `not_executed:quota_exhausted` or `not_executed:usage_limit` and count under `outcomes.quota_refused`. |
 | UNCERTAIN | Launched worker without proof of a terminal or unexecuted result. |
 | BLOCKED | Unlaunched cancellation, or earlier work/claims block this invocation. |
 
@@ -137,9 +137,10 @@ tasks are BLOCKED. Inspect `peerhub diag health` and effects before continuing.
 Resume by rerunning the same manifest and batch ID: settled asks replay their
 durable results. Keep their prompt, peer, profile and workspace/write binding.
 Never change batch ID to bypass uncertainty or a live claim; wait or reconcile.
-Only flat tasks are supported: no dependencies, retries, quota gating, budgets or
-failover. Parallelism is explicit because the caller controls resource use;
-check available quota before execution. COMPLETED proves delivery, not task success.
+The runner supports flat tasks and explicit parallelism. Dependencies, retries, budgets
+and failover are outside the manifest contract. The caller sizes the wave from quota
+evidence. Each ask applies its usual quota checks and a quota refusal affects only that task.
+COMPLETED describes delivery.
 
 ## Choosing profiles and concurrency (manual)
 
@@ -162,17 +163,19 @@ the best eligible alternative from a different peer in the same tier, for
 example `eco=cc.standard|ag.standard`. With no eligible alternative, only the
 primary appears. These suggestions do not execute asks or reroute work.
 
-While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilities support; otherwise defer.
-Argon uses the shared Gemini quota shown in `peerhub diag --plan`.
+`ag.argon` and Flash draw from the same Gemini windows, `G-5H` and `G-7D`,
+shown in `peerhub diag --plan`. The legacy `A-7D` window shows `n/a` when omitted from a complete report.
+See [Antigravity quota pools](adapters/ag.md#quota-pools) and the
+[0.26.11 release notes](../CHANGELOG.md#02611---2026-11-25) for when Antigravity stopped reporting it.
 
 For an AI planning a parallel wave, `peerhub explain parallel-quota` is the recipe (order by 7D PACE, size n by quota and load); this section is the manual reference.
 
 **I. Concurrency**
 
-Run n at once as quota and machine resources allow (free RAM >= 6 GB, CPU below 90%).
-PeerHub does not cap the count. Before each launch, the runner checks available RAM and CPU load.
-It waits and polls every few seconds when either observed reading reaches the warning condition.
-Already running tasks continue. Unavailable readings show `?` and do not block launches.
+PeerHub does not cap the caller's `--max-parallel`. Before each launch, the runner checks available RAM and CPU load.
+While batch asks are running, it holds further launches and polls every few seconds when either
+reading reaches its warning condition. With no batch asks running, it starts the next task and prints
+the warning. Already running tasks continue. Unavailable readings show `?` and do not block launches.
 
 | Resource | Warning condition |
 | --- | --- |
@@ -185,7 +188,7 @@ If a provider throttles, reduce concurrency; do not reroute the same work to ano
 
 **J. Parallel work over the least quota** (rule H picks the peer for a single ask; J sizes and orders a wave; advice only; PeerHub gives the facts and the AI decides; `peerhub explain parallel-quota` has the same default plan)
 
-1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. For old or `(stale)` evidence, run `peerhub observation refresh` (no model tokens), then read again.
+1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. For old or `(stale)` evidence, run `peerhub observation refresh`, then read again. See [quota collection](lessons.md#spread-parallel-work-over-the-least-quota-parallel-quota) for its token implications.
    A parent-limited child uses effective quota and time to reset for its displayed `BUDGET%/h`. Advice ranks the pool's own action, its effective parent action, and applicable gates for the same profile on the same account in order of `spend`, `hold`, `rest`, and `blocked`. The most restrictive action wins. A fresh zero for a shared pool can gate other configured pools on the same account even when another reporter supplied the displayed reading. When a gate wins, the reason and JSON `binding` name its pool, and an exhausted gate reports `gate: <pool> out`. A stale zero keeps its refresh reason. In JSON, `target_pct_per_hour`, `left_pct`, `pace_pt` and `resets_in_seconds` describe the child's own window, and `health` carries its effective state, pace and reset.
 2. Order usable pools by 7D PACE, lowest first; rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. See the lesson for the other JSON row fields.
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.

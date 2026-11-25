@@ -141,8 +141,8 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
     width = 110
-    line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 9")
-    assert line.startswith(f"── {POOLS_HEAD} 9 ─") and line.endswith("─") and _width(line) == width - 1
+    line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 8")
+    assert line.startswith(f"── {POOLS_HEAD} 8 ─") and line.endswith("─") and _width(line) == width - 1
     assert mv.POOLS_USE_FIRST_HINT in line
     titles = [word for word in line.replace(mv.POOLS_USE_FIRST_HINT, "").split() if word in mv._POOL_COLUMNS]
     assert titles == ["STATE", "LEFT", "PACE(pp)", mv.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
@@ -222,7 +222,7 @@ def test_no_color_keeps_the_rich_layout_with_unicode_and_no_sgr(monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     screen = rich(full_payload(), color=True, width=120)
     assert "\x1b" not in screen and screen == bare
-    assert f"── {POOLS_HEAD} 9 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
+    assert f"── {POOLS_HEAD} 8 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
     assert screen.splitlines()[0].startswith("ATTN 2 · gone: cc.fable activity-view 5m · pool_out: cx X-5H")
 
 

@@ -37,14 +37,17 @@ def test_diag_running_filters_by_peer_and_takes_a_limit(monkeypatch):
         def __init__(self, db):
             pass
 
-        def running(self, *, read_at, limit, workspace_generation=None):
+        def running(self, *, read_at, limit, workspace_generation=None, peer=None):
             seen["limit"] = limit
-            return {"status": "OK", "rows": [{"peer_id": "cx"}, {"peer_id": "ag"}, {"peer_id": "cx"}], "truncated": False, "error": None}
+            seen["peer"] = peer
+            rows = [{"peer_id": kind} for kind in ("cx", "ag", "cx") if peer is None or kind == peer]
+            return {"status": "OK", "rows": rows, "truncated": False, "error": None}
 
     monkeypatch.setattr(diag_running, "ReadonlyDiag", Stub)
     monkeypatch.setattr(diag_running, "_row", lambda raw, now, reader: raw)
     report = diag_running.running_report("x.db", peer="cx", limit=5)
     assert [r["peer_id"] for r in report["rows"]] == ["cx", "cx"] and seen["limit"] == 5 and report["limit"] == 5
+    assert seen["peer"] == "cx"
     assert len(diag_running.running_report("x.db")["rows"]) == 3 and seen["limit"] == diag_running.MAX_ROWS
 
 
@@ -95,3 +98,20 @@ def test_help_says_who_each_command_is_for(capsys):
     assert "AI agents" in diag and "peerhub monitor" in diag
     assert "human" in _help("diag", capsys=capsys).lower()
     assert "--query-file" in _help("ask", capsys=capsys).split("positional arguments:")[1].split("options:")[0]
+
+
+def test_diag_help_describes_tty_refresh_and_plan_rejects_rich(capsys):
+    help_text = _help("diag", capsys=capsys)
+    assert "refreshes quota when due on a TTY" in help_text
+    assert "The plan uses its own text layout" in help_text
+    args = ["diag", "--plan", "--view", "rich"]
+    with pytest.raises(SystemExit) as exc:
+        main(args)
+    assert exc.value.code == 2
+    assert "applies to the dashboard" in capsys.readouterr().err
+
+
+def test_guide_help_points_to_profile_list(capsys):
+    help_text = _help("guide", capsys=capsys)
+    assert "offline quick reference" in help_text
+    assert "Use peerhub profile list for model profiles" in help_text

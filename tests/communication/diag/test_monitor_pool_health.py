@@ -105,7 +105,7 @@ def test_cross_view_health_equivalence() -> None:
     assert plan_rows[child][3].startswith("0.00")
     assert plan_rows[child][4:] == ["blocked", child_json["reason"]]
     for screen in (compact, expanded):
-        assert old_pool in screen and "n/a" in screen and "(stale)" not in screen
+        assert old_pool not in screen and "(stale)" not in screen
         assert all(f"~{QUOTA_TTL_SECONDS // 60}m" in " ".join(cells) for cells in pool_cells(screen, stale_pool))
     retired = json_rows[old_pool]
     assert retired["action"] == retired["health"]["state"] == "n/a"
@@ -173,7 +173,7 @@ def test_profile_added_in_models_toml_appears_in_both_family_cells(monkeypatch: 
 
 @pytest.mark.parametrize("expand", [False, True])
 def test_bounded_frame_evicts_gap_with_pools(expand: bool) -> None:
-    data = frame(reading("cx", PACE_GAP_BASELINE, .5, 0))
+    data = frame(reading("ag", "G-7D", .5, 0))
     for height in range(3, 20):
         screen = mv.render_grouped_frame(data, view="plain", width=100, height=height, expand=expand)
         shown = "\nPOOLS " in screen
@@ -322,7 +322,8 @@ def test_m9_and_g_gap_order_and_single_legend_match_docs() -> None:
                 "G-7D": reading("ag", "G-7D", .5, -1),
                 "A-7D": reading("ag", "A-7D", .5, 20, age=QUOTA_TTL_SECONDS)}
     gaps = pace_gaps({pool: pool_health(item, None, NOW) for pool, item in readings.items()})
-    cells = [f"{name} " + ("—" if gap is None else f"{gap:+.1f}") for name, gap in gaps["pools"].items()]
+    cells = [f"{name} " + ("—" if gap is None else f"{gap:+.1f}")
+             for name, gap in gaps["pools"].items() if name in readings]
     line = f"gap vs {PACE_GAP_BASELINE} (pp): " + ", ".join(cells)
     for expand in (False, True):
         screen = " ".join(mv.render_grouped_frame(frame(*readings.values()), width=160, expand=expand).split())
@@ -358,7 +359,9 @@ def test_missing_pool_cells_match_the_record_and_docs(unicode: bool) -> None:
     assert all(f"`{placeholder}`" in line for line in (left_doc, margin_doc, pair_doc))
     for expand in (False, True):
         screen = mv.render_grouped_frame(frame(item), width=100, unicode=unicode, expand=expand)
-        assert f"{pool} {placeholder}" in next(line for line in screen.splitlines() if line.startswith("gap vs "))
+        assert "gap vs " not in screen
+        with_notes = mv.render_grouped_frame(frame(item), width=100, unicode=unicode, expand=expand, show_quota_notes=True)
+        assert f"{pool} {placeholder}" in next(line for line in with_notes.splitlines() if line.startswith("gap vs "))
         rows = pool_cells(screen, pool)
         assert rows and all(placeholder in cells for cells in rows)
         for cells in rows:

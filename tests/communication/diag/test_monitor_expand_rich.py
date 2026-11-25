@@ -155,7 +155,7 @@ def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
     small = compact(payload, width=140).splitlines()
     big = expand(payload, width=140, show_quota_notes=True).splitlines()
-    assert block("\n".join(small), "pools")[0].startswith("── POOLS 9 ─")
+    assert block("\n".join(small), "pools")[0].startswith("── POOLS 8 ─")
     assert block("\n".join(big), "pools")[0].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = block("\n".join(big), "pools")[1:]
     names = [" ".join(row.replace("└─ ", "").split()[:2]) for row in rows]
@@ -520,7 +520,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     assert heads(screen) == ORDER
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
-    assert any(line.startswith("-- POOLS 11 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
+    assert any(line.startswith("-- POOLS 10 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
     assert [row.split()[0] for row in entries(block(screen, "running"))] == [A["run"], A["gone"], "?", "!"]
     assert all(re.match(rf" {re.escape(A['dot'])} (ok|empty|unsure|error) ", row) for row in entries(block(screen, "recent")))
     if width == 100:

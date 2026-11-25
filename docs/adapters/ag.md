@@ -90,7 +90,7 @@ scratch directory; edit approval does not establish workspace trust.
 In headless mode agy auto-denies tools needing an interactive permission prompt
 and can still exit successfully with an empty `response` and a `denied_actions`
 list. PeerHub surfaces those names in the ask result and prints a one-line note.
-The names are read on both transports, as measured on agy 1.5.9: the top-level
+The names were read on both transports in the agy 1.5.9 measurement ([packaged observations of CLI versions](../../peerhub/config_data/model-defaults.toml)): the top-level
 `denied_actions` of the argv transport and `result.denied_actions` of the
 terminal event on the stdin stream transport (#371).
 Shell access needs a matching `command(...)` or broad `command(*)` allow rule
