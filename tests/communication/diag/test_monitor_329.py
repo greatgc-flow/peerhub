@@ -105,7 +105,7 @@ def test_plan_mismatch_reprobes_with_backoff(store, monkeypatch, capsys, converg
     from dataclasses import replace
     from peerhub.extensions import quota_capture
     from peerhub.extensions.quota_capture import refresh_quota
-    from peerhub.extensions.quota_probes import _absent_pool
+    from peerhub.extensions.quota_probes.common import absent_pool
     from tests.communication.observation.test_account_probes import live_reading
     account(store, "cx", age=400, plan="prolite", plan_status="reported")
     store.add("cx", "X-5H", "ABSENT", age=20, reason=NOT_REPORTED + "free")
@@ -117,7 +117,7 @@ def test_plan_mismatch_reprobes_with_backoff(store, monkeypatch, capsys, converg
         # account/read finishes before the quota probe of this same collection run.
         return replace(live_reading("cx", plan="free" if converges else "prolite"), observed_at=clock[0] - 1)
     def quota(**kw):
-        return (_absent_pool(kw["ids"], "cx", "default", "cx", clock[0], 300, "X-5H", plan="free"),)
+        return (absent_pool(kw["ids"], "cx", "default", "cx", clock[0], 300, "X-5H", plan="free"),)
     for elapsed, count in ((0, 1), (60, 1), (299, 1 if converges else 2)):
         clock[0] = int(store.now) + elapsed
         refresh_quota(store.db, ["cx"], pollers={"cx": quota}, account_pollers={"cx": poll}, version_checker=lambda k: None)

@@ -13,7 +13,8 @@ import pytest
 
 from peerhub.cli import monitor, monitor_view, support, view
 from peerhub.cli.app import main
-from peerhub.extensions import monitor_read_model, quota_probes
+from peerhub.extensions import monitor_read_model
+from peerhub.extensions.quota_probes import common, poll_claude_usage
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import GOLDEN_GUIDE_URL, _payload, full_payload
 
@@ -364,7 +365,7 @@ def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, 
 
 @pytest.fixture
 def posix_probe_cleanup(monkeypatch):
-    monkeypatch.setattr(quota_probes, "os", SimpleNamespace(name="posix", environ=quota_probes.os.environ))
+    monkeypatch.setattr(common, "os", SimpleNamespace(name="posix", environ=common.os.environ))
 
 
 def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monkeypatch, posix_probe_cleanup):
@@ -397,9 +398,9 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
         killed.set()
         return True
 
-    monkeypatch.setattr(quota_probes.subprocess, "Popen", Process)
-    monkeypatch.setattr(quota_probes, "kill_process_tree", kill)
-    monkeypatch.setattr(quota_probes, "_real_command", lambda *a: ["fake-claude"])
+    monkeypatch.setattr(subprocess, "Popen", Process)
+    monkeypatch.setattr(common, "kill_process_tree", kill)
+    monkeypatch.setattr(common, "real_command", lambda *a: ["fake-claude"])
     monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
     monkeypatch.setattr(support, "configured_pools", lambda *a: [])
     monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
@@ -415,7 +416,7 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
             return prefix
 
     def collect(db, peers, **options):
-        quota_probes.poll_claude_usage(Ids(), "cc", "default", deadline_sec=options["deadline_sec"],
+        poll_claude_usage(Ids(), "cc", "default", deadline_sec=options["deadline_sec"],
                                        cancellation=options["cancellation"])
         return {"status": "OK"}
 
@@ -464,8 +465,8 @@ def test_job_cleans_up_a_lingering_probe_before_releasing_the_guard(monkeypatch,
         options["cancellation"].spawn(["fake-provider"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return {"status": "PARTIAL"}
 
-    monkeypatch.setattr(quota_probes.subprocess, "Popen", lambda *a, **kw: process)
-    monkeypatch.setattr(quota_probes, "kill_process_tree", lambda proc, **kw: events.append(proc) or True)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: process)
+    monkeypatch.setattr(common, "kill_process_tree", lambda proc, **kw: events.append(proc) or True)
     monkeypatch.setattr(support, "quota_refresh_lock", guard)
     monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)

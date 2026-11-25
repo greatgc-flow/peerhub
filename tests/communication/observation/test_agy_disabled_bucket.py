@@ -11,7 +11,8 @@ import pytest
 
 from peerhub.extensions.observation_model import DISABLED_REASON, NOT_REPORTED_REASON, EvidenceState
 from peerhub.extensions.quota_capture import refresh_quota
-from peerhub.extensions.quota_probes import AGY_QUOTA_FAMILIES, _agy_report_is_clean, _parse_agy_usage_output, poll_agy_usage  # pyright: ignore[reportPrivateUsage]
+from peerhub.extensions.quota_probes import AGY_QUOTA_FAMILIES, poll_agy_usage
+from peerhub.extensions.quota_probes.agy import _agy_report_is_clean, _parse_agy_usage_output  # pyright: ignore[reportPrivateUsage]
 from tests.communication.harness.core import CoreHarness
 from tests.communication.observation.test_quota_probes import DummyIdSource
 
@@ -38,7 +39,7 @@ def disabled(**extra):
 
 def poll(monkeypatch, root, text, **options):
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(args=["agy.exe"], returncode=0, stdout=text, stderr=""))
     return poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: OBSERVED, sys_dir=root / "_sys", **options)
 
@@ -129,7 +130,7 @@ def test_refresh_persists_disabled_then_reenabled_measures_again(monkeypatch, tm
     h = CoreHarness(tmp_path / "ws")
     from peerhub.extensions.observation import ObservationStore
     ObservationStore(h.db_path)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
 
     def refresh(text):

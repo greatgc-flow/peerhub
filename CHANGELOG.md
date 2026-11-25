@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed (internal)
+
+- Split quota and account probes into provider modules with shared probe helpers.
+
 ## [0.26.14] - 2026-11-25
 
 ### Fixed

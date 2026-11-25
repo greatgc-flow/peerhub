@@ -59,7 +59,8 @@ def test_every_profile_id_names_a_peer_and_has_required_fields():
 
 
 def test_pool_ids_exist_in_probe_constants():
-    from peerhub.extensions.quota_probes import AGY_QUOTA_FAMILIES, _CLAUDE_USAGE_SECTIONS
+    from peerhub.extensions.quota_probes import AGY_QUOTA_FAMILIES
+    from peerhub.extensions.quota_probes.claude import _CLAUDE_USAGE_SECTIONS
 
     known = {v for _, v in AGY_QUOTA_FAMILIES} | {v[0] for v in _CLAUDE_USAGE_SECTIONS.values()} | {"X-5H", "X-7D"}
     entries = {**packaged_profiles(), **TOML.get("exact_model_pools", {})}

@@ -33,8 +33,8 @@ def test_codex_reader_keeps_buffered_responses_and_ignores_nonobjects(monkeypatc
             return 0 if exited else None
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: FakeProc())
-    monkeypatch.setattr("peerhub.extensions.quota_probes._cleanup_probe", lambda proc: None)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda *a: ["dummy.exe"])
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._cleanup_probe", lambda proc: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda *a: ["dummy.exe"])
     readings = poll_codex_usage(DummyIdSource(), "inst-1", "prof-1", deadline_sec=1)
     usage = readings[0]
     assert usage.evidence.state == EvidenceState.MEASURED

@@ -214,7 +214,7 @@ def test_arch_005_core_identity_is_not_runtime_identity(harness):
 
 
 # ----------------------------------------------------------------------------- extension independence (composition root = peerhub/cli)
-_OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py", "quota_probes.py", "quota_types.py",
+_OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py", "quota_probes", "quota_types.py",
                      "diag.py", "diag_quota.py", "diag_watch.py", "schema_guard.py", "quota_projection.py")
 _ALLOWED_EXTENSION_IMPORTS = {"peerhub.extensions.observation", "peerhub.extensions.observation_model", "peerhub.extensions.quota_types",
                               "peerhub.extensions.schema_guard", "peerhub.extensions.diag", "peerhub.extensions.quota_probes",
@@ -238,6 +238,8 @@ def test_arch_observation_and_diag_do_not_import_the_bridge_or_m2_m3_extensions(
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
-    bad = {name: sorted(m for m in _extension_imports(root / name) if m not in _ALLOWED_EXTENSION_IMPORTS)
-           for name in _OBSERVATION_DIAG}
+    paths = [root / name for name in _OBSERVATION_DIAG]
+    modules = [module for path in paths for module in (sorted(path.rglob("*.py")) if path.is_dir() else [path])]
+    bad = {str(path.relative_to(root)): sorted(_extension_imports(path) - _ALLOWED_EXTENSION_IMPORTS)
+           for path in modules}
     assert {k: v for k, v in bad.items() if v} == {}  # e.g. quota_capture importing ask.ALIASES coupled Observation to the Bridge entry
