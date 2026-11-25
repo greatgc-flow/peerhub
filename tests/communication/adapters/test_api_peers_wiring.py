@@ -69,7 +69,8 @@ def test_every_list_that_names_ca_and_oa_names_ga():
     assert not missing, "\n".join(missing)
     assert seen >= 30  # the files of design 8 are among them (the next assertions name each one)
     from peerhub.cli import recovery
-    from peerhub.extensions import batch, bridge, peer_kinds, session_receipts, usage_normalization
+    from peerhub.core import peer_kinds
+    from peerhub.extensions import batch, bridge, session_receipts, usage_normalization
 
     usage_contract = usage_normalization.PROVIDER_USAGE_CONTRACT
     assert set(usage_contract) == set(BUILTIN_PEER_KINDS)

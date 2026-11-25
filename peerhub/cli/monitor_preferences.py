@@ -1,88 +1,26 @@
-"""Stable monitor group catalog and display-only preference management."""
+"""CLI management commands for monitor preferences."""
 from __future__ import annotations
 
 import json
 import os
 import sys
 import tempfile
-import tomllib
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
-
-GROUPS: tuple[dict[str, Any], ...] = (
-    {"id": "overview", "order": 1, "description": "Cross-group peer summary and highest-priority state.", "collection_effect": "read_only"},
-    {"id": "activity", "order": 2, "description": "Running and recent asks (state, request and reply lines) and the leads that launched them.", "collection_effect": "read_only"},
-    {"id": "peers", "order": 3, "description": "Per-peer dependency chain: quota, profile, session reuse, and context.", "collection_effect": "read_only"},
-    {"id": "execution", "order": 4, "description": "Bridge delivery certainty, session reuse, and measured delivery latency; not task success.", "collection_effect": "read_only"},
-    {"id": "sessions", "order": 5, "description": "Retained session lifecycle, fresh/reuse state, and configured profile/model/effort.", "collection_effect": "read_only"},
-    {"id": "usage", "order": 6, "description": "Provider-reported token usage and its reporting coverage.", "collection_effect": "read_only"},
-    {"id": "context", "order": 7, "description": "Runtime context occupancy evidence; unknown when providers do not report it.", "collection_effect": "read_only"},
-    {"id": "capacity", "order": 8, "description": "Quota pools, remaining capacity, freshness, and supported seven-day pace.", "collection_effect": "read_only"},
-    {"id": "runtime", "order": 9, "description": "Current profile provenance and adapter/runtime details.", "collection_effect": "read_only"},
-    {"id": "coverage", "order": 10, "description": "Data completeness, stale/unknown evidence, legacy gaps, and sampling limits.", "collection_effect": "read_only"},
-    {"id": "store", "order": 11, "description": "Database schema, size, projection, and storage integrity summary.", "collection_effect": "read_only"},
+from peerhub.cli.monitor_legend import (
+    MONITOR_LEGEND as MONITOR_LEGEND,
+    POOL_LEGEND as POOL_LEGEND,
+    POOL_MARGIN_COLUMN as POOL_MARGIN_COLUMN,
+    POOL_MARGIN_LEGEND as POOL_MARGIN_LEGEND,
 )
-GROUP_IDS = tuple(str(item["id"]) for item in GROUPS)
-DEFAULT_GROUPS = ("overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage")
-
-POOL_MARGIN_COLUMN = "MARGIN"
-POOL_MARGIN_LEGEND = f"{POOL_MARGIN_COLUMN}=EXH-RESET, - = early"
-POOL_LEGEND = (
-    "PACE(pp)=EVN-LEFT, 0=even burn (|), "
-    f"<=-{PLAN_SPEND_PACE_PT:g} spend, >+{PLAN_REST_PACE_PT:g} rest! | EXH/RESET ! = early"
-    f" | {POOL_MARGIN_LEGEND} | EVN=even-burn remaining"
+from peerhub.core import monitor_preferences as saved_preferences
+from peerhub.core.monitor_preferences import (
+    DEFAULT_GROUPS as DEFAULT_GROUPS,
+    GROUP_IDS as GROUP_IDS,
+    GROUPS as GROUPS,
+    effective_preferences as effective_preferences,
 )
-
-MONITOR_LEGEND = (
-    f"ok enough | low >0-{LOW_QUOTA_FRACTION:.0%} | fast >{LOW_QUOTA_FRACTION:.0%} + threat (2+ samples)"
-    " | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value)"
-    " | ? unknown",
-    "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
-    "LEADS: label | state (?busy = alive not confirmed, - = no session) | age of the last activity"
-    " | ctx = context of the model's maximum input (! 80% or more; 106k = window unknown; ? unknown) | running asks | model | title",
-    "CTX est: estimated context of a cc session at the end of its last ask (percent of the model's maximum input, with"
-    " its age); not a live measurement",
-)
-
-
-def _preference_paths(cwd: Path, env: dict[str, str]) -> tuple[Path, Path]:
-    workspace = cwd / ".peerhub" / "config" / "monitor.toml"
-    config_home = env.get("PEERHUB_CONFIG_HOME", "").strip()
-    global_root = Path(config_home).expanduser() if config_home else Path.home() / ".peerhub" / "config"
-    return workspace, global_root / "monitor.toml"
-
-
-def _decode(path: Path, source: str) -> dict[str, Any]:
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
-        return {"status": "ERROR", "source": source, "reason": "invalid_toml"}
-    if data.get("schema_version") != 1:
-        return {"status": "ERROR", "source": source, "reason": "unsupported_schema"}
-    monitor_raw: object = data.get("monitor")
-    monitor: dict[str, Any] = cast(dict[str, Any], monitor_raw) if isinstance(monitor_raw, dict) else {}
-    groups_raw: object = monitor.get("default_groups")
-    if not isinstance(groups_raw, list):
-        return {"status": "ERROR", "source": source, "reason": "invalid_group"}
-    raw_items: list[object] = cast(list[object], groups_raw)
-    if any(not isinstance(item, str) or item not in GROUP_IDS for item in raw_items):
-        return {"status": "ERROR", "source": source, "reason": "invalid_group"}
-    groups = cast(list[str], raw_items)
-    if len(groups) != len(set(groups)):
-        return {"status": "ERROR", "source": source, "reason": "invalid_group"}
-    return {"status": "OK", "source": source, "reason": None, "selected_groups": groups}
-
-
-def effective_preferences(cwd: Path | None = None, env: dict[str, str] | None = None) -> dict[str, Any]:
-    current = cwd or Path.cwd()
-    environment = os.environ if env is None else env
-    workspace, global_path = _preference_paths(current, dict(environment))
-    for path, source in ((workspace, "workspace"), (global_path, "global")):
-        if path.exists():
-            return _decode(path, source)
-    return {"status": "OK", "source": "packaged", "reason": None, "selected_groups": list(DEFAULT_GROUPS)}
 
 
 def _atomic_write(path: Path, groups: list[str]) -> None:
@@ -154,7 +92,7 @@ def run_preferences(args: Any) -> int:
                 from peerhub.cli.view import FrameOutput
 
                 if monitor_links_enabled(env):
-                    workspace, global_path = _preference_paths(cwd, env)
+                    workspace, global_path = saved_preferences.preference_paths(cwd, env)
                     path = workspace if source == "workspace" else global_path
                     output = FrameOutput(overwrite=False)
                     try:
@@ -166,7 +104,7 @@ def run_preferences(args: Any) -> int:
             if preference.get("reason"):
                 print(f"Reason: {preference['reason']}")
         return int(preference["status"] != "OK")
-    workspace, global_path = _preference_paths(cwd, env)
+    workspace, global_path = saved_preferences.preference_paths(cwd, env)
     target = global_path if args.global_preferences else workspace
     source = "global" if args.global_preferences else "workspace"
     if subaction == "set":

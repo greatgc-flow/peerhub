@@ -11,7 +11,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND, POOL_LEGEND, POOL_MARGIN_COLUMN
+from peerhub.cli.monitor_legend import MONITOR_LEGEND, POOL_LEGEND, POOL_MARGIN_COLUMN
+from peerhub.core.monitor_preferences import GROUPS
 from peerhub.extensions.caller import host_id, local_workspace_file
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS, context_estimate_age

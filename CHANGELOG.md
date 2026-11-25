@@ -11,6 +11,7 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - CI runs the full deterministic suites and the publish verification suites in parallel, with the monitor latency limit checked serially. Publish runs the G7 invariant tests as part of G0, and the release recipe puts the version bump in the last feature PR.
+- An internal refactor shares the monitor group catalog and saved preference reader below the CLI, enforces the extensions-to-CLI import boundary, and centralizes the provider usage candidate factory and shared A2A journal types. Binary resolution and peer-kind imports use their canonical modules.
 
 ### Changed (internal)
 

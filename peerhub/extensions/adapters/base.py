@@ -581,7 +581,7 @@ def resolve_binary(spec: common.ProviderSpec) -> list[str] | None:
         p = shutil.which(n)
         if p:
             if Path(p).suffix.lower() in (".cmd", ".bat"):
-                from peerhub.extensions.adapters.binary_resolution import resolve_direct_binary
+                from peerhub.extensions.binary_resolution import resolve_direct_binary
                 direct = resolve_direct_binary(Path(p))
                 if direct:
                     return direct

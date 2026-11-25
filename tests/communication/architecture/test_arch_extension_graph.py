@@ -49,7 +49,6 @@ ALLOWED: dict[str, set[str]] = {
     "skills": {"authoritative", "boundary", "sqlite_tx"},
     "artifact": {"boundary"},
     # M3
-    "a2a": {"a2a_journal"},  # one A2A unit: the adapter lazily uses its durable journal
     "a2a_http": {"a2a"},
     "a2a_journal": {"a2a"},
     "memory": {"source_records"},
@@ -112,7 +111,7 @@ def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
           "ask_budgets", "delivery_projections", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "pool_health"}
-    helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
+    helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:
             continue
