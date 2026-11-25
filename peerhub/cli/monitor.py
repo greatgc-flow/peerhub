@@ -63,7 +63,8 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--json", action="store_true")
     p.add_argument("--schema-version", choices=("1.1", "2.0"), default=None,
                    help="JSON contract version (requires --json; default: 2.0)")
-    p.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
+    if _legacy_alias_available():
+        p.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage or /credits consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"],
@@ -102,6 +103,21 @@ def register_monitor_parser(subparsers: Any) -> None:
     repair.add_argument("--chunk-size", type=int, default=500, help="Bounded delivery read chunk (1-5000)")
     repair.add_argument("--json", action="store_true")
 
+
+
+def _legacy_alias_available(version: str | None = None) -> bool:
+    """Check whether the deprecated --legacy alias is active in this release.
+
+    Sunset is explicitly extended to 0.20.0 (removal deferred; no removal evidence needed).
+    """
+    from peerhub._version import __version__
+
+    value = (version or __version__).split("+", 1)[0]
+    try:
+        major, minor, *_ = (int(part.split("-", 1)[0]) for part in value.split("."))
+    except ValueError:
+        return True
+    return (major, minor) < (0, 20)
 
 def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if args.view not in {"auto", "rich", "plain"}:

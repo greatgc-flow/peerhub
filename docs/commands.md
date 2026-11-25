@@ -105,7 +105,6 @@ commands, code, and documentation.
 | Short profile IDs such as `standard` | `PEER.NAME` for the selected provider, such as `cc.standard` with `ask cc` | Existing asks and batch manifests can keep their provider-relative profile names. |
 | Profile alias `cx.deepthink` | `--profile cx.effort --effort xhigh` with packaged defaults | Existing Codex asks keep their model and effort defaults. Suggestions use the canonical profiles, and a terminal text ask using the alias can print a deprecation notice. |
 | Hidden `--format` on `peer list`, `profile list`, `profile show`, `session list`, `session show`, and `stream list` | `--json` for `--format json`, or the default human output for `--format auto` and `--format table` | Existing scripts can keep their output selection. |
-| Hidden `--legacy` on `monitor` | `monitor --json --schema-version 1.1` for JSON, or `monitor` for human output | Existing monitor scripts can keep selecting schema 1.1 while they migrate. |
 | Python export `peerhub.cli.app.with_writable` | `peerhub.cli.ask_cmd.with_writable` | Existing Python callers can keep their import. The helper inserts `--writable` before the `--` separator or appends it when there is no separator. |
 
 ## Batch and suggestions
