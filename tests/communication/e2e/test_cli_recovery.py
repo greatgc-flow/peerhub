@@ -8,14 +8,13 @@ import sys
 import pytest
 
 from peerhub.cli.app import build_parser
+from peerhub.cli.explain_cmd import run_explain_cli
 from peerhub.cli.recovery import (
     REGISTRY,
     GuidanceEntry,
     get_guidance,
     make_guidance_payload,
     render_guidance_hint,
-    render_explain,
-    run_explain_cli,
     select_guidance_code,
 )
 from typing import Any
@@ -1369,7 +1368,8 @@ def test_oversized_prompt_guidance_preserves_sizes_and_recovery(tmp_path, monkey
 
 def test_guidance_reference_doc_parity():
     """Issue #135: Parity test between guidance registry, session definitions, and docs/guidance-reference.md."""
-    from peerhub.cli.recovery import render_guidance_reference, REGISTRY, RESULT_STATUS_REGISTRY
+    from peerhub.cli.explain_cmd import render_guidance_reference
+    from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY
 
     doc_path = Path("docs/guidance-reference.md")
     assert doc_path.is_file(), "docs/guidance-reference.md does not exist"

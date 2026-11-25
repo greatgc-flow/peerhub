@@ -275,7 +275,7 @@ def _percent_cell(value: float | None) -> str:
 
 
 def render_profile_stats(stats: list[dict[str, Any]]) -> str:
-    from peerhub.cli.view import format_text_cell, visible_len
+    from peerhub._console import format_text_cell, visible_len
 
     if not stats:
         return "(no profiles)"

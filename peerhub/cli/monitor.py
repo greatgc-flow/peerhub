@@ -278,7 +278,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         return 5
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.core.schema_version import SchemaVersionError
-    from peerhub.cli.view import FrameOutput, use_color
+    from peerhub._console import FrameOutput, use_color
     output = FrameOutput(interactive=not args.json, anchor_rows=True, alternate=args.cycles == 0)
     auto_probe = monitor_auto_probe(args)
     effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
@@ -568,7 +568,7 @@ def _live_rows(height: int, *, alternate: bool = False) -> int:
 def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = False,
                             show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT) -> None:
     """Render a human dashboard from one schema 2.0 snapshot."""
-    from peerhub.cli.view import FrameOutput, use_color
+    from peerhub._console import FrameOutput, use_color
     tty = sys.stdout.isatty()
     output = FrameOutput(interactive=tty, overwrite=False)
     try:

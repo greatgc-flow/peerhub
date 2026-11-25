@@ -71,7 +71,7 @@ def test_scripted_monitor_cycle_defaults_and_explicit_zero(tmp_path, monkeypatch
 
     monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
     # Keep rendering append-only so these tests measure collection cycles, not VT redraws.
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: False)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: False)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
     monkeypatch.setattr("peerhub.cli.monitor.sleep", sleep)
     monkeypatch.setattr("peerhub.cli.monitor.monotonic", lambda: now[0])

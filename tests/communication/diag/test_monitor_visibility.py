@@ -117,7 +117,7 @@ def test_d4_snapshot_tty_is_bounded_pipe_is_unbounded(
         frame: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
         tty: bool, vt: bool) -> None:
     from peerhub.cli.monitor import _print_grouped_snapshot
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
     import sys
 
     monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
@@ -407,7 +407,7 @@ def test_r3_every_dropped_field_has_a_note(text: str, width: int) -> None:
 def test_r3_compact_snapshot_without_vt_keeps_append_behaviour(
         frame: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     from peerhub.cli.monitor import _print_grouped_snapshot
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
     import sys
 
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)

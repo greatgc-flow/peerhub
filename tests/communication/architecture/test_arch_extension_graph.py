@@ -43,6 +43,8 @@ ALLOWED: dict[str, set[str]] = {
     "diag_running": {"caller", "diag"},
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
+    "diag_read_model": {"diag", "diag_quota", "observation_model", "pool_health", "quota_windows"},
+    "quota_windows": {"observation_model", "quota_projection"},
     "pool_health": {"diag_quota", "observation_model", "quota_projection"},
     # M2
     "batch": {"process_tree"},
@@ -112,7 +114,8 @@ def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_errors", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
           "ask_budgets", "delivery_projections", "monitor_read_model", "usage_normalization", "runtime_contract",
-          "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries"}
+          "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries",
+          "diag_read_model", "quota_windows"}
     helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:

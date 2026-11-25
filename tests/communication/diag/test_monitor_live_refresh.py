@@ -11,7 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_view, support, view
+from peerhub import _console
+from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_view, support
 from peerhub.cli.app import main
 from peerhub.extensions import monitor_read_model
 from peerhub.extensions.quota_probes import common, poll_claude_usage
@@ -145,7 +146,7 @@ def test_live_title_status_and_truncation(expand, style):
     status["heartbeat"] = 1
     second = title(18)
     assert first[0] != second[0]
-    assert view.visible_len(first) < 18 and view.visible_len(second) < 18
+    assert _console.visible_len(first) < 18 and _console.visible_len(second) < 18
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -255,10 +256,10 @@ def test_watch_defers_a_lock_timeout_without_reporting_failure(monkeypatch, expa
     launches, frames = [], []
     last = now + support.MONITOR_TICK_SECONDS + support.QUOTA_REFRESH_COOLDOWN_SECONDS
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
-    monkeypatch.setattr(view.FrameOutput, "write", lambda self, frame: frames.append(frame))
-    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (100, 40)))
+    monkeypatch.setattr(_console.FrameOutput, "write", lambda self, frame: frames.append(frame))
+    monkeypatch.setattr(_console.FrameOutput, "geometry", staticmethod(lambda: (100, 40)))
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *a, **kw: full_payload())
     monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
@@ -303,11 +304,11 @@ def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, 
     ui_thread = get_ident()
     now = 100.0
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     monkeypatch.delenv("PEERHUB_MONITOR_PROBE", raising=False)
-    monkeypatch.setattr(view.FrameOutput, "write", lambda self, frame: frames.append((get_ident(), frame)))
-    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: geometries.append(now) or (100, 40)))
+    monkeypatch.setattr(_console.FrameOutput, "write", lambda self, frame: frames.append((get_ident(), frame)))
+    monkeypatch.setattr(_console.FrameOutput, "geometry", staticmethod(lambda: geometries.append(now) or (100, 40)))
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *a, **kw: reads.append(now) or full_payload())
     monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: (
@@ -409,8 +410,8 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
     monkeypatch.setattr(support, "configured_pools", lambda *a: [])
     monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
-    monkeypatch.setattr(view.FrameOutput, "write", lambda *a: None)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console.FrameOutput, "write", lambda *a: None)
     monkeypatch.setattr(monitor, "_render_human_frame", lambda *a, **kw: "")
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *a, **kw: full_payload())
@@ -493,9 +494,9 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
         "schema_version": "2.0", "status": "OK", "read_at": 1800000000, "groups": {},
     })
     monkeypatch.setattr(monitor, "_cached_profiles", lambda *a: [])
-    monkeypatch.setattr(view.FrameOutput, "width", staticmethod(lambda: 100))
+    monkeypatch.setattr(_console.FrameOutput, "width", staticmethod(lambda: 100))
     monkeypatch.setattr("sys.stdout.isatty", lambda: mode == "finite")
-    monkeypatch.setattr(view, "enable_vt", lambda: False)
+    monkeypatch.setattr(_console, "enable_vt", lambda: False)
     monkeypatch.setenv("PEERHUB_GUIDE_URL", GOLDEN_GUIDE_URL)
     parser = argparse.ArgumentParser()
     monitor.register_monitor_parser(parser.add_subparsers())

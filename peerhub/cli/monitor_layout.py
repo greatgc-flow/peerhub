@@ -8,17 +8,14 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
+from peerhub._console import ANSI_ESCAPE, clean_text, finite_number
+
 
 RULE_PREFIX_WIDTH = 3
 RULE_MIN_TAIL_WIDTH = 2
 
 
-_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
-ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x1b\\|\x07)")  # SGR, and OSC 8 (a hyperlink's open and close)
 FILE_HYPERLINK = re.compile(r"\x1b\]8;;file://[^\x1b]*\x1b\\([^\x1b]*)\x1b\]8;;\x1b\\")
-_BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
-         *[chr(code) for code in range(0x2066, 0x206A)]}
-
 
 def as_dict(value: object) -> dict[str, Any]:
     return cast(dict[str, Any], value) if isinstance(value, Mapping) else {}
@@ -29,14 +26,6 @@ def dict_items(value: object) -> list[dict[str, Any]]:
         return []
     items = cast(Sequence[Any], value)
     return [cast(dict[str, Any], item) for item in items if isinstance(item, Mapping)]
-
-
-def clean_text(value: object) -> str:
-    text = str(value).replace("\r\n", " ").replace("\n", " ").replace("\r", " ").replace("\t", " ")
-    text = _CONTROL.sub("�", text)
-    return "".join("�" if char in _BIDI or unicodedata.category(char) in {"Cf", "Cn", "Cs", "Zl", "Zp"}
-                   and char != "\u200d" else char
-                   for char in text).strip()
 
 
 def cell_width(text: str) -> int:
@@ -242,13 +231,6 @@ def title_rule(title: str, rest: str, width: int, unicode: bool, paint: bool) ->
 def section_rule(label: str, width: int, unicode: bool) -> str:
     label = fit_fields(label, max(0, width - 4), unicode)
     return fit_text(title_rule(label, "", width, unicode, False), width, unicode)
-
-
-def finite_number(value: object) -> float | None:
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return None
-    number = float(value)
-    return number if math.isfinite(number) else None
 
 
 def format_count(value: object) -> str:

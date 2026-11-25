@@ -303,7 +303,7 @@ def test_packaged_api_profiles_have_their_tiers_a_card_and_no_pool():
 
 def test_profile_list_and_explain_show_the_api_profiles(tmp_path, monkeypatch, capsys):
     from peerhub.cli.app import main
-    from peerhub.cli.recovery import run_explain_cli
+    from peerhub.cli.explain_cmd import run_explain_cli
 
     assert main(["profile", "list", "--workspace", str(tmp_path)]) == 0
     out = capsys.readouterr().out

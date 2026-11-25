@@ -1,7 +1,8 @@
 """Rich monitor view: literal-output checks on a real read-only snapshot."""
 import pytest
 
-from peerhub.cli.view import bar, human_duration, render_view, use_color
+from peerhub._console import use_color
+from peerhub.cli.view import bar, human_duration, render_view
 
 
 def _report(items, tmp_path):
@@ -34,13 +35,15 @@ def test_helpers():
 
 @pytest.mark.parametrize("color", [False, True])
 def test_untrusted_peer_pool_and_reason_cannot_emit_terminal_controls(color):
-    from peerhub.cli.view import _Row, _quota_table, _credit_lines, _activity_lines, _safe_text
+    from peerhub._console import strip_controls
+    from peerhub.cli.view import _activity_lines, _credit_lines, _quota_table
+    from peerhub.extensions.diag_read_model import QuotaRow
     payload = "peer\x1b[2J\x00\x07\x85pool"
-    assert _safe_text(payload) == "peer[2Jpool"
+    assert strip_controls(payload) == "peer[2Jpool"
     item = {"subject_ref": payload, "resource_pool_ref": "quota:" + payload,
             "kind": "quota", "state": "ERROR", "payload": {"reason": payload}}
     alerts = []
-    lines = _quota_table([_Row(item, 0)], 100, color, False)
+    lines = _quota_table([QuotaRow(item, 0)], 100, color, False, now=0)
     lines += _credit_lines([{**item, "kind": "reset_credit"}], 0, color, False, alerts)
     lines += _activity_lines([{**item, "kind": "activity", "payload": {
         "status": payload, "certainty": payload}}], 3, color)
@@ -124,7 +127,7 @@ def test_view_shows_a_per_peer_asks_table_and_alerts_on_a_bad_last_ask(tmp_path)
 
 def test_advance_report_moves_clock_and_ages_without_rereading(tmp_path):
     from peerhub.cli.app import main as cli
-    from peerhub.cli.view import advance_report
+    from peerhub.extensions.diag_read_model import advance_report
 
     db = str(tmp_path / "t.db")
     cli(["--db", db, "peer", "register", "--peer", "ag"])
@@ -142,7 +145,7 @@ def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
     import io
     import os
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
 
     class Output(io.StringIO):
         def isatty(self):
@@ -153,10 +156,10 @@ def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
 
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     sizes = iter([os.terminal_size((120, 24)), os.terminal_size((80, 20))])
-    monkeypatch.setattr("peerhub.cli.view.os.get_terminal_size", lambda fd: next(sizes))
+    monkeypatch.setattr("peerhub._console.os.get_terminal_size", lambda fd: next(sizes))
     payload = {"status": "OK", "selected_groups": ["store"],
                "groups": {"store": {"status": "OK", "data": {"schema_version": 7,
                                                                   "database_size_bytes": 10}}}}
@@ -175,8 +178,8 @@ def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
 @pytest.mark.platform_sensitive
 def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkeypatch):
     import io
-    from peerhub.cli import view
-    from peerhub.cli.view import FrameOutput
+    from peerhub import _console
+    from peerhub._console import FrameOutput
 
     class Output(io.StringIO):
         def isatty(self):
@@ -184,7 +187,7 @@ def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkey
 
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     sink = FrameOutput(anchor_rows=True)
     try:
@@ -194,7 +197,7 @@ def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkey
         first = output.getvalue()
         # The alternate screen: no command line above the frame, so a pinned command cannot cover ATTN.
         # Auto-wrap is off while the frame is live: a too-wide row is clipped, never spilled onto the next row.
-        assert first.startswith("\x1b[?1049h\x1b[?25l" + view.NO_AUTOWRAP + "\x1b[H\x1b[2J\x1b[1;1HATTN 4")
+        assert first.startswith("\x1b[?1049h\x1b[?25l" + _console.NO_AUTOWRAP + "\x1b[H\x1b[2J\x1b[1;1HATTN 4")
         assert "\x1b[7;1HDB:env\x1b[K\x1b[J" in first
         assert "\r" not in first and "\n" not in first
         for row in range(2, 7):
@@ -206,13 +209,13 @@ def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkey
         assert output.getvalue() == "\x1b[H\x1b[1;1HATTN 1\x1b[K\x1b[2;1Hshort\x1b[K\x1b[J"
     finally:
         sink.close()
-    assert output.getvalue().endswith("\x1b[?1049l" + view.AUTOWRAP + "\x1b[0m\x1b[?25hATTN 1\nshort\n")
+    assert output.getvalue().endswith("\x1b[?1049l" + _console.AUTOWRAP + "\x1b[0m\x1b[?25hATTN 1\nshort\n")
 
 
 @pytest.mark.platform_sensitive
 def test_frame_output_default_preserves_scrolling_for_unbounded_diag_frames(monkeypatch):
     import io
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
 
     class Output(io.StringIO):
         def isatty(self):
@@ -220,7 +223,7 @@ def test_frame_output_default_preserves_scrolling_for_unbounded_diag_frames(monk
 
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     # diag --live does not cap its frame to the screen height. It must retain
     # CRLF/scrollback, rather than clamping all overflowing rows onto the bottom.
@@ -239,7 +242,7 @@ def test_frame_output_default_preserves_scrolling_for_unbounded_diag_frames(monk
 
 def test_frame_output_uses_stable_geometry_when_stdout_is_not_a_tty(monkeypatch):
     import io
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
 
     class Pipe(io.StringIO):
         def isatty(self):
@@ -251,7 +254,7 @@ def test_frame_output_uses_stable_geometry_when_stdout_is_not_a_tty(monkeypatch)
     monkeypatch.setattr("sys.stdout", Pipe())
     monkeypatch.setenv("COLUMNS", "15")
     monkeypatch.setenv("LINES", "2")
-    monkeypatch.setattr("peerhub.cli.view.os.get_terminal_size",
+    monkeypatch.setattr("peerhub._console.os.get_terminal_size",
                         lambda _fd: pytest.fail("must not use another terminal's geometry"))
 
     assert FrameOutput.geometry() == (100, 24)
@@ -261,7 +264,7 @@ def test_frame_output_uses_stable_geometry_when_stdout_is_not_a_tty(monkeypatch)
 def test_frame_output_reads_live_geometry_instead_of_stale_size_environment(monkeypatch):
     import io
     import os
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
 
     class Output(io.StringIO):
         def isatty(self):
@@ -273,7 +276,7 @@ def test_frame_output_reads_live_geometry_instead_of_stale_size_environment(monk
     monkeypatch.setattr("sys.stdout", Output())
     monkeypatch.setenv("COLUMNS", "20")
     monkeypatch.setenv("LINES", "3")
-    monkeypatch.setattr("peerhub.cli.view.os.get_terminal_size",
+    monkeypatch.setattr("peerhub._console.os.get_terminal_size",
                         lambda fd: os.terminal_size((91, 27)))
 
     assert FrameOutput.geometry() == (91, 27)
@@ -281,7 +284,7 @@ def test_frame_output_reads_live_geometry_instead_of_stale_size_environment(monk
 
 def test_term_dumb_never_enables_vt(monkeypatch):
     import io
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
 
     class Output(io.StringIO):
         def isatty(self):
@@ -289,7 +292,7 @@ def test_term_dumb_never_enables_vt(monkeypatch):
 
     monkeypatch.setattr("sys.stdout", Output())
     monkeypatch.setenv("TERM", "dumb")
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: pytest.fail("VT must stay disabled"))
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: pytest.fail("VT must stay disabled"))
     output = FrameOutput()
     output.write("plain\n")
     output.close()
@@ -298,7 +301,7 @@ def test_term_dumb_never_enables_vt(monkeypatch):
 
 def test_term_dumb_tty_keeps_columns_override_for_append_width(monkeypatch):
     import io
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
 
     class TTY(io.StringIO):
         def isatty(self):
@@ -312,10 +315,11 @@ def test_term_dumb_tty_keeps_columns_override_for_append_width(monkeypatch):
 
 
 def test_probe_errors_have_their_own_line_without_a_pool():
-    from peerhub.cli.view import _probe_line, _quota_rows
+    from peerhub.cli.view import _probe_line
+    from peerhub.extensions.diag_read_model import quota_rows
 
     item = {"subject_ref": "cc", "kind": "quota", "state": "ERROR", "payload": {"reason": "claude_usage_timeout"}}
-    assert _quota_rows([item], [], 0) == []
+    assert quota_rows([item], [], 0) == []
     assert _probe_line([item], None) == "Probes cc:ERR(claude_usage_timeout)"
 
 
@@ -404,7 +408,8 @@ def test_render_view_shows_eta_projection_and_header_threat(tmp_path):
 
 
 def test_header_korean_filename_does_not_split():
-    from peerhub.cli.view import format_frame, visible_len
+    from peerhub._console import visible_len
+    from peerhub.cli.view import format_frame
     from peerhub.extensions.diag import DiagnosticReport
 
     rep = DiagnosticReport("OK", 1000000.0, {}, {})
@@ -420,13 +425,13 @@ def test_header_korean_filename_does_not_split():
 
 def test_frame_output_leaves_the_alternate_screen_on_close_only_for_anchored_frames(monkeypatch):
     import io
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
 
     class Output(io.StringIO):
         def isatty(self):
             return True
 
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     for anchored in (True, False):
         output = Output()

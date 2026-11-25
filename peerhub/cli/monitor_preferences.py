@@ -81,7 +81,7 @@ def run_preferences(args: Any) -> int:
             source = preference["source"]
             if sys.stdout.isatty() and source in ("workspace", "global"):
                 from peerhub.cli.monitor_links import file_link_url, monitor_links_enabled, osc_link
-                from peerhub.cli.view import FrameOutput
+                from peerhub._console import FrameOutput
 
                 if monitor_links_enabled(env):
                     workspace, global_path = preference_paths(cwd, env)

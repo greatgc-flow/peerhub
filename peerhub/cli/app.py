@@ -11,9 +11,9 @@ from peerhub._version import __version__
 from peerhub.cli import account_cmd, ask_cmd, batch_cmd, core_cmd, diag_cmd, observation_cmd, profile_cmd, session_cmd
 from peerhub.cli.arguments import ArgumentParser
 from peerhub.cli.ask_cmd import with_writable
+from peerhub.cli.explain_cmd import register_explain_parser, run_explain
 from peerhub.cli.guide import register_guide_parser, render_guide, run_guide
 from peerhub.cli.monitor import register_monitor_parser, run_monitor_command
-from peerhub.cli.recovery import register_explain_parser, run_explain
 from peerhub.cli.store_select import DEFAULT_DB_PATH, report_missing_store, select_store
 from peerhub.cli.suggest import register_suggest_parser, run_suggest
 from peerhub.cli.support import error_line

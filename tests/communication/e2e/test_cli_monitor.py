@@ -11,7 +11,7 @@ import pytest
 from peerhub.cli.app import main
 from peerhub.core.monitor_groups import GROUPS, GROUP_IDS
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
-from peerhub.cli.view import _ANSI
+from peerhub._console import ANSI_ESCAPE
 from tests.communication.e2e.cli_extension_effects import lead_isolated_env
 
 
@@ -62,8 +62,8 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
     ask_args = [*base_ask, "--stream", "review", "--request-id", "q1"]
 
     def monitor(*options, tty=True, vt=True, watch=False):
-        stub = ("import sys; from peerhub.cli.app import main; from peerhub.cli import view; "
-                f"sys.stdout.isatty = lambda: {tty!r}; view.enable_vt = lambda: {vt!r}; "
+        stub = ("import sys; from peerhub.cli.app import main; from peerhub import _console; "
+                f"sys.stdout.isatty = lambda: {tty!r}; _console.enable_vt = lambda: {vt!r}; "
                 "raise SystemExit(main())")
         mode = ["--cycles", "1", "--no-probe"] if watch else ["--snapshot"]
         return subprocess.run([sys.executable, "-c", stub, "--db", db, "monitor", *mode,
@@ -320,7 +320,7 @@ def test_schema_11_watch_is_explicit_legacy_ndjson(tmp_path, monkeypatch, capsys
 def _assert_monitor_reset_countdown(rendered, *, unicode):
     from peerhub.cli.monitor_format import missing_pool_fact
 
-    lines = _ANSI.sub("", rendered).splitlines()
+    lines = ANSI_ESCAPE.sub("", rendered).splitlines()
     # G.3–4: the POOLS row keeps a reset when the forecast is unavailable.
     header = next(line for line in lines if re.search(r"\bPOOLS \d+\b", line))
     assert "EXH/RESET" in header.split()
@@ -359,7 +359,7 @@ def test_monitor_reset_countdown_tty_plain_parity(tmp_path, monkeypatch, tty):
         def isatty(self):
             return tty
 
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setenv("COLUMNS", "120")
     monkeypatch.setenv("LINES", "24")
@@ -440,7 +440,7 @@ def test_bare_monitor_default_tty_uses_grouped_sections(tmp_path, monkeypatch):
 
     output = TTY()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setattr(monitor, "sleep", lambda seconds: None)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
@@ -688,7 +688,7 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
 
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: vt)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: vt)
     monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setenv("NO_COLOR", "")
     clock = [0.0]
@@ -735,7 +735,7 @@ def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch, prob
 
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: pytest.fail("JSON must not enable VT"))
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: pytest.fail("JSON must not enable VT"))
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
     refreshes = []
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
@@ -802,7 +802,7 @@ def test_grouped_watch_respects_tty_vt_and_no_color(tmp_path, monkeypatch, tty, 
 
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: vt)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: vt)
     monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setenv("NO_COLOR", "")
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
@@ -827,7 +827,7 @@ def test_grouped_tty_shows_refreshing_before_provider_call(tmp_path, monkeypatch
 
     output = TTY()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
 
@@ -923,7 +923,7 @@ def test_tty_countdown_redraw_reuses_snapshot_without_database_or_provider_calls
     from peerhub.extensions.monitor_read_model import render_monitor_frame as real_render
     output = TTY()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     import os
     geometry_calls = []
@@ -936,7 +936,7 @@ def test_tty_countdown_redraw_reuses_snapshot_without_database_or_provider_calls
             return next(sizes)
         return real_get_terminal_size(_fd)
 
-    monkeypatch.setattr("peerhub.cli.view.os.get_terminal_size", geometry)
+    monkeypatch.setattr("peerhub._console.os.get_terminal_size", geometry)
     now = [0.0]
     reads = []
     refreshes = []
@@ -1034,6 +1034,7 @@ def test_monitor_skips_elapsed_monotonic_slots_after_slow_probe(tmp_path, monkey
 
 def test_render_exception_restores_cursor(tmp_path, monkeypatch):
     import io
+    from peerhub import _console
     from peerhub.cli import view
 
     class Output(io.StringIO):
@@ -1042,7 +1043,7 @@ def test_render_exception_restores_cursor(tmp_path, monkeypatch):
 
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: {"status": "OK"})
@@ -1527,7 +1528,8 @@ def test_monitor_explicit_compact_matches_default(tmp_path, monkeypatch, capsys,
                          ids=["snapshot", "one-cycle", "live"])
 @pytest.mark.parametrize("expand", [False, True])
 def test_monitor_quota_notes_reach_human_frames_and_leave_json_evidence(monkeypatch, capsys, mode, expand):
-    from peerhub.cli import monitor, monitor_refresh, view
+    from peerhub import _console
+    from peerhub.cli import monitor, monitor_refresh
     from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
 
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: na_payload())
@@ -1538,8 +1540,8 @@ def test_monitor_quota_notes_reach_human_frames_and_leave_json_evidence(monkeypa
             raise KeyboardInterrupt
 
         monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-        monkeypatch.setattr(view, "enable_vt", lambda: False)
-        monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (150, 40)))
+        monkeypatch.setattr(_console, "enable_vt", lambda: False)
+        monkeypatch.setattr(_console.FrameOutput, "geometry", staticmethod(lambda: (150, 40)))
         monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
         monkeypatch.setattr(monitor, "sleep", interrupt)
 
@@ -1755,8 +1757,8 @@ def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_pat
         return text
 
     monkeypatch.setattr("sys.stdout", TTY())
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
-    monkeypatch.setattr("peerhub.cli.view.FrameOutput.geometry", staticmethod(lambda: (100, 30)))
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.FrameOutput.geometry", staticmethod(lambda: (100, 30)))
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", read)
     monkeypatch.setattr(monitor, "refresh_with_profile_pools",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})

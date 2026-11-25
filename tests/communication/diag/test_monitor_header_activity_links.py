@@ -10,7 +10,8 @@ from typing import Any, get_args
 import pytest
 
 from peerhub import __version__
-from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_preferences, monitor_refresh, monitor_view, support, view
+from peerhub import _console
+from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_preferences, monitor_refresh, monitor_view, support
 from peerhub.extensions import monitor_preferences as saved_preferences, monitor_read_model
 from peerhub.extensions.pool_health import PoolState
 from tests.communication.diag.test_monitor_plain_golden import _payload
@@ -46,9 +47,9 @@ def test_title_reserves_guide_at_right_edge(width: int, expand: bool, style: str
     if style == "plain":
         assert linked == base and all("\x1b" not in line for line in linked)
         return
-    assert monitor_layout.ANSI_ESCAPE.sub("", linked[0]) == base[0]
+    assert _console.ANSI_ESCAPE.sub("", linked[0]) == base[0]
     assert OSC_LINK.findall(linked[1]) == [(DOC_URL, monitor_links.GUIDE_TEXT)]
-    assert view.visible_len(linked[1]) == width - 1
+    assert _console.visible_len(linked[1]) == width - 1
     assert ("refresh failed" if live else "PeerHub Monitor") in linked[1]
     assert linked[2:] == base[2:len(linked)]
 
@@ -60,9 +61,9 @@ def test_existing_db_path_has_a_link_with_unchanged_visible_text(monkeypatch: py
                                                             style: str) -> None:
     db = Path(__file__).resolve()
     payload = {"groups": {}, "store_selection": {"path": str(db), "source": "env"}}
-    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (80, 50)))
-    monkeypatch.setattr(view.FrameOutput, "width", staticmethod(lambda: 80))
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console.FrameOutput, "geometry", staticmethod(lambda: (80, 50)))
+    monkeypatch.setattr(_console.FrameOutput, "width", staticmethod(lambda: 80))
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
 
     def snapshot(*, tty: bool, disabled: bool = False) -> str:
         monkeypatch.setattr("sys.stdout.isatty", lambda: tty)
@@ -78,9 +79,9 @@ def test_existing_db_path_has_a_link_with_unchanged_visible_text(monkeypatch: py
         assert linked == disabled and "\x1b" not in linked
         return
     assert any(url == db.as_uri() for url, _ in OSC_LINK.findall(linked))
-    linked_path_lines = [monitor_layout.ANSI_ESCAPE.sub("", line) for line in linked.splitlines() if db.as_uri() in line]
+    linked_path_lines = [_console.ANSI_ESCAPE.sub("", line) for line in linked.splitlines() if db.as_uri() in line]
     assert linked_path_lines and all(line in disabled.splitlines() for line in linked_path_lines)
-    assert all(view.visible_len(line) < 80 for line in linked_path_lines)
+    assert all(_console.visible_len(line) < 80 for line in linked_path_lines)
     missing = db.with_name("missing.db")
     payload["store_selection"]["path"] = str(missing)
     assert all(url != missing.as_uri() for url, _ in OSC_LINK.findall(snapshot(tty=True)))
@@ -94,14 +95,14 @@ def test_defaults_show_links_only_the_existing_config_file(monkeypatch: pytest.M
         "status": "OK", "source": "workspace", "reason": None, "selected_groups": [],
     })
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     args = argparse.Namespace(monitor_action="defaults", defaults_action="show", json=False)
     assert monitor_preferences.run_preferences(args) == 0
     linked = capsys.readouterr().out
     assert OSC_LINK.findall(linked) == [(config.as_uri(), "workspace")]
     monkeypatch.setenv("PEERHUB_NO_LINKS", "1")
     assert monitor_preferences.run_preferences(args) == 0
-    assert capsys.readouterr().out == monitor_layout.ANSI_ESCAPE.sub("", linked)
+    assert capsys.readouterr().out == _console.ANSI_ESCAPE.sub("", linked)
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -150,7 +151,7 @@ def test_pool_state_links_preserve_visible_table_cells(monkeypatch: pytest.Monke
     assert base is not None
     target = monitor_links.link_pool_state(base, state)
     assert all(target in line for line in linked_rows)
-    assert [monitor_layout.ANSI_ESCAPE.sub("", line) for line in linked_rows] == disabled_rows
+    assert [_console.ANSI_ESCAPE.sub("", line) for line in linked_rows] == disabled_rows
     assert "\x1b]8" not in disabled and f"Guide: {DOC_URL}" in disabled
 
 
@@ -175,9 +176,9 @@ def test_displayed_profile_links_to_its_config_file(monkeypatch: pytest.MonkeyPa
     assert OSC_LINK.findall(linked).count((config.as_uri(), profile)) == (4 if expand else 2)
     linked_rows = [line for line in linked.splitlines() if f"claude: {monitor_links.osc_link(config.as_uri(), profile)}" in line]
     assert len(linked_rows) == (2 if expand else 1)
-    assert all(monitor_layout.ANSI_ESCAPE.sub("", line) in plain.splitlines() for line in linked_rows)
+    assert all(_console.ANSI_ESCAPE.sub("", line) in plain.splitlines() for line in linked_rows)
     assert next(line for line in plain.splitlines() if line.startswith("suggest:")) == next(
-        monitor_layout.ANSI_ESCAPE.sub("", line) for line in linked.splitlines() if line.startswith("suggest:")
+        _console.ANSI_ESCAPE.sub("", line) for line in linked.splitlines() if line.startswith("suggest:")
     )
 
 
@@ -221,8 +222,8 @@ def test_live_activity_reads_do_not_advance_quota_reads_or_probes(monkeypatch: p
     monkeypatch.setattr(monitor, "sleep", sleep)
     monkeypatch.setattr(monitor, "monotonic", lambda: now)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
-    monkeypatch.setattr(view.FrameOutput, "write", lambda self, frame: frames.append(frame))
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console.FrameOutput, "write", lambda self, frame: frames.append(frame))
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr(monitor_read_model, "render_monitor_frame", read)
     monkeypatch.setattr(monitor_refresh, "read_quota_readings", read_quota)
@@ -248,9 +249,9 @@ def test_live_activity_reads_do_not_advance_quota_reads_or_probes(monkeypatch: p
 def test_guide_trailer_when_snapshot_has_no_guide_link(monkeypatch: pytest.MonkeyPatch,
                                                       capsys: pytest.CaptureFixture[str], expand: bool,
                                                       style: str, tty: bool) -> None:
-    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (120, 50)))
-    monkeypatch.setattr(view.FrameOutput, "width", staticmethod(lambda: 120))
-    monkeypatch.setattr(view, "enable_vt", lambda: False)
+    monkeypatch.setattr(_console.FrameOutput, "geometry", staticmethod(lambda: (120, 50)))
+    monkeypatch.setattr(_console.FrameOutput, "width", staticmethod(lambda: 120))
+    monkeypatch.setattr(_console, "enable_vt", lambda: False)
     monkeypatch.setattr("sys.stdout.isatty", lambda: tty)
     monitor._print_grouped_snapshot(_payload([], []), style, expand)
     screen = capsys.readouterr().out

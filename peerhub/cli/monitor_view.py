@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, cast
 
+from peerhub._console import ANSI_ESCAPE, clean_text, finite_number
 from peerhub.cli.monitor_format import (
     PoolEntry,
     fraction_bar,
@@ -23,20 +24,16 @@ from peerhub.cli.monitor_format import (
     pool_order,
     pool_table,
     quota_layout,
-    scoped_weekly_parents,
-    omitted_plan_windows,
 )
 from peerhub.cli.monitor_layout import (
     PILL_SGR,
     RICH_GLYPHS,
     RICH_SGR,
-    ANSI_ESCAPE,
     FILE_HYPERLINK,
     RULE_MIN_TAIL_WIDTH,
     RULE_PREFIX_WIDTH,
     ascii_text,
     cell_text,
-    clean_text,
     column_painter,
     table_columns,
     compact_age,
@@ -51,7 +48,6 @@ from peerhub.cli.monitor_layout import (
     heading_rule,
     hidden_lines,
     dict_items,
-    finite_number,
     as_dict,
     omitted_rows,
     overflow,
@@ -95,6 +91,7 @@ from peerhub.extensions.observation_model import (
     quota_probe_timed_out,
 )
 from peerhub.extensions.pool_health import PoolHealth
+from peerhub.extensions.quota_windows import omitted_plan_windows, scoped_weekly_parents
 
 
 # The top-to-bottom order below the title (#430). Compact ends with LEADS.

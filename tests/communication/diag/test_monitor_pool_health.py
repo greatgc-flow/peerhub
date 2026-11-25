@@ -9,7 +9,10 @@ import pytest
 
 from peerhub.cli import monitor, monitor_format, monitor_layout, monitor_legend, monitor_links, monitor_view as mv
 from peerhub.cli.monitor_legend import POOL_MARGIN_LEGEND
-from peerhub.cli.view import PLAN_EARLY_TAG, plan_data, render_plan
+from peerhub._console import ANSI_ESCAPE
+from peerhub.cli.view import PLAN_EARLY_TAG, render_plan
+from peerhub.extensions.diag_read_model import plan_data
+from peerhub.extensions.quota_windows import FAMILIES
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
 from peerhub.extensions.adapters.profiles import list_profiles
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE, pace_gaps, pool_health
@@ -34,7 +37,7 @@ def frame(*readings: dict[str, Any], profiles: dict[str, list[str]] | None = Non
 
 def pool_cells(screen: str, pool: str) -> list[list[str]]:
     return [re.split(r" {2,}", line.lstrip().split(pool, 1)[1].strip())
-            for line in monitor_layout.ANSI_ESCAPE.sub("", screen).splitlines()
+            for line in ANSI_ESCAPE.sub("", screen).splitlines()
             if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ |[|`]- )?{pool} {{2,}}", line)]
 
 
@@ -395,7 +398,7 @@ def test_pool_bars_grow_before_family_in_both_modes(view: str) -> None:
     data = frame(parent_reading, reading("cc", child, .65, 0), profiles=profiles)
     even = pool_health(parent_reading, None, NOW)["even_left_pct"]
     assert even is not None
-    family = monitor_format.FAMILIES["C"] + ": " + ",".join(profiles)
+    family = FAMILIES["C"] + ": " + ",".join(profiles)
     lengths: list[int] = []
     for width in (60, 80, 100, 120, 140, 160, 190, 220):
         compact, expanded = (mv.render_grouped_frame(data, view=view, width=width, unicode=False, expand=expand)
@@ -412,7 +415,7 @@ def test_pool_bars_grow_before_family_in_both_modes(view: str) -> None:
                 if width >= 80:  # the compact view already had a bar at 80 and 100 columns
                     assert len(bar) >= monitor_format.BAR_CELLS, (width, cells)
                 if width in (80, 100):
-                    assert family not in cells and any(cell.startswith(monitor_format.FAMILIES["C"]) for cell in cells)
+                    assert family not in cells and any(cell.startswith(FAMILIES["C"]) for cell in cells)
                 if width >= 140:
                     assert family in cells
                 if family in cells:
@@ -445,7 +448,7 @@ def test_full_family_appears_as_soon_as_it_fits_with_middle_bar() -> None:
     pool = "G-7D"
     profiles = {f"ag.{name}": [pool] for name in ("deepthink", "effort", "neon", "standard")}
     data = frame(reading("ag", pool, .26, 12), profiles=profiles)
-    family = monitor_format.FAMILIES["G"] + ": " + ",".join(profiles)
+    family = FAMILIES["G"] + ": " + ",".join(profiles)
     options = {"view": "plain", "unicode": False}
     wide = mv.render_grouped_frame(data, expand=True, width=200, **options)
     header = next(line for line in wide.splitlines() if line.startswith("PEER POOL"))

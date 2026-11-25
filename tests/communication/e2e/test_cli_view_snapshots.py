@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from peerhub.cli.view import advance_report, format_frame, render_view, use_color, visible_len
+from peerhub._console import use_color, visible_len
+from peerhub.cli.view import format_frame, render_view
+from peerhub.extensions.diag_read_model import advance_report
 from peerhub.extensions.diag import DiagnosticReport, Section
 from peerhub.extensions.diag_quota import projection as item_projection
 
@@ -477,11 +479,11 @@ def test_invalid_anchor_hides_pace_and_unicode_freshness_is_not_colour_only():
 
 
 def test_registered_unknown_pools_keep_short_before_long_order():
-    from peerhub.cli.view import _quota_rows
+    from peerhub.extensions.diag_read_model import quota_rows
 
     pools = [{"resource_pool_id": pool, "provider": peer, "kind": "QUOTA"}
              for peer, pool, *_ in reversed(INPUTS)]
-    rows = _quota_rows([], pools, NOW)
+    rows = quota_rows([], pools, NOW)
     assert [(row.peer, row.pool) for row in rows] == sorted((peer, pool) for peer, pool, *_ in INPUTS)
     assert all(row.projection["state"] == "unknown" for row in rows)
 
@@ -494,7 +496,7 @@ def test_registered_unknown_pools_keep_short_before_long_order():
     (["MEASURED", "MEASURED"], "clear", "Threats: No threats"),
 ])
 def test_threat_summary_discloses_coverage_in_plain_rich_and_json(states, summary_state, wording):
-    from peerhub.cli.view import dashboard_data
+    from peerhub.extensions.diag_read_model import dashboard_data
     rep = owner_report()
     items = rep.sections["observations"].data["items"][:2]
     for item, state in zip(items, states):

@@ -28,7 +28,7 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
     if report_missing_store(args.db, json_output=True, selected=is_explicit, source=db_source):
         return 5
 
-    from peerhub.cli.view import dashboard_data
+    from peerhub.extensions.diag_read_model import dashboard_data
     from peerhub.extensions.diag import ReadonlyDiag
 
     store_path = str(args.db)

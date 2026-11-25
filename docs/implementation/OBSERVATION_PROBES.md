@@ -41,4 +41,10 @@ composes human frames in `monitor_view.py`, using `monitor_format.py` for quota
 tables, `monitor_layout.py` for fitting terminal text, and `monitor_links.py` for
 OSC 8 hyperlinks.
 
+The dashboard and `diag --plan` use `peerhub/extensions/diag_read_model.py`
+to project stored snapshots and `peerhub/cli/view.py` to render text. The plan
+and grouped monitor share window and parent rules from
+`peerhub/extensions/quota_windows.py`. Terminal drawing and VT handling live in
+`peerhub/_console.py`.
+
 See the [monitor guide](../monitor.md) for refresh, redraw and quota display behavior.

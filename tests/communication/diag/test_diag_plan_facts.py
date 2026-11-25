@@ -10,8 +10,9 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_format import FAMILIES
-from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
+from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_TAG_LEGEND, render_plan
+from peerhub.extensions.diag_read_model import PLAN_GATE_TAG, plan_data
+from peerhub.extensions.quota_windows import FAMILIES
 from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, ResourceSample, load_snapshot
 from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import ReadonlyDiag
@@ -302,7 +303,7 @@ def test_limited_child_budget_uses_effective_left_and_nearer_reset():
 
 
 def test_plan_formats_pace_exhaustion_and_gaps_from_health():
-    from peerhub.cli.view import PLAN_REST_PACE_PT
+    from peerhub.core.quota_policy import PLAN_REST_PACE_PT
     from tests.communication.diag.test_pool_health import HALF, OVER_BOUNDARY
 
     def item(peer, pool, pace):

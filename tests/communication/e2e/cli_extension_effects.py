@@ -315,12 +315,12 @@ def assert_vt_view_effect(e, db, command):
         for vt in (True, False):
             output = Output()
             args = (["--cycles", "1", "--no-probe"] if command == "monitor" else ["--live", "--cycles", "1"])
-            with patch("sys.stdout", output), patch("peerhub.cli.view.enable_vt", lambda: vt), \
+            with patch("sys.stdout", output), patch("peerhub._console.enable_vt", lambda: vt), \
                     patch.dict("os.environ", {"TERM": "xterm"}):
                 assert e.run(db, command, "--view", style, *args)[0] in (0, 4)
             text = output.getvalue()
             if vt:
-                from peerhub.cli.view import NO_AUTOWRAP
+                from peerhub._console import NO_AUTOWRAP
                 wrap = NO_AUTOWRAP if command == "monitor" else ""  # row-anchored monitor frames clip, never wrap
                 assert "\x1b[?25l" + wrap + "\x1b[H\x1b[2J" in text
                 trailer = "\x1b[0m\x1b[?25h"

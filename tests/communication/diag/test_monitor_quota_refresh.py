@@ -8,6 +8,7 @@ from threading import Event
 
 import pytest
 
+from peerhub._console import ANSI_ESCAPE
 from peerhub.cli import monitor, monitor_layout, monitor_view, support
 from peerhub.cli.app import main
 from peerhub.extensions.diag_quota import format_quota_table
@@ -35,7 +36,7 @@ def test_stale_notice_has_the_same_position_and_wording(age, notice, view, width
     payload = _frame([] if age is None else [_reading(age)])
     for expand in (False, True):
         rendered = monitor_view.render_grouped_frame(payload, view=view, width=width, height=12, expand=expand)
-        rows = monitor_layout.ANSI_ESCAPE.sub("", rendered).splitlines()
+        rows = ANSI_ESCAPE.sub("", rendered).splitlines()
         if notice:
             assert " ".join(rows[2:]).startswith(notice + " -> peerhub observation refresh")
         else:
@@ -177,7 +178,7 @@ class _Terminal(io.StringIO):
 ])
 def test_finite_watch_retains_automatic_collection_cadence(monkeypatch, options, disabled, age, expected):
     monkeypatch.setattr("sys.stdout", _Terminal())
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: False)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: False)
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: _frame([]))
     monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [] if age is None else [
@@ -255,7 +256,7 @@ def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
 
     terminal = _Terminal()
     monkeypatch.setattr("sys.stdout", terminal)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: False)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: False)
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: _frame([]))
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: pytest.fail("refresh in reader"))

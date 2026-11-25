@@ -302,19 +302,19 @@ def test_exact_lesson_id_is_its_own_step_before_keywords(capsys, monkeypatch):
 
 def test_explain_order_is_guidance_then_lesson_id_then_keywords(capsys, monkeypatch):
     """A later profile-id step slots between guidance and lesson id; the id lookup must stay a step of run_explain_cli."""
-    from peerhub.cli import lessons, recovery
+    from peerhub.cli import explain_cmd, lessons
     calls = []
     real_by_id, real_lookup = lessons.lesson_by_id, lessons.lookup_lessons
     monkeypatch.setattr(lessons, "lesson_by_id", lambda q: calls.append("id") or real_by_id(q))
     monkeypatch.setattr(lessons, "lookup_lessons", lambda q: calls.append("keywords") or real_lookup(q))
-    assert recovery.run_explain_cli("ask_uncertain") == 0
+    assert explain_cmd.run_explain_cli("ask_uncertain") == 0
     assert calls == []  # a guidance code never reaches the lessons
     capsys.readouterr()
-    assert recovery.run_explain_cli("monitor-probe-age") == 0
+    assert explain_cmd.run_explain_cli("monitor-probe-age") == 0
     assert calls == ["id"]  # an exact id does not fall through to keyword search
     capsys.readouterr()
     calls.clear()
-    assert recovery.run_explain_cli("probe") == 0
+    assert explain_cmd.run_explain_cli("probe") == 0
     assert calls == ["id", "keywords"]
 
 

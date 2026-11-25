@@ -1,247 +1,39 @@
-"""Pure, width-aware A-G dashboard presentation of committed diagnostic evidence."""
+"""Width-aware diagnostic dashboard and quota-plan rendering."""
 from __future__ import annotations
 
-import hashlib
-import math
 import os
-import re
-import shutil
-import sys
 import textwrap
-import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import datetime, tzinfo
 from typing import TYPE_CHECKING, Any, cast
 
-from peerhub.core.quota_policy import (
-    PLAN_REST_PACE_PT as PLAN_REST_PACE_PT,
-    PLAN_SPEND_PACE_PT as PLAN_SPEND_PACE_PT,
-    QUOTA_TTL_SECONDS,
+from peerhub._console import ellipsize, pad_cell, strip_controls, visible_len
+from peerhub.extensions.diag_read_model import (
+    PLAN_GATE_TAG,
+    PLAN_PACE_LEGEND,
+    Obj,
+    QuotaRow,
+    as_object,
+    object_items,
+    plan_budget,
+    plan_gaps,
+    plan_gate_reason,
+    plan_pools,
+    quota_rows,
+    report_number,
+    section_data,
+    threat_summary,
 )
+
 if TYPE_CHECKING:
-    from peerhub.extensions.diag import DiagnosticReport, Section
-    from peerhub.extensions.pool_health import PaceGaps, PoolHealth
+    from peerhub.extensions.diag import DiagnosticReport
+    from peerhub.extensions.pool_health import PoolHealth
 
 RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
-_ANSI = re.compile(r"\033\[[0-9;]*m|\033\]8;[^\a\033]*(?:\033\\|\a)")  # SGR, and OSC 8 (a hyperlink's open and close)
-Obj = Mapping[str, object]
-
-
-def enable_vt() -> bool:
-    """Enable Windows VT processing; a failed console call means append mode."""
-    if os.name != "nt":
-        return True
-    import ctypes
-    from ctypes import wintypes
-
-    try:
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel.GetStdHandle.argtypes = [wintypes.DWORD]
-        kernel.GetStdHandle.restype = wintypes.HANDLE
-        kernel.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-        kernel.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        handle = kernel.GetStdHandle(-11)
-        mode = wintypes.DWORD()
-        return bool(kernel.GetConsoleMode(handle, ctypes.byref(mode))
-                    and kernel.SetConsoleMode(handle, mode.value | 0x0004))
-    except (AttributeError, OSError):
-        return False
-
-
-def _console_mode() -> int | None:
-    if os.name != "nt":
-        return None
-    import ctypes
-    from ctypes import wintypes
-
-    try:
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel.GetStdHandle.argtypes = [wintypes.DWORD]
-        kernel.GetStdHandle.restype = wintypes.HANDLE
-        kernel.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-        kernel.GetConsoleMode.restype = wintypes.BOOL
-        mode = wintypes.DWORD()
-        return int(mode.value) if kernel.GetConsoleMode(kernel.GetStdHandle(-11), ctypes.byref(mode)) else None
-    except (AttributeError, OSError):
-        return None
-
-
-def _restore_console_mode(mode: int | None) -> None:
-    if mode is None or os.name != "nt":
-        return
-    import ctypes
-    from ctypes import wintypes
-
-    try:
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        kernel.GetStdHandle.argtypes = [wintypes.DWORD]
-        kernel.GetStdHandle.restype = wintypes.HANDLE
-        kernel.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        kernel.SetConsoleMode.restype = wintypes.BOOL
-        kernel.SetConsoleMode(kernel.GetStdHandle(-11), mode)
-    except (AttributeError, OSError):
-        pass
-
-
-NO_AUTOWRAP, AUTOWRAP = "\x1b[?7l", "\x1b[?7h"  # DECAWM off while a row-anchored frame is live
-FULL_REPAINT_FRAMES = 60  # live frames between full repaints; the others rewrite only changed rows
-
-
-class FrameOutput:
-    """Overwrite VT terminals and append elsewhere, with exception-safe cleanup."""
-
-    def __init__(self, interactive: bool = True, *, overwrite: bool = True, anchor_rows: bool = False,
-                 alternate: bool | None = None) -> None:
-        self.original_console_mode = _console_mode() if interactive and os.name == "nt" else None
-        self.vt = (interactive and sys.stdout.isatty()
-                   and os.environ.get("TERM", "").lower() != "dumb" and enable_vt())
-        self.live = self.vt and overwrite
-        self.anchor_rows = anchor_rows
-        # Row-anchored frames (the monitor) own the whole screen: the alternate screen has no command line above the
-        # frame, so a pinned command (VS Code sticky scroll) can never cover the first line (ATTN).
-        self.alt_screen = anchor_rows if alternate is None else alternate
-        self.started = False
-        self.last_frame = ""
-        self.painted_rows: list[str] = []
-        self.frames = 0
-
-    def write(self, frame: str) -> None:
-        if self.live:
-            self.last_frame = frame
-            if not self.started:
-                self.started = True
-                # Row-anchored frames turn auto-wrap off (DECAWM): a row wider than the terminal (ambiguous-width
-                # glyphs drawn double-width on CJK consoles) is clipped at the edge instead of spilling onto the next
-                # row, where a row that did not change would keep the spill until the next full repaint.
-                prefix = (("\x1b[?1049h" if self.alt_screen else "") + "\x1b[?25l"
-                          + (NO_AUTOWRAP if self.anchor_rows else "") + "\x1b[H\x1b[2J")
-            else:
-                prefix = "\x1b[H"
-            if self.anchor_rows:
-                # For height-bounded frames only: a wider rich glyph must not push
-                # later rows down and scroll ATTN away. Unbounded diag frames keep
-                # CRLF below, since terminal row addresses clamp at the bottom.
-                # Only changed rows are rewritten: a full repaint every second (colour
-                # and hyperlinks included) piled up in the VS Code terminal until the
-                # window hung after a day of watching.
-                # A changed row count (resize) or every FULL_REPAINT_FRAMES-th frame repaints in full,
-                # which also repairs anything a resize reflowed.
-                lines = frame.splitlines()
-                self.frames += 1
-                full = (prefix != "\x1b[H" or len(lines) != len(self.painted_rows)
-                        or self.frames % FULL_REPAINT_FRAMES == 0)
-                old = self.painted_rows
-                self.painted_rows = lines
-                body = "".join(f"\x1b[{row};1H{line}\x1b[K"
-                               for row, line in enumerate(lines, 1) if full or old[row - 1] != line)
-                if not full:
-                    if not body:
-                        return
-                    prefix = ""
-                body += "\x1b[J" if full else ""
-            else:
-                body = "\x1b[K\r\n".join(frame.splitlines()) + "\x1b[K\x1b[J"
-            # Buffer one complete frame and erase shorter rows and old tail rows.
-            sys.stdout.write(prefix + body)
-            sys.stdout.flush()
-        else:
-            print(frame, flush=True)
-
-    def close(self) -> None:
-        try:
-            if self.started:
-                wrap = AUTOWRAP if self.anchor_rows else ""
-                if self.alt_screen:
-                    sys.stdout.write("\x1b[?1049l" + wrap + "\x1b[0m\x1b[?25h" + self.last_frame)
-                else:
-                    sys.stdout.write(wrap + "\x1b[0m\x1b[?25h" + ("\r\n" if self.anchor_rows else ""))
-                sys.stdout.flush()
-                self.started = False
-        finally:
-            _restore_console_mode(self.original_console_mode)
-
-    @staticmethod
-    def width() -> int:
-        """Keep the append-mode width policy, including an explicit COLUMNS override."""
-        return shutil.get_terminal_size((100, 24)).columns
-
-    @staticmethod
-    def geometry() -> tuple[int, int]:
-        """Read live TTY dimensions without honoring stale COLUMNS/LINES overrides."""
-        try:
-            if not sys.stdout.isatty():
-                return 100, 24
-        except (AttributeError, OSError):
-            return 100, 24
-        try:
-            size = os.get_terminal_size(sys.stdout.fileno())
-            if size.columns > 0 and size.lines > 0:
-                return size.columns, size.lines
-        except (AttributeError, OSError, ValueError):
-            return 100, 24
-        return 100, 24
-
-
-def _safe_text(value: object) -> str:
-    """Remove terminal controls from data before adding presentation escapes."""
-    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(value))
-
-
-def visible_len(text: str) -> int:
-    return sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
-               for c in _ANSI.sub("", text))
 
 
 def _paint(text: str, code: str, on: bool) -> str:
     return f"{code}{text}{RESET}" if on and code else text
-
-
-def _obj(value: object) -> Obj:
-    return cast(Obj, value) if isinstance(value, Mapping) else {}
-
-
-def _items(value: object) -> list[Obj]:
-    if not isinstance(value, Sequence) or isinstance(value, str):
-        return []
-    seq = cast("Sequence[object]", value)
-    return [cast(Obj, v) for v in seq if isinstance(v, Mapping)]
-
-
-def _num(value: object) -> float | None:
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except OverflowError:
-        return None
-    return number if math.isfinite(number) else None
-
-
-def _section(rep: DiagnosticReport, name: str) -> Obj:
-    sec = rep.sections.get(name)
-    return _obj(sec.data) if sec is not None else {}
-
-
-def _ellipsis(text: str, limit: int, unicode: bool = True) -> str:
-    if visible_len(text) <= limit:
-        return text
-    mark = "…" if unicode else "..."
-    mark = mark[:max(0, limit)]
-    kept = ""
-    for char in text:
-        if visible_len(kept + char + mark) > limit:
-            break
-        kept += char
-    return kept + mark
-
-
-def _pad(text: str, width: int) -> str:
-    return text + " " * max(0, width - visible_len(text))
-
-
-def format_text_cell(text: str, width: int) -> str:
-    """Fit a data label to a fixed number of terminal columns."""
-    return _pad(_ellipsis(_safe_text(text), width, unicode=False), width)
 
 
 def human_duration(seconds: float | None) -> str:
@@ -286,58 +78,29 @@ def _eta(at: float, now: float, tz: tzinfo | None) -> str:
     return dt.strftime("%a %H:%M" if dated else "%H:%M")
 
 
-class _Row:
-    def __init__(self, item: Obj, read_at: float, tz: tzinfo | None = None) -> None:
-        from peerhub.extensions.diag_quota import projection
-
-        self.item = item
-        payload = _obj(item.get("payload"))
-        subject = item.get("subject_ref")
-        self.subject_ref = subject if isinstance(subject, str) else None
-        self.peer = _safe_text(subject or "?")
-        self.ref = _safe_text(item.get("resource_pool_ref") or "?")
-        self.pool = self.ref.rsplit(":", 1)[-1]
-        self.state = _safe_text(item.get("state") or "UNKNOWN")
-        self.age = _num(item.get("age_seconds"))
-        self.ttl = _num(item.get("ttl_seconds"))
-        self.reason = _safe_text(payload.get("reason") or "")
-        rf = _num(payload.get("remaining_fraction"))
-        self.used = 1 - rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
-        start, reset = _num(payload.get("window_started_at")), _num(payload.get("resets_at"))
-        self.span = reset - start if reset is not None and start is not None and reset > start else float("inf")
-        # A declared suffix supplies a display/sort window for a registered
-        # unmeasured pool, never an anchor for projection arithmetic.
-        suffix = re.search(r"(\d+)([HD])$", self.pool.upper())
-        if self.span == float("inf") and suffix and int(suffix[1]) > 0:
-            self.span = float(int(suffix[1]) * (3600 if suffix[2] == "H" else 86400))
-        self.left = None if reset is None else reset - read_at
-        self.projection = projection({**item, "state": self.state, "payload": dict(payload)}, read_at)
-        self.diff = self.projection["pace_pt"]
-        self.now, self.tz = read_at, tz
-
-    def forecast(self, unicode: bool = False, short: bool = False) -> str:
-        state = self.projection["state"]
-        glyph = ({"threat": "▲", "on_pace": "●", "insufficient": "○", "exhausted": "✖",
-                  "unknown": "◌", "stale": "△", "expired": "⊘"} if unicode else
-                 {"threat": "!", "on_pace": "=", "insufficient": ":", "exhausted": "x",
-                  "unknown": "?", "stale": "~", "expired": "/"})[state]
-        if state == "threat":
-            at = self.projection["exhaustion_at"]
-            assert at is not None
-            clock, left = _eta(at, self.now, self.tz), _forecast_duration(max(0, at - self.now))
-            if short:
-                clock = _local(at, self.tz).strftime("%a %H:%M" if _local(at, self.tz).date() != _local(self.now, self.tz).date() else "%H:%M")
-                return f"{glyph} exh {clock} ({left})"
-            return f"{glyph} exhausts {clock} (in {left})"
-        return glyph + " " + {"unknown": "unknown", "stale": "stale", "expired": "expired", "exhausted": "exhausted",
-                              "insufficient": "not enough data", "on_pace": "on pace"}[state]
-
-    @property
-    def ink(self) -> str:
-        return RED if self.projection["state"] in ("threat", "exhausted") else YELLOW if self.projection["state"] in ("stale", "expired", "insufficient") else CYAN if self.projection["state"] == "on_pace" else ""
+def _forecast(row: QuotaRow, now: float, tz: tzinfo | None, unicode: bool, short: bool) -> str:
+    state = row.projection["state"]
+    glyph = ({"threat": "▲", "on_pace": "●", "insufficient": "○", "exhausted": "✖",
+              "unknown": "◌", "stale": "△", "expired": "⊘"} if unicode else
+             {"threat": "!", "on_pace": "=", "insufficient": ":", "exhausted": "x",
+              "unknown": "?", "stale": "~", "expired": "/"})[state]
+    if state == "threat":
+        at = row.projection["exhaustion_at"]
+        assert at is not None
+        clock, left = _eta(at, now, tz), _forecast_duration(max(0, at - now))
+        if short:
+            clock = _local(at, tz).strftime("%a %H:%M" if _local(at, tz).date() != _local(now, tz).date() else "%H:%M")
+            return f"{glyph} exh {clock} ({left})"
+        return f"{glyph} exhausts {clock} (in {left})"
+    return glyph + " " + {"unknown": "unknown", "stale": "stale", "expired": "expired", "exhausted": "exhausted",
+                          "insufficient": "not enough data", "on_pace": "on pace"}[state]
 
 
-def _badge(row: _Row, color: bool, unicode: bool) -> str:
+def _quota_ink(row: QuotaRow) -> str:
+    return RED if row.projection["state"] in ("threat", "exhausted") else YELLOW if row.projection["state"] in ("stale", "expired", "insufficient") else CYAN if row.projection["state"] == "on_pace" else ""
+
+
+def _badge(row: QuotaRow, color: bool, unicode: bool) -> str:
     if row.age is None:
         return "?"
     stale = row.state == "STALE"
@@ -345,467 +108,37 @@ def _badge(row: _Row, color: bool, unicode: bool) -> str:
     return dot + human_duration(row.age)
 
 
-def _quota_rows(items: list[Obj], pools: list[Obj], read_at: float, tz: tzinfo | None = None) -> list[_Row]:
-    # A probe without a pool belongs to F. Collapse shared pool evidence to one row.
-    selected: dict[str, Obj] = {}
-    for item in items:
-        ref = item.get("resource_pool_ref")
-        if item.get("kind") in ("quota", "rate_limit") and ref:
-            key = str(ref)
-            old = selected.get(key)
-            if old is None or str(item.get("observed_at") or "") > str(old.get("observed_at") or ""):
-                selected[key] = item
-    for pool in pools:
-        ref = pool.get("resource_pool_id")
-        if ref and pool.get("kind") in ("QUOTA", "RATE_LIMIT"):
-            selected.setdefault(str(ref), {"subject_ref": pool.get("provider"), "resource_pool_ref": ref, "state": "UNKNOWN", "payload": {}})
-    return sorted((_Row(i, read_at, tz) for i in selected.values()),
-                  key=lambda r: (r.peer, _family(r.pool), r.span, r.ref))
-
-
-def _family(pool: str) -> str:
-    """A pool's family without its window suffix: G-5H and G-7D are both G."""
-    return re.sub(r"-?\d+[HD]$", "", pool.upper())
-
-
-def _quota_table(rows: list[_Row], width: int, color: bool, unicode: bool) -> list[str]:
+def _quota_table(rows: list[QuotaRow], width: int, color: bool, unicode: bool, *,
+                 now: float, tz: tzinfo | None = None) -> list[str]:
     cells = 10 if width >= 100 else 8
     peer_w = max(4, max((visible_len(r.peer) for r in rows), default=4))
     pool_w = max(5, max((visible_len(r.pool) for r in rows), default=5))
     reset_w = max(5, max((visible_len(human_duration(r.left)) for r in rows), default=5))
     fresh_w = max(5, max((visible_len(_badge(r, False, unicode)) for r in rows), default=5))
     def prefix(peer: str, pool: str, usage: str, used: str, pace: str, reset: str) -> str:
-        return (_pad(peer, peer_w) + " " + _pad(pool, pool_w) + " " +
-                f"{usage:<{cells + 2}} {used:>4} {pace:>8} " + _pad(reset, reset_w) + " ")
+        return (pad_cell(peer, peer_w) + " " + pad_cell(pool, pool_w) + " " +
+                f"{usage:<{cells + 2}} {used:>4} {pace:>8} " + pad_cell(reset, reset_w) + " ")
     head_lead = prefix("PEER", "POOL", "USAGE-bar", "USED", "PACE(pt)", "RESET")
     forecast_w = max(0, width - visible_len(head_lead) - fresh_w - 1)
-    head = head_lead + _pad(_ellipsis("FORECAST", forecast_w, unicode), forecast_w) + " FRESH"
+    head = head_lead + pad_cell(ellipsize("FORECAST", forecast_w, unicode), forecast_w) + " FRESH"
     out = [head]
     for row in rows:
         body = bar(row.used, cells, unicode) if row.used is not None else _unknown_bar(cells)
         used = "?" if row.used is None else f"{row.used * 100:.0f}%"
         pace = "?" if row.diff is None else f"{row.diff:+.1f}"
         lead = prefix(row.peer, row.pool, f"[{body}]", used, pace, human_duration(row.left))
-        forecast = _ellipsis(row.forecast(unicode, width < 100), forecast_w, unicode)
+        forecast = ellipsize(_forecast(row, now, tz, unicode, width < 100), forecast_w, unicode)
         fresh = _badge(row, False, unicode)
-        out.append(_paint(lead + _pad(forecast, forecast_w) + " " + fresh, row.ink, color))
+        out.append(_paint(lead + pad_cell(forecast, forecast_w) + " " + fresh, _quota_ink(row), color))
     return out
 
 
-def _threat_summary(rows: list[_Row]) -> dict[str, object]:
-    fresh = sum(r.projection["state"] in ("threat", "on_pace", "insufficient", "exhausted") for r in rows)
-    stale = [r for r in rows if r.state == "STALE"]
-    threats = [r for r in rows if r.projection["state"] == "threat"]
-    exhausted = [r for r in rows if r.projection["state"] == "exhausted"]
-    oldest = max((r.age for r in stale if r.age is not None), default=None)
-    state = "threat" if threats or exhausted else "clear" if fresh else "unknown"
-    reason = None if fresh else "evidence is stale" if stale else "evidence is missing or invalid"
-    return {"state": state, "reason": reason, "fresh_pools": fresh, "stale_pools": len(stale),
-            "unknown_pools": len(rows) - fresh - len(stale), "oldest_stale_seconds": oldest,
-            "threatened_pools": [r.ref for r in threats], "exhausted_pools": [r.ref for r in exhausted]}
-
-
-def _payload_fields(payload: Obj, keys: tuple[str, ...]) -> dict[str, object]:
-    """Allow only scalar values; permitted keys cannot carry nested secrets."""
-    return {k: payload[k] for k in keys if k in payload
-            and (payload[k] is None or isinstance(payload[k], (str, int, float, bool)))}
-
-
-def _scrub_payload(kind: object, payload: object) -> dict[str, object]:
-    if not isinstance(payload, Mapping):
-        return {}
-    p = cast(Mapping[str, object], payload)
-    if kind == "reset_credit":
-        out = _payload_fields(p, ("available_count", "nearest_expires_at", "condition", "reason", "evidence_ref"))
-        raw_credits = p.get("credits")
-        if isinstance(raw_credits, Sequence) and not isinstance(raw_credits, (str, bytes)):
-            creds: list[dict[str, object]] = []
-            for c in _items(cast(Sequence[object], raw_credits)):
-                cred: dict[str, object] = {}
-                id_val = c.get("id_ref")
-                if id_val is not None:
-                    cred["id_hash"] = hashlib.sha256(str(id_val).encode()).hexdigest()[:12]
-                else:
-                    id_hash = c.get("id_hash")
-                    if isinstance(id_hash, str) and re.fullmatch(r"[0-9a-f]{12}", id_hash):
-                        cred["id_hash"] = id_hash
-                cred.update(_payload_fields(c, ("reset_type", "status", "granted_at", "expires_at", "title")))
-                creds.append(cred)
-            out["credits"] = creds
-        return out
-    if kind == "activity":
-        return _payload_fields(p, ("operation_elapsed_seconds", "status", "certainty", "record_id", "reason", "condition"))
-    if kind in ("quota", "rate_limit"):
-        return _payload_fields(p, ("remaining_fraction", "window_started_at", "resets_at", "evidence_ref", "condition", "reason", "consumed_tokens", "num_turns", "error_type", "requests_per_minute", "tokens_per_minute", "window_seconds"))
-    if kind in ("reachability", "cli_version", "runtime_capability", "session", "execution_failure"):
-        return _payload_fields(p, ("condition", "reason", "evidence_ref", "ok", "version", "status", "error_type"))
-    return {}
-
-
-def _serialize_obs_item(item: object, read_at: float) -> dict[str, object]:
-    if not isinstance(item, Mapping):
-        return {}
-    it = cast(Mapping[str, object], item)
-    kind = it.get("kind")
-    obs: dict[str, object] = {
-        k: it[k]
-        for k in (
-            "observation_id",
-            "subject_ref",
-            "kind",
-            "resource_pool_ref",
-            "source",
-            "stored_state",
-            "state",
-            "age_seconds",
-            "ttl_seconds",
-            "basis",
-            "skew_seconds",
-            "capture_seq",
-            "observed_at",
-            "captured_at",
-        )
-        if k in it
-    }
-    obs["payload"] = _scrub_payload(kind, it.get("payload"))
-    if kind in ("quota", "rate_limit"):
-        from peerhub.extensions.diag_quota import projection
-
-        obs["projection"] = projection(obs, read_at)
-    return obs
-
-
-def _serialize_section(name: str, sec: Section, read_at: float) -> dict[str, object]:
-    errors: list[dict[str, object]] = [
-        _payload_fields(e, ("error_type", "observation_id", "capture_seq", "status", "condition"))
-        for e in sec.errors
-    ]
-    # Raw exception messages and log lines can contain provider payloads.
-    for error in errors:
-        error["error"] = "diagnostic section unavailable" if sec.status == "UNAVAILABLE" else "diagnostic section error"
-    raw_data: Obj = sec.data
-    data: dict[str, object] = {}
-    if name == "peers":
-        data["peers"] = [
-            {k: p[k] for k in ("peer_id", "display_name", "adapter_ref", "created_at") if k in p}
-            for p in _items(raw_data.get("peers"))
-        ]
-    elif name == "streams":
-        data["streams"] = [
-            {k: s[k] for k in ("stream_id", "title", "state", "revision", "head_position", "record_count", "members", "offsets") if k in s}
-            for s in _items(raw_data.get("streams"))
-        ]
-    elif name == "resource_pools":
-        data["pools"] = [
-            {k: p[k] for k in ("resource_pool_id", "provider", "kind", "observation_count") if k in p}
-            for p in _items(raw_data.get("pools"))
-        ]
-    elif name == "activity":
-        if "window" in raw_data:
-            data["window"] = raw_data["window"]
-        data["peers"] = [
-            _payload_fields(p, ("peer", "asks", "ok", "uncertain", "failed", "median_seconds", "last_status", "last_seconds", "last_age_seconds"))
-            for p in _items(raw_data.get("peers"))
-        ]
-    elif name == "log":
-        data = {k: raw_data[k] for k in ("size_bytes",) if k in raw_data}
-    elif name == "observations":
-        data["items"] = [_serialize_obs_item(it, read_at) for it in _items(raw_data.get("items"))]
-    return {"name": sec.name, "status": sec.status, "data": data, "errors": errors}
-
-
-def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
-    """Dashboard JSON uses the same evidence coverage and projections as text."""
-    sections_dict = {
-        name: _serialize_section(name, sec, report.read_at)
-        for name, sec in report.sections.items()
-    }
-    data: dict[str, object] = {
-        "schema_version": "1.0",
-        "status": report.status,
-        "read_at": report.read_at,
-        "snapshot": _payload_fields(report.snapshot, ("records_total", "observations_total")),
-        "sections": sections_dict,
-        "error": "diagnostic snapshot failed" if report.error is not None else None,
-    }
-    observations = _obj(sections_dict.get("observations"))
-    items = _obj(observations.get("data")).get("items")
-    rows = _quota_rows(_items(items), _items(_section(report, "resource_pools").get("pools")), report.read_at)
-    data["threats"] = _threat_summary(rows)
-    data["forecast_basis"] = "conditional window-average (cond)"
-    return data
-
-
-PLAN_STALE_TAG = "(stale)"  # one spelling, shown first in the reason of a stale window
-_PLAN_PACE_LEGEND = f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f} | hold | rest PACE>+{PLAN_REST_PACE_PT:.0f}"
-PLAN_LEGEND = _PLAN_PACE_LEGEND + "/exhausts early | blocked 0%/unknown | - n/a | TARGET=left%/h"
 PLAN_FAST_TAG = "fast"
-PLAN_GATE_TAG = "gate"
 PLAN_TAG_LEGEND = f"{PLAN_FAST_TAG}/{PLAN_GATE_TAG} tags"
 PLAN_BUDGET_COLUMN = "BUDGET%/h"
 _PLAN_COLUMNS = ("PEER", "POOL", "LEFT", "PACE(pp)", "EXH/RESET", PLAN_BUDGET_COLUMN, "ACTION", "REASON")
-_PLAN_TEXT_LEGEND = f"{_PLAN_PACE_LEGEND}/early | blocked 0%/? | - n/a | {PLAN_BUDGET_COLUMN} | {PLAN_TAG_LEGEND}"
+_PLAN_TEXT_LEGEND = f"{PLAN_PACE_LEGEND}/early | blocked 0%/? | - n/a | {PLAN_BUDGET_COLUMN} | {PLAN_TAG_LEGEND}"
 PLAN_EARLY_TAG = "!early"
-_PLAN_ZERO_REASONS = {"out": "out", "aged": "stale zero; refresh", "reset": "window reset; refresh"}
-_PLAN_RANK = {"spend": 0, "hold": 1, "rest": 2, "blocked": 3}
-_PlanWindow = tuple[_Row, float | None, str, str]
-_PlanPool = tuple[str | None, dict[str, object], "PoolHealth"]
-
-
-def _plan_gate_reason(pool: object, reason: object) -> str:
-    return f"{PLAN_GATE_TAG}: {_safe_text(pool)} {_safe_text(reason)}"
-
-
-def _plan_budget(left: float | None, reset: float | None) -> float | None:
-    hours = reset / 3600 if reset is not None and reset > 0 else None
-    return left / hours if left is not None and hours else None
-
-
-def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) -> tuple[str, str]:
-    """#339: one window's action from stored evidence and the existing PACE/forecast; never re-derived."""
-    stale = PLAN_STALE_TAG + " " if forecast == "stale" else ""  # leads the reason: a narrow terminal cuts the end
-    if left_pct is None:
-        return "blocked", "left unknown; refresh"
-    if left_pct <= 0 or forecast == "exhausted":
-        return "blocked", _PLAN_ZERO_REASONS["out"]
-    if forecast == "expired":
-        return "blocked", _PLAN_ZERO_REASONS["reset"]
-    if forecast == "threat":
-        return "rest", stale + "forecast exhausts before reset"
-    if pace_pt is None:
-        return "hold", stale + "PACE unknown"
-    from peerhub.extensions.pool_health import pace_band
-
-    band = pace_band(pace_pt)
-    if band == "rest":
-        return "rest", stale + f"PACE {pace_pt:+.1f} > {PLAN_REST_PACE_PT:+.0f}"
-    if band == "spend":
-        return "spend", stale + f"{-pace_pt:.0f}pp above even share"
-    return "hold", stale + "on pace"
-
-
-def _plan_scope(row: _Row) -> tuple[str | None, str]:
-    return row.subject_ref, row.ref.rpartition(":")[0]
-
-
-def _plan_family(row: _Row) -> tuple[str | None, str, str]:
-    return (*_plan_scope(row), _family(row.pool))
-
-
-def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]],
-                     consumers: Mapping[str, list[str]]) -> dict[str, _Row]:
-    from peerhub.cli.monitor_format import FAMILIES, pool_family, parse_window, scoped_weekly_parents, WEEK_SECONDS
-
-    families: dict[tuple[str | None, str, str], list[_PlanWindow]] = {}
-    descriptors: list[dict[str, Any]] = []
-    rows_by_ref: dict[str, _Row] = {}
-    for entry in own:
-        r = entry[0]
-        families.setdefault(_plan_family(r), []).append(entry)
-        rows_by_ref[r.ref] = r
-        descriptors.append({"peer": r.peer, "pool": r.pool, "pool_ref": r.ref,
-                            "profiles": tuple(consumers[r.ref]),
-                            "retired": bool(r.item.get("display_retired"))})
-
-    scoped_parents = scoped_weekly_parents(descriptors)
-    parents: dict[str, _Row] = {}
-    for (r, _, _, _), row, descriptor in zip(own, out, descriptors):
-        siblings = families[_plan_family(r)]
-        family = pool_family(r.pool)
-        window = parse_window(r.pool)[0]
-        scoped = scoped_parents.get(id(descriptor))
-        parent = None
-        if scoped is not None:
-            parents[r.ref] = rows_by_ref[scoped["pool_ref"]]
-            parent = scoped["pool"]
-        elif window < WEEK_SECONDS and family != "?":
-            parent = next((s.pool for s, _, action, _ in siblings
-                           if action != "n/a" and parse_window(s.pool)[0] == WEEK_SECONDS), None)
-        row.update(age_seconds=r.age, ttl_seconds=r.ttl if r.ttl is not None else QUOTA_TTL_SECONDS,
-                   family=FAMILIES.get(family, "?"), parent=parent)
-    return parents
-
-
-def _plan_observations(report: DiagnosticReport) -> list[Obj]:
-    from peerhub.cli.monitor_format import omitted_plan_windows
-    from peerhub.extensions.observation_model import account_text
-
-    items = _items(_section(report, "observations").get("items"))
-    plans: dict[str, str] = {}
-    quota: list[dict[str, Any]] = []
-    for item in items:
-        payload = _obj(item.get("payload"))
-        if item.get("kind") == "quota":
-            quota.append({**item, "peer_id": item.get("subject_ref"), "pool_ref": item.get("resource_pool_ref"),
-                          "reason": payload.get("reason")})
-        elif (item.get("kind") == "account" and item.get("state") == "MEASURED" and not item.get("plan_changed")
-              and payload.get("plan_status") == "reported" and (plan := account_text(payload.get("plan")))):
-            plans[str(item.get("subject_ref"))] = plan
-    omitted = omitted_plan_windows(quota, plans)
-    return [{**item, **retired, "payload": {"reason": retired["reason"]}}
-            if (retired := omitted.get((str(item["peer_id"]), str(item["pool_ref"])))) is not None else item
-            for item in quota]
-
-
-def _plan_gate_windows(own: list[_PlanWindow], consumers: Mapping[str, list[str]],
-                       exhausted: Mapping[str, _PlanWindow],
-                       profiles_by_pool: Mapping[str, list[str]] | None) -> dict[str, list[_PlanWindow]]:
-    accounts: dict[str, list[_PlanWindow]] = {}
-    for entry in own:
-        row = entry[0]
-        gate = exhausted.get(row.ref, entry)
-        if gate[2] != "n/a" and gate[0].subject_ref is not None:
-            accounts.setdefault(_plan_scope(row)[1], []).append(gate)
-    gates: dict[str, list[_PlanWindow]] = {}
-    for r, _, action, _ in own:
-        if action == "n/a":
-            continue
-        reporter, account = _plan_scope(r)
-        profiles = set(consumers[r.ref])
-        gates[r.ref] = [
-            entry for entry in accounts.get(account, []) if (other := entry[0]) is not r
-            and (other.subject_ref == reporter or other.ref in exhausted)
-            and (_family(r.pool) == _family(other.pool) if profiles_by_pool is None
-                 else profiles.intersection(profiles_by_pool.get(other.pool, [])))
-        ]
-    return gates
-
-
-def _plan_advice(window: _PlanWindow, parent: _Row | None, facts: PoolHealth, own_health: PoolHealth,
-                 windows: list[_PlanWindow], exhausted: Mapping[str, _PlanWindow], *,
-                 use_family: bool) -> dict[str, object]:
-    from peerhub.cli.monitor_format import parse_window, WEEK_SECONDS
-
-    r, left, own_action, own_reason = window
-    if own_action == "n/a":
-        return {"action": own_action, "reason": own_reason, "binding": None, "gates": []}
-
-    # When the parent only changes the state, the effective pace is still the child's.
-    # The parent's own reading votes through the gate list in that case.
-    effective_parent_ref = facts["limited_by"] if facts["left_pct"] != left else None
-    applicable = [entry for entry in windows if entry[0].ref in exhausted
-                  or (entry[0].ref != effective_parent_ref and entry[2] != "blocked")]
-    gate = max(applicable, key=lambda entry: (_PLAN_RANK[entry[2]], entry[0].span), default=None)
-    parent_vote = None
-    if parent is not None and effective_parent_ref and parent.ref not in exhausted:
-        forecast = facts["forecast"]
-        if forecast == "threat" and not facts["exhaust_before_reset"]:
-            forecast = "on_pace"
-        parent_vote = (parent, facts["left_pct"], *plan_action(facts["left_pct"], facts["pace_pt"], forecast))
-
-    # Equal actions prefer the effective parent, then the pool's own evidence.
-    # In particular, another exhausted gate cannot replace a zero's refresh reason.
-    decided = max((vote for vote in (parent_vote, window, gate) if vote is not None),
-                  key=lambda vote: _PLAN_RANK[vote[2]])
-    source, _, action, why = decided
-    if source is r:
-        reason = why.removeprefix(f"{PLAN_STALE_TAG} ")
-    elif decided is parent_vote or (use_family and action != "blocked"):
-        reason = f"{source.pool}: {why}"
-    else:
-        reason = _plan_gate_reason(source.pool, why)
-    if left != 0 and own_health["state"] != "reset" and own_health["stale"] and r.used is not None:
-        reason = f"{PLAN_STALE_TAG} {reason}"
-
-    shown = [entry for entry in applicable if not use_family or entry[0].ref in exhausted]
-    if parse_window(r.pool)[0] == WEEK_SECONDS:
-        # Reset and unknown windows remain weekly evidence. Their block applies only to their own row.
-        shown.extend(entry for entry in windows if entry not in shown
-                     and _plan_family(r) == _plan_family(entry[0]) and entry[2] in {"rest", "blocked"})
-    if parent_vote is not None:
-        shown.append(parent_vote)
-    if decided is gate and decided not in shown:
-        shown.append(decided)
-    return {"action": action, "reason": reason, "binding": source.pool,
-            "gates": [{"pool": other.pool, "action": action, "reason": "reset" if why == _PLAN_ZERO_REASONS["reset"] else why}
-                      for other, _, action, why in shown]}
-
-
-def _plan_pools(report: DiagnosticReport, *,
-                profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[_PlanPool]:
-    from peerhub.extensions.observation_model import DISABLED_REASON
-    from peerhub.extensions.pool_health import pool_health
-
-    items = _plan_observations(report)
-    pools = [p for p in _items(_section(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
-    rows = _quota_rows(items, pools, report.read_at)
-    healths = {r.ref: pool_health(r.item, None, report.read_at) for r in rows}
-    consumers = {r.ref: [profile for profile in (profiles_by_pool or {}).get(r.pool, [])
-                         if profile.partition(".")[0] == r.subject_ref] for r in rows}
-    use_family = profiles_by_pool is None  # library callers without profile metadata
-    own: list[_PlanWindow] = []
-    for r in rows:
-        facts = healths[r.ref]
-        left, state = facts["left_pct"], facts["state"]
-        if state == "n/a":
-            # The monitor's n/a: the plan omits the window or the provider disabled it; not a budget, never a gate.
-            own.append((r, None, "n/a", "n/a (disabled by provider)" if r.reason.startswith(DISABLED_REASON) else "n/a (plan omits)"))
-        elif state == "reset" or left == 0:
-            own.append((r, left, "blocked", _PLAN_ZERO_REASONS[state]))
-        else:
-            own.append((r, left, *plan_action(left, facts["pace_pt"], facts["forecast"])))
-    out: list[dict[str, object]] = []
-    for r, left, _, _ in own:
-        facts = healths[r.ref]
-        reset = None if facts["state"] == "n/a" else facts["reset_in_seconds"]
-        out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": left,
-                    "resets_in_seconds": reset, "target_pct_per_hour": _plan_budget(left, reset),
-                    "pace_pt": facts["pace_pt"], "forecast": facts["forecast"]})
-    # Display chooses one reading per pool. A fresh zero from any reporter can still gate that account.
-    exhausted = {entry[0].ref: entry for entry in own if healths[entry[0].ref]["state"] == "out"}
-    for item in items:
-        ref = _safe_text(item.get("resource_pool_ref") or "")
-        if ref and ref not in exhausted and _obj(item.get("payload")).get("remaining_fraction") == 0:
-            facts = pool_health(item, None, report.read_at)
-            if facts["state"] == "out":
-                exhausted[ref] = (_Row(item, report.read_at), facts["left_pct"], "blocked", _PLAN_ZERO_REASONS["out"])
-    parents = _plan_pool_facts(own, out, consumers)
-    gates = _plan_gate_windows(own, consumers, exhausted, profiles_by_pool)
-    result: list[_PlanPool] = []
-    for window, row in zip(own, out):
-        r = window[0]
-        own_health = healths[r.ref]
-        parent = parents.get(r.ref)
-        facts = own_health if parent is None else pool_health(r.item, parent.item, report.read_at)
-        row.update(_plan_advice(window, parent, facts, own_health, gates.get(r.ref, []), exhausted,
-                                use_family=use_family))
-        row.update(
-            fast=own_health["state"] == "fast",
-            even_left_pct=facts["even_left_pct"], exhaust_in_seconds=facts["exhaust_in_seconds"],
-            exhaust_margin_seconds=facts["exhaust_margin_seconds"],
-            exhaust_before_reset=facts["exhaust_before_reset"], stale=facts["stale"],
-            limited_by=facts["limited_by"], own_left_pct=facts["own_left_pct"],
-            health={"state": facts["state"], "pace_band": facts["pace_band"], "reserve": facts["reserve"],
-                    "effective_pace_pt": facts["pace_pt"], "effective_reset_in_seconds": facts["reset_in_seconds"]},
-        )
-        if profiles_by_pool is not None:
-            row["profiles"] = consumers[r.ref]
-        result.append((r.subject_ref, row, facts))
-    return result
-
-
-def _plan_gaps(pools: list[_PlanPool]) -> PaceGaps:
-    from peerhub.extensions.pool_health import pace_gaps
-
-    by_name: dict[str, PoolHealth | None] = {}
-    for _, row, health in pools:
-        name = str(row["pool"])
-        by_name[name] = None if name in by_name else health  # duplicate account names are ambiguous
-    return pace_gaps({name: health for name, health in by_name.items() if health is not None})
-
-
-def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
-              load: Mapping[str, object] | None = None,
-              profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset()) -> dict[str, object]:
-    """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
-    pools = [pool for pool in _plan_pools(report, profiles_by_pool=profiles_by_pool)
-             if not peers or pool[0] in peers]
-    data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
-                               "store_selection": dict(store_selection), "legend": PLAN_LEGEND,
-                               "pools": [row for _, row, _ in pools], "gaps": _plan_gaps(pools)}
-    if load is not None:
-        data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
-    return data
 
 
 def _plan_cells(row: Obj, health: PoolHealth, *, unicode: bool) -> list[str]:
@@ -814,9 +147,9 @@ def _plan_cells(row: Obj, health: PoolHealth, *, unicode: bool) -> list[str]:
     peer_pool = [str(row["peer"]), str(row["pool"])]
     if row["action"] == "n/a":
         return [*peer_pool, "-", "-", "-", "-", "-"]
-    left = format_pool_left(health, _num(row["age_seconds"]), unicode=unicode)
+    left = format_pool_left(health, report_number(row["age_seconds"]), unicode=unicode)
     pace = format_pool_pace(health["pace_pt"], unicode=unicode)
-    budget = _plan_budget(health["left_pct"], health["reset_in_seconds"])
+    budget = plan_budget(health["left_pct"], health["reset_in_seconds"])
     return [*peer_pool, left,
             pace + ("!" if health["pace_band"] == "rest" else ""), format_exhaust_reset(health, unicode=unicode),
             "?" if budget is None else f"{budget:.2f}", str(row["action"])]
@@ -831,27 +164,27 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
 
     width = max(1, width)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M%z")
-    lines = _wrap(f"PeerHub plan {_safe_text(report.status)} {when} {_safe_text(store_path)} ({_safe_text(store_source)})", width)
-    lines += _wrap(_safe_text(store_note), width) if store_note else []
-    all_pools = _plan_pools(report, profiles_by_pool=profiles_by_pool)
+    lines = _wrap(f"PeerHub plan {strip_controls(report.status)} {when} {strip_controls(store_path)} ({strip_controls(store_source)})", width)
+    lines += _wrap(strip_controls(store_note), width) if store_note else []
+    all_pools = plan_pools(report, profiles_by_pool=profiles_by_pool)
     pools = [pool for pool in all_pools if not peers or pool[0] in peers]
     cells = [_plan_cells(row, health, unicode=unicode) for _, row, health in pools]
     head = _PLAN_COLUMNS[:-1]
     widths = [max(visible_len(row[i]) for row in [head, *cells]) for i in range(len(head))]
     def lead(row: Sequence[str]) -> str:
-        return " ".join(_pad(c, w) if i < 2 or i == 6 else " " * (w - visible_len(c)) + c
+        return " ".join(pad_cell(c, w) if i < 2 or i == 6 else " " * (w - visible_len(c)) + c
                         for i, (c, w) in enumerate(zip(row, widths))) + " "
-    lines.append(_ellipsis(lead(head) + _PLAN_COLUMNS[-1], width, False))
+    lines.append(ellipsize(lead(head) + _PLAN_COLUMNS[-1], width, False))
     for row, (_, p, health) in zip(cells, pools):
-        reason = lead(row) + _safe_text(p["reason"])
+        reason = lead(row) + strip_controls(p["reason"])
         tags = [PLAN_EARLY_TAG] if health["exhaust_before_reset"] else []
         if health["state"] == "fast":
             tags.append(f"({PLAN_FAST_TAG})")
-        tags.extend(f"({PLAN_GATE_TAG}: {_safe_text(gate['pool'])})" for gate in _items(p["gates"])
+        tags.extend(f"({PLAN_GATE_TAG}: {strip_controls(gate['pool'])})" for gate in object_items(p["gates"])
                     if gate["action"] in {"rest", "blocked"}
-                    and not str(p["reason"]).endswith(_plan_gate_reason(gate["pool"], gate["reason"]))
+                    and not str(p["reason"]).endswith(plan_gate_reason(gate["pool"], gate["reason"]))
                     and not (p["limited_by"] and gate["pool"] == p["binding"] == p["parent"]))
-        lines.extend(_wrap(" ".join([reason, *tags]), width) if tags else [_ellipsis(reason, width, False)])
+        lines.extend(_wrap(" ".join([reason, *tags]), width) if tags else [ellipsize(reason, width, False)])
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
     lines.extend(_wrap(_PLAN_TEXT_LEGEND, width))
@@ -859,8 +192,8 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
     profile_groups = [f"{p['pool']} {','.join(cast(list[str], p['profiles']))}"
                       for p in applicable_pools if p.get("profiles")]
     if profile_groups:
-        lines.extend(_wrap(_safe_text("profiles: " + " | ".join(profile_groups)), width))
-    gaps = _plan_gaps(pools)["pools"]
+        lines.extend(_wrap(strip_controls("profiles: " + " | ".join(profile_groups)), width))
+    gaps = plan_gaps(pools)["pools"]
     values = ", ".join(f"{name} {format_pool_pace(pace, unicode=unicode)}" for name, pace in gaps.items())
     lines.extend(_wrap(f"gap: vs {PACE_GAP_BASELINE} (pp): {values}", width))
     if load is not None:
@@ -870,12 +203,12 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
         else:
             # Use the full plan's applicability for this store, independent of the peer filter.
             pool_names = {str(p["pool"]) for _, p, _ in all_pools if p["action"] != "n/a"}
-            in_flight = _obj(load.get("by_pool"))
+            in_flight = as_object(load.get("by_pool"))
             shown = {pool: count for pool, count in in_flight.items() if pool in pool_names}
             load_line = format_load({**load, "by_pool": shown})
             hidden = sorted(in_flight.keys() - pool_names)
             if hidden:
-                names = ", ".join(_safe_text(pool) for pool in hidden[:PLAN_NA_POOLS_LIMIT])
+                names = ", ".join(strip_controls(pool) for pool in hidden[:PLAN_NA_POOLS_LIMIT])
                 overflow = len(hidden) - PLAN_NA_POOLS_LIMIT
                 suffix = f" +{overflow}" if overflow > 0 else ""
                 load_line += f" | {PLAN_NA_POOLS_LABEL} {names}{suffix}"
@@ -906,10 +239,10 @@ def _credit_lines(items: list[Obj], read_at: float, color: bool, unicode: bool, 
     for item in items:
         if item.get("kind") != "reset_credit":
             continue
-        p, state = _obj(item.get("payload")), str(item.get("state") or "UNKNOWN")
-        peer = _safe_text(item.get("subject_ref") or "?")
+        p, state = as_object(item.get("payload")), str(item.get("state") or "UNKNOWN")
+        peer = strip_controls(item.get("subject_ref") or "?")
         count = p.get("available_count") if state in ("MEASURED", "STALE") else None
-        exp = _num(p.get("nearest_expires_at")) if count is not None else None
+        exp = report_number(p.get("nearest_expires_at")) if count is not None else None
         expiry = (_local(exp, tz).strftime("%a %m-%d %H:%M" if _local(exp, tz).date() != _local(read_at, tz).date() else "%H:%M")
                   if exp is not None else "unknown")
         line = f"Credits {peer}:{count if count is not None else '?'} available"
@@ -918,7 +251,7 @@ def _credit_lines(items: list[Obj], read_at: float, color: bool, unicode: bool, 
         if state != "MEASURED":
             word = "stale" if state == "STALE" else "unknown"
             glyph = ("△" if word == "stale" else "◌") if unicode else ("~" if word == "stale" else "?")
-            line += f"; {glyph} {word} {_badge(_Row(item, read_at), False, unicode)}"
+            line += f"; {glyph} {word} {_badge(QuotaRow(item, read_at), False, unicode)}"
         out.append(line)
         if exp is not None and 0 <= exp - read_at < 72 * 3600 and isinstance(count, int) and count > 0:
             alerts.append(f"{peer} {expiry} in {human_duration(exp - read_at)}")
@@ -930,24 +263,24 @@ def _activity_lines(items: list[Obj], limit: int, color: bool) -> list[str]:
     for item in items:
         if item.get("kind") != "activity":
             continue
-        peer = _safe_text(item.get("subject_ref") or "?")
+        peer = strip_controls(item.get("subject_ref") or "?")
         old = latest.get(peer)
-        if old is None or (_num(item.get("capture_seq")) or 0, str(item.get("observed_at") or "")) >= (_num(old.get("capture_seq")) or 0, str(old.get("observed_at") or "")):
+        if old is None or (report_number(item.get("capture_seq")) or 0, str(item.get("observed_at") or "")) >= (report_number(old.get("capture_seq")) or 0, str(old.get("observed_at") or "")):
             latest[peer] = item
-    return [f"Asks {peer} {_safe_text(_obj(item.get('payload')).get('status') or 'unknown')} "
-            f"{human_duration(_num(item.get('age_seconds')))} ago, took "
-            f"{human_duration(_num(_obj(item.get('payload')).get('operation_elapsed_seconds')))}"
+    return [f"Asks {peer} {strip_controls(as_object(item.get('payload')).get('status') or 'unknown')} "
+            f"{human_duration(report_number(item.get('age_seconds')))} ago, took "
+            f"{human_duration(report_number(as_object(item.get('payload')).get('operation_elapsed_seconds')))}"
             for peer, item in sorted(latest.items())]
 
 
 def _ask_lines(report: DiagnosticReport, items: list[Obj]) -> list[str]:
-    sec = _section(report, "activity")
+    sec = section_data(report, "activity")
     out: list[str] = []
-    for p in _items(sec.get("peers")):
-        if not (_num(p.get("asks")) or _num(p.get("running")) or p.get("last_status")):
+    for p in object_items(sec.get("peers")):
+        if not (report_number(p.get("asks")) or report_number(p.get("running")) or p.get("last_status")):
             continue
-        out.append(f"Asks {_safe_text(p.get('peer'))} {_safe_text(p.get('last_status') or 'unknown')} "
-                   f"{human_duration(_num(p.get('last_age_seconds')))} ago, took {human_duration(_num(p.get('last_seconds')))}")
+        out.append(f"Asks {strip_controls(p.get('peer'))} {strip_controls(p.get('last_status') or 'unknown')} "
+                   f"{human_duration(report_number(p.get('last_age_seconds')))} ago, took {human_duration(report_number(p.get('last_seconds')))}")
     return out if out else _activity_lines(items, 0, False)
 
 
@@ -957,55 +290,26 @@ def _probe_line(items: list[Obj], refresh: Obj | None) -> str:
     for item in items:
         if item.get("kind") not in ("quota", "rate_limit", "probe", "collector"):
             continue
-        peer = _safe_text(item.get("subject_ref") or "?")
-        state, p = item.get("state"), _obj(item.get("payload"))
-        key = (_num(item.get("capture_seq")) or 0,
+        peer = strip_controls(item.get("subject_ref") or "?")
+        state, p = item.get("state"), as_object(item.get("payload"))
+        key = (report_number(item.get("capture_seq")) or 0,
                str(item.get("captured_at") or item.get("observed_at") or ""),
                0 if item.get("resource_pool_ref") else 1)
         # Last committed successful measurement is an OK probe outcome, even
         # after its quota freshness expires. A newer failure takes precedence.
         outcome = "OK" if state in ("MEASURED", "STALE") else "?"
         if not item.get("resource_pool_ref"):
-            reason = _safe_text(p.get("reason") or state or "unknown")
+            reason = strip_controls(p.get("reason") or state or "unknown")
             outcome = "TIMEOUT" if state == "TIMEOUT" else f"ERR({reason})" if state in ("ERROR", "UNAVAILABLE") else outcome
             if not item.get("captured_at") and not item.get("observed_at"):
                 key = (float("inf"), "", 1)
         if peer not in latest or key >= latest[peer]:
             latest[peer], peers[peer] = key, outcome
-    for probe in _items((refresh or {}).get("probes")):
-        peer = _safe_text(probe.get("peer") or probe.get("subject_ref") or "?")
-        status = _safe_text(probe.get("status") or "?")
-        peers[peer] = f"ERR({_safe_text(probe.get('reason') or 'unknown')})" if status == "ERR" else status
+    for probe in object_items((refresh or {}).get("probes")):
+        peer = strip_controls(probe.get("peer") or probe.get("subject_ref") or "?")
+        status = strip_controls(probe.get("status") or "?")
+        peers[peer] = f"ERR({strip_controls(probe.get('reason') or 'unknown')})" if status == "ERR" else status
     return "Probes " + (" ".join(f"{peer}:{status}" for peer, status in sorted(peers.items())) or "outcomes unavailable")
-
-
-def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
-    """The same snapshot as seen `now - read_at` seconds later: clock, evidence ages and last-ask ages move, nothing is re-read."""
-    import copy
-    from dataclasses import replace
-
-    dt = max(0.0, now - report.read_at)
-    sections = dict(report.sections)
-    obs = sections.get("observations")
-    if obs is not None:
-        data = copy.deepcopy(obs.data)
-        for it in cast("list[dict[str, object]]", data.get("items") or []):
-            age = it.get("age_seconds")
-            if isinstance(age, (int, float)) and not isinstance(age, bool):
-                it["age_seconds"] = age + dt
-                ttl = _num(it.get("ttl_seconds"))
-                if it.get("state") == "MEASURED" and ttl is not None and age + dt >= ttl:
-                    it["state"] = "STALE"
-        sections["observations"] = replace(obs, data=data)
-    act = sections.get("activity")
-    if act is not None:
-        data = copy.deepcopy(act.data)
-        for p in cast("list[dict[str, object]]", data.get("peers") or []):
-            age = p.get("last_age_seconds")
-            if isinstance(age, (int, float)) and not isinstance(age, bool):
-                p["last_age_seconds"] = age + dt
-        sections["activity"] = replace(act, data=data)
-    return replace(report, read_at=report.read_at + dt, sections=sections)
 
 
 def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = False, unicode: bool = True,
@@ -1020,23 +324,23 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     """
     width = max(1, width)
     color = color and "NO_COLOR" not in os.environ
-    items = _items(_section(report, "observations").get("items"))
-    rows = _quota_rows(items, _items(_section(report, "resource_pools").get("pools")), report.read_at, tz)
+    items = object_items(section_data(report, "observations").get("items"))
+    rows = quota_rows(items, object_items(section_data(report, "resource_pools").get("pools")), report.read_at)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M:%S%z" if width >= 100 else "%Y-%m-%d %H:%M%z")
-    tail = f" ({_safe_text(store_source)})" if store_source else ""
+    tail = f" ({strip_controls(store_source)})" if store_source else ""
     if cycle is not None:
         tail += f" c{cycle}"
         if next_refresh_in is not None and next_refresh_in >= 0:
             tail += f" next: {human_duration(next_refresh_in)}"
     # #338: the full resolved store path; a narrow terminal wraps it instead of truncating it.
-    header = f"PeerHub {_safe_text(report.status)} {when} " + _safe_text(store_path or db_name or "workspace") + tail
+    header = f"PeerHub {strip_controls(report.status)} {when} " + strip_controls(store_path or db_name or "workspace") + tail
     threats = [r for r in rows if r.projection["state"] == "threat"]
     first = min(threats, key=lambda r: r.projection["exhaustion_at"] or float("inf")) if threats else None
     earliest_at = cast(float, first.projection["exhaustion_at"]) if first is not None else None
     exhausted = ", ".join(f"{r.peer}/{r.pool}" for r in rows if r.projection["state"] == "exhausted")
     credit_alerts: list[str] = []
     credits = _credit_lines(items, report.read_at, False, unicode, credit_alerts, tz)
-    summary = _threat_summary(rows)
+    summary = threat_summary(rows)
     if summary["state"] == "unknown":
         oldest = summary["oldest_stale_seconds"]
         age = f" (oldest {human_duration(cast(float, oldest))})" if oldest is not None else ""
@@ -1066,24 +370,24 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
 
         if notice := quota_stale_line(oldest_measured_quota_age(items)):
             lines.extend(_wrap(notice, width))
-    lines += [_paint(line, YELLOW, color) for line in _wrap(_safe_text(store_note), width)] if store_note else []
+    lines += [_paint(line, YELLOW, color) for line in _wrap(strip_controls(store_note), width)] if store_note else []
     lines += [_paint(line, RED if threats or exhausted else YELLOW if credit_alerts else '', color) for line in _wrap(alert, width)]
     # Wrap before adding colour so no escape sequence can be split.
-    table = _quota_table(rows, width, False, unicode)
+    table = _quota_table(rows, width, False, unicode, now=report.read_at, tz=tz)
     lines.append(table[0])
     for row, line in zip(rows, table[1:]):
-        lines.append(_paint(line, row.ink, color))
+        lines.append(_paint(line, _quota_ink(row), color))
     for line in [*credits, *_ask_lines(report, items)]:
         lines.extend(_wrap(line, width))
     probe = _probe_line(items, refresh)
     if report.error:
-        probe += f"; diagnostic ERR({_safe_text(report.error)})"
+        probe += f"; diagnostic ERR({strip_controls(report.error)})"
     lines.extend(_paint(line, RED if "ERR(" in probe or "TIMEOUT" in probe else "", color)
                  for line in _wrap(probe, width))
     legend = "PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit"
     if len(legend) > width:
         legend = "PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit"
-    lines.append(_ellipsis(legend, width, unicode))
+    lines.append(ellipsize(legend, width, unicode))
     return "\n".join(lines)
 
 
@@ -1096,8 +400,3 @@ def format_frame(report: DiagnosticReport, view: str, *, color: bool = False, un
                        unicode=unicode if view == "rich" else False, db_name=db_name, cycle=cycle, refresh=refresh,
                        next_refresh_in=next_refresh_in, interval=interval, refresh_every=refresh_every,
                        store_path=store_path, store_source=store_source, store_note=store_note, show_quota_age=show_quota_age)
-
-
-def use_color(stream_is_tty: bool, env: Mapping[str, str]) -> bool:
-    """Colour requires a terminal; presence of NO_COLOR always wins."""
-    return stream_is_tty and "NO_COLOR" not in env

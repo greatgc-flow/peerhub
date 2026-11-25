@@ -11,13 +11,13 @@ from peerhub.cli.monitor_format import (
     BAR_CELLS,
     BAR_MAX_CELLS,
     BAR_MIDDLE_CELLS,
-    FAMILIES,
 )
 from peerhub.cli.monitor_layout import (
     RICH_GLYPHS,
     cell_width,
 )
 from peerhub.cli.monitor_legend import POOL_LEGEND
+from peerhub.extensions.quota_windows import FAMILIES
 from peerhub.cli.monitor_view import (
     _HIDDEN_QUOTA_WINDOWS,
     render_grouped_frame,

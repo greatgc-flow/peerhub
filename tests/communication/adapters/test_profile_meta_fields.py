@@ -276,7 +276,7 @@ def test_profile_json_carries_the_fields(tmp_path, capsys):
 
 
 def test_explain_profile_id_does_not_warn_about_the_alias(tmp_path, monkeypatch, capsys):
-    from peerhub.cli.recovery import run_explain_cli
+    from peerhub.cli.explain_cmd import run_explain_cli
 
     monkeypatch.chdir(tmp_path)
     assert run_explain_cli("cx.deepthink") == 0

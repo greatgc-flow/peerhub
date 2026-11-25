@@ -146,7 +146,9 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     store = {"path": str(Path(args.db).resolve()), "source": getattr(args, "db_source", "unknown")}  # #338: resolved
     store_note = env_override_note(store["path"], store["source"])
     if args.plan:  # #339: read-only, stored observations only (no refresh, no provider call)
-        from peerhub.cli.view import FrameOutput, plan_data, render_plan
+        from peerhub._console import FrameOutput
+        from peerhub.cli.view import render_plan
+        from peerhub.extensions.diag_read_model import plan_data
         from peerhub.extensions.adapters.profiles import list_profiles
         from peerhub.extensions.diag_running import sample_load
 
@@ -172,7 +174,9 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4
     if args.action is None:
         from peerhub.extensions.diag_watch import dashboard_snapshots
-        from peerhub.cli.view import FrameOutput, dashboard_data, format_frame, use_color
+        from peerhub._console import FrameOutput, use_color
+        from peerhub.cli.view import format_frame
+        from peerhub.extensions.diag_read_model import dashboard_data
         code = 0
         output = FrameOutput(interactive=not args.json, overwrite=args.live)
         try:
@@ -211,7 +215,7 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         print(json.dumps(rep, separators=(",", ":"), ensure_ascii=True) if args.json else format_readiness(rep))
         return diag_quota.EXIT_BY_STATUS[rep["status"]]
     if args.action == "running":  # pure reader: no CoreStore, no provider, no refresh
-        from peerhub.cli.view import FrameOutput
+        from peerhub._console import FrameOutput
         from peerhub.extensions.diag_running import format_running, running_report
         if not Path(args.db).is_file():
             report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source)

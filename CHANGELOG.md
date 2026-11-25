@@ -21,6 +21,7 @@ they do not claim new validation or publication evidence.
 - Split bridge exceptions and durable control handling into dedicated modules.
 - Split monitor terminal links, formatting and layout, and bounded SQLite queries into dedicated modules.
 - Move CLI parser registration and handlers into command-family modules.
+- Extract terminal output helpers, diagnostic dashboard and quota-plan read models, and explain command rendering into dedicated modules.
 
 ### Documentation
 
