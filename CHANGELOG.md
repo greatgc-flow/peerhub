@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.16] - 2026-11-25
+
+Includes the unreleased 0.26.15 audit fixes.
+
 ### Added
 
 - `peerhub ask` samples machine load before launch. On high CPU or low free RAM it waits up to 120 seconds while other asks hold active leases. Dry runs report the load without waiting.
@@ -45,10 +49,29 @@ they do not claim new validation or publication evidence.
 - CI failure artifacts and G2 release evidence include the outcomes of the serial monitor latency checks.
 - Package tests retry interrupted builds and installs in fresh directories and share only completed attempts across workers.
 - The monitor activity SQL wall-clock check runs in the serial CI step. VM-step and query-plan checks stay in the parallel suite.
+- CLI adapters kill and reap a spawned child if a worker fails to start, and report the delivery as uncertain.
+- Claude Code and Codex CLI deliveries report uncertainty when the prompt was only partially written, even if the CLI exits successfully.
+- Antigravity argv parsing applies the event-size limit to the JSON object and validates trailing whitespace independently of pipe chunk boundaries.
+- Antigravity commands with wrapper arguments probe their own help output instead of reusing a transport decision for the same interpreter and version.
+- Monitor hides expired quota windows in both layouts and excludes them from the header age. `--show-quota-notes` names the retired windows.
+- Monitor updates exhaustion alerts and PEERS quota summaries when windows expire between reads.
+- Monitor retires stored relative quota resets using the observation timestamp and reports the expiry in quota notes.
+- The live monitor calculates title age from the same retirement-filtered quota evidence as snapshots, scoped to the watched peers.
+- Hidden quota windows can no longer distort pace gaps or flatten the expanded QUOTA tree when they share a visible window's name.
+- Monitor and diagnostics report quota probes that still time out under high CPU load as delayed by load.
+- Filter lease-active asks by peer before applying the `diag running` limit.
+- Validate explicit batch task profiles during dry runs using the ask resolver.
+- Hide unavailable quota windows in both human monitor layouts by default and omit unread pools from the pace gap. Use `--show-quota-notes` to restore the count, names, reasons and gap placeholders.
+- Reject `diag --plan --view rich` and open the lesson index with bare `explain` or `explain list`.
+- Fit profile lists and monitor help to narrower terminals while preserving complete profile guidance.
 
-### Removed
+### Documentation
 
-- Removed internal compatibility import shims. See the [command compatibility reference](docs/commands.md#compatibility) for retained forms.
+- Consolidated the command, monitor, adapter, store and maintainer references, shortened overlapping offline lessons, and moved historical implementation and design records into `docs/history/`.
+- Archived dated lesson observations and M1 skill examples, identified the monitor and prompt-cache decisions as active, and labeled the frozen M1 audit as historical evidence.
+- Correct quota refresh and unavailable-window descriptions, the monitor snapshot example and redraw behavior, and guide help and size measurements.
+- Clarify batch resource throttling, per-task quota refusals, and Argon's shared Gemini pools.
+- Fix the profile smoke recipe and add API peers and links to packaged CLI version observations.
 
 ### Changed (internal)
 
@@ -70,39 +93,9 @@ they do not claim new validation or publication evidence.
 - Extract terminal output helpers, diagnostic dashboard and quota-plan read models, and explain command rendering into dedicated modules.
 - Move dated design plans, audits, debates, and scoring evidence to the design archive.
 
-### Fixed
+### Removed
 
-- CLI adapters kill and reap a spawned child if a worker fails to start, and report the delivery as uncertain.
-- Claude Code and Codex CLI deliveries report uncertainty when the prompt was only partially written, even if the CLI exits successfully.
-- Antigravity argv parsing applies the event-size limit to the JSON object and validates trailing whitespace independently of pipe chunk boundaries.
-- Antigravity commands with wrapper arguments probe their own help output instead of reusing a transport decision for the same interpreter and version.
-- Monitor hides expired quota windows in both layouts and excludes them from the header age. `--show-quota-notes` names the retired windows.
-- Monitor updates exhaustion alerts and PEERS quota summaries when windows expire between reads.
-- Monitor retires stored relative quota resets using the observation timestamp and reports the expiry in quota notes.
-- The live monitor calculates title age from the same retirement-filtered quota evidence as snapshots, scoped to the watched peers.
-- Hidden quota windows can no longer distort pace gaps or flatten the expanded QUOTA tree when they share a visible window's name.
-- Monitor and diagnostics report quota probes that still time out under high CPU load as delayed by load.
-
-### Documentation
-
-- Consolidated the command, monitor, adapter, store and maintainer references, shortened overlapping offline lessons, and moved historical implementation and design records into `docs/history/`.
-- Archived dated lesson observations and M1 skill examples, identified the monitor and prompt-cache decisions as active, and labeled the frozen M1 audit as historical evidence.
-
-## [0.26.15] - 2026-11-25
-
-### Fixed
-
-- Filter lease-active asks by peer before applying the `diag running` limit.
-- Validate explicit batch task profiles during dry runs using the ask resolver.
-- Hide unavailable quota windows in both human monitor layouts by default and omit unread pools from the pace gap. Use `--show-quota-notes` to restore the count, names, reasons and gap placeholders.
-- Reject `diag --plan --view rich` and open the lesson index with bare `explain` or `explain list`.
-- Fit profile lists and monitor help to narrower terminals while preserving complete profile guidance.
-
-### Documentation
-
-- Correct quota refresh and unavailable-window descriptions, the monitor snapshot example and redraw behavior, and guide help and size measurements.
-- Clarify batch resource throttling, per-task quota refusals, and Argon's shared Gemini pools.
-- Fix the profile smoke recipe and add API peers and links to packaged CLI version observations.
+- Removed internal compatibility import shims. See the [command compatibility reference](docs/commands.md#compatibility) for retained forms.
 
 ## [0.26.14] - 2026-11-25
 
