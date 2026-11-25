@@ -22,37 +22,19 @@ import uuid
 from typing import Any, cast
 
 from peerhub.core.store import IdempotencyConflictError
-from peerhub.extensions.a2a import A2AStateTransitionError, A2ATaskRequest, A2ATaskResponse, ExternalExecutionRef
+from peerhub.extensions.a2a import (
+    A2AClaimLostError as A2AClaimLostError,
+    A2AJournalError as A2AJournalError,
+    A2AStateTransitionError,
+    A2ASubmissionExistsError as A2ASubmissionExistsError,
+    A2ATaskRequest,
+    A2ATaskResponse,
+    A2ATaskState as A2ATaskState,
+    ExternalExecutionRef,
+)
 
 _TERMINAL = ("COMPLETED", "FAILED", "CANCELLED")
 _RANK = {"SUBMITTED": 0, "RUNNING": 1, "COMPLETED": 2, "FAILED": 2, "CANCELLED": 2}
-
-
-class A2AJournalError(Exception):
-    """The A2A evidence stream is not a trustworthy single-author stream, or evidence does not match the recorded attempt."""
-
-
-class A2ASubmissionExistsError(A2AJournalError):
-    """The task already has durable submission evidence: adopt it instead of sending again."""
-
-    def __init__(self, state: "A2ATaskState") -> None:
-        super().__init__("a submission for this task id already exists in the journal")
-        self.state = state
-
-
-class A2AClaimLostError(A2AJournalError):
-    """Another adapter claimed this submission attempt first: this one must not send."""
-
-
-@dataclasses.dataclass
-class A2ATaskState:
-    request: A2ATaskRequest
-    binding: str
-    attempt: int
-    endpoint: str
-    response: A2ATaskResponse | None = None
-    uncertain: bool = True
-    abandoned: bool = False
 
 
 def request_binding(request: A2ATaskRequest) -> str:

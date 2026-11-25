@@ -141,6 +141,33 @@ class A2ATaskResponse:
         }
 
 
+@dataclasses.dataclass
+class A2ATaskState:
+    request: A2ATaskRequest
+    binding: str
+    attempt: int
+    endpoint: str
+    response: A2ATaskResponse | None = None
+    uncertain: bool = True
+    abandoned: bool = False
+
+
+class A2AJournalError(Exception):
+    """The A2A evidence stream is not a trustworthy single-author stream, or evidence does not match the recorded attempt."""
+
+
+class A2ASubmissionExistsError(A2AJournalError):
+    """The task already has durable submission evidence: adopt it instead of sending again."""
+
+    def __init__(self, state: "A2ATaskState") -> None:
+        super().__init__("a submission for this task id already exists in the journal")
+        self.state = state
+
+
+class A2AClaimLostError(A2AJournalError):
+    """Another adapter claimed this submission attempt first: this one must not send."""
+
+
 def _same_execution(a: ExternalExecutionRef, b: ExternalExecutionRef) -> bool:
     """Execution identity is the remote system and its task/run ids; `opaque_state` is evidence that may evolve."""
     return (a.remote_system, a.remote_task_id, a.remote_run_id) == (b.remote_system, b.remote_task_id, b.remote_run_id)
@@ -397,8 +424,6 @@ class A2AAdapter:
         # Mark uncertainty before invoking an external side effect. Never replay a
         # lost or invalid response merely because it was not cached as SUBMITTED.
         if self._journal is not None:  # durable BEFORE the side effect: a crash now restores as uncertain, never as "not sent"
-            from peerhub.extensions.a2a_journal import A2AClaimLostError, A2ASubmissionExistsError
-
             try:
                 self._attempts[request.task_id] = self._journal.claim_submission(request, card.endpoint_url)
             except A2ASubmissionExistsError as exists:  # another adapter/process already holds evidence for this task id

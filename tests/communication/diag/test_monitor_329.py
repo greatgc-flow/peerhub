@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import QUOTA_NA
+from peerhub.cli.monitor_legend import QUOTA_NA
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation_model import EvidenceState, Observation
 from tests.communication.diag.test_monitor_328 import Store, iso

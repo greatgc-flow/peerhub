@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import QUOTA_NA, render_grouped_frame
+from peerhub.cli.monitor_legend import QUOTA_NA
+from peerhub.cli.monitor_view import render_grouped_frame
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool

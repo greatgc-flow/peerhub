@@ -8,7 +8,9 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, GUIDE_TEXT, RECENT_CAP, RECENT_EXPAND, render_grouped_frame, _width
+from peerhub.cli.monitor_layout import cell_width
+from peerhub.cli.monitor_links import GUIDE_TEXT
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, RECENT_CAP, RECENT_EXPAND, render_grouped_frame
 from peerhub.extensions.caller import host_id
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame  # noqa: F401
 
@@ -63,7 +65,7 @@ def test_query_file_osc_is_gated_and_closed_at_narrow_widths(frame, monkeypatch,
         assert "\x1b" not in screen
     for width in range(16, 60):
         screen = render_grouped_frame(payload, width=width, **options)
-        assert all(_width(line) <= width - 1 for line in screen.splitlines())
+        assert all(cell_width(line) <= width - 1 for line in screen.splitlines())
         assert screen.count(open_file) == len(file_osc.findall(screen))
         assert screen.count("\x1b]8;;") == 2 * screen.count(close)
     assert open_file not in render_grouped_frame(payload, **(options | {"links": False}))
@@ -250,7 +252,7 @@ def test_narrow_widths_drop_cache_then_lead_then_mode_then_context(busy):
     for width in range(100, 35, -1):
         screen = render_grouped_frame(frame, view="plain", unicode=False, width=width)
         row = recent_rows(screen)[0]
-        assert all(_width(line) <= width - 1 for line in lines(screen)), screen
+        assert all(cell_width(line) <= width - 1 for line in lines(screen)), screen
         assert "done-0" in row and '"VERD' in row, (width, row)
         present = ("c93%" in row, "lead7" in row, " R " in row and "u3" in row, "62k/6%" in row)
         # a column that is shown means every column that goes after it is shown too
@@ -269,16 +271,16 @@ def test_the_name_and_the_reply_stay_when_the_name_and_profile_are_long(busy, wi
                          sess=session(), tokens=TOKENS, reply="VERDICT: ok")], busy)
     screen = render_grouped_frame(frame, view="plain", unicode=False, width=width)
     row = recent_rows(screen)[0]
-    assert "denied-" in row and '"VERD' in row and all(_width(line) <= width - 1 for line in lines(screen)), row
+    assert "denied-" in row and '"VERD' in row and all(cell_width(line) <= width - 1 for line in lines(screen)), row
 
 
 def test_wide_characters_are_cut_by_cell_width(busy):
     frame = build([ended("done-0", 60, sess=session(), tokens=TOKENS, reply="결론: 모두 닫힘 그리고 아주 긴 답장 " * 3)], busy)
     for width in (40, 60, 80, 100):
         screen = render_grouped_frame(frame, view="plain", unicode=True, width=width, text_encoding="utf-8")
-        assert all(_width(line) <= width - 1 for line in lines(screen)), (width, screen)
+        assert all(cell_width(line) <= width - 1 for line in lines(screen)), (width, screen)
         expanded = render_grouped_frame(frame, view="rich", unicode=True, width=width, expand=True)
-        assert all(_width(line) <= width - 1 for line in lines(expanded)), (width, expanded)
+        assert all(cell_width(line) <= width - 1 for line in lines(expanded)), (width, expanded)
 
 
 # ---- height ------------------------------------------------------------------------------------------------------

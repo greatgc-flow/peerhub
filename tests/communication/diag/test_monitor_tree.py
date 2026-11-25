@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_view as mv
+from peerhub.cli import monitor_format, monitor_layout, monitor_links, monitor_view as mv
 from peerhub.cli.monitor import register_monitor_parser, validate_monitor_args
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 
@@ -31,7 +31,7 @@ def pool_lines(screen: str) -> list[str]:
     """The pool lines of a frame; in an --expand frame the QUOTA details (below the compact POOLS block, #412)."""
     lines = screen.splitlines()
     start = next((i for i, line in enumerate(lines) if "QUOTA [" in line), 0)
-    return [line for line in lines[start:] if re.search(r"^\s*(?:\w+ +)?(?:[└├]─ |[`|]- )?(?:C|F|X)-\d+[HD] {2,}", mv._ANSI.sub("", line))
+    return [line for line in lines[start:] if re.search(r"^\s*(?:\w+ +)?(?:[└├]─ |[`|]- )?(?:C|F|X)-\d+[HD] {2,}", monitor_layout.ANSI_ESCAPE.sub("", line))
             and not line.lstrip().startswith(("Columns", "STATE", "cc STALE"))]
 
 
@@ -91,7 +91,7 @@ def test_crossing_or_ambiguous_peer_is_flat(members: dict[str, list[str]]) -> No
         screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand)
         rows = pool_lines(screen)
         assert not any("|-" in row or "`-" in row for row in rows)
-        expected = sorted({pool for pools in members.values() for pool in pools}, key=lambda p: mv._pool_order("cc", p))
+        expected = sorted({pool for pools in members.values() for pool in pools}, key=lambda p: monitor_format.pool_order("cc", p))
         assert [re.search(r"[CF]-\d+[HD]", row)[0] for row in rows] == expected  # type: ignore[index]
 
 
@@ -127,7 +127,7 @@ def test_g_flat_fallback_uses_shared_cells(expand: bool) -> None:
                 ("F-7D", "ok", "30%", "fable: cc.b,cc.c")]
     assert len(rows) == len(expected)
     for row, (pool, state, left, family) in zip(rows, expected):
-        assert {pool, state, left, f"{mv.missing_pool_fact(False)}/2h30m"} <= set(row.split()) and family in row
+        assert {pool, state, left, f"{monitor_format.missing_pool_fact(False)}/2h30m"} <= set(row.split()) and family in row
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -142,7 +142,7 @@ def test_tree_keeps_each_pools_own_capacity_and_encoding_width(expand: bool) -> 
     # P21: the compact rich rows carry the state glyph and the bar, so the width parity of the two glyph sets is
     # checked inside one view (the plain --expand rows are the same with either glyph set).
     same_view = pool_lines(mv.render_grouped_frame(frame, view=_view(expand), unicode=False, width=180, expand=expand))
-    assert [mv._width(row) for row in rich_rows] == [mv._width(row) for row in same_view]
+    assert [monitor_layout.cell_width(row) for row in rich_rows] == [monitor_layout.cell_width(row) for row in same_view]
     if expand:
         assert same_view == ascii_rows
 
@@ -157,7 +157,7 @@ def test_retired_pools_form_one_dim_note_per_peer(expand: bool, monkeypatch: pyt
     screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
     notes = [line for line in screen.splitlines() if "not reported by plan" in line]
     assert len(notes) == 1 and "C-5H,C-30D" in notes[0]  # one note in the QUOTA details (POOLS has a row per pool)
-    assert notes[0].strip().startswith(f"\x1b[{mv.RICH_SGR['dim']}m") and notes[0].endswith("\x1b[0m")
+    assert notes[0].strip().startswith(f"\x1b[{monitor_layout.RICH_SGR['dim']}m") and notes[0].endswith("\x1b[0m")
     plain = mv.render_grouped_frame(frame, show_quota_notes=True, view="plain", color=True, unicode=False, width=180, expand=expand)
     assert [line for line in plain.splitlines() if "not reported by plan" in line] == [
         "cc C-5H,C-30D n/a (not reported by plan pro)"]
@@ -180,7 +180,7 @@ def test_folded_na_combines_suffix_after_last_column_without_losing_numbers(expa
     assert "(F-7D,C-5H n/a)" in screen
     assert "`- C-5H" not in screen and "`- F-7D" not in screen
     assert "30%" in screen if width >= 60 else True  # narrower expanded tables may drop REM whole
-    assert all(mv._width(line) < width for line in screen.splitlines())
+    assert all(monitor_layout.cell_width(line) < width for line in screen.splitlines())
     assert json.dumps(frame, sort_keys=True) == before
 
 
@@ -198,7 +198,7 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
     # #412: the blank line between peers belongs to the QUOTA details; POOLS (the compact block above) has none, and a
     # bounded height cuts the frame from the bottom, never a separator out of the middle of a table
     full = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=200, expand=expand)
-    lines = [line for line in full.splitlines() if not line.startswith(f"{mv.GUIDE_TEXT}: ")]
+    lines = [line for line in full.splitlines() if not line.startswith(f"{monitor_links.GUIDE_TEXT}: ")]
     cx_index = next(i for i, row in enumerate(lines) if row.startswith("cx "))
     assert lines[cx_index - 1] == "" and "\n\n" not in "\n".join(lines[:next(i for i, l in enumerate(lines) if "QUOTA [" in l)])
     for height in range(len(lines) + 2, 3, -1):
@@ -206,7 +206,7 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
         assert len(screen.splitlines()) < height
         if 5 + mv.FRAME_TRAILING_ROWS < height <= len(lines):
             assert "rows hidden" in screen
-        kept = [line for line in screen.splitlines() if not line.startswith(("+", "Coverage:", f"{mv.GUIDE_TEXT}: "))]
+        kept = [line for line in screen.splitlines() if not line.startswith(("+", "Coverage:", f"{monitor_links.GUIDE_TEXT}: "))]
         original = iter(lines)
         assert all(line in original for line in kept if line)  # optional top rows can shrink
 
@@ -232,7 +232,7 @@ def test_c1_unmeasured_zero_uses_unknown_state_and_dim_colour(state: str, monkey
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state=state, last_measurements={"remaining_fraction": 0})
     screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=True)
-    assert screen.count(f"\x1b[{mv.RICH_SGR['dim']}m○ ?\x1b[0m") == 2
+    assert screen.count(f"\x1b[{monitor_layout.RICH_SGR['dim']}m○ ?\x1b[0m") == 2
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -242,8 +242,8 @@ def test_c1_explicit_stale_without_ttl_keeps_the_stale_reserve(expand: bool, mon
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item.update(state="STALE", ttl_seconds=None, last_measurements={"remaining_fraction": 0})
     screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-    assert f"\x1b[{mv.RICH_SGR['out']}m" not in screen
-    assert screen.count(f"\x1b[{mv.RICH_SGR['dim']}m○ aged\x1b[0m") == (2 if expand else 1)
+    assert f"\x1b[{monitor_layout.RICH_SGR['out']}m" not in screen
+    assert screen.count(f"\x1b[{monitor_layout.RICH_SGR['dim']}m○ aged\x1b[0m") == (2 if expand else 1)
     if expand:
         assert "cc STALE:window; next: peerhub observation refresh --peers cc" in screen
 
@@ -256,7 +256,7 @@ def test_passed_measurement_reset_colour_matches_between_views(
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item["measurements"]["reset_in_seconds"] = reset
     frame["display_elapsed_seconds"] = elapsed
-    cell = f"\x1b[{mv.RICH_SGR['dim']}m○ reset\x1b[0m"
+    cell = f"\x1b[{monitor_layout.RICH_SGR['dim']}m○ reset\x1b[0m"
     for expand in (False, True):
         screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
         # dim in the palette's dim: the POOLS row, and the QUOTA details row of --expand (the same state cell)
@@ -272,8 +272,8 @@ def test_na_root_is_counted_and_its_peer_gets_a_marker(expand: bool, monkeypatch
     hidden = mv.render_grouped_frame(frame, view="rich", width=180, expand=expand)
     assert "POOLS 0" in hidden and "C-5H" not in hidden
     screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
-    assert "POOLS 1" in mv._ANSI.sub("", screen) and "(C-5H n/a)" in screen
-    dim = mv.RICH_SGR["dim"]
+    assert "POOLS 1" in monitor_layout.ANSI_ESCAPE.sub("", screen) and "(C-5H n/a)" in screen
+    dim = monitor_layout.RICH_SGR["dim"]
     assert not any("○ n/a" in line for line in screen.splitlines())
     if expand:
         rows = [line for line in screen.splitlines() if "C-5H" in line]
@@ -327,7 +327,7 @@ def test_tree_height_sweep_keeps_bounds_and_never_shows_child_without_parent(exp
         for height in range(2, 35):
             screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, height=height, expand=expand)
             assert len(screen.splitlines()) < height
-            assert all(mv._width(line) < width for line in screen.splitlines())
+            assert all(monitor_layout.cell_width(line) < width for line in screen.splitlines())
             pools, _, quota = screen.partition("QUOTA [")
             assert "C-7D" not in quota or "C-30D" in quota
             assert "C-5H" not in pools or "C-7D" in pools
@@ -359,8 +359,8 @@ def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool, monk
     quota_rows = [row for row in detail_lines(rich) if "C-7D" in row]
     assert len(quota_rows) == 2
     for row, state, left, colour in zip(quota_rows, ("▼ low", "● ok"), ("5%", "87%"), ("warn", "ok")):
-        assert re.search(rf"{state}.*{left}", mv._ANSI.sub("", row))
-        assert f"\x1b[{mv.RICH_SGR[colour]}m{state}\x1b[0m" in row
+        assert re.search(rf"{state}.*{left}", monitor_layout.ANSI_ESCAPE.sub("", row))
+        assert f"\x1b[{monitor_layout.RICH_SGR[colour]}m{state}\x1b[0m" in row
     assert frame == before
 
 
@@ -378,10 +378,10 @@ def test_error_evidence_keeps_alarm_colour(expand: bool, monkeypatch: pytest.Mon
     frame = frame_for({"cc.a": ["C-5H"]})
     frame["groups"]["capacity"]["data"]["observations"][0].update(state="ERROR", measurements=None)
     screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-    cell = f"\x1b[{mv.RICH_SGR['bad']}m○ ?\x1b[0m"  # P21: the palette's bad, in POOLS and in the QUOTA details
+    cell = f"\x1b[{monitor_layout.RICH_SGR['bad']}m○ ?\x1b[0m"  # P21: the palette's bad, in POOLS and in the QUOTA details
     assert screen.count(cell) == (2 if expand else 1)
     if expand:  # the compact state word hides the evidence state: a note names it
-        assert "cc C-5H evidence ERROR; next: peerhub observation refresh --peers cc" in mv._ANSI.sub("", screen)
+        assert "cc C-5H evidence ERROR; next: peerhub observation refresh --peers cc" in monitor_layout.ANSI_ESCAPE.sub("", screen)
         plain = mv.render_grouped_frame(frame, view="plain", color=True, unicode=False, width=180, expand=True)
         assert "\x1b" not in plain
         assert "cc C-5H evidence ERROR" in plain  # C1 keeps the evidence in the QUOTA notes.
@@ -410,7 +410,7 @@ def test_deep_tree_two_column_fallback_stays_in_public_viewport(expand: bool, un
     for height in (None, 40):
         for view in ("plain", "rich"):
             screen = mv.render_grouped_frame(frame, view=view, unicode=unicode, width=20, height=height, expand=expand)
-            assert all(mv._width(line) < 20 for line in screen.splitlines()), (view, height)
+            assert all(monitor_layout.cell_width(line) < 20 for line in screen.splitlines()), (view, height)
 
 
 @pytest.mark.parametrize("width", [82, 83])
@@ -426,7 +426,7 @@ def test_expanded_separators_show_at_exact_full_fit_and_yield_below_it(width: in
     before = deepcopy(frame)
     roomy = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=200, expand=True)
     assert "\n\n" in roomy and "rows hidden" not in roomy
-    data_lines = [line for line in roomy.splitlines() if not line.startswith(f"{mv.GUIDE_TEXT}: ")]
+    data_lines = [line for line in roomy.splitlines() if not line.startswith(f"{monitor_links.GUIDE_TEXT}: ")]
     exact_height = len(data_lines) + mv.FRAME_TRAILING_ROWS
     exact = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=exact_height, expand=True)
     assert exact.splitlines() == data_lines

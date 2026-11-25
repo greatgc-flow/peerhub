@@ -6,7 +6,7 @@ from copy import deepcopy
 
 import pytest
 
-from peerhub.cli import monitor_view as mv
+from peerhub.cli import monitor_format, monitor_layout, monitor_view as mv
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import _payload
 
@@ -16,7 +16,7 @@ from tests.communication.diag.test_monitor_plain_golden import _payload
 @pytest.mark.parametrize("reverse", [False, True], ids=["configured", "reversed"])
 def test_pools_use_parent_pace_keep_the_tree_and_cap_the_tail(view: str, expand: bool, reverse: bool, monkeypatch) -> None:
     if reverse:
-        monkeypatch.setattr(mv, "POOLS_USE_FIRST_ASCENDING", not mv.POOLS_USE_FIRST_ASCENDING)
+        monkeypatch.setattr(monitor_format, "POOLS_USE_FIRST_ASCENDING", not monitor_format.POOLS_USE_FIRST_ASCENDING)
     # The binding C-5H puts its family in the out bucket, regardless of weekly PACE.
     known = [
         ("ag", "B-7D", .40, -20.24), ("ag", "A-7D", .40, -20.24), ("zz", "Z-7D", .40, -20.24),
@@ -35,7 +35,7 @@ def test_pools_use_parent_pace_keep_the_tree_and_cap_the_tail(view: str, expand:
     render = {"view": view, "unicode": view == "rich", "expand": expand, "width": 100}
     screen = mv.render_grouped_frame(payload, **render)
     pools = screen.split(mv.FRAME_SECTIONS["suggest"], 1)[0].split(mv.FRAME_SECTIONS["pools"], 1)[1]
-    direction = 1 if mv.POOLS_USE_FIRST_ASCENDING else -1
+    direction = 1 if monitor_format.POOLS_USE_FIRST_ASCENDING else -1
     expected = [row[1] for row in sorted(known, key=lambda row: (direction * row[3], *row[:2]))]
     expected.extend(("U-7D", "E-7D", "C-7D", "C-5H", "F-7D", "O-7D"))
     shown = re.findall(r"(?m)^ +(?:\S+ +)?([A-Z]+-(?:7D|5H))(?= +)", pools)
@@ -57,7 +57,7 @@ def test_pools_hint_only_uses_spare_heading_width(view: str, expand: bool) -> No
         heading = next(line for line in screen.splitlines() if mv.FRAME_SECTIONS["pools"] in line)
         assert (hint in heading) == (width == 100)
         assert screen.count(hint) == (width == 100)
-        assert ("FAMILY" in heading) == (width == 100) and mv._width(heading) < width  # G4
+        assert ("FAMILY" in heading) == (width == 100) and monitor_layout.cell_width(heading) < width  # G4
 
 
 @pytest.mark.parametrize("expand", [False, True], ids=["compact", "expand"])

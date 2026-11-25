@@ -1073,9 +1073,9 @@ def _session_context_text(session: dict[str, Any]) -> str:
     percent, age = session["ctx_est_pct"], session["ctx_age_seconds"]
     if percent is None or age is None:
         return ""
-    from peerhub.cli.monitor_view import _compact_age  # pyright: ignore[reportPrivateUsage]
+    from peerhub.cli.monitor_layout import compact_age
 
-    return f"ctx {percent}% ({_compact_age(age)} ago)"
+    return f"ctx {percent}% ({compact_age(age)} ago)"
 
 
 def _run_session_cli(args: argparse.Namespace) -> int:

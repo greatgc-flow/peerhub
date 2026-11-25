@@ -9,7 +9,8 @@ from unittest.mock import patch
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_preferences import GROUPS, GROUP_IDS, SHOW_QUOTA_NOTES_DEFAULT
+from peerhub.core.monitor_groups import GROUPS, GROUP_IDS
+from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.view import _ANSI
 from tests.communication.e2e.cli_extension_effects import lead_isolated_env
 
@@ -230,7 +231,7 @@ def test_bare_monitor_renders_default_session_and_execution_groups(tmp_path, mon
         frames = [json.loads(line) for line in output.splitlines()]
         assert len(frames) == 2
         for frame in frames:
-            from peerhub.cli.monitor_preferences import GROUP_IDS
+            from peerhub.core.monitor_groups import GROUP_IDS
             assert frame["snapshot"]["selected_groups"] == [
                 "overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage"
             ]
@@ -317,7 +318,7 @@ def test_schema_11_watch_is_explicit_legacy_ndjson(tmp_path, monkeypatch, capsys
 
 
 def _assert_monitor_reset_countdown(rendered, *, unicode):
-    from peerhub.cli.monitor_view import missing_pool_fact
+    from peerhub.cli.monitor_format import missing_pool_fact
 
     lines = _ANSI.sub("", rendered).splitlines()
     # G.3–4: the POOLS row keeps a reset when the forecast is unavailable.
@@ -589,7 +590,7 @@ def test_monitor_default_precedence_and_corrupt_effective_file_fail_closed(tmp_p
 @pytest.mark.parametrize("groups", [["capacity"], ["peers", "capacity"], ["all"]])
 @pytest.mark.parametrize("json_output", [False, True])
 def test_snapshot_explicit_groups_override_invalid_defaults(tmp_path, monkeypatch, capsys, layer, groups, json_output):
-    from peerhub.cli.monitor_preferences import GROUP_IDS
+    from peerhub.core.monitor_groups import GROUP_IDS
     from peerhub.extensions.observation import ObservationStore
     from tests.communication.harness.bridge import BridgeHarness
 
@@ -865,7 +866,7 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     import termios
     from pathlib import Path
 
-    from peerhub.cli.monitor_view import _width
+    from peerhub.cli.monitor_layout import cell_width
 
     db = _db(tmp_path)
     master, slave = pty.openpty()
@@ -899,7 +900,7 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     assert len(lines) <= 7
     # #374 H2: the compact frame has no "+N rows hidden" line; it keeps line 1 and the section headers (with totals)
     assert re.match(r"^(OK|ATTN)", lines[0]) and "rows hidden" not in rendered
-    assert all(_width(line) < 40 for line in lines)
+    assert all(cell_width(line) < 40 for line in lines)
     assert "COLUMNS" not in rendered
     assert "\x1b" not in rendered
 

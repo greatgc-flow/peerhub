@@ -16,7 +16,8 @@ from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 from peerhub.extensions import process_tree
-from peerhub.extensions.monitor_read_model import ACTIVITY_SPAN_S, activity_lines
+from peerhub.extensions.monitor_queries import ACTIVITY_SPAN_S
+from peerhub.extensions.monitor_read_model import activity_lines
 from peerhub.extensions.monitor_read_model import LEAD_CONTEXT_MARK_PCT as LEAD_CONTEXT_MARK_PCT  # one owner of the mark
 from peerhub.extensions.monitor_read_model import _SAFE_MODEL, _display, _iso_seconds  # pyright: ignore[reportPrivateUsage]
 

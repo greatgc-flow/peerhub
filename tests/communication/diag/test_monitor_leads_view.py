@@ -10,9 +10,15 @@ from typing import Any
 
 import pytest
 
+from peerhub.cli.monitor_layout import cell_width
+from peerhub.cli.monitor_legend import MONITOR_LEGEND
 from peerhub.cli.monitor_view import (
-    COMPACT_MAX_LINES, FRAME_HEADS, FRAME_SECTIONS, CompactFrame, MONITOR_LEGEND, fit_compact_frame,
-    render_grouped_frame, _width,
+    COMPACT_MAX_LINES,
+    FRAME_HEADS,
+    FRAME_SECTIONS,
+    CompactFrame,
+    fit_compact_frame,
+    render_grouped_frame,
 )
 from tests.communication.diag.test_monitor_activity import db  # noqa: F401  (a fixture: a store with the Bridge tables)
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame, section  # noqa: F401
@@ -156,7 +162,7 @@ def test_a_long_model_is_cut_and_loses_its_claude_prefix(frame):
 def test_at_40_columns_ctx_survives_and_run_model_and_title_drop(frame):
     with_leads(frame, [lead("l" * 14, session=sess(alive=None, active_at=NOW - 720, context_pct=100))])
     row = leads_block(screen(frame, width=40))[1]
-    assert row.split() == ["l" * 14, "?busy", "12m", "ctx", "100%!"] and _width(row) <= 39
+    assert row.split() == ["l" * 14, "?busy", "12m", "ctx", "100%!"] and cell_width(row) <= 39
 
 
 @pytest.mark.parametrize("width", [100, 60])
@@ -164,7 +170,7 @@ def test_widths_100_and_60(frame, width):
     with_leads(frame, [lead("docs-site", session=sess()), lead("shop-4f", running=2, session=sess(alive=None, context_pct=83))])
     lines = screen(frame, width=width)
     block = leads_block(lines)
-    assert len(block) == 3 and all(_width(line) <= width - 1 for line in lines)
+    assert len(block) == 3 and all(cell_width(line) <= width - 1 for line in lines)
     assert all("ctx" in row for row in block[1:])
 
 
@@ -303,7 +309,7 @@ def test_the_worst_case_frame_with_leads_stays_within_the_bounds(frame, width, u
     text = render_grouped_frame(frame, view="rich" if unicode else "plain", unicode=unicode, width=width)
     lines = text.splitlines()
     assert len(lines) <= 24 and len(text.encode("utf-8")) <= 8192
-    assert all(_width(line) <= min(100, width) - 1 for line in lines)
+    assert all(cell_width(line) <= min(100, width) - 1 for line in lines)
     head = ("── LEADS 12 entries · partial (9 unreadable, 99 not read)" if unicode else
             "LEADS 12 entries | partial (9 unreadable, 99 not read)")
     assert lines[0].startswith("ATTN 5") and any("POOLS " in line for line in lines)  # M9/G8 compete for rows.

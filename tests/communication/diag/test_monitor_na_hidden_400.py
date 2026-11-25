@@ -7,9 +7,20 @@ from typing import Any
 import pytest
 
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
+from peerhub.cli.monitor_format import (
+    BAR_CELLS,
+    BAR_MAX_CELLS,
+    BAR_MIDDLE_CELLS,
+    FAMILIES,
+)
+from peerhub.cli.monitor_layout import (
+    RICH_GLYPHS,
+    cell_width,
+)
+from peerhub.cli.monitor_legend import POOL_LEGEND
 from peerhub.cli.monitor_view import (
-    BAR_CELLS, BAR_MAX_CELLS, BAR_MIDDLE_CELLS, FAMILIES, POOL_LEGEND, RICH_GLYPHS,
-    _HIDDEN_QUOTA_WINDOWS, _width, render_grouped_frame,
+    _HIDDEN_QUOTA_WINDOWS,
+    render_grouped_frame,
 )
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_expand_rich import block, expand, strip
@@ -65,7 +76,7 @@ def test_wide_pool_notes_stay_after_family_in_both_tables(view):
             if expand_mode:
                 assert re.search(re.escape(note) + r" +\d+s$", rows[-1]), rows[-1]
             assert screen.count(note) == len(rows)
-        assert all(_width(line) < 190 for line in screen.splitlines())
+        assert all(cell_width(line) < 190 for line in screen.splitlines())
     narrow = render_grouped_frame(payload, view="plain", width=65, unicode=False, show_quota_notes=True)
     assert re.search(r"(?m)^ *\(X-5H,X-30D n/a\)$", narrow)
     assert re.search(r"(?m)^ *limited by C-7D \(own 14%\)$", narrow)

@@ -38,9 +38,8 @@ from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIME
                                                  decode_stderr)
 from peerhub.extensions.adapters.profiles import qualified_profile, resolve_profile
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets
-from peerhub.extensions.adapters.telemetry import unknown_usage
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
-from peerhub.extensions.usage_normalization import REPORTED_FIELDS, normalize_provider_usage
+from peerhub.extensions.usage_normalization import REPORTED_FIELDS, normalize_provider_usage, unknown_usage
 
 CA_HEADER = "PeerHub ask (text only, no tools, no files)."  # the content never starts with "@": `ant` inlines no file
 CA_MODEL = re.compile(r"claude-[a-z0-9.-]{1,64}")

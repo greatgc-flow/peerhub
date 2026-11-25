@@ -6,8 +6,12 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.cli.monitor_format import POOLS_USE_FIRST_ASCENDING
 from peerhub.cli.monitor_view import (
-    FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER, POOLS_USE_FIRST_ASCENDING, POOLS_USE_FIRST_HINT,
+    FRAME_HEADS,
+    FRAME_SECTIONS,
+    FRAME_SECTION_ORDER,
+    POOLS_USE_FIRST_HINT,
 )
 
 ROOT = Path(__file__).resolve().parents[3]

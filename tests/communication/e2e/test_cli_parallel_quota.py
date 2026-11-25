@@ -11,7 +11,7 @@ import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.lessons import lesson_by_id
-from peerhub.cli.monitor_view import POOLS_USE_FIRST_ASCENDING
+from peerhub.cli.monitor_format import POOLS_USE_FIRST_ASCENDING
 from peerhub.core import load_limits as L
 from peerhub.cli.guide import GUIDE_MAX_BYTES
 

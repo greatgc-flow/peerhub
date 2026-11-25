@@ -221,7 +221,7 @@ def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1
     m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
           "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "pool_health", "peer_kinds", "schema_guard",
           "quota_projection", "bridge_registry", "session_receipts", "monitor_read_model", "usage_normalization", "runtime_contract",
-          "caller", "liveness", "lead_sessions"}  # neutral helpers of the M1 Session Bridge and its read model (#374, #376)
+          "caller", "liveness", "lead_sessions", "monitor_preferences", "monitor_queries"}  # M1 read-side helpers
     assert not (m1 & set(M2_M3_MODULES))
     # every extension module is classified: nothing can quietly sit outside both the M1 set and the gated sets
     classified = m1 | set(M2_M3_MODULES) | {"direction"}

@@ -5,6 +5,7 @@ import json
 from typing import Any, cast
 
 from peerhub.extensions.usage_normalization import REPORTED_FIELDS, normalize_provider_usage
+from peerhub.extensions.usage_normalization import unknown_usage as unknown_usage
 
 _TELEMETRY_MAX_BYTES = 1_048_576
 _TELEMETRY_MAX_EVENT_BYTES = 262_144
@@ -24,11 +25,6 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise _DuplicateJsonKey(key)
         value[key] = item
     return value
-
-
-def unknown_usage(reason: str) -> dict[str, Any]:
-    return {"schema_version": 1, "scope": None, "source": None, "reported": {}, "normalized": {},
-            "coverage": {"state": "UNKNOWN", "reason": reason}}
 
 
 def _cc_context(events: list[dict[str, Any]], result: dict[str, Any]) -> dict[str, int] | None:

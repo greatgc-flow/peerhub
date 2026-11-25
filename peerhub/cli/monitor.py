@@ -20,8 +20,10 @@ from typing import Any, cast
 
 from peerhub.cli.support import (MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
                                  print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
-from peerhub.cli.monitor_preferences import GROUP_IDS, MONITOR_LEGEND, POOL_LEGEND, SHOW_QUOTA_NOTES_DEFAULT
+from peerhub.cli.monitor_legend import MONITOR_LEGEND, POOL_LEGEND
+from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
+from peerhub.core.monitor_groups import GROUP_IDS
 
 RUNNING_REFRESH_SECONDS = 5
 _GROUP_METAVAR = "GROUP"
@@ -180,7 +182,8 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                         height: int | None, color: bool, expand: bool = False,
                         show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT,
                         links: bool = False) -> str:
-    from peerhub.cli.monitor_view import FRAME_TRAILING_ROWS, file_link_url, monitor_links_enabled, render_grouped_frame
+    from peerhub.cli.monitor_links import file_link_url, monitor_links_enabled
+    from peerhub.cli.monitor_view import FRAME_TRAILING_ROWS, render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
     # A5: separately from the decoration, text cells keep every character this stream can encode (not only on UTF).
@@ -245,7 +248,6 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
         if conflicts:
             parser.error("--snapshot cannot be combined with watch or collection options: " + ", ".join(sorted(conflicts)))
         return _run_monitor_snapshot(args, parser)
-    from peerhub.cli.monitor_preferences import effective_preferences
     if args.group:
         requested = list(dict.fromkeys(args.group))
         if "all" in requested and len(requested) > 1:
@@ -253,6 +255,8 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
         selected = list(GROUP_IDS) if requested == ["all"] else sorted(requested, key=GROUP_IDS.index)
         preference = {"status": "OK", "source": "command", "reason": None, "selected_groups": selected}
     else:
+        from peerhub.extensions.monitor_preferences import effective_preferences
+
         preference = effective_preferences()
         if preference["status"] != "OK":
             payload = {"schema_version": "2.0", "status": "ERROR", "groups": {},
@@ -497,15 +501,18 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
 
 
 def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    from peerhub.cli.monitor_preferences import GROUP_IDS, effective_preferences
     from peerhub.cli.store_select import report_missing_store
 
     requested = args.group
     unique_requested = list(dict.fromkeys(requested or []))
     if "all" in unique_requested and len(unique_requested) > 1:
         parser.error("--group all cannot be combined with other group IDs")
-    preference = ({"status": "OK", "source": "command", "reason": None}
-                  if unique_requested else effective_preferences())
+    if unique_requested:
+        preference = {"status": "OK", "source": "command", "reason": None}
+    else:
+        from peerhub.extensions.monitor_preferences import effective_preferences
+
+        preference = effective_preferences()
     if preference["status"] != "OK":
         payload = {"schema_version": "2.0", "status": "ERROR", "selected_groups": None,
                    "preference": {key: preference[key] for key in ("status", "source", "reason")}}

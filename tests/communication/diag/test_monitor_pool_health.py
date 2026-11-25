@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor, monitor_view as mv
-from peerhub.cli.monitor_preferences import POOL_MARGIN_LEGEND
+from peerhub.cli import monitor, monitor_format, monitor_layout, monitor_legend, monitor_links, monitor_view as mv
+from peerhub.cli.monitor_legend import POOL_MARGIN_LEGEND
 from peerhub.cli.view import PLAN_EARLY_TAG, plan_data, render_plan
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
 from peerhub.extensions.adapters.profiles import list_profiles
@@ -34,7 +34,7 @@ def frame(*readings: dict[str, Any], profiles: dict[str, list[str]] | None = Non
 
 def pool_cells(screen: str, pool: str) -> list[list[str]]:
     return [re.split(r" {2,}", line.lstrip().split(pool, 1)[1].strip())
-            for line in mv._ANSI.sub("", screen).splitlines()
+            for line in monitor_layout.ANSI_ESCAPE.sub("", screen).splitlines()
             if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ |[|`]- )?{pool} {{2,}}", line)]
 
 
@@ -79,15 +79,15 @@ def test_cross_view_health_equivalence() -> None:
         effective = row["health"]
         assert effective["state"] == state
         assert row["left_pct"] == pytest.approx(item["payload"]["remaining_fraction"] * 100)
-        pace_cell = mv.format_pool_pace(effective["effective_pace_pt"]) + (
+        pace_cell = monitor_format.format_pool_pace(effective["effective_pace_pt"]) + (
             "!" if effective["pace_band"] == "rest" else "")
         facts = pool_health(item, exhausted if name == child else None, NOW)
         assert row["exhaust_in_seconds"] == facts["exhaust_in_seconds"]
         assert row["exhaust_before_reset"] == facts["exhaust_before_reset"]
         assert row["exhaust_margin_seconds"] == facts["exhaust_margin_seconds"]
         assert effective["effective_reset_in_seconds"] == facts["reset_in_seconds"]
-        exhaust_cell = mv.format_exhaust_reset(facts)
-        margin_cell = mv.format_exhaust_margin(facts["exhaust_margin_seconds"])
+        exhaust_cell = monitor_format.format_exhaust_reset(facts)
+        margin_cell = monitor_format.format_exhaust_margin(facts["exhaust_margin_seconds"])
         assert plan_rows[name][:3] == [left, pace_cell, exhaust_cell]
         for screen, count in ((compact, 1), (expanded, 2)):
             cells = pool_cells(screen, name)
@@ -115,8 +115,8 @@ def test_cross_view_health_equivalence() -> None:
     assert json_rows[stale_pool]["stale"] and json_rows[stale_pool]["health"]["state"] == "aged"
     assert f"~{QUOTA_TTL_SECONDS // 60}m" in " ".join(plan_rows[stale_pool])
 
-    expected_reset = mv._format_duration(relative_reset).removesuffix("00m")
-    expected_pair = f"{mv.missing_pool_fact()}/{expected_reset}"
+    expected_reset = monitor_layout.format_duration(relative_reset).removesuffix("00m")
+    expected_pair = f"{monitor_format.missing_pool_fact()}/{expected_reset}"
     assert json_rows[relative_pool]["health"]["effective_reset_in_seconds"] == relative_reset
     assert plan_rows[relative_pool][2] == expected_pair
     for screen, count in ((compact, 1), (expanded, 2)):
@@ -167,7 +167,7 @@ def test_profile_added_in_models_toml_appears_in_both_family_cells(monkeypatch: 
     screen = monitor._render_human_frame(data, **options)
     after = pool_cells(screen, pool)
     assert len(after) == 2 and all(any(f"flash: {profile}," in cell for cell in row) for row in after)
-    assert sum(mv.osc_link(config.as_uri(), profile) in line
+    assert sum(monitor_links.osc_link(config.as_uri(), profile) in line
                for line in screen.splitlines() if "flash:" in line) == len(after)
 
 
@@ -217,7 +217,7 @@ def test_g_pace_precision_and_m1_independent_colours(pace: float, colour: str, s
     screen = mv.render_grouped_frame(data, view="rich", color=True, width=120, expand=True)
     expected = ("0.0" if abs(pace) < .01 else f"{pace:+.1f}") + suffix
     assert all(expected in cells for cells in pool_cells(screen, pool))
-    assert screen.count(f"\x1b[{mv.RICH_SGR[colour]}m{expected}\x1b[0m") == 2
+    assert screen.count(f"\x1b[{monitor_layout.RICH_SGR[colour]}m{expected}\x1b[0m") == 2
     assert not re.search(r"\x1b\[[0-9;]*m17%", screen)
 
 
@@ -240,8 +240,8 @@ def test_m4_compares_shared_forecast_with_its_reset(pace: float, flag: str) -> N
     facts = pool_health(item, None, NOW)
     for cells in pool_cells(mv.render_grouped_frame(frame(item), width=120, expand=True), pool):
         [pair] = [cell for cell in cells if "/" in cell]
-        assert pair == (f"{mv._format_duration(facts['exhaust_in_seconds']).removesuffix('00m')}/"
-                        f"{mv._format_duration(facts['reset_in_seconds']).removesuffix('00m')}{flag}")
+        assert pair == (f"{monitor_layout.format_duration(facts['exhaust_in_seconds']).removesuffix('00m')}/"
+                        f"{monitor_layout.format_duration(facts['reset_in_seconds']).removesuffix('00m')}{flag}")
         assert f"{LOW_QUOTA_FRACTION:.0%}!" in cells
 
 
@@ -258,7 +258,7 @@ def test_margin_matches_all_four_views(margin: float, expected: str, monkeypatch
     report = _report(item)
     plan = render_plan(report, width=120)
     plan_row = next(line for line in plan.splitlines() if line.split()[:2] == ["ag", pool])
-    assert mv.POOL_MARGIN_COLUMN not in plan
+    assert monitor_legend.POOL_MARGIN_COLUMN not in plan
     assert (PLAN_EARLY_TAG in plan_row) is (margin < 0)
     json_rows: Any = plan_data(report, {})["pools"]
     row = json_rows[0]
@@ -268,7 +268,7 @@ def test_margin_matches_all_four_views(margin: float, expected: str, monkeypatch
         rows = pool_cells(screen, pool)
         assert len(rows) == (2 if expand else 1)
         assert all(expected in cells and (expected + "!") not in cells for cells in rows)
-        assert screen.count(f"\x1b[{mv.RICH_SGR['warn']}m{expected}\x1b[0m") == (len(rows) if margin < 0 else 0)
+        assert screen.count(f"\x1b[{monitor_layout.RICH_SGR['warn']}m{expected}\x1b[0m") == (len(rows) if margin < 0 else 0)
 
 
 def test_m5_child_lists_configured_top_profiles_and_omitted_count() -> None:
@@ -300,7 +300,7 @@ def test_g_width_ladder_drops_details_but_keeps_core_columns() -> None:
         screen = mv.render_grouped_frame(data, view="plain", width=width, expand=True)
         compact = next(line for line in screen.splitlines() if line.startswith("POOLS "))
         quota = next(line for line in screen.splitlines() if line.startswith("PEER POOL"))
-        for column in ("STATE", "LEFT", "PACE(pp)", mv.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"):
+        for column in ("STATE", "LEFT", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"):
             assert (column in compact) == (column in quota)
             if column in quota:
                 seen.add(column)
@@ -309,10 +309,10 @@ def test_g_width_ladder_drops_details_but_keeps_core_columns() -> None:
         assert all(name in compact for name in ("STATE", "LEFT", "PACE(pp)"))
         assert "AGE" not in quota or "FAMILY" in quota
         assert "FAMILY" not in quota or "EXH/RESET" in quota
-        assert "EXH/RESET" not in quota or mv.POOL_MARGIN_COLUMN in quota
-        margin_only |= mv.POOL_MARGIN_COLUMN in quota and "EXH/RESET" not in quota
+        assert "EXH/RESET" not in quota or monitor_legend.POOL_MARGIN_COLUMN in quota
+        margin_only |= monitor_legend.POOL_MARGIN_COLUMN in quota and "EXH/RESET" not in quota
         if "EXH/RESET" in quota:
-            assert quota.index("PACE(pp)") < quota.index(mv.POOL_MARGIN_COLUMN) < quota.index("EXH/RESET")
+            assert quota.index("PACE(pp)") < quota.index(monitor_legend.POOL_MARGIN_COLUMN) < quota.index("EXH/RESET")
     assert margin_only and "EXH/RESET" in seen
 
 
@@ -327,11 +327,11 @@ def test_m9_and_g_gap_order_and_single_legend_match_docs() -> None:
     line = f"gap vs {PACE_GAP_BASELINE} (pp): " + ", ".join(cells)
     for expand in (False, True):
         screen = " ".join(mv.render_grouped_frame(frame(*readings.values()), width=160, expand=expand).split())
-        assert screen.count(mv.POOL_LEGEND) == 1
-        assert screen.index(line) < screen.index(mv.POOL_LEGEND) < screen.index("suggest:")
-    assert POOL_MARGIN_LEGEND in mv.POOL_LEGEND
+        assert screen.count(monitor_legend.POOL_LEGEND) == 1
+        assert screen.index(line) < screen.index(monitor_legend.POOL_LEGEND) < screen.index("suggest:")
+    assert POOL_MARGIN_LEGEND in monitor_legend.POOL_LEGEND
     for path in ("docs/monitor.md", "README.md"):
-        assert mv.POOL_LEGEND in " ".join(Path(path).read_text(encoding="utf-8").split())
+        assert monitor_legend.POOL_LEGEND in " ".join(Path(path).read_text(encoding="utf-8").split())
 
 
 def test_early_margin_when_exhaustion_and_reset_display_the_same_minute() -> None:
@@ -351,11 +351,11 @@ def test_early_margin_when_exhaustion_and_reset_display_the_same_minute() -> Non
 def test_missing_pool_cells_match_the_record_and_docs(unicode: bool) -> None:
     pool = "G-7D"
     item = _item("ag", pool, None, span=WEEK, elapsed=HOUR, age=0)
-    placeholder = mv.missing_pool_fact(unicode)
+    placeholder = monitor_format.missing_pool_fact(unicode)
     docs = Path("docs/monitor.md").read_text(encoding="utf-8").splitlines()
     left_doc = next(line for line in docs if line.startswith("| LEFT |"))
     pair_doc = next(line for line in docs if line.startswith("| EXH/RESET |"))
-    margin_doc = next(line for line in docs if line.startswith(f"| {mv.POOL_MARGIN_COLUMN} |"))
+    margin_doc = next(line for line in docs if line.startswith(f"| {monitor_legend.POOL_MARGIN_COLUMN} |"))
     assert all(f"`{placeholder}`" in line for line in (left_doc, margin_doc, pair_doc))
     for expand in (False, True):
         screen = mv.render_grouped_frame(frame(item), width=100, unicode=unicode, expand=expand)
@@ -382,7 +382,7 @@ def test_quota_bar_yields_before_age() -> None:
     wide, full = quota(100)
     narrow, reduced = quota(74)
     assert "AGE" in wide and "AGE" in narrow
-    assert len(full[1]) >= mv.BAR_CELLS
+    assert len(full[1]) >= monitor_format.BAR_CELLS
     assert not any("|" in cell for cell in reduced)
     assert "AGE" not in quota(45)[0]
 
@@ -396,12 +396,12 @@ def test_pool_bars_grow_before_family_in_both_modes(view: str) -> None:
     data = frame(parent_reading, reading("cc", child, .65, 0), profiles=profiles)
     even = pool_health(parent_reading, None, NOW)["even_left_pct"]
     assert even is not None
-    family = mv.FAMILIES["C"] + ": " + ",".join(profiles)
+    family = monitor_format.FAMILIES["C"] + ": " + ",".join(profiles)
     lengths: list[int] = []
     for width in (60, 80, 100, 120, 140, 160, 190, 220):
         compact, expanded = (mv.render_grouped_frame(data, view=view, width=width, unicode=False, expand=expand)
                              for expand in (False, True))
-        assert all(mv._width(line) < width for screen in (compact, expanded) for line in screen.splitlines())
+        assert all(monitor_layout.cell_width(line) < width for screen in (compact, expanded) for line in screen.splitlines())
         header = next(line for line in expanded.splitlines() if line.lstrip().startswith("PEER POOL"))
         for pool in (parent, child):
             [cells] = pool_cells(compact, pool)
@@ -411,13 +411,13 @@ def test_pool_bars_grow_before_family_in_both_modes(view: str) -> None:
             if pool == parent:
                 lengths.append(len(bar))
                 if width >= 80:  # the compact view already had a bar at 80 and 100 columns
-                    assert len(bar) >= mv.BAR_CELLS, (width, cells)
+                    assert len(bar) >= monitor_format.BAR_CELLS, (width, cells)
                 if width in (80, 100):
-                    assert family not in cells and any(cell.startswith(mv.FAMILIES["C"]) for cell in cells)
+                    assert family not in cells and any(cell.startswith(monitor_format.FAMILIES["C"]) for cell in cells)
                 if width >= 140:
                     assert family in cells
                 if family in cells:
-                    assert len(bar) >= mv.BAR_MIDDLE_CELLS
+                    assert len(bar) >= monitor_format.BAR_MIDDLE_CELLS
             else:
                 assert len(bar) == lengths[-1]
             if bar:
@@ -433,27 +433,27 @@ def test_pool_bars_grow_before_family_in_both_modes(view: str) -> None:
             assert quota_row.index("%") + 1 == header.index("LEFT") + len("LEFT")
             pools_header = next(line for line in compact.splitlines() if "POOLS " in line)
             compact_row = next(line for line in compact.splitlines() if line.lstrip().startswith("cc C-7D"))
-            for column in ("STATE", "PACE(pp)", mv.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"):
+            for column in ("STATE", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"):
                 assert quota_row[header.index(column)] != " ", (width, column)
                 assert compact_row[pools_header.index(column)] != " ", (width, column)
     assert lengths == sorted(lengths)
-    assert all(length == 0 or mv.BAR_CELLS <= length <= mv.BAR_MAX_CELLS for length in lengths)
-    assert lengths[0] == 0 and lengths[2] == mv.BAR_MIDDLE_CELLS
-    assert lengths[3] < lengths[-1] == mv.BAR_MAX_CELLS
+    assert all(length == 0 or monitor_format.BAR_CELLS <= length <= monitor_format.BAR_MAX_CELLS for length in lengths)
+    assert lengths[0] == 0 and lengths[2] == monitor_format.BAR_MIDDLE_CELLS
+    assert lengths[3] < lengths[-1] == monitor_format.BAR_MAX_CELLS
 
 
 def test_full_family_appears_as_soon_as_it_fits_with_middle_bar() -> None:
     pool = "G-7D"
     profiles = {f"ag.{name}": [pool] for name in ("deepthink", "effort", "neon", "standard")}
     data = frame(reading("ag", pool, .26, 12), profiles=profiles)
-    family = mv.FAMILIES["G"] + ": " + ",".join(profiles)
+    family = monitor_format.FAMILIES["G"] + ": " + ",".join(profiles)
     options = {"view": "plain", "unicode": False}
     wide = mv.render_grouped_frame(data, expand=True, width=200, **options)
     header = next(line for line in wide.splitlines() if line.startswith("PEER POOL"))
     bar = pool_cells(wide, pool)[-1][1]
     # Replace the wide bar with the middle size, then allow for AGE, the row indent and autowrap.
-    first_fit = (header.index("FAMILY") - len(bar) + mv.BAR_MIDDLE_CELLS + len(family)
-                 + len(mv._POOL_COLUMN_GAP) + len("AGE") + 2)
+    first_fit = (header.index("FAMILY") - len(bar) + monitor_format.BAR_MIDDLE_CELLS + len(family)
+                 + len(monitor_format._POOL_COLUMN_GAP) + len("AGE") + 2)
     for expand in (False, True):
         prior = mv.render_grouped_frame(data, expand=expand, width=first_fit - 1, **options)
         exact = mv.render_grouped_frame(data, expand=expand, width=first_fit, **options)
@@ -464,5 +464,5 @@ def test_full_family_appears_as_soon_as_it_fits_with_middle_bar() -> None:
 
 def test_monitor_docs_describe_pool_bar_limits() -> None:
     docs = " ".join(Path("docs/monitor.md").read_text(encoding="utf-8").split())
-    assert f"from {mv.BAR_CELLS} to {mv.BAR_MIDDLE_CELLS} cells" in docs
-    assert f"up to {mv.BAR_MAX_CELLS} cells" in docs
+    assert f"from {monitor_format.BAR_CELLS} to {monitor_format.BAR_MIDDLE_CELLS} cells" in docs
+    assert f"up to {monitor_format.BAR_MAX_CELLS} cells" in docs

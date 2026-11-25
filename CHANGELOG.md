@@ -8,6 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- An internal refactor shares the monitor group catalog and saved preference reader below the CLI, enforces the extensions-to-CLI import boundary, and centralizes the provider usage candidate factory and shared A2A journal types. Binary resolution and peer-kind imports use their canonical modules.
+
+### Changed (internal)
+
+- Split monitor terminal links, formatting and layout, and bounded SQLite queries into dedicated modules.
+
 ## [0.26.15] - 2026-11-25
 
 ### Fixed

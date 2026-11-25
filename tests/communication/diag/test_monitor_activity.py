@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from peerhub.extensions import bridge, bridge_claims, bridge_registry, session_receipts
-from peerhub.extensions import monitor_read_model as mrm
+from peerhub.extensions import monitor_queries, monitor_read_model as mrm
 from tests.communication.harness.core import CoreHarness
 
 pytestmark = [pytest.mark.integration, pytest.mark.diag]
@@ -257,7 +257,7 @@ def test_overdue_row(db):
     assert row["ended_at"] is None and row["alive"] is True
 
 
-@pytest.mark.parametrize("past,running", [(mrm.ALERT_WINDOW_S, True), (mrm.ALERT_WINDOW_S + 1, False)])
+@pytest.mark.parametrize("past,running", [(monitor_queries.ALERT_WINDOW_S, True), (monitor_queries.ALERT_WINDOW_S + 1, False)])
 def test_overdue_is_in_the_running_set_only_for_the_window(db, past, running):
     claim(db, "s-late", expires=NOW - past)
     delivery(db, "s-late", certainty="STARTED", caller_detail=caller(), started_at=NOW - past - 30.0)
@@ -664,10 +664,10 @@ def test_short_and_long_caps(db):
 
 def test_text_over_the_limit_is_long_text_and_not_fetched(db):
     statements: list[str] = []
-    row_prompt = "a" * (mrm.TEXT_MAX_CHARS + 1)
+    row_prompt = "a" * (monitor_queries.TEXT_MAX_CHARS + 1)
     claim(db, "s-long", expires=NOW - 10.0)
     delivery(db, "s-long", certainty="TERMINAL", terminal_at=iso(NOW - 10.0), prompt=row_prompt,
-             result=ok_result("b" * mrm.TEXT_MAX_CHARS))
+             result=ok_result("b" * monitor_queries.TEXT_MAX_CHARS))
     out = frame(db, trace_callback=statements.append)
     row = out["groups"]["activity"]["data"]["asks"][0]
     assert row["ask_line"] == row["ask_line_long"] == "(long text)"
@@ -676,13 +676,13 @@ def test_text_over_the_limit_is_long_text_and_not_fetched(db):
     assert len(selects) == 1 and "FROM bridge_claims c" in selects[0]  # the one activity statement, nothing fetched later
     with closing(sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)) as c:
         c.row_factory = sqlite3.Row
-        fetched = c.execute(mrm._ACTIVITY_SQL, mrm._activity_params(NOW, wsgen(db), True)).fetchone()  # pyright: ignore[reportPrivateUsage]
-    assert fetched["ask_text"] is None and fetched["ask_len"] == mrm.TEXT_MAX_CHARS + 1  # the long text never left SQLite
-    assert len(fetched["reply_text"]) == mrm.TEXT_MAX_CHARS
+        fetched = c.execute(monitor_queries._ACTIVITY_SQL, monitor_queries._activity_params(NOW, wsgen(db), True)).fetchone()  # pyright: ignore[reportPrivateUsage]
+    assert fetched["ask_text"] is None and fetched["ask_len"] == monitor_queries.TEXT_MAX_CHARS + 1  # the long text never left SQLite
+    assert len(fetched["reply_text"]) == monitor_queries.TEXT_MAX_CHARS
 
 
 def test_a_nul_hides_the_length_from_sqlite_and_python_rechecks_it(db):
-    row = text_row(db, prompt="a\x00" + "b" * mrm.TEXT_MAX_CHARS, reply="ok\x00" + "c" * mrm.TEXT_MAX_CHARS)
+    row = text_row(db, prompt="a\x00" + "b" * monitor_queries.TEXT_MAX_CHARS, reply="ok\x00" + "c" * monitor_queries.TEXT_MAX_CHARS)
     assert row["ask_line"] == row["ask_line_long"] == "(long text)"
     assert row["reply_line"] == row["reply_line_long"] == "(long text)"
 
@@ -804,7 +804,7 @@ def _bridge_store(tmp_path):
 def test_select_count_for_the_default_groups_and_for_capacity_alone(tmp_path, facts_in_capacity_rows):
     """Default groups: peers, sessions, scope peers, scopes, capacity, activity = 6 when the capacity rows carry a facts
     report; 7 when they do not and the existing `peers` facts fallback (one more SELECT) runs. `capacity` alone: 1."""
-    from peerhub.cli.monitor_preferences import DEFAULT_GROUPS
+    from peerhub.core.monitor_groups import DEFAULT_GROUPS
     from peerhub.extensions.observation import ObservationStore
     from tests.communication.fakes.observation import FakeObservationSource, measured
     harness = _bridge_store(tmp_path)
@@ -854,13 +854,14 @@ def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
         conn = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
         counter = [0]
         conn.set_progress_handler(lambda: counter.__setitem__(0, counter[0] + 1) or 0, 1)
-        params = mrm._activity_params(NOW, wsgen(path), True)  # pyright: ignore[reportPrivateUsage]
-        rows = conn.execute(mrm._ACTIVITY_SQL, params).fetchall()  # pyright: ignore[reportPrivateUsage]
+        params = monitor_queries._activity_params(NOW, wsgen(path), True)  # pyright: ignore[reportPrivateUsage]
+        sql = monitor_queries._ACTIVITY_SQL  # pyright: ignore[reportPrivateUsage]
+        rows = conn.execute(sql, params).fetchall()
         conn.set_progress_handler(None, 1)
         started = time.perf_counter()
-        conn.execute(mrm._ACTIVITY_SQL, params).fetchall()  # pyright: ignore[reportPrivateUsage]
+        conn.execute(sql, params).fetchall()
         elapsed = time.perf_counter() - started  # timed without the per-instruction callback
-        plan = " | ".join(str(row[3]) for row in conn.execute("EXPLAIN QUERY PLAN " + mrm._ACTIVITY_SQL, params))  # pyright: ignore[reportPrivateUsage]
+        plan = " | ".join(str(row[3]) for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params))
         conn.close()
         return counter[0], len(rows), elapsed, plan
 

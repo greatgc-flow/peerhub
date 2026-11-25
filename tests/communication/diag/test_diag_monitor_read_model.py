@@ -29,7 +29,7 @@ def test_monitor_resolves_workspace_profiles_with_lineage_marker(tmp_path, monke
 
 
 def test_usage_coverage_reads_bounded_daily_projection():
-    from peerhub.extensions.monitor_read_model import usage_coverage
+    from peerhub.extensions.monitor_queries import usage_coverage
 
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE bridge_monitor_delivery_scope(stream_id,peer_id,delivery_coverage_start_seq,"
@@ -186,7 +186,7 @@ def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path):
 
 
 def test_session_latency_reads_only_named_scope_and_thirty_utc_days():
-    from peerhub.extensions.monitor_read_model import session_latency
+    from peerhub.extensions.monitor_queries import session_latency
 
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE bridge_monitor_delivery_day(stream_id,peer_id,terminal_day_utc,terminal_count,measured_count,"

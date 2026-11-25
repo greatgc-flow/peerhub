@@ -19,6 +19,12 @@ NORMALIZED_FIELDS = {
 }
 
 
+def unknown_usage(reason: str) -> dict[str, Any]:
+    """Build an unknown provider-usage candidate for receipt validation."""
+    return {"schema_version": 1, "scope": None, "source": None, "reported": {}, "normalized": {},
+            "coverage": {"state": "UNKNOWN", "reason": reason}}
+
+
 def normalize_provider_usage(provider_kind: str, reported: dict[str, Any]) -> dict[str, int]:
     """Derive only meanings supported by the source field contract; retain native counters separately."""
     normalized: dict[str, int] = {}

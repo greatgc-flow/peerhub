@@ -10,14 +10,16 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_view as mv
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame, _width
+from peerhub.cli import monitor_format, monitor_layout, monitor_legend, monitor_links, monitor_view as mv
+from peerhub.cli.monitor_layout import cell_width
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame
+from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import GOLDEN_GUIDE_URL, _payload, blocks, full_payload, quiet_payload
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
-OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values()}  # #414: a child bar's empty cells
-U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
+OUR_CODES = {"0", *monitor_layout.RICH_SGR.values(), *monitor_layout.PILL_SGR.values()}  # #414: a child bar's empty cells
+U, A = monitor_layout.RICH_GLYPHS[True], monitor_layout.RICH_GLYPHS[False]
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_sections.json"
 ORDER = [*FRAME_SECTIONS.values(), "STORE"]
 _FRAME_HEAD = re.compile(r"^(?:── |-- )?(" + "|".join(map(re.escape, FRAME_SECTIONS.values())) + r")(?= |$)")
@@ -144,11 +146,11 @@ def test_expansion_keeps_the_compact_pool_rows_and_section_order(width, color, u
 def test_expand_uses_the_terminal_width_and_compact_widens_its_pool_table():
     payload = eight_pools_payload()
     small = compact(payload, width=140)
-    assert _width(small.splitlines()[0]) == mv.COMPACT_WIDTH - 1
-    assert max(map(_width, block(small, "pools"))) == 139
+    assert cell_width(small.splitlines()[0]) == mv.COMPACT_WIDTH - 1
+    assert max(map(cell_width, block(small, "pools"))) == 139
     wide = expand(payload, width=140).splitlines()
-    assert max(_width(line) for line in wide) == 139 and _width(wide[0]) == 139  # one rule: the last column stays free
-    assert all(_width(line) == 139 for line in wide if line.startswith("── "))
+    assert max(cell_width(line) for line in wide) == 139 and cell_width(wide[0]) == 139  # one rule: the last column stays free
+    assert all(cell_width(line) == 139 for line in wide if line.startswith("── "))
 
 
 def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
@@ -223,11 +225,11 @@ def test_the_db_path_wraps_and_is_never_truncated(width):
     path = "C:/Users/someone/projects/a-long-workspace-name/sub/.peerhub/core.db"
     payload["store_selection"] = {"path": path, "source": "explicit"}
     lines = expand(payload, width=width).splitlines()
-    chunks = mv._compact_wrap(f"DB:explicit ({path})", width - 1)  # pyright: ignore[reportPrivateUsage]
+    chunks = monitor_layout.wrap_text(f"DB:explicit ({path})", width - 1)  # pyright: ignore[reportPrivateUsage]
     start = next(i for i, line in enumerate(lines) if line.startswith("DB:"))
     assert lines[start:start + len(chunks)] == chunks  # #412: near the end of the frame, wrapped, never cut
     assert "".join(chunks).replace(" ", "") == f"DB:explicit({path})" and "…" not in "".join(chunks)
-    assert len(chunks) > 1 and all(_width(line) <= width - 1 for line in lines)
+    assert len(chunks) > 1 and all(cell_width(line) <= width - 1 for line in lines)
 
 
 def test_one_db_line_at_100_columns_then_the_sections_in_the_agreed_order():
@@ -242,7 +244,7 @@ def test_one_db_line_at_100_columns_then_the_sections_in_the_agreed_order():
     assert sum(line.startswith("PeerHub Monitor") for line in lines) == 1  # the grouped frame's own title line is gone
     assert not any("ACTIVITY [" in line or "PeerHub Monitor | " in line for line in lines)
     assert lines[-2] == "Coverage: partial; peerhub explain <code>"
-    assert lines[-1].startswith(f"{mv.GUIDE_TEXT}: ")
+    assert lines[-1].startswith(f"{monitor_links.GUIDE_TEXT}: ")
     legend = lines.index(next(line for line in lines if line.startswith("ok enough · low >0-10%")))
     assert legend > lines.index(next(line for line in lines if line.startswith("── STORE ")))  # the legend ends the frame
 
@@ -261,8 +263,8 @@ def test_the_expanded_section_rules_match_the_compact_style():
     screen = expand(detail_payload(), color=True)
     rules = [line for line in screen.splitlines() if strip(line).startswith("── ")]
     assert heads("\n".join(rules)) == [head for head in ORDER if head != "suggest:"]
-    dim, title = mv.RICH_SGR["dim"], mv.RICH_SGR["title"]
-    assert all(line.startswith(f"\x1b[{dim}m──\x1b[0m \x1b[{title}m") and _width(line) == 99 for line in rules)
+    dim, title = monitor_layout.RICH_SGR["dim"], monitor_layout.RICH_SGR["title"]
+    assert all(line.startswith(f"\x1b[{dim}m──\x1b[0m \x1b[{title}m") and cell_width(line) == 99 for line in rules)
     texts = [strip(line) for line in rules]
     assert any(text.startswith("── RUNNING 4 · ag 1 cc 2 cx 1 ─") for text in texts)
     assert any(text.startswith("── LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found ─") for text in texts)
@@ -274,7 +276,7 @@ def test_the_expanded_section_rules_match_the_compact_style():
 def test_section_lines_use_the_dot_separator_never_a_pipe():
     screen = expand(detail_payload(), width=160)
     body = screen.split(DB_LINE)[1]
-    assert " | " not in body.replace("--expand | more", "").replace(mv.POOL_LEGEND, "")  # G8 uses pipes.
+    assert " | " not in body.replace("--expand | more", "").replace(monitor_legend.POOL_LEGEND, "")  # G8 uses pipes.
     lines = screen.splitlines()
     assert " gone: cc.fable activity-view · age 5m · high · a2" in lines
     assert " pool_out: cx X-5H · age - · high · a3" in lines
@@ -301,7 +303,7 @@ def quota_rows(screen: str) -> dict[str, list[str]]:
 def test_g_quota_details_match_pools_vocabulary_and_bar():
     screen = expand(detail_payload(), width=140)
     table = block(screen, "capacity")
-    columns = ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)", mv.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
+    columns = ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
     assert table[1].split()[:len(columns)] == columns
     rows = quota_rows(screen)
     assert len(rows) == 10  # X-30D remains a folded note.
@@ -310,7 +312,7 @@ def test_g_quota_details_match_pools_vocabulary_and_bar():
                    if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ )?{name} +", line))
         actual = row.split()[row.split().index(name) + 1:]
         assert cells[:7] == actual[:7], name  # state, bar, left, pace, margin and pair
-        assert mv.BAR_CELLS <= len(cells[2]) <= mv.BAR_MAX_CELLS
+        assert monitor_format.BAR_CELLS <= len(cells[2]) <= monitor_format.BAR_MAX_CELLS
     assert rows["X-7D"][:2] == [U["fast"], "fast"]
     assert rows["X-7D"][3:5] == ["42%", "+31.0!"]
 
@@ -348,7 +350,7 @@ def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
 def test_g_one_even_burn_legend_follows_pools_and_gap():
     for view in ("plain", "rich"):
         screen = render_grouped_frame(detail_payload(), view=view, width=140, expand=True)
-        assert screen.index("gap vs ") < screen.index(mv.POOL_LEGEND) < screen.index("suggest:")
+        assert screen.index("gap vs ") < screen.index(monitor_legend.POOL_LEGEND) < screen.index("suggest:")
         assert "FORECAST" not in screen
 
 
@@ -387,12 +389,12 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
         if name is None or "next:" in line or "n/a not" in strip(line):
             continue
         assert state_code(line) == top[name[0]], line
-    assert state_code(next(line for line in details if " X-7D " in strip(line))) == (f"{U['fast']} fast", mv.RICH_SGR["warn"])
-    assert state_code(next(line for line in details if " C-7D " in strip(line))) == (f"{U['ok']} ok", mv.RICH_SGR["ok"])
+    assert state_code(next(line for line in details if " X-7D " in strip(line))) == (f"{U['fast']} fast", monitor_layout.RICH_SGR["warn"])
+    assert state_code(next(line for line in details if " C-7D " in strip(line))) == (f"{U['ok']} ok", monitor_layout.RICH_SGR["ok"])
     assert set(SGR.findall(screen)) <= OUR_CODES and not {"32", "33", "31"} & set(SGR.findall(screen))
     assert all(chunk.startswith(U["cempty"]) for chunk in screen.split("\x1b[2m")[1:])  # SGR 2 only dims a child bar's empty cells
     x7d = next(line for line in details if " X-7D " in strip(line))
-    assert span(x7d, "+31.0!") == mv.RICH_SGR["warn"]  # M1/G2
+    assert span(x7d, "+31.0!") == monitor_layout.RICH_SGR["warn"]  # M1/G2
 
 
 def span(line: str, text: str) -> str | None:
@@ -417,7 +419,7 @@ def test_running_entries_start_with_the_compact_marker_and_keep_every_field():
     assert rows[1].startswith(f" {U['gone']} flag !gone (caller process gone) · state run")
     assert rows[3].startswith(" ! flag !overdue (lease expired 2m ago) · state overdue")
     painted = [line for line in screen.splitlines() if re.match(r"^ \x1b\[[0-9;]+m.\x1b\[0m flag ", line)]
-    assert [SGR.findall(line)[0] for line in painted] == [mv.RICH_SGR[c] for c in ("ok", "bad", "warn", "warn")]
+    assert [SGR.findall(line)[0] for line in painted] == [monitor_layout.RICH_SGR[c] for c in ("ok", "bad", "warn", "warn")]
     assert not any(line.startswith("- ") for line in strip(screen).splitlines())  # the plain view's entry mark
 
 
@@ -431,7 +433,7 @@ def test_recent_entries_start_with_a_state_dot_in_the_state_colour():
     assert "reply \"결론: 모두 닫힘 (C1-C5 100) (long)\"" in flat(rows[0])
     assert "(denied: command)" in rows[1]  # the note stands in for the reply that was never written
     painted = [line for line in screen.splitlines() if re.match(r"^ \x1b\[[0-9;]+m.\x1b\[0m (ok|empty|unsure|error) ", line)]
-    assert [SGR.findall(line)[0] for line in painted] == [mv.RICH_SGR[c] for c in ("ok", "bad", "warn", "bad")]
+    assert [SGR.findall(line)[0] for line in painted] == [monitor_layout.RICH_SGR[c] for c in ("ok", "bad", "warn", "bad")]
 
 
 def test_recent_expands_history_and_names_the_running_and_superseded_counts():
@@ -466,8 +468,8 @@ def test_leads_entries_list_every_lead_with_a_context_meter():
                  "said: The importer section is drafted; running the link check now."):
         assert text.replace(" · ", " ") in flat(rows[0]).replace(" · ", " "), text  # a line may end between two fields
     assert all(line.startswith("   ") for row in rows for line in row.splitlines()[1:])
-    assert f"ctx \x1b[{mv.RICH_SGR['bad']}m■■■■□\x1b[0m 106,137" in screen  # 80% or more
-    assert f"ctx \x1b[{mv.RICH_SGR['dim']}m─────\x1b[0m 106,137 (window unknown)" in screen  # no value: structure
+    assert f"ctx \x1b[{monitor_layout.RICH_SGR['bad']}m■■■■□\x1b[0m 106,137" in screen  # 80% or more
+    assert f"ctx \x1b[{monitor_layout.RICH_SGR['dim']}m─────\x1b[0m 106,137 (window unknown)" in screen  # no value: structure
     assert "ctx ■□□□□ 106,137" in screen  # below the mark: not painted
     payload["groups"]["activity"]["data"]["leads"][0]["session"]["context_tokens"] = None
     assert "ctx ───── ?" in strip(expand(payload, width=120))
@@ -503,11 +505,11 @@ def test_no_color_keeps_the_same_layout_without_sgr(build, width, monkeypatch):
     assert "\x1b[" in painted and "\x1b" not in bare
     assert strip(painted).splitlines()[1:] == bare.splitlines()[1:]  # colour changes no text...
     head = re.match(r"^(OK\??|ATTN \d+\??)", bare.splitlines()[0])
-    assert head and painted.splitlines()[0].startswith(f"\x1b[{mv.PILL_SGR['ATTN' if 'ATTN' in head[1] else head[1]]}m {head[1]} ")
+    assert head and painted.splitlines()[0].startswith(f"\x1b[{monitor_layout.PILL_SGR['ATTN' if 'ATTN' in head[1] else head[1]]}m {head[1]} ")
     assert strip(painted).splitlines()[0].split() == bare.splitlines()[0].split()  # ...but the pill's padding
     assert " · " in bare.splitlines()[0] and " | " not in bare.splitlines()[0]  # the pill line's layout, not its colour
     if width >= 100:
-        assert bare.splitlines()[0].endswith("23:46Z") and _width(bare.splitlines()[0]) == width - 1
+        assert bare.splitlines()[0].endswith("23:46Z") and cell_width(bare.splitlines()[0]) == width - 1
     monkeypatch.setenv("NO_COLOR", "1")
     assert expand(build(), color=True, width=width) == bare
     assert set(SGR.findall(painted)) <= OUR_CODES
@@ -526,7 +528,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     if width == 100:
         assert "ctx #.... 106,137 of 1,000,000 model max (10%)" in screen and "ctx ----- 106,137 (window unknown)" in screen
         assert " gone: cc.fable activity-view | age 5m | high | a2" in lines
-    assert f"{A['fast']} fast" in " ".join(block(screen, "capacity")) and mv.POOL_LEGEND in " ".join(screen.split())  # G8 wraps the legend.
+    assert f"{A['fast']} fast" in " ".join(block(screen, "capacity")) and monitor_legend.POOL_LEGEND in " ".join(screen.split())  # G8 wraps the legend.
     kept = expand(detail_payload(), unicode=False, width=width, text_encoding="utf-8")
     assert "결론: " in kept and "─" not in kept and "·" not in kept and "●" not in kept  # A5: text stays (cut at 60 columns)
     # the same layout line for line once the text has the same widths (without an encoding, Korean becomes `?`)
@@ -544,7 +546,7 @@ def test_every_line_fits_every_width(build, width):
             for height in (None, 30):
                 screen = expand(build(), width=width, unicode=unicode, color=color, height=height)
                 lines = screen.splitlines()
-                assert all(_width(line) <= max(0, width - 1) for line in lines), (width, unicode, color, height)
+                assert all(cell_width(line) <= max(0, width - 1) for line in lines), (width, unicode, color, height)
                 assert set(SGR.findall(screen)) <= OUR_CODES and "\x1b" not in strip(screen)
                 if width <= 1:
                     assert screen == ""
@@ -557,7 +559,7 @@ def test_every_line_fits_every_width(build, width):
 @pytest.mark.parametrize("width", [60, 100, 140])
 def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
     payload = detail_payload()
-    guide = f"{mv.GUIDE_TEXT}: "
+    guide = f"{monitor_links.GUIDE_TEXT}: "
     whole = [line for line in expand(payload, width=width, height=10_000).splitlines() if not line.startswith(guide)]
     unbounded = [line for line in expand(payload, width=width).splitlines() if not line.startswith(guide)]
     assert whole[-1].startswith("Coverage: ") and "rows hidden" not in "\n".join(whole)
@@ -571,7 +573,7 @@ def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
         assert lines[:2] == whole[:2]
         shown = heads(screen)
         if height == 5 + mv.FRAME_TRAILING_ROWS:
-            assert lines[-1].startswith(f"gap vs {mv.PACE_GAP_BASELINE}")
+            assert lines[-1].startswith(f"gap vs {PACE_GAP_BASELINE}")
         else:
             assert "--expand | more" in screen
         assert shown == ORDER[:len(shown)]

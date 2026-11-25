@@ -17,11 +17,13 @@ ALLOWED: dict[str, set[str]] = {
     "bridge_registry": {"session_receipts"},
     "session_receipts": {"usage_normalization"},
     "monitor_read_model": {"adapters", "observation_model", "quota_projection", "session_receipts",
+                           "monitor_preferences", "monitor_queries",
                            "caller",  # who started an ask (neutral)
                            "liveness",  # is that ask process alive (neutral)
                            "diag_running"},  # the pure row helpers for start time, binding and profile
+    "monitor_queries": {"observation_model"},
     "liveness": {"caller"},  # this host and pid namespace, as caller records them (neutral)
-    "lead_sessions": {"monitor_read_model",  # the display cleaners of the read model it feeds (#376)
+    "lead_sessions": {"monitor_queries", "monitor_read_model",  # the activity window and display cleaners (#376)
                       "process_tree"},  # the creation FILETIME reader (neutral)
     # Read-only current-profile inspection, canonical observation evaluation,
     # shared quota projection math, and provider receipt validation.
@@ -45,7 +47,6 @@ ALLOWED: dict[str, set[str]] = {
     "skills": {"authoritative", "boundary", "sqlite_tx"},
     "artifact": {"boundary"},
     # M3
-    "a2a": {"a2a_journal"},  # one A2A unit: the adapter lazily uses its durable journal
     "a2a_http": {"a2a"},
     "a2a_journal": {"a2a"},
     "memory": {"source_records"},
@@ -106,8 +107,8 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts", "monitor_read_model", "usage_normalization", "runtime_contract",
-          "caller", "liveness", "lead_sessions", "pool_health"}
-    helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
+          "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries"}
+    helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:
             continue

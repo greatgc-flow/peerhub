@@ -46,6 +46,13 @@ peerhub monitor [--interval-seconds SECONDS=60] [--cycles N] [--peers cx cc ag] 
 - Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when the cycle limit ended the run (including the implicit single cycle off-TTY); 2 usage error (nothing is collected, no database is created).
 - Every cycle costs one `/usage` read per peer (no model turn; see the probe table above). Do not set intervals of a few seconds.
 
+The grouped monitor assembles the read snapshot and its alerts in
+`peerhub/extensions/monitor_read_model.py`. The bounded projection queries in
+`peerhub/extensions/monitor_queries.py` use the same read transaction. The CLI
+composes human frames in `monitor_view.py`, using `monitor_format.py` for quota
+tables, `monitor_layout.py` for fitting terminal text, and `monitor_links.py` for
+OSC 8 hyperlinks.
+
 ### `peerhub monitor --view {auto,rich,plain}`
 
 The compact and expanded renderers share the same activity order. ALERTS and RUNNING get space before RECENT. The expanded header includes the DB path. Redirected expanded output includes finished and sampled superseded asks. See [the monitor guide](../monitor.md) for layout and width and height budgets.

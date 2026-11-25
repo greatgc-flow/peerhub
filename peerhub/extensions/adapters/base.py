@@ -967,7 +967,7 @@ def resolve_binary(spec: ProviderSpec) -> list[str] | None:
         p = shutil.which(n)
         if p:
             if Path(p).suffix.lower() in (".cmd", ".bat"):
-                from peerhub.extensions.adapters.binary_resolution import resolve_direct_binary
+                from peerhub.extensions.binary_resolution import resolve_direct_binary
                 direct = resolve_direct_binary(Path(p))
                 if direct:
                     return direct
@@ -1673,7 +1673,8 @@ class CliRuntimeTarget:
             payload["display_truncated"] = True
         if usage is not None:
             payload["usage"] = usage
-        from peerhub.extensions.adapters.telemetry import parse_provider_usage, unknown_usage
+        from peerhub.extensions.adapters.telemetry import parse_provider_usage
+        from peerhub.extensions.usage_normalization import unknown_usage
         payload["provider_telemetry"] = (
             unknown_usage("output_incomplete") if res.stdout_truncated or parser.truncated
             else parse_provider_usage(self.runtime_kind, stdout_text))

@@ -594,7 +594,7 @@ def _plan_family(row: _Row) -> tuple[str | None, str, str]:
 
 def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]],
                      consumers: Mapping[str, list[str]]) -> dict[str, _Row]:
-    from peerhub.cli.monitor_view import FAMILIES, _pool_family, _parse_window, _scoped_weekly_parents, _WEEK  # pyright: ignore[reportPrivateUsage]
+    from peerhub.cli.monitor_format import FAMILIES, pool_family, parse_window, scoped_weekly_parents, WEEK_SECONDS
 
     families: dict[tuple[str | None, str, str], list[_PlanWindow]] = {}
     descriptors: list[dict[str, Any]] = []
@@ -607,27 +607,27 @@ def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]],
                             "profiles": tuple(consumers[r.ref]),
                             "retired": bool(r.item.get("display_retired"))})
 
-    scoped_parents = _scoped_weekly_parents(descriptors)
+    scoped_parents = scoped_weekly_parents(descriptors)
     parents: dict[str, _Row] = {}
     for (r, _, _, _), row, descriptor in zip(own, out, descriptors):
         siblings = families[_plan_family(r)]
-        family = _pool_family(r.pool)
-        window = _parse_window(r.pool)[0]
+        family = pool_family(r.pool)
+        window = parse_window(r.pool)[0]
         scoped = scoped_parents.get(id(descriptor))
         parent = None
         if scoped is not None:
             parents[r.ref] = rows_by_ref[scoped["pool_ref"]]
             parent = scoped["pool"]
-        elif window < _WEEK and family != "?":
+        elif window < WEEK_SECONDS and family != "?":
             parent = next((s.pool for s, _, action, _ in siblings
-                           if action != "n/a" and _parse_window(s.pool)[0] == _WEEK), None)
+                           if action != "n/a" and parse_window(s.pool)[0] == WEEK_SECONDS), None)
         row.update(age_seconds=r.age, ttl_seconds=r.ttl if r.ttl is not None else QUOTA_TTL_SECONDS,
                    family=FAMILIES.get(family, "?"), parent=parent)
     return parents
 
 
 def _plan_observations(report: DiagnosticReport) -> list[Obj]:
-    from peerhub.cli.monitor_view import omitted_plan_windows
+    from peerhub.cli.monitor_format import omitted_plan_windows
     from peerhub.extensions.observation_model import account_text
 
     items = _items(_section(report, "observations").get("items"))
@@ -674,7 +674,7 @@ def _plan_gate_windows(own: list[_PlanWindow], consumers: Mapping[str, list[str]
 def _plan_advice(window: _PlanWindow, parent: _Row | None, facts: PoolHealth, own_health: PoolHealth,
                  windows: list[_PlanWindow], exhausted: Mapping[str, _PlanWindow], *,
                  use_family: bool) -> dict[str, object]:
-    from peerhub.cli.monitor_view import _parse_window, _WEEK  # pyright: ignore[reportPrivateUsage]
+    from peerhub.cli.monitor_format import parse_window, WEEK_SECONDS
 
     r, left, own_action, own_reason = window
     if own_action == "n/a":
@@ -708,7 +708,7 @@ def _plan_advice(window: _PlanWindow, parent: _Row | None, facts: PoolHealth, ow
         reason = f"{PLAN_STALE_TAG} {reason}"
 
     shown = [entry for entry in applicable if not use_family or entry[0].ref in exhausted]
-    if _parse_window(r.pool)[0] == _WEEK:
+    if parse_window(r.pool)[0] == WEEK_SECONDS:
         # Reset and unknown windows remain weekly evidence. Their block applies only to their own row.
         shown.extend(entry for entry in windows if entry not in shown
                      and _plan_family(r) == _plan_family(entry[0]) and entry[2] in {"rest", "blocked"})
@@ -809,7 +809,7 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
 
 
 def _plan_cells(row: Obj, health: PoolHealth, *, unicode: bool) -> list[str]:
-    from peerhub.cli.monitor_view import format_exhaust_reset, format_pool_left, format_pool_pace
+    from peerhub.cli.monitor_format import format_exhaust_reset, format_pool_left, format_pool_pace
 
     peer_pool = [str(row["peer"]), str(row["pool"])]
     if row["action"] == "n/a":
@@ -826,7 +826,7 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
                 store_source: str = "", store_note: str = "", load: Mapping[str, Any] | None = None,
                 profiles_by_pool: Mapping[str, list[str]] | None = None, peers: frozenset[str] = frozenset(),
                 separate_observation_store: bool = False, unicode: bool = True) -> str:
-    from peerhub.cli.monitor_view import format_pool_pace
+    from peerhub.cli.monitor_format import format_pool_pace
     from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 
     width = max(1, width)
