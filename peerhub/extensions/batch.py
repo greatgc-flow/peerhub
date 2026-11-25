@@ -411,7 +411,8 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
     def work(t: Task, tmp: Path, launched: list[subprocess.Popen[Any]]) -> dict[str, Any]:
         stream, request = derive_ids(batch_id, t.task_id)
         row = {"task_id": t.task_id, "peer": t.peer, "stream": stream, "request_id": request}
-        query = tmp / f"{t.task_id}.txt"
+        # Task IDs are case-sensitive and can be Windows device names.
+        query = tmp / f"{request}.txt"
         try:
             query.write_text(t.prompt, encoding="utf-8")
         except OSError as exc:

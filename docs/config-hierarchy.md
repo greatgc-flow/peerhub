@@ -17,6 +17,8 @@ also fence old instances. A stale instance raises `StoreReplacedError`.
 
 `observation refresh` also needs an explicit `--db` or `PEERHUB_DB` to bootstrap a missing store.
 
+Repeat the same `--db PATH` on every command in a recipe to keep `PEERHUB_DB` from redirecting a later step.
+
 ## Model profiles
 
 `ask --profile` resolves profile fields from workspace, then global, then

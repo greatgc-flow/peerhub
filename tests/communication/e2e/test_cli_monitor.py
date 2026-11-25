@@ -1755,6 +1755,7 @@ def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_pat
                        "next": payload.get("next_refresh_in"), "read": len(reads), "text": text})
         return text
 
+    monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setattr("sys.stdout", TTY())
     monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setattr("peerhub._console.FrameOutput.geometry", staticmethod(lambda: (100, 30)))

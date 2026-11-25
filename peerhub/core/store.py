@@ -363,7 +363,8 @@ class CoreStore:
                       revision=row["revision"], metadata=json.loads(row["metadata_json"]), created_at=row["created_at"])
 
     def get_stream(self, stream_id: str) -> Stream | None:
-        with self._read() as conn:
+        # The Stream row and its ordered members belong to the same revision.
+        with self.read_uow() as conn:
             row = conn.execute("SELECT * FROM streams WHERE stream_id = ?", (stream_id,)).fetchone()
             return self._load_stream(conn, row) if row else None
 

@@ -70,6 +70,34 @@ def build_alerts(*, asks: list[dict[str, Any]] | None, pools: list[dict[str, Any
     return failed + gone + overdue + ended_badly + login + out_pools + expiring + facts
 
 
+def merge_activity_frame(snapshot: dict[str, Any], activity: dict[str, Any]) -> dict[str, Any]:
+    """Replace the activity evidence while retaining the full read's clock and other sources."""
+    errors = {key: value for key, value in snapshot["errors"].items() if key != "activity"}
+    if "activity" in activity["errors"]:
+        errors["activity"] = activity["errors"]["activity"]
+    sources = {**snapshot["alert_sources"], "activity": activity["alert_sources"]["activity"]}
+    reasons = {key: value for key, value in sources.get("reasons", {}).items() if key != "activity"}
+    if "activity" in activity["alert_sources"].get("reasons", {}):
+        reasons["activity"] = activity["alert_sources"]["reasons"]["activity"]
+    if reasons:
+        sources["reasons"] = reasons
+    else:
+        sources.pop("reasons", None)
+
+    failures: list[dict[str, Any]] = []
+    others: list[dict[str, Any]] = []
+    for alert in snapshot["alerts"]:
+        if alert["code"] == "a6" and alert["kind"] == "store":
+            if not alert["subject"].startswith("activity: "):
+                failures.append(alert)
+        elif alert["code"] not in ("a1", "a2"):
+            others.append(alert)
+    # The activity-only read supplies store failures first, then activity incidents.
+    return {**snapshot, "groups": {**snapshot["groups"], "activity": activity["groups"]["activity"]},
+            "status": "PARTIAL" if errors else "OK", "errors": errors, "alert_sources": sources,
+            "alerts": failures + activity["alerts"] + others}
+
+
 def _saved_defaults_source(groups: list[str]) -> str | None:
     """The saved-defaults layer when `groups` is exactly what it selects; the read model has no other view of the selection."""
     try:

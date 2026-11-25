@@ -23,6 +23,11 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- Batch runs validate every task's effective local profile before workers start and use request IDs for Windows-safe prompt filenames (from PR #470).
+- Continuous monitor watch updates activity alerts and read status with the activity rows. JSON `min_quota.state` reports stale zero as `aged` (from PR #470).
+- `diag readiness` stops using remaining quota at reset, including when a parent pool would otherwise limit a child (from PR #470).
+- Core Stream reads return the Stream row and its ordered members from one snapshot (from PR #470).
+- Core and account recipes keep the same explicit store throughout, and the guide describes offline batch profile checks (from PR #470).
 - Deterministic tests use a quiet CPU and RAM sample and isolate the Antigravity transport cache. The ask gate and probe tests supply their own resource readings.
 - Linux ask liveness uses the boot ID and process start ticks, so wall-clock corrections do not revoke live leases. Legacy timestamp mismatches and unverified leaderless sessions remain unknown.
 - POSIX asks record their launch identity before the provider can execute. The reaper leaves unresolved invocations with missing process evidence unknown.

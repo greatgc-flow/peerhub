@@ -226,16 +226,16 @@ def test_dry_run_displays_the_named_profile_resolved_by_ask(dry_run, monkeypatch
             super().__init__(kind, task_workspace, **options)
 
     monkeypatch.setattr(ask, "CliRuntimeTarget", TargetWithDefault)
-    argv = dry_run([_task("resolved", peer, workspace=str(workspace)), _task("unavailable", "oa")])
+    argv = dry_run([_task("resolved", peer, workspace=str(workspace)), _task("unnamed", "cc")])
     assert main([*argv[:2], "ask", peer, "preview", "--workspace", str(workspace), "--dry-run", "--json"]) == 0
     resolved = json.loads(capsys.readouterr().out)["profile"]
     assert resolved
 
     assert main([*argv, "--dry-run", "--json"]) == 0
-    named, unavailable = json.loads(capsys.readouterr().out)["tasks"]
-    assert named["profile"] is unavailable["profile"] is None
+    named, unnamed = json.loads(capsys.readouterr().out)["tasks"]
+    assert named["profile"] is unnamed["profile"] is None
     assert named["profile_display"] == batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
-    assert unavailable["profile_display"] == batch.DEFAULT_PROFILE_DISPLAY
+    assert unnamed["profile_display"] == batch.DEFAULT_PROFILE_DISPLAY
 
     assert main([*argv, "--dry-run"]) == 0
     assert capsys.readouterr().out.splitlines()[2].endswith(f" {named['profile_display']} {named['workspace']}")

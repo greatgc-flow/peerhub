@@ -301,7 +301,7 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
     provider says it does not have or has disabled (ABSENT with one of ABSENT_FACT_REASONS, also when aged).
 
     `shown` is what the POOLS table shows (precedence n/a ? reset out low fast aged ok): `state` for a fresh row; for a STALE
-    row out at 0, low at `LOW_QUOTA_FRACTION` or less, fast on a threat projection, else aged. `fast` needs two projection
+    row aged at 0, low above 0 through `LOW_QUOTA_FRACTION`, fast on a threat projection, else aged. `fast` needs two projection
     samples, as in the view (monitor_format.compact_pool): the item's `projection_samples`, else `samples[observation_id]`, else 0."""
     pools: list[dict[str, Any]] = []
     for item in observations:
@@ -332,7 +332,7 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
             remaining, resets_at = known
             passed = resets_at is not None and now is not None and resets_at <= now
             state, remaining = ("reset", None) if passed else ("aged", remaining)
-            shown = state if remaining is None else graded(remaining, "aged")
+            shown = state if remaining is None or remaining == 0 else graded(remaining, "aged")
         elif remaining is None:
             state = shown = "?"
         elif reset_in is not None and reset_in <= 0:
