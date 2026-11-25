@@ -24,7 +24,7 @@ from peerhub.extensions.adapters import ag, ag_transport, cc, common, registry
 from peerhub.extensions.adapters.event_parser import IncrementalEventParser
 from peerhub.extensions.adapters.live_output import LiveOutput
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, ProcessResult,
-                                                 SpawnFailure, check_argv)
+                                                 SpawnFailure, WorkerStartFailure, check_argv)
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets, path_secrets
 from peerhub.extensions.process_tree import capture_process_identity, process_created
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
@@ -372,6 +372,9 @@ class CliRuntimeTarget:
         except SpawnFailure as e:
             self._note("prespawn_failure")
             raise PrespawnError(san.clean(f"cannot spawn {self._spec.binary}: {e}", common.EXCERPT_CHARS)) from e
+        except WorkerStartFailure as e:
+            raise RuntimeTargetError(san.clean(f"{self.runtime_kind} {e}", common.EXCERPT_CHARS),
+                                     termination_confirmed=proc.termination_confirmed) from e
         # ---- a process exists from here on: every failure is uncertain, never pre-spawn
         finished = False
         try:
@@ -431,6 +434,11 @@ class CliRuntimeTarget:
         if res.parser_failed or parser.parser_failed:
             raise RuntimeTargetError(f"{self.runtime_kind} parser failed during output drain; outcome indeterminate",
                                      termination_confirmed=res.termination_confirmed)
+        if not stream and stdin_payload is not None and res.stdin_state != "complete":
+            raise RuntimeTargetError(
+                f"{self.runtime_kind} stdin write incomplete ({res.stdin_state}, "
+                f"{res.stdin_bytes_written}/{len(stdin_payload)})",
+                termination_confirmed=res.termination_confirmed)
         raw_text = res.stdout.decode("utf-8", "replace")
         stdout_text, stream_validation = (
             ag.stream_stdout(res, san, len(stdin_payload or b"")) if stream else (raw_text, None))

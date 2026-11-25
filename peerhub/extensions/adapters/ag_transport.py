@@ -156,7 +156,7 @@ def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str, *,
         return undetermined("--version printed no version")
     version = m.group(0)
     key = (identity, version) if identity is not None else None
-    if key is not None:
+    if key is not None and len(base) == 1:  # multi-argument wrappers probe their own help
         with _AG_TRANSPORT_LOCK:
             cached = _AG_TRANSPORT_CACHE.get(key)
         if cached is not None:

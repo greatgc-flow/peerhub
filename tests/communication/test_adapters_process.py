@@ -11,6 +11,7 @@ Covers:
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -21,15 +22,16 @@ import time
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from types import SimpleNamespace
+from unittest.mock import Mock, call
 
 import psutil
 import pytest
 
 pytestmark = pytest.mark.platform_sensitive
 
-from peerhub.extensions.adapters import CliRuntimeTarget
+from peerhub.extensions.adapters import CliRuntimeTarget, cli_runtime, process
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
-from peerhub.extensions.runtime_contract import RuntimeTargetError
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTargetError
 from peerhub.extensions.process_tree import kill_process_tree
 from peerhub.extensions.runtime_port import ProcessRuntimeAdapter, RuntimeCancellationError, RuntimeCapability
 
@@ -84,6 +86,81 @@ def _record(body: str = "test prompt", rid: str = "rec-1"):
 
 def _drain(gen):
     return list(gen)
+
+
+@pytest.mark.parametrize("fail_at", [1, 3])
+def test_worker_start_failure_kills_and_reaps_child(monkeypatch, fail_at):
+    calls = Mock()
+    child = SimpleNamespace(pid=4242, poll=lambda: None, wait=calls.wait,
+                            stdin=io.BytesIO(), stdout=io.BytesIO(), stderr=io.BytesIO())
+    calls.kill_tree.return_value = True
+    monkeypatch.setattr(process.subprocess, "Popen", lambda *args, **kwargs: child)
+    monkeypatch.setattr(process, "kill_process_tree", calls.kill_tree)
+    original_start = threading.Thread.start
+    starts = 0
+
+    def start(thread):
+        nonlocal starts
+        starts += 1
+        if starts == fail_at:
+            raise RuntimeError("thread start failed")
+        original_start(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", start)
+    target = CliRuntimeTarget("cc", ".", command=["fake-cc"])
+    session = target.create_session()
+    with pytest.raises(RuntimeTargetError, match="thread start failed") as failure:
+        next(iter(target.deliver(session, _record(), [])))
+    assert not isinstance(failure.value, PrespawnError)
+    assert failure.value.termination_confirmed is True
+    assert calls.mock_calls == [call.kill_tree(child), call.wait(timeout=10)]
+    assert session not in target._active
+
+
+def test_popen_failure_stays_prespawn(monkeypatch):
+    def popen(*args, **kwargs):
+        raise FileNotFoundError("fake executable missing")
+
+    monkeypatch.setattr(process.subprocess, "Popen", popen)
+    target = CliRuntimeTarget("cc", ".", command=["fake-cc"])
+    with pytest.raises(PrespawnError, match="fake executable missing"):
+        _drain(target.deliver(target.create_session(), _record(), []))
+
+
+@pytest.mark.parametrize("kind,stdout", [
+    ("cc", b'{"type":"result","subtype":"success","is_error":false,"result":"OK"}\n'),
+    ("cx", b'{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}\n'
+           b'{"type":"turn.completed"}\n'),
+])
+@pytest.mark.parametrize("state", ["complete", "short", "broken"])
+def test_stdin_must_be_complete_before_zero_exit_can_deliver(monkeypatch, kind, stdout, state):
+    child = SimpleNamespace(pid=4242, poll=lambda: 0, wait=lambda **kwargs: 0, returncode=0,
+                            stdin=io.BytesIO(), stdout=io.BytesIO(stdout), stderr=io.BytesIO())
+    monkeypatch.setattr(process.subprocess, "Popen", lambda *args, **kwargs: child)
+    monkeypatch.setattr(cli_runtime, "process_created", lambda pid: None)
+    writes: list[bytes] = []
+
+    def write_some(pipe, view):
+        writes.append(bytes(view))
+        if len(writes) == 1:
+            return 4
+        if state == "broken":
+            raise BrokenPipeError
+        return len(view) if state == "complete" else 0
+
+    monkeypatch.setattr(process, "_write_some", write_some)
+    target = CliRuntimeTarget(kind, ".", command=["fake-cli"])
+    events = iter(target.deliver(target.create_session(), _record(), []))
+    assert next(events)[0] == "started"
+    if state == "complete":
+        terminal, = events
+        assert terminal[0] == "terminal"
+        assert terminal[1]["response"] == "OK"
+    else:
+        with pytest.raises(RuntimeTargetError, match=rf"stdin write incomplete \({state}, 4/11\)") as failure:
+            next(events)
+        assert not isinstance(failure.value, PrespawnError)
+    assert writes == [b"test prompt", b" prompt"]
 
 
 def test_normal_exit_termination_confirmed_is_none(tmp_path):
