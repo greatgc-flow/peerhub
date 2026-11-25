@@ -58,7 +58,7 @@ def register_outcome_parser(subparsers: Subparsers) -> None:
 
 
 def validate_ask_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    from peerhub.extensions.bridge import normalize_session_selector
+    from peerhub.extensions.bridge_sessions import normalize_session_selector
 
     normalize_session_selector(fresh=args.fresh, session=args.session)
     if (args.prompt is None) == (args.query_file is None):

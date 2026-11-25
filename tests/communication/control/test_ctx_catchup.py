@@ -5,7 +5,8 @@ from typing import Any, Mapping
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from peerhub.extensions.bridge import Bridge, _PersistedRecord
+from peerhub.extensions.bridge import Bridge
+from peerhub.extensions.bridge_ledger import PersistedRecord
 from peerhub.extensions.bridge_control import NOT_STARTED
 from peerhub.extensions.bridge_errors import SessionDeltaOverflowError
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, build_catch_up, project_catch_up
@@ -408,7 +409,7 @@ def test_ctx_004_paged_delta_projection_matches_unpaged_exactly(n, watermark, po
         wm = min(watermark, max(0, head - 2))
         # Generates interior boundary (current_pos <= head), at-head (== head), or exterior boundary (> head)
         current_pos = max(wm + 1, min(head + 5, head + pos_offset))
-        cur = _PersistedRecord("cur", current_pos)
+        cur = PersistedRecord("cur", current_pos)
 
         # 1. Native delta: paged vs actual old unpaged oracle
         mapping = {
@@ -485,7 +486,7 @@ def test_ctx_004_exact_session_overflow_rejection_and_automatic_fresh_fallback(t
     # 1. Exact-session overflow rejection: requesting the exact handle raises SessionDeltaOverflowError
     h.clock.advance(60)
     token = h.acquire_claim("b", "s", "exact-tester")
-    cur = _PersistedRecord("cur", head + 1)
+    cur = PersistedRecord("cur", head + 1)
     with pytest.raises(SessionDeltaOverflowError, match="exceeds its context budget"):
         h.bridge._validate_exact(token, rt, handle, cur)
 
@@ -536,7 +537,7 @@ def test_ctx_004_delta_reads_bounded_over_20k_records(tmp_path):
 
     watermark = 20_000
     current_pos = 20_501
-    cur = _PersistedRecord("cur", current_pos)
+    cur = PersistedRecord("cur", current_pos)
     mapping = {
         "peer_id": "b",
         "stream_id": "s",

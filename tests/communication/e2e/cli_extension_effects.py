@@ -112,13 +112,13 @@ def seed_running_caller(db):
     import time
     from contextlib import closing
 
-    from peerhub.extensions import bridge, bridge_claims, caller
+    from peerhub.extensions import bridge_claims, bridge_schema, caller
     from tests.communication.diag.test_diag_running import add
 
     facts = {**caller.detect_caller(), "label": "shared-folder", "owner": "other-lead"}
     generation = db.parent / "workspace.generation"
     with closing(sqlite3.connect(db)) as conn, conn:
-        for statement in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+        for statement in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             conn.execute(statement)
         conn.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
     add(db, 1, claim_expires=time.time() + 60, workspace_generation=(

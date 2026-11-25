@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.extensions import bridge, bridge_claims, bridge_registry, delivery_projections
+from peerhub.extensions import bridge_claims, bridge_registry, bridge_schema, delivery_projections
 from peerhub.extensions import monitor_queries, monitor_read_model as mrm
 from tests.communication.harness.core import CoreHarness
 
@@ -34,7 +34,7 @@ def iso(ts: float) -> str:
 def db(tmp_path):
     h = CoreHarness(tmp_path / "ws")
     with closing(sqlite3.connect(h.db_path)) as c:
-        for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+        for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             c.execute(stmt)
         c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_call_once ON bridge_evidence(delivery_id) WHERE kind='session_call'")
@@ -828,7 +828,7 @@ def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
     def store(name):
         path = CoreHarness(tmp_path / name).db_path
         with closing(sqlite3.connect(path)) as c:
-            for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+            for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
                 c.execute(stmt)
             c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
             for stmt in (*bridge_registry.DDL, *delivery_projections.DDL):

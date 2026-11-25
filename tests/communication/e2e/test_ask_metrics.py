@@ -57,15 +57,15 @@ def test_pool_cost_uses_all_accepted_asks_in_cohort():
 @pytest.fixture
 def old_bridge():
     from peerhub.core.migrations import _baseline
-    from peerhub.extensions import bridge, bridge_registry, observation
+    from peerhub.extensions import bridge_registry, bridge_schema, observation
 
     with closing(sqlite3.connect(":memory:")) as conn:
         conn.row_factory = sqlite3.Row
         _baseline(conn)
         conn.executescript(observation._DDL)
-        for stmt in bridge._DDL:
+        for stmt in bridge_schema._DDL:
             conn.execute(stmt)
-        bridge_registry.initialize(conn, bridge.Bridge._upgrade_session_context, lambda _: None)
+        bridge_registry.initialize(conn, bridge_schema.upgrade_session_context, lambda _: None)
         conn.execute("INSERT INTO records (record_id, stream_id, position, author_peer_id, kind, targets_json, "
                      "metadata_json,idempotency_key,payload_digest,created_at,appended_at) "
                      "VALUES ('ask-id','s',1,'user','prompt','[\"cx\"]',?, 'ask:request','digest','1970-01-01T00:00:19Z','1970-01-01T00:00:19Z')",

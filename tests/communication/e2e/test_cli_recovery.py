@@ -186,11 +186,12 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[3]
-    bridge_file = root / "peerhub" / "extensions" / "bridge.py"
-    control_file = bridge_file.with_name("bridge_control.py")
-    claims_file = root / "peerhub" / "extensions" / "bridge_claims.py"
-    adapters = root / "peerhub" / "extensions" / "adapters"
-    ask_file = root / "peerhub" / "extensions" / "ask.py"
+    extensions = root / "peerhub" / "extensions"
+    bridge_files = ("bridge.py", "bridge_delivery.py", "bridge_ledger.py", "bridge_schema.py", "bridge_sessions.py")
+    control_file = extensions / "bridge_control.py"
+    claims_file = extensions / "bridge_claims.py"
+    adapters = extensions / "adapters"
+    ask_file = extensions / "ask.py"
     cli_path = root / "peerhub" / "cli"
 
     statuses: set[str] = set()
@@ -206,19 +207,20 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
                 if name and name[0].isupper():
                     exceptions.add(name)
 
-    # 1. Statuses and raises from bridge.py
-    with open(bridge_file, "r", encoding="utf-8") as f:
-        tree = ast.parse(f.read(), str(bridge_file))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            if (isinstance(func, ast.Name) and func.id == "CycleResult") or (isinstance(func, ast.Attribute) and func.attr == "CycleResult"):
-                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                    statuses.add(node.args[0].value)
-        elif isinstance(node, ast.Raise):
-            if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
-                if node.exc.func.id and node.exc.func.id[0].isupper():
-                    exceptions.add(node.exc.func.id)
+    # 1. Statuses and raises from the Bridge façade and its implementation modules
+    for module in bridge_files:
+        bridge_file = extensions / module
+        tree = ast.parse(bridge_file.read_text(encoding="utf-8"), str(bridge_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if (isinstance(func, ast.Name) and func.id == "CycleResult") or (isinstance(func, ast.Attribute) and func.attr == "CycleResult"):
+                    if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                        statuses.add(node.args[0].value)
+            elif isinstance(node, ast.Raise):
+                if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
+                    if node.exc.func.id and node.exc.func.id[0].isupper():
+                        exceptions.add(node.exc.func.id)
 
     # 2. Raises from bridge_control.py, bridge_claims.py and the CLI provider adapters
     _extract_raises(control_file)

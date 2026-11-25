@@ -33,17 +33,21 @@ not private SQLite row mappers.
 | Responsibility | Single owner | Must not own |
 |---|---|---|
 | Peer/Stream/Record/Offset, canonical serialization, CAS, snapshot reads, schema guard | `peerhub/core/` | provider subprocesses, profile/permission selection |
-| Claim lease, fenced completion, invocation marker, delivery certainty, replay/reconcile | `bridge_claims.py` + `bridge.py` | CLI presentation, vendor stdout grammar |
+| Claim leases | `bridge_claims.py` | CLI presentation, vendor stdout grammar |
+| Fenced dispatch and recovery | `bridge_delivery.py` | CLI presentation, vendor stdout grammar |
+| Invocation markers, delivery certainty, terminal settlement, reconciliation | `bridge_ledger.py` | Provider invocation, CLI presentation |
+| Retained session selection, mapping lifecycle, context catch-up | `bridge_sessions.py` | Per-vendor credential discovery |
 | Retained session identity/generation, eligibility, tombstones | `bridge_registry.py` | per-vendor credential discovery |
+| Bridge schema initialization and context migration | `bridge_schema.py` | Dispatch and recovery |
 | Runtime protocol, runtime event and error types | `runtime_contract.py` | stored state, network I/O, provider launch |
 | Provider launch, output parsing, account-specific OS behavior | `extensions/adapters/` | authoritative delivery/session truth |
 | History-driven memory/search, read-only diagnostics | capability extensions | implicit model invocation from snapshot reads |
 | Commands, `--json`, hints | `cli/` | persistence contract, uncertain-execution decisions |
 
-Do not move SQL tables across owners or rename durable identifiers. No `kernel/` tree
-until a demonstrated duplicated responsibility or dependency cycle requires one. File
-length of `bridge.py` is not a refactoring goal; do not split the certainty state
-machine without an independent interface and a failure-proofing test.
+`bridge.py` provides the `Bridge` façade and wires its configuration and schema initialization.
+The bridge ledger keeps the certainty state machine together. SQL tables and durable
+identifiers retain their existing ownership. No `kernel/` tree until a demonstrated
+duplicated responsibility or dependency cycle requires one.
 
 ## Concrete boundaries in code
 

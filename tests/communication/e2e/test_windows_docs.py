@@ -62,7 +62,7 @@ def test_windows_docs_example_commands_parse_via_real_parser():
 
 def test_windows_docs_ask_examples_pass_runtime_argument_validation():
     """Every ask command example in docs/windows.md satisfies runtime argument validation contracts."""
-    from peerhub.extensions.bridge import normalize_session_selector
+    from peerhub.extensions.bridge_sessions import normalize_session_selector
 
     doc_path = Path("docs/windows.md")
     content = doc_path.read_text(encoding="utf-8")

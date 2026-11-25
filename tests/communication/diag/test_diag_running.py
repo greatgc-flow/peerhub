@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.extensions import bridge, bridge_claims
+from peerhub.extensions import bridge_claims, bridge_schema
 from peerhub.extensions.diag_running import MAX_ROWS, format_running, running_report
 from tests.communication.harness.core import CoreHarness
 
@@ -24,7 +24,7 @@ BINDING = "cx.standard/test-model/low#0123456789ab"
 def db(tmp_path):
     h = CoreHarness(tmp_path / "ws")
     with closing(sqlite3.connect(h.db_path)) as c:
-        for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+        for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             c.execute(stmt)
         c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
         # Created by the session-receipts layer in real stores: one session_call evidence row per delivery.
@@ -86,7 +86,7 @@ def lease_store(monkeypatch):
 
     with closing(sqlite3.connect(":memory:")) as store:
         store.execute("CREATE TABLE records (record_id TEXT PRIMARY KEY, idempotency_key TEXT, metadata_json TEXT)")
-        for statement in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+        for statement in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             store.execute(statement)
         store.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
 
@@ -407,7 +407,7 @@ def test_delivery_history_in_finished_scopes_does_not_add_query_work(tmp_path):
     big = CoreHarness(tmp_path / "big").db_path
     for path in (small, big):
         with closing(sqlite3.connect(path)) as c:
-            for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+            for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
                 c.execute(stmt)
             c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
             c.commit()
@@ -441,7 +441,7 @@ def test_history_inside_the_one_live_scope_does_not_add_query_work(tmp_path):
     small, big = CoreHarness(tmp_path / "small").db_path, CoreHarness(tmp_path / "big").db_path
     for path, history in ((small, 10), (big, 3000)):
         with closing(sqlite3.connect(path)) as c:
-            for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+            for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
                 c.execute(stmt)
             c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
             c.commit()
@@ -456,7 +456,7 @@ def test_running_works_on_a_store_without_the_scope_index(tmp_path):
     """A store last opened by an older peerhub has no scope index; the read-only reader neither needs nor creates it."""
     path = CoreHarness(tmp_path / "old").db_path
     with closing(sqlite3.connect(path)) as c:
-        for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+        for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             if SCOPE_INDEX not in stmt:
                 c.execute(stmt)
         c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]

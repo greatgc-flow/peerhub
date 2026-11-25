@@ -70,7 +70,7 @@ def test_every_list_that_names_ca_and_oa_names_ga():
     assert seen >= 30  # the files of design 8 are among them (the next assertions name each one)
     from peerhub.cli import recovery
     from peerhub.core import peer_kinds
-    from peerhub.extensions import batch, bridge, session_receipts, usage_normalization
+    from peerhub.extensions import batch, bridge_ledger, session_receipts, usage_normalization
 
     usage_contract = usage_normalization.PROVIDER_USAGE_CONTRACT
     assert set(usage_contract) == set(BUILTIN_PEER_KINDS)
@@ -80,8 +80,8 @@ def test_every_list_that_names_ca_and_oa_names_ga():
         assert match and match.groups() == (kind, "12")
         assert recovery._PROFILE_ID.fullmatch(f"{kind}.example")  # pyright: ignore[reportPrivateUsage]
     api_kinds = ", ".join(json.dumps(kind) for kind in API_KINDS)
-    bridge_source = Path(bridge.__file__).read_text(encoding="utf-8")
-    assert f"runtime_kind\"] in ({api_kinds})" in bridge_source
+    ledger_source = Path(bridge_ledger.__file__).read_text(encoding="utf-8")
+    assert f"runtime_kind\"] in ({api_kinds})" in ledger_source
     assert api_kinds in Path(batch.__file__).read_text(encoding="utf-8")
     assert peer_kinds.ALIASES["ga"] == "ga" and usage_normalization.REPORTED_FIELDS["ga"] == {"input_tokens", "output_tokens"}
     for name in ("cli/ask_cmd.py", "cli/recovery.py", "extensions/ask.py", "config_data/lessons.toml"):

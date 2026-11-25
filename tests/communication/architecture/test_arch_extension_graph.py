@@ -11,10 +11,16 @@ ROOT = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
 ALLOWED: dict[str, set[str]] = {
     # M1 Session Bridge entry
     "ask": {"accounts", "bridge", "bridge_claims", "observation", "observation_model", "adapters",
-            "bridge_control", "runtime_contract", "caller"},  # caller: who started an ask (neutral; stdlib and psutil only)
+            "bridge_control", "bridge_ledger", "bridge_sessions", "runtime_contract", "caller"},  # caller: who started an ask (neutral; stdlib and psutil only)
     "adapters": {"accounts", "runtime_contract", "binary_resolution", "process_tree", "usage_normalization"},  # adapters depend on neutral RuntimeTarget, not the Bridge implementation
-    "bridge": {"bridge_claims", "bridge_control", "bridge_errors", "catchup", "schema_guard", "bridge_registry", "session_receipts",
-               "ask_budgets", "delivery_projections", "runtime_contract"},
+    "bridge": {"bridge_claims", "bridge_delivery", "bridge_schema", "bridge_sessions", "catchup", "runtime_contract"},
+    "bridge_delivery": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger",
+                        "bridge_sessions", "runtime_contract", "session_receipts"},
+    "bridge_ledger": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_registry",
+                      "delivery_projections", "session_receipts"},
+    "bridge_schema": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_ledger", "bridge_registry", "schema_guard"},
+    "bridge_sessions": {"bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger", "bridge_registry",
+                        "catchup", "runtime_contract", "session_receipts"},
     "bridge_registry": {"delivery_projections", "session_receipts"},
     "ask_budgets": {"session_receipts"},
     "delivery_projections": {"session_receipts", "usage_normalization"},
@@ -109,7 +115,8 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 
 
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
-    m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_errors", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
+    m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
+          "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
           "ask_budgets", "delivery_projections", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries"}

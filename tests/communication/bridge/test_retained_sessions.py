@@ -8,7 +8,8 @@ import pytest
 from peerhub.core.models import Peer, Stream
 from peerhub.core.store import CoreStore, IdempotencyConflictError
 from peerhub.extensions.ask import ask
-from peerhub.extensions.bridge import Bridge, _DDL
+from peerhub.extensions.bridge import Bridge
+from peerhub.extensions.bridge_schema import _DDL, upgrade_session_context
 from peerhub.extensions import bridge_registry, delivery_projections, session_receipts
 from peerhub.extensions.bridge_claims import ClaimStore, StaleClaimError
 from tests.communication.bridge_helpers import bseed, sql
@@ -41,7 +42,7 @@ def test_initialized_registry_reopen_does_not_reseed_history(tmp_path):
         scopes = [tuple(r) for r in conn.execute("SELECT * FROM bridge_session_monitor_scope")]
         conn.set_trace_callback(statements.append)
         try:
-            bridge_registry.initialize(conn, h.bridge._upgrade_session_context, h.bridge._fire)
+            bridge_registry.initialize(conn, upgrade_session_context, h.bridge._fire)
         finally:
             conn.set_trace_callback(None)
         assert [tuple(r) for r in conn.execute("SELECT * FROM bridge_session_counters")] == before

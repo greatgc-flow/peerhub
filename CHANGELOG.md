@@ -19,6 +19,7 @@ they do not claim new validation or publication evidence.
 - Split the Claude Code, Codex, and Antigravity CLI adapters into provider modules. Antigravity owns stream parsing and transport detection.
 - Split session receipts, delivery projections, and ask budgets into separate modules and moved provider usage validation alongside normalization.
 - Split bridge exceptions and durable control handling into dedicated modules.
+- Split Bridge schema initialization, retained sessions, fenced delivery, and the certainty and reconciliation ledger into dedicated modules.
 - Split monitor terminal links, formatting and layout, and bounded SQLite queries into dedicated modules.
 - Move CLI parser registration and handlers into command-family modules.
 

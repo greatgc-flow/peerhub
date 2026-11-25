@@ -17,7 +17,8 @@ import pytest
 from peerhub.cli import suggest
 from peerhub.cli.app import main
 from peerhub.core import load_limits, migrations
-from peerhub.extensions import ask, batch, bridge, diag_running
+from peerhub.extensions import ask, batch, bridge_schema, diag_running
+from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED, TERMINAL
 from tests.communication.test_batch_run import builder, write
 
 
@@ -102,11 +103,11 @@ def test_dry_run_distinguishes_zero_from_unavailable_load(dry_run, monkeypatch, 
 def test_dry_run_reports_replay_counts_from_the_selected_store(dry_run, monkeypatch, capsys):
     dangling = "dangling-invocation"
     cases = {
-        "settled": (bridge.TERMINAL, True),
-        "settled-refusal": (bridge.STARTED, True),
-        "uncertain": (bridge.MAY_HAVE_STARTED, False),
-        "pending": (bridge.NOT_STARTED, False),
-        dangling: (bridge.NOT_STARTED, False),
+        "settled": (TERMINAL, True),
+        "settled-refusal": (STARTED, True),
+        "uncertain": (MAY_HAVE_STARTED, False),
+        "pending": (NOT_STARTED, False),
+        dangling: (NOT_STARTED, False),
         "new": None,
     }
     argv = dry_run([_task(task_id) for task_id in cases])
@@ -115,7 +116,7 @@ def test_dry_run_reports_replay_counts_from_the_selected_store(dry_run, monkeypa
     memory = "file:batch-replay-facts?mode=memory&cache=shared"
     with closing(connect(memory, uri=True)) as store:
         migrations.get_migration_registry()[0].apply(store)
-        for statement in bridge._DDL:
+        for statement in bridge_schema._DDL:
             if statement.startswith("CREATE TABLE"):
                 store.execute(statement)
         for task_id, state in cases.items():

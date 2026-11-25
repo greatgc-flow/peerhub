@@ -405,12 +405,12 @@ def test_hint_is_inferred_from_saved_defaults_when_no_source_is_given(tmp_path, 
 
 def test_frame_alerts_come_from_activity_rows(tmp_path):
     from tests.communication.diag.test_monitor_activity import caller, claim, delivery, iso
-    from peerhub.extensions import bridge, bridge_claims
+    from peerhub.extensions import bridge_claims, bridge_schema
     import sqlite3
     from contextlib import closing
     h = CoreHarness(tmp_path / "ws")
     with closing(sqlite3.connect(h.db_path)) as c:
-        for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+        for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
             c.execute(stmt)
         c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
         c.commit()
