@@ -100,18 +100,33 @@ def lease_store(monkeypatch):
         yield store
 
 
-def seed_leases(store, count):
+def seed_leases(store, count, *, peers=("cx",)):
+    scopes = [(f"s{i}", peers[i % len(peers)]) for i in range(count)]
     with store:
         store.executemany(
-            "INSERT INTO bridge_claims VALUES (?, 'cx', 'claim-owner', 1, ?, 60, 'test')",
-            [(f"s{i}", NOW + 60) for i in range(count)],
+            "INSERT INTO bridge_claims VALUES (?, ?, 'claim-owner', 1, ?, 60, 'test')",
+            [(stream, peer, NOW + 60) for stream, peer in scopes],
         )
         store.executemany(
             "INSERT INTO bridge_deliveries "
             "(delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,claim_generation) "
-            "VALUES (?, ?, ?, 'cx', ?, 1, 1, 'NOT_STARTED', 1)",
-            [(f"d{i}", i, f"s{i}", f"r{i}") for i in range(count)],
+            "VALUES (?, ?, ?, ?, ?, 1, 1, 'NOT_STARTED', 1)",
+            [(f"d{i}", i, stream, peer, f"r{i}") for i, (stream, peer) in enumerate(scopes)],
         )
+
+
+def test_peer_filter_applies_before_limit_and_scope_of_truncation(lease_store):
+    seed_leases(lease_store, 4, peers=("cx", "cc"))
+    limited = report(__file__, peer="cc", limit=1)
+    assert [row["delivery_id"] for row in limited["rows"]] == ["d1"]
+    assert limited["truncated"] and "more rows not shown" in format_running(limited)
+    complete = report(__file__, peer="cc", limit=2)
+    assert [row["delivery_id"] for row in complete["rows"]] == ["d1", "d3"]
+    assert not complete["truncated"]
+    empty = report(__file__, peer="ag", limit=1)
+    assert not empty["rows"] and not empty["truncated"] and "(none)" in format_running(empty)
+    partial = {**empty, "truncated": True}
+    assert "more rows not shown" in format_running(partial) and "(none)" not in format_running(partial)
 
 
 def test_reports_newest_caller_evidence_and_classifies_against_each_reader(lease_store, monkeypatch):

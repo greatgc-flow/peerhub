@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from peerhub.cli import monitor, monitor_view as mv, view
+from peerhub.extensions.observation_model import DISABLED_REASON
 from peerhub.extensions import monitor_read_model
 from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
 from tests.communication.diag.test_monitor_plain_golden import full_payload, quiet_payload
@@ -59,13 +60,18 @@ def test_expanded_history_restores_finished_and_sampled_superseded_rows(width, s
 @pytest.mark.parametrize("width", [60, 118])
 @pytest.mark.parametrize("style", ["plain", "rich"])
 @pytest.mark.parametrize("expand", [False, True])
-def test_unavailable_pool_count_and_quota_reason(width, style, expand):
-    payload = na_payload()
-    screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width, expand=expand)
+@pytest.mark.parametrize("notes", [False, True])
+def test_unavailable_pool_count_and_quota_reason(width, style, expand, notes):
+    payload = na_payload(selected_groups=["capacity"])
+    observations = payload["groups"]["capacity"]["data"]["observations"]
+    next(obs for obs in observations if obs["pool_ref"].endswith(":C-5H"))["reason"] = DISABLED_REASON
+    screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width,
+                                     expand=expand, show_quota_notes=notes)
     pools = screen.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
-    assert pools.startswith("4 ")
-    assert all(f"({pool} {mv.QUOTA_NA})" in pools for pool in ("C-5H", "X-30D"))
-    assert ("not reported (plan prolite)" in screen) == expand
+    assert pools.startswith("4 " if notes else "2 ")
+    assert all((f"({pool} {mv.QUOTA_NA})" in pools) == notes for pool in ("C-5H", "X-30D"))
+    assert screen.count("not reported (plan prolite)") == int(notes)
+    assert screen.count(DISABLED_REASON) == int(notes)
 
 
 @pytest.mark.parametrize("width", [64, 118])

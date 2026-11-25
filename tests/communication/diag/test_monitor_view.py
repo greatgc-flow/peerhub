@@ -293,7 +293,8 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
     elif height == 3:
         assert rendered.splitlines()[1].startswith("PeerHub")
     elif height == 5:
-        assert "POOLS" not in rendered and "gap vs " not in rendered
+        assert ("POOLS 1" in rendered) == (width >= 40)
+        assert "gap vs " not in rendered
     elif height >= 4 and len(frame["selected_groups"]) > max(0, height - 3):
         assert "omitted" in rendered or "hidden" in rendered or any(f"+{i}" in rendered for i in range(1, 10))
         if width >= 64 and height > 4:

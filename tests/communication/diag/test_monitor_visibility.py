@@ -282,7 +282,7 @@ def test_peer_separators_at_100x40_and_data_priority_at_80x24(
         assert "\n\n" not in spacious
         for pool in ("3P-7D", "A-7D", "G-7D", "C-7D", "F-7D", "X-7D"):
             assert pool in tight
-        assert "3P-5H" not in tight and "(X-5H" in tight and "X-30D" in tight
+        assert all(pool not in tight for pool in ("3P-5H", "X-5H", "X-30D"))
     assert len(lines) < 40 and all(_width(line) < 100 for line in lines)
     assert len(tight.splitlines()) < 24 and all(_width(line) < 80 for line in tight.splitlines())
     assert round2_frame == before
@@ -566,7 +566,7 @@ def test_compact_frame_at_80x24_discloses_line_2_cuts_and_keeps_every_pool(round
     assert lines[2] == "Fields hidden | --expand"  # line 2 lost DB and quota age at 80 columns
     pools = next(i for i, line in enumerate(lines) if line.startswith("POOLS "))
     # every 7-day pool; no cut, no overflow line (P21: the suggestion follows the rows)
-    assert lines[pools].split()[1] == "9"
+    assert lines[pools].split()[1] == "6"
     assert lines.index(next(line for line in lines if line.startswith("gap vs "))) > pools
     assert any(line.startswith("suggest:") for line in lines)  # M9
     assert "Legend:" not in screen and "PEERS" not in screen and "rows hidden" not in screen

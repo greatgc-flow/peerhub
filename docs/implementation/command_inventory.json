@@ -543,7 +543,7 @@
             "code"
           ],
           "positional": true,
-          "required": true,
+          "required": false,
           "takes_value": true
         }
       ]

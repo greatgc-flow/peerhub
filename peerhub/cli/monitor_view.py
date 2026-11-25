@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND, POOL_LEGEND, POOL_MARGIN_COLUMN
+from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND, POOL_LEGEND, POOL_MARGIN_COLUMN, SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.extensions.caller import host_id, local_workspace_file
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS, context_estimate_age
@@ -49,6 +49,7 @@ FRAME_HEADS = tuple(FRAME_SECTION_HEADS.values())
 _FRAME_DETAIL_ORDER = _FRAME_SECTION_KEYS[len(FRAME_SECTION_ORDER):]
 
 QUOTA_NA = "n/a"
+_HIDDEN_QUOTA_WINDOWS = "Unavailable quota windows hidden (use --show-quota-notes)"
 BAR_CELLS = 8  # minimum when shown
 BAR_MIDDLE_CELLS = 16
 BAR_MAX_CELLS = 40
@@ -121,7 +122,11 @@ def _na_suffix(names: Sequence[str]) -> str:
     return f"({','.join(names)} {QUOTA_NA})"
 
 
-def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes: bool = True,
+def _retired_pool_note(peer: str, pools: str, plans: str) -> str:
+    return f"{peer} {pools} {QUOTA_NA} (not reported by plan {plans})"
+
+
+def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes: bool,
                   order: dict[tuple[str, str], int] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     """Derive a forest from configured consumers, leaving every pool's values intact. `order` gives the urgency rank
     of each (peer, pool) for the QUOTA peer order. Within a peer the trees keep their family and window order."""
@@ -138,12 +143,11 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
                        key=lambda p: (min(rank(p, str(row["pool"])) for row in rows if row["peer"] == p), p)):
         peer_rows = [dict(row) for row in rows if row["peer"] == peer]
         retired = [row for row in peer_rows if row.get("retired")]
-        if retired:  # #400: named after the peer's first row; --show-quota-notes adds the plan reason as a note
+        if retired and show_quota_notes:
             hidden.setdefault(peer, []).extend(str(row["pool"]) for row in retired)
-            if show_quota_notes:
-                plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in retired}))
-                notes.append(f"{peer} {','.join(str(row['pool']) for row in retired)} {QUOTA_NA} (not reported by plan {plans})")
-                noted.add(peer)
+            plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in retired}))
+            notes.append(_retired_pool_note(peer, ",".join(str(row["pool"]) for row in retired), plans))
+            noted.add(peer)
         active = [row for row in peer_rows if not row.get("retired")]
         first_peer_row = True
 
@@ -212,6 +216,8 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
                 hidden.setdefault(peer, []).append(name)
             else:
                 visit(name, "", "")
+    if not show_quota_notes:
+        return result, notes
     for row in result:  # an n/a pool with no parent row is named after its peer's first row
         names = [*row.pop("folded", []), *(hidden.pop(row["peer"], []) if row["display_peer"] else [])]
         if names:
@@ -899,7 +905,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             evidence_notes: list[str] = []
             na_notes: list[str] = []
             available: list[dict[str, Any]] = []
-            show_notes = expand or bool(data.get("_show_quota_notes"))
+            show_notes = bool(data.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
             for item in sorted(observations, key=lambda item: _pool_order(
                     _peer(item), str(item.get("pool_ref") or item.get("pool_kind") or "").rsplit(":", 1)[-1])):
                 peer = _peer(item)
@@ -913,11 +919,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 row = pool_rows.get((peer, _clean(pool_ref))) or _compact_pool(item, read_at or 0, elapsed_seconds, {})
                 pool, reason = row["pool"], row["reason"]
                 if reason.startswith(ABSENT_FACT_REASONS) and state in {"ABSENT", "STALE"} and not row["retired"]:
-                    what = reason if reason.startswith(DISABLED_REASON) else f"not reported (plan {_na_plan(item, reason)})"
                     if row["state"] == QUOTA_NA and show_notes:
-                        na_notes.append(f"{peer} {pool} {QUOTA_NA} {what}")
+                        na_notes.append(_na_pool_note(row))
                     elif row["aged"]:
-                        why = f"{what}, " if data.get("_show_quota_notes") else ""
+                        why = f"{_na_reason(row, reason)}, " if show_notes else ""
                         na_notes.append(f"{peer} {pool} ? {why}aged; next: peerhub observation refresh --peers {peer}")
                 elif row["aged"]:
                     probe_notes.setdefault(peer, set()).add("STALE:window")
@@ -933,16 +938,23 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                  row, row["display_pool"] != row["pool"], str(row["suffix"]))
                 for row in layout
             ]
-            header, rendered, omitted = _pool_table(entries, list(pool_rows.values()) or available, width - 1,
-                                                    unicode, keep, rich=rich, paint=color, details=True,
-                                                    guide_url=guide_url, profile_urls=profile_urls)
-            rows.extend(header)
-            previous_peer = ""
-            for row, rendered_entry in zip(layout, rendered):
-                if previous_peer and previous_peer != row["peer"] and not rich:
-                    rows.append("")
-                previous_peer = row["peer"]
-                rows.extend(rendered_entry)
+            table_rows = list(pool_rows.values()) or available
+            if not show_notes:
+                table_rows = [row for row in table_rows if row["state"] != QUOTA_NA]
+            omitted: list[str] = []
+            if table_rows or entries or not available:
+                header, rendered, omitted = _pool_table(entries, table_rows, width - 1,
+                                                        unicode, keep, rich=rich, paint=color, details=True,
+                                                        guide_url=guide_url, profile_urls=profile_urls)
+                rows.extend(header)
+                previous_peer = ""
+                for row, rendered_entry in zip(layout, rendered):
+                    if previous_peer and previous_peer != row["peer"] and not rich:
+                        rows.append("")
+                    previous_peer = row["peer"]
+                    rows.extend(rendered_entry)
+            else:
+                rows.append(_HIDDEN_QUOTA_WINDOWS)
             table_size = len(rows)
             notes = [*retired_notes, *na_notes, *evidence_notes,
                      *(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}"
@@ -1568,6 +1580,17 @@ def _na_plan(item: dict[str, Any], reason: str) -> str:
     return _clean(reason.split("plan=", 1)[1]) if "plan=" in reason else "unknown"
 
 
+def _na_reason(row: dict[str, Any], reason: str) -> str:
+    return reason if reason.startswith(DISABLED_REASON) else f"not reported (plan {_na_plan(row, reason)})"
+
+
+def _na_pool_note(row: dict[str, Any]) -> str:
+    peer, pool, reason = row["peer"], row["pool"], row["reason"]
+    if row["retired"]:
+        return _retired_pool_note(peer, pool, _na_plan(row, reason))
+    return f"{peer} {pool} {QUOTA_NA} {_na_reason(row, reason)}" if reason.startswith(ABSENT_FACT_REASONS) else ""
+
+
 def _utc_text(timestamp: float, fmt: str) -> str | None:
     """A UTC date text, or None for an instant that cannot be represented (the renderer must never raise on stored data)."""
     try:  # epoch + timedelta (not fromtimestamp): the platform C time functions stop at year 3000 on Windows
@@ -1870,6 +1893,7 @@ class CompactFrame:
     recent: list[str] | None = None  # [RECENT header, *rows]; None when there is no ended ask
     recent_short: list[str] | None = None  # --expand: the rows of `recent` (entries of two lines) as one line each
     suggest: list[str] = field(default_factory=lambda: list[str]())
+    pool_notes: list[str] = field(default_factory=lambda: list[str]())
     pool_gap: list[str] = field(default_factory=lambda: list[str]())
     pool_legend: list[str] = field(default_factory=lambda: list[str]())
     pools: list[str] | None = None  # [POOLS header, *rows]; None when `capacity` is not selected
@@ -1938,6 +1962,7 @@ def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str
     header = [fit(line) for line in frame.header]
     parts = {key: fitted(getattr(frame, key), (pool_width or width) if key == "pools" else width)
              for key in FRAME_SECTION_ORDER}
+    pool_notes = [fit(line, pool_width or width) for line in frame.pool_notes]
     pool_gap = [fit(line) for line in frame.pool_gap]
     pool_legend = [fit(line) for line in frame.pool_legend]
     totals = {"running": frame.running_total, "leads": frame.leads_total, "pools": frame.pools_total}
@@ -1951,7 +1976,7 @@ def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str
         rows = len(lines) - header_lines.get(key, 1)
         hidden = totals.get(key, 0) - rows
         overflow = [_overflow(hidden, nouns[key], width, unicode)] if hidden > 0 and rows > 0 else []
-        return [*lines, *overflow, *pool_gap, *pool_legend] if key == "pools" else [*lines, *overflow]
+        return [*lines, *overflow, *pool_notes, *pool_gap, *pool_legend] if key == "pools" else [*lines, *overflow]
 
     def assemble() -> list[str]:
         return [verdict, *header, *(line for key in FRAME_SECTION_ORDER for line in section(key))]
@@ -1974,6 +1999,9 @@ def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str
     yield assemble()
     for key in reversed(FRAME_SECTION_ORDER):
         rows = parts[key]
+        if key == "pools" and pool_notes:
+            pool_notes.clear()
+            yield assemble()
         if rows and key == "recent" and frame.recent_short:
             rows[1:] = [fit(line) for line in frame.recent_short]
             yield assemble()
@@ -2636,7 +2664,7 @@ def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool,
 def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
                   rich: bool = False, paint: bool = False, every: bool = False, guide_url: str | None = None,
                   profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], int, int]:
-    """POOLS rows with inline unavailable windows included in the header count."""
+    """POOLS rows, including inline markers and counts for any unavailable windows passed in."""
     ordered = _ordered_pools([row for row in rows if row["state"] != QUOTA_NA], every=every)
     unavailable = [row for row in rows if row["state"] == QUOTA_NA]
     suffixes, marker_rows = _fold_pool_markers(ordered, unavailable, unicode, keep)
@@ -2662,13 +2690,18 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
     return [*headings, *lines], len(lines) + len(ordered) - len(shown), len(headings)
 
 
-def _pool_gap(rows: list[dict[str, Any]], width: int, unicode: bool) -> list[str]:
+def _pool_gap(rows: list[dict[str, Any]], width: int, unicode: bool, *, show_quota_notes: bool) -> list[str]:
     healths: dict[str, PoolHealth | None] = {}
     for row in rows:
         if not row["retired"]:
             pool = str(row["pool"])
             healths[pool] = None if pool in healths else row["health"]
     gaps = pace_gaps({pool: facts for pool, facts in healths.items() if facts is not None})["pools"]
+    if not show_quota_notes:
+        measured = {str(row["pool"]) for row in rows if row["health"]["measured"] and not row["retired"]}
+        gaps = {name: pace for name, pace in gaps.items() if name in measured}
+    if not gaps:
+        return []
     values = ", ".join(f"{name} {format_pool_pace(pace, unicode=unicode)}" for name, pace in gaps.items())
     return _compact_wrap(f"gap vs {PACE_GAP_BASELINE} (pp): {values}", width)
 
@@ -2840,15 +2873,26 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         profile_urls = _obj(payload.get("_profile_urls"))
         if profile_urls:
             frame.suggest = [_link_profiles(line, profile_urls) for line in frame.suggest]
-        if rows:
-            frame.pool_gap = _pool_gap(rows, width, unicode)
+        show_notes = bool(payload.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
+        visible_rows = rows if show_notes else [row for row in rows if row["state"] != QUOTA_NA]
+        if visible_rows:
+            frame.pool_gap = _pool_gap(rows, width, unicode, show_quota_notes=show_notes)
             frame.pool_legend = _compact_wrap(POOL_LEGEND, width)
             frame.pools, frame.pools_total, frame.pools_header_lines = _pool_section(
-                rows, pool_width or width, unicode, keep, rich=rich, paint=paint, every=expand,
+                visible_rows, pool_width or width, unicode, keep, rich=rich, paint=paint, every=expand,
                 guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls)
+            if not expand and show_notes:
+                dim = RICH_SGR["dim"] if paint else None
+                frame.pool_notes = [
+                    _paint(line, dim) for row in rows if row["state"] == QUOTA_NA and (note := _na_pool_note(row))
+                    for line in _compact_wrap(note, max(1, pool_width or width))
+                ]
         else:
-            notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
-                     else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
+            if rows:
+                notes = [] if expand else _compact_wrap(_HIDDEN_QUOTA_WINDOWS, width)
+            else:
+                notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
+                         else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
             head = f"{FRAME_SECTIONS['pools']} 0"
             frame.pools = [_head_rule(head, width, unicode, paint) if rich else head, *notes]
     return frame
@@ -3019,7 +3063,8 @@ def _query_painter(rows: list[dict[str, Any]], column: int,
 
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
-                         expand: bool = False, text_encoding: str | None = None, show_quota_notes: bool = False,
+                         expand: bool = False, text_encoding: str | None = None,
+                         show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT,
                          links: bool = False, tty: bool = False) -> str:
     """Compact human default; the established renderer supplies expanded detail.
 
@@ -3140,8 +3185,9 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     data = _obj(cap.get("data"))
     pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row
                  for row in _frame_pools(payload, _frame_consumers(payload))[2]}
+    show_notes = bool(payload.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
     display_groups = {**groups,
-        "capacity": {**cap, "data": {**data, "_show_quota_notes": bool(payload.get("_show_quota_notes")),
+        "capacity": {**cap, "data": {**data, "_show_quota_notes": show_notes,
                                       "_pool_rows": pool_rows}}}
     activity = _obj(groups.get("activity"))
     execution = _obj(groups.get("execution"))
@@ -3151,7 +3197,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
         display_groups["execution"] = {**execution, "data": {**_obj(execution.get("data")), "_running_asks": running_asks}}
     # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
     plan_windows: dict[str, tuple[str, list[str]]] = {}
-    for obs in _items(data.get("observations")) if payload.get("_show_quota_notes") else []:
+    for obs in _items(data.get("observations")) if show_notes else []:
         reason = _clean(obs.get("reason") or "")
         if obs.get("state") == "ABSENT" and reason.startswith(NOT_REPORTED_REASON):
             pool = _clean(obs.get("pool_ref") or "").split(":")[-1]
@@ -3161,10 +3207,10 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     peers_group = _obj(groups.get("peers"))
     if isinstance(peers_group.get("data"), Mapping):
         display_groups["peers"] = {**peers_group, "data": {**_obj(peers_group.get("data")),
-                                                          "_show_quota_notes": bool(payload.get("_show_quota_notes"))}}
-    if plan_windows and isinstance(peers_group.get("data"), Mapping):
-        display_groups["peers"] = {**peers_group, "data": {**_obj(peers_group.get("data")), "_show_quota_notes": True, "plan_notes": {
-            peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}}}
+                                                          "_show_quota_notes": show_notes}}
+        if plan_windows:
+            display_groups["peers"]["data"]["plan_notes"] = {
+                peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}
     display = {**payload, "selected_groups": selected, "groups": display_groups}
     # #338: the store path and the --db/PEERHUB_DB note wrap; a truncated path cannot name the store.
     store_lines = [*(_location_lines(db_line, max(1, width - 1), payload.get("_db_url")) if db_line else []),

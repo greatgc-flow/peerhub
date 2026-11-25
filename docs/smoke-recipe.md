@@ -11,7 +11,7 @@ New-Item -ItemType Directory -Force .peerhub | Out-Null
 peerhub --db .peerhub/smoke.db peer register --peer cx --name "Smoke cx"
 ```
 
-`profile list` already emits JSON; there is no `--json` flag. The store parent directory must exist before initialization.
+`profile list` prints human-readable output. Use `profile list --json` for scripts. The store parent directory must exist before initialization.
 Inspect `peerhub --db .peerhub/smoke.db diag quota --json`; only if needed, refresh once with `peerhub --db .peerhub/smoke.db observation refresh`.
 For each listed profile, set `$peer` and `$profile` to its peer and profile ID; execute exactly one nonce ask:
 

@@ -106,18 +106,26 @@ def test_no_match_hint(capsys):
     assert len(captured.err.splitlines()) == 1
 
 
-def test_explain_lessons_prints_index_before_any_lesson_lookup(capsys, monkeypatch):
+@pytest.mark.parametrize("query", [[], ["lessons"], ["list"]])
+def test_explain_lessons_prints_index_before_any_lesson_lookup(capsys, monkeypatch, query):
     """#366 A5: `explain lessons` is an index (id: title; --json {"lessons": [{id, title}]}), never a keyword search."""
     from peerhub.cli import lessons as lessons_mod
     calls = []
     monkeypatch.setattr(lessons_mod, "lesson_by_id", lambda q: calls.append("id") or [])
     monkeypatch.setattr(lessons_mod, "lookup_lessons", lambda q: calls.append("keywords") or [])
     catalog = load_lessons()
-    assert main(["explain", "lessons"]) == 0
+    assert main(["explain", *query]) == 0
     assert capsys.readouterr().out.splitlines() == [f"{lesson['id']}: {lesson['title']}" for lesson in catalog]
-    assert main(["explain", "lessons", "--json"]) == 0
+    assert main(["explain", *query, "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"lessons": [{"id": lesson["id"], "title": lesson["title"]} for lesson in catalog]}
     assert calls == []
+
+
+def test_explain_help_advertises_the_index(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["explain", "--help"])
+    assert exc.value.code == 0
+    assert "lessons (also list)" in " ".join(capsys.readouterr().out.split())
 
 
 def test_explain_json_envelope_is_the_same_for_index_and_keyword_lookup(capsys):

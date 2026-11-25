@@ -8,6 +8,22 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.15] - 2026-11-25
+
+### Fixed
+
+- Filter lease-active asks by peer before applying the `diag running` limit.
+- Validate explicit batch task profiles during dry runs using the ask resolver.
+- Hide unavailable quota windows in both human monitor layouts by default and omit unread pools from the pace gap. Use `--show-quota-notes` to restore the count, names, reasons and gap placeholders.
+- Reject `diag --plan --view rich` and open the lesson index with bare `explain` or `explain list`.
+- Fit profile lists and monitor help to narrower terminals while preserving complete profile guidance.
+
+### Documentation
+
+- Correct quota refresh and unavailable-window descriptions, the monitor snapshot example and redraw behavior, and guide help and size measurements.
+- Clarify batch resource throttling, per-task quota refusals, and Argon's shared Gemini pools.
+- Fix the profile smoke recipe and add API peers and links to packaged CLI version observations.
+
 ## [0.26.14] - 2026-11-25
 
 ### Fixed
