@@ -10,11 +10,11 @@ From v0.24.13 each published release carries the G3 JUnit files (`g3.xml`, `g3-s
 
 ## Remaining work
 
-Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.md) (#117-#149) are done and released; the slice rows were removed on 2026-11-10 (see `git show 77422a6e82cb3879de207baf9d97dd79acf76aa8:docs/STATUS.md`). The per-release paragraphs and the release table that followed the heading above were removed on 2026-11-14 (#366); their last copy is `git show v0.24.12:docs/STATUS.md`.
+Slices S1-S4 of the [issue resolution note](history/design/issue-resolution-2026-10-18.md) (#117-#149) are done and released; the slice rows were removed on 2026-11-10 (see `git show 77422a6e82cb3879de207baf9d97dd79acf76aa8:docs/STATUS.md`). The per-release paragraphs and the release table that followed the heading above were removed on 2026-11-14 (#366); their last copy is `git show v0.24.12:docs/STATUS.md`.
 
 | Track | Status | Design SSOT |
 |---|---|---|
-| Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, arbitrary-model monitor/readiness integration (`ag.argon` profile and exact registry delivered in #194), TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #145, #194 |
+| Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, arbitrary-model monitor/readiness integration (`ag.argon` profile and exact registry delivered in #194), TUI interactive. | [Issue Resolution Note](history/design/issue-resolution-2026-10-18.md), issues #145, #194 |
 | Backlog | Per-peer prompt-cache TTL (start rule and plan in the design note; was #415) and deferred review trade-offs (audit note; was #424). Reopen as an issue when a trigger or a user report appears. | [cache TTL](design/backlog-cache-ttl-2026-11-20.md), [0.26.0 audit](history/design/audit-0.26.0-regressions.md) |
 
 ### Deferred backlog (start triggers)
@@ -27,8 +27,8 @@ Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.m
 | `peerhub diag peers` capability probe | [Peer limits](adapters/peer-cli-reference.md#sandbox-and-event-limits) drifts too often. |
 | `peerhub diag readiness --probe`: paid active probe + before/after benchmark (#145 part 2) | NOT implemented on purpose: diag stays read-only; the manual [smoke recipe](../CONTRIBUTING.md#installed-cli-profile-smoke) is enough. Revisit if the all-profile ping recurs often. |
 | View monitor quota on a phone (Telegram bot, #313) | Owner decision plus a BotFather token; keep it outside the peerhub package unless a real need appears. |
-| Stuck-streams PRs 4-6 and automated timeout settlement ([plan](design/plan-stuck-streams-2026-10-12.md)) | PRs 1-3 shipped in v0.16.0; the rest is deferred until the abandonment and recovery contracts are reviewed (renewal design) and an owner asks. |
-| Monitor extensions: `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, full `db-schema-v2` DDL ([design](design/monitor-peers-view-2026-10-16.md)) | Deferred; start when a demonstrated operator need appears, or with the store schema v2 trigger above. |
+| Stuck-streams PRs 4-6 and automated timeout settlement ([plan](history/design/plan-stuck-streams-2026-10-12.md)) | PRs 1-3 shipped in v0.16.0; the rest is deferred until the abandonment and recovery contracts are reviewed (renewal design) and an owner asks. |
+| Monitor extensions: `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, full `db-schema-v2` DDL ([design](history/design/monitor-peers-view-2026-10-16.md)) | Deferred; start when a demonstrated operator need appears, or with the store schema v2 trigger above. |
 | cx/ag/cc response `final` field separating narration from the final answer (#164 part B) | NOT implemented on purpose: v0.20.0 keeps the aggregate cx response unless explicit phase metadata marks commentary; a final-only response could drop answer content. Revisit with a concrete mismatch case and a schema decision. |
 | LATER L1-L10 of the 2026-11-14 survey | Triggers are recorded in #366. |
 

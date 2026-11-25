@@ -1,7 +1,7 @@
 # Session reuse PR2 validation
 
 Reviewed 2026-10-14 against the canonical
-[PR2 scope](../design/analysis-session-reuse-as-is-2026-10-13.md#pr2--retain-sessions-and-switch-all-writersreaders-atomically).
+[PR2 scope](design/analysis-session-reuse-as-is-2026-10-13.md#pr2--retain-sessions-and-switch-all-writersreaders-atomically).
 Validation covers the uncommitted PR2 tree; no commit was made.
 
 | Required behavior | Deterministic evidence | Documentation |

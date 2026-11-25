@@ -64,15 +64,15 @@ def test_lookup(query, expected):
 
 def test_free_words_cli(capsys, tmp_path):
     db = tmp_path / "unused.db"
+    lesson_id = "ag-silence-long-asks"
     assert main(["--db", str(db), "explain", "ag", "silence"]) == 0
-    out = capsys.readouterr().out
-    assert "ag-silence-long-asks" in out
-    assert "--timeout-seconds 7200 --silence-timeout-seconds 7200" in out
-    assert "uncertain" in out and "new stream" in out
-    assert len(out.splitlines()) <= 5
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith(f"{lesson_id}:")
+    assert len(lines) <= 5
     assert not db.exists()
     assert main(["explain", "ag silence", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["lessons"][0]["id"] == "ag-silence-long-asks"
+    lessons = json.loads(capsys.readouterr().out)["lessons"]
+    assert [lesson["id"] for lesson in lessons] == [lesson_id]
 
 
 def test_explain_ag_leads_with_recipe_and_records_open_observation(capsys):

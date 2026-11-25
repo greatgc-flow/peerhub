@@ -8,9 +8,12 @@ import pytest
 
 pytestmark = [pytest.mark.unit]
 
-DESIGN = Path(__file__).resolve().parents[3] / "docs" / "design"
+ROOT = Path(__file__).resolve().parents[3]
+DESIGN = ROOT / "docs" / "design"
 RECORD = DESIGN / "monitor-pace-health-2026-11-23.md"
-ROUNDS = DESIGN / "monitor-pace-health-2026-11-23" / "rounds"
+EVIDENCE = ROOT / "docs" / "history" / "design" / RECORD.stem
+ROUNDS = EVIDENCE / "rounds"
+SCORING = EVIDENCE / "scoring"
 TEXT = RECORD.read_text(encoding="utf-8")
 
 
@@ -41,7 +44,10 @@ def test_the_evidence_facts_are_listed_and_the_rounds_are_kept():
 
 def test_the_design_index_links_the_record_and_nothing_leaks_local_paths():
     index = (DESIGN / "README.md").read_text(encoding="utf-8")
-    assert "monitor-pace-health-2026-11-23.md" in index
+    assert f"]({RECORD.name})" in index
+    for directory in (ROUNDS, SCORING):
+        link = directory.relative_to(DESIGN.parent).as_posix()
+        assert f"](../{link}/)" in index and f"](../{link}/)" in TEXT
     for path in [RECORD, *ROUNDS.glob("r*.md")]:
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"[A-Za-z]:[\/]+(PkgDev|Users)", text), path.name
@@ -49,19 +55,17 @@ def test_the_design_index_links_the_record_and_nothing_leaks_local_paths():
 
 
 def test_monitor_docs_name_both_rejected_pool_target_forms():
-    root = DESIGN.parents[1]
     m2 = next(body for title, body in _sections().items() if title.startswith("M2 "))
     forms = re.findall(r"`(\[(?:pool_targets|pools\.<ID>)\])`", m2)
     assert len(forms) == 2
-    guide = (root / "docs" / "monitor.md").read_text(encoding="utf-8")
+    guide = (ROOT / "docs" / "monitor.md").read_text(encoding="utf-8")
     assert all(f"`{form}`" in guide for form in forms)
 
 
 def test_record_and_unreleased_changelog_report_implementation():
-    root = DESIGN.parents[1]
     status = re.fullmatch(r"Status: implemented in PRs (#460-#468) \(scored in (.*)\)", TEXT.splitlines()[2])
     assert status is not None
-    scoring = sorted(ROUNDS.with_name("scoring").glob("s*.md"))
+    scoring = sorted(SCORING.glob("s*.md"))
     assert status[2] == f"scoring/{scoring[0].name} to {scoring[-1].name}"
 
     amendment = re.fullmatch(
@@ -71,8 +75,8 @@ def test_record_and_unreleased_changelog_report_implementation():
     assert amendment is not None
 
     # The original work and the amendment may land in different releases.
-    sections = (root / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## [")[1:]
-    record_path = f"`docs/design/{RECORD.name}`"
+    sections = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8").split("\n## [")[1:]
+    record_path = f"`{RECORD.relative_to(ROOT).as_posix()}`"
     for implementation in (status[1], f"MARGIN amendment {amendment[1]}"):
         matching_releases = []
         for section in sections:

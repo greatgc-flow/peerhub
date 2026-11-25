@@ -42,6 +42,7 @@ they do not claim new validation or publication evidence.
 - Split monitor frame rendering by section and separate alert, activity, quota, and session projections from snapshot assembly.
 - Move CLI parser registration and handlers into command-family modules.
 - Extract terminal output helpers, diagnostic dashboard and quota-plan read models, and explain command rendering into dedicated modules.
+- Move dated design plans, audits, debates, and scoring evidence to the design archive.
 
 ### Fixed
 
@@ -139,7 +140,7 @@ they do not claim new validation or publication evidence.
 
 ### Documentation
 
-- Design record `docs/design/monitor-pace-health-2026-11-23.md` documents the monitor pace-health and caller ownership work implemented in PRs #460-#468. The nine debate rounds and scoring through round 5 are in `docs/design/monitor-pace-health-2026-11-23/`.
+- Design record `docs/design/monitor-pace-health-2026-11-23.md` documents the monitor pace-health and caller ownership work implemented in PRs #460-#468. The nine debate rounds and scoring through round 5 are in `docs/history/design/monitor-pace-health-2026-11-23/`.
 
 ## [0.26.8] - 2026-11-23
 
@@ -183,7 +184,7 @@ they do not claim new validation or publication evidence.
 
 - Dry-run batch previews use ask's resolved profile when available, and the diagnostic plan footer names in-flight pools that lack applicable rows (#447).
 - Windows quota refresh results include an API and WinError warning if a background probe cannot be contained in a Job Object (#444).
-- `update --plan`: the printed backup and restore commands run the interpreter that runs PeerHub (not a bare `python`, which may lack peerhub for a pipx or uv install); the scoring record `docs/design/scoring-2026-11-22/` (rubric, six rounds, overall 95.2) documents why 0.26.6 ships.
+- `update --plan`: the printed backup and restore commands run the interpreter that runs PeerHub (not a bare `python`, which may lack peerhub for a pipx or uv install); the scoring record `docs/history/design/scoring-2026-11-22/` (rubric, six rounds, overall 95.2) documents why 0.26.6 ships.
 - `diag --plan`: a stale window keeps its own `(stale)` tag even when a sibling window decides the reason; `explain parallel-quota` says a profile listed under several pools spends each of them.
 - `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a restore command for the selected store after the backup command.
 - `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a UTC-stamped backup path followed by a restore command for the selected store. Restoring validates the backup and rotates `workspace.generation`.
@@ -262,7 +263,7 @@ they do not claim new validation or publication evidence.
 
 - `peerhub update --check` compares installed versions and packaged model defaults with available release metadata and the local Codex catalog. `peerhub update --plan` checks for running asks and prints blockers, store backup and upgrade commands, and resume hints. Both modes are read-only.
 - Rich terminal monitor frames link eligible `--query-file` inputs in RUNNING and RECENT to existing files inside the ask workspace. Monitor and human `diag quota` and `diag --live` show a refresh hint when quota readings are missing or over an hour old.
-- The [0.26.0 plan](docs/design/plan-0.26.0-2026-11-21.md) and [regression audit](docs/history/design/audit-0.26.0-regressions.md) document the release decisions and the behavior reviewed.
+- The [0.26.0 plan](docs/history/design/plan-0.26.0-2026-11-21.md) and [regression audit](docs/history/design/audit-0.26.0-regressions.md) document the release decisions and the behavior reviewed.
 
 ### Changed
 
@@ -1064,7 +1065,7 @@ Item-level review after 0.24.11 (cc.fable, ag.deepthink) found these; 0.24.11 is
 
 ### Notes
 
-- Extension DDL ownership, trigger-definition verification and the rest of the schema-v2 proposal are intentionally deferred (see docs/design/monitor-peers-view-2026-10-16.md).
+- Extension DDL ownership, trigger-definition verification and the rest of the schema-v2 proposal are intentionally deferred (see docs/history/design/monitor-peers-view-2026-10-16.md).
 
 ## [0.18.1] - 2026-10-16 (superseded candidate)
 

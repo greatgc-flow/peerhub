@@ -26,16 +26,18 @@
 - [Project status](STATUS.md) tracks current work and deferred items.
 - [Changelog](../CHANGELOG.md) records changes by release.
 - [Database migrations](migrations.md) covers CoreStore schema upgrades.
-- [Core specification](m1_spec/USAGE_GUIDE.md) defines the communication primitives and storage invariants.
+- The [frozen M1 spec](m1_spec/USAGE_GUIDE.md) records Core and Bridge invariants, the M1 test catalog, and release-gate inputs.
 - [M2 extension contracts](m2/README.md) cover work tracking, skills, artifacts, adapters, and MCP.
 - [M3 extension contracts](m3/) cover search, memory, A2A, and routing.
 
 ## Background
 
 - [Design records](design/README.md) collect proposals and design decisions.
+- The [Blocked Streams Plan](history/design/plan-stuck-streams-2026-10-12.md) records deferred PRs 4–6 and automated timeout settlement. See [deferred backlog triggers](STATUS.md#deferred-backlog-start-triggers).
 - [Execution kernel boundaries](implementation/EXECUTION_KERNEL_BOUNDARIES.md) records the separation of Bridge, the runtime port, and adapters.
 - [Retained session implementation](implementation/RETAINED_SESSIONS.md) records registry migration, replay, and receipts.
 - [Observation probe implementation](implementation/OBSERVATION_PROBES.md) records provider probe behavior and usage costs.
 - [History](history/) holds work logs, audits, and the [archival ledger](history/ledger-2026-10-17.md).
+- [Design audits and shipped monitor designs](history/design/) record release and design provenance.
 - [Benchmarks](benchmarks/) hold performance and model comparisons.
 - [Archived release evidence](implementation/live_evidence/) holds canary receipts through 0.24.12. Later receipts accompany the [GitHub releases](https://github.com/greatgc-flow/peerhub/releases).

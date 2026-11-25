@@ -508,7 +508,7 @@ tools/           maintainer scripts
 
 `peerhub/cli/app.py` registers and dispatches commands. Each command family owns its parser and handler in `peerhub/cli/`, with shared store selection in `store_select.py`.
 
-Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/implementation/STRUCTURE_CLEANUP.md).
+Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/history/implementation/STRUCTURE_CLEANUP.md).
 
 ## Where model facts come from and how to refresh them
 
@@ -528,10 +528,10 @@ See the [documentation map](docs/index.md) for all documentation.
   `git show 465bfe98de7d6931864da4991e45cc1993e342e6:docs/history/reviews/mece-audit-2026-09-20-cross-repo.md`
   (see the [archival ledger](docs/history/ledger-2026-10-17.md)).
 - Node.js based CLIs depend on their runtime and launcher installation; portable
-  layouts may resolve differently. See the [CLI observations](docs/compatibility/peer-cli-observations.md)
+  layouts may resolve differently. See the [CLI observations](docs/history/compatibility/peer-cli-observations.md)
   and [adapter reference](docs/adapters/peer-cli-reference.md).
 - Windows console or pipe encoding can affect non-ASCII output. See the
-  [recorded encoding failure](docs/m1_impl/wave7_report.md) and
+  [recorded encoding failure](docs/history/m1_impl/wave7_report.md) and
   [adapter reference](docs/adapters/peer-cli-reference.md#external-limitations).
 
 These are environment warnings; historical observations do not establish a
