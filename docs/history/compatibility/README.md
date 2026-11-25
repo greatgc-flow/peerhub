@@ -1,7 +1,7 @@
-# docs/compatibility/ — Index
+# Compatibility archive
 
 This directory preserves historical observations about external peer CLI binaries.
-Current invocation contracts are documented in the [adapter guide](../adapters/README.md)
+Current invocation contracts are documented in the [adapter guide](../../adapters/README.md)
 and implemented in `peerhub/extensions/adapters`.
 
 ## Files

@@ -11,7 +11,7 @@ peerhub/extensions/schemas/*.json -text
 /CHANGELOG.md text eol=lf
 /docs/index.md text eol=lf
 /docs/STATUS.md text eol=lf
-/docs/design/monitor-terminal-responsive-2026-10-16.md text eol=lf
+/docs/history/design/monitor-terminal-responsive-2026-10-16.md text eol=lf
 /peerhub/cli/monitor.py text eol=lf
 /peerhub/cli/monitor_view.py text eol=lf
 /peerhub/cli/view.py text eol=lf

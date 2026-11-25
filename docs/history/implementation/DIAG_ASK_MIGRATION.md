@@ -47,7 +47,7 @@ Current cc/cx/ag adapters support compatible retained-history native session reu
 also supports `--profile` and `--silence-timeout-seconds`; `diag --live` reads
 committed snapshots, while `monitor` explicitly collects observations. These
 current commands do not restore every v0 control surface. See the
-[README](../../README.md#everyday-commands) for current usage.
+[README](../../../README.md#everyday-commands) for current usage.
 
 ## Validation and Release Boundaries
 

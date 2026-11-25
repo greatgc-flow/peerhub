@@ -13,4 +13,4 @@
 - [ ] Deterministic tests pass: `python -m pytest -q`
 - [ ] Static type check passes: `pyright`
 - [ ] Repo hygiene verified (no hardcoded absolute paths, all commands have examples)
-- [ ] Knowledge placement and guide impact checked (safety facts in `peerhub guide` updated or N/A; [knowledge-placement.md](docs/knowledge-placement.md) followed)
+- [ ] Knowledge placement and guide impact checked (safety facts in `peerhub guide` updated or N/A; [knowledge placement](../CONTRIBUTING.md#knowledge-placement) followed)

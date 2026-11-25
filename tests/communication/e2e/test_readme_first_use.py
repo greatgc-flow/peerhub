@@ -31,7 +31,7 @@ def test_first_ask_with_an_explicit_store_comes_before_the_core_recipe():
 
 def test_upgrade_says_how_to_back_up_check_and_restore():
     upgrade = _section("### Upgrade")
-    for needle in ("peerhub update --plan", "peerhub diag health", "peerhub explain store-and-upgrade"):
+    for needle in ("peerhub update --plan", "peerhub diag health", "docs/migrations.md"):
         assert needle in upgrade
     backup = DEFAULT_DB_PATH + update.UPDATE_BACKUP_SUFFIX.format(timestamp="<UTC time>")
     assert upgrade.index("peerhub update --plan") < upgrade.index(backup) < upgrade.index("pip install -U peerhub")
@@ -56,8 +56,8 @@ def test_upgrade_names_the_plan_installers_with_one_example():
 
 def test_readme_does_not_send_ai_sessions_to_the_monitor():
     assert "# For an AI session: line 1" not in README
-    assert "# For a person who wants only the verdict, suggestion and pools" in README
-    assert "`peerhub explain <topic or keywords>`" in README
+    assert "peerhub diag --plan" in README and "docs/monitor.md" in README
+    assert "docs/commands.md#guide-and-explain" in README
 
 
 def test_upgrade_requires_a_successful_new_backup_before_the_install():

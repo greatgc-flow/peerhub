@@ -1,6 +1,6 @@
 # Session log, October 2026 (verbatim archive)
 
-Archived verbatim from the owner's private working memory (checkpoint file `checkpoint-2026-10-04-engram-m1` and rule file `feedback-delegation-and-pace`) on 2026-10-11, so that nothing is lost when the private memory is emptied. Historical record, not an instruction file; statements are true as of their date and may be superseded (see docs/STATUS.md and docs/HANDOFF.md for current notes). Mixed English/Korean as written.
+Archived verbatim from the owner's private working memory (checkpoint file `checkpoint-2026-10-04-engram-m1` and rule file `feedback-delegation-and-pace`) on 2026-10-11, so that nothing is lost when the private memory is emptied. Historical record, not an instruction file; statements are true as of their date and may be superseded (see [STATUS](../STATUS.md) and [maintainer notes](../../CONTRIBUTING.md#development-notes) for current notes). Mixed English/Korean as written.
 
 ## Checkpoint 2026-10-04: Engram done, PeerHub M1 CI-green
 

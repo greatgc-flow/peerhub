@@ -77,9 +77,20 @@ history: `fix(cli): correct adapter detection`, `docs: clarify setup`, or
 explains the change and the checks you ran.
 For security vulnerabilities, see [SECURITY.md](SECURITY.md); for Dependabot PRs, review the changelog and run tests (majors need cx review).
 
-## Guide impact
+## Knowledge placement
 
-Any change or fix that alters a safety/caution fact (peer write boundaries, retry/uncertain handling, store/upgrade hazards, cost side effects, secrets) MUST update the guide Safety section (and docs) in the same PR. All guidance updates and placement decisions must adhere to the [Knowledge Placement Policy](docs/knowledge-placement.md).
+1. **Installed-Release Essentials in Guide**: `peerhub guide` is reserved for installed-release essentials: safe execution, uncertainty/retry handling, session continuity, command discovery, and drift reporting/recovery.
+2. **Mechanically Backed Efficiency Only**: Include at most 3 efficiency lines in `peerhub guide`, and only where a concrete PeerHub mechanism directly supports the claim.
+3. **Reuse and Profiles Scope**: Explain session reuse with compatible peer, store, stream, and binding. Follow the task-class tier floors in [batch planning](docs/batch.md): pick the lowest tier that meets the task class.
+4. **Transport vs Savings**: `--query-file` and `--json` are transport and parsing choices; make no inherent token-saving claim.
+5. **Guide Bounds and Size Budget**: `peerhub guide` must remain within 1600 bytes and 14 lines of ASCII text with LF endings for packaged defaults (measured, tested in `tests/communication/e2e/test_cli_guide.py`), ensuring it fits compactly in model context windows without displacing operational context.
+6. **Evidence-Dependent Lessons**: Operational lessons hold evidence-dependent advice accompanied by explicit applicability scope, target version, checked date, and verifiable source commands or logs.
+7. **No Shipped Personal Preferences**: Personal language, verbosity, and terminal-balancing preferences (e.g. "English between AIs", prompt/reply language rules) belong in user-controlled configuration or instructions, NOT in shipped defaults or code.
+8. **Volatile Facts Excluded**: Dynamic prices, changing provider rate limits, and transient measured timings stay out of `peerhub guide` and static docs.
+9. **Rigorous Promotion Review**: Promoting advice from a lesson into `peerhub guide` requires reviewed applicability, verifiable evidence, and immediate first-use value; incident frequency or count serves only as a review trigger, never an automatic inclusion criterion.
+10. **Safety Preservation Under Cap Pressure**: Under line or byte cap pressure, never drop essential safety guidance. Eliminate duplication, condense prose, or link to docs before removing safety boundaries.
+11. **Atomic PR Updates for Safety**: Any code change or fix that alters a safety-relevant fact (peer write boundaries, retry/uncertain handling, store/upgrade hazards, cost side effects, secrets) MUST update guidance and add regression tests in the same PR.
+12. **Behavioral and Scenario Testing**: Test coverage for guidance must assert guide bounds, parser-valid example commands, safety scenarios, and generated-data parity; avoid brittle keyword-only correctness tests in favor of executable behavior and scenario assertions.
 
 ## Reporting issues and requesting features
 
@@ -296,7 +307,7 @@ python -m tools.live_gate --yes
 # Optional measurements for one peer; outside the release catalog.
 python -m tools.live_gate --yes --only canary --peer cx
 
-# API peers (spend API credits): ca needs `ant auth login`; oa needs OPENAI_API_KEY; ga needs GEMINI_API_KEY.
+# API peer canaries spend API credits. See the setup link below.
 python -m tools.live_gate --yes --only canary --peer ca
 python -m tools.live_gate --yes --only canary --peer ga
 
@@ -306,6 +317,8 @@ $env:PEERHUB_LIVE = "1"
 python -m pytest -q -m live tests/communication/live
 python -m pytest -q -m "canary and cx" tests/communication/live
 ```
+
+See [API peer setup and costs](docs/api-credits.md).
 
 The four optional `canary` scenarios measure each of cc, cx and ag through public `ask`
 with `--profile <peer>.standard`: text and positive input/output token usage,
@@ -382,22 +395,20 @@ This rebuilds `MANIFEST.json` and `SHA256SUMS.txt`, then validates the package.
 A product-maturity item may be `VERIFIED` only with a `git_sha`
 `candidate_identity` whose value is a full 40-hex Git SHA.
 
+#### Installed-CLI profile smoke
+
+For a manual smoke check (#148), list profiles with `peerhub profile list`, then use a dedicated store and a fresh stream and request ID per profile. Ask for a unique nonce and verify the reply matches. See [ask flags](docs/commands.md#ask) and [adapter permissions](docs/adapters/peer-cli-reference.md#sandbox-and-event-limits). Record profile, peer, stream, nonce match, status and verdict together. An exhausted peer stays unverified. Follow the [recovery guidance](docs/guidance-reference.md#ask_uncertain) for uncertain attempts.
+
 ## Working with AI peers
 
-Ask peers with `peerhub ask <ag|cx|cc> ...` (choose one peer).
-`--writable` permits file edits and is off by default. It maps to cc
-`--permission-mode acceptEdits`, cx `-s workspace-write` (default
-`-s read-only`), and ag `--mode accept-edits`. Native `ag` execution requires
-`--writable` and is refused before spawn without it because agy does not enforce
-a read-only sandbox (#140). Cached terminal replay remains available.
+Use the [adapter reference](docs/adapters/peer-cli-reference.md#sandbox-and-event-limits) to select permissions.
 
 Keep prompts in English, split large tasks into small requests, and treat peer
 output as drafts. Verify every change yourself. For cx reviews, run pytest and
 Pyright yourself and apply `.github/` edits yourself: restricted cx sandboxes
 can prevent those operations even when file edits are enabled. Sandbox limits
 are environment-dependent, rather than a guarantee made by `--writable`.
-Before peer calls, run `peerhub observation refresh` followed by `peerhub diag`
-and watch the 7-day pace; distribute work so cc is not the heaviest user.
+Plan against stored quota with [batch planning](docs/batch.md). Obtain explicit authorization before live probes or provider calls in maintainer sessions that require it.
 
 ## Development notes
 
@@ -421,4 +432,7 @@ and watch the 7-day pace; distribute work so cc is not the heaviest user.
   that interpreter and check interoperability.
 - `python -m tools.model_ping` spends a little quota per profile. Pass profile
   IDs, for example `python -m tools.model_ping cc.effort`, to limit the checks.
-Maintainer handoff notes: [docs/HANDOFF.md](docs/HANDOFF.md)
+- After adding CLI options, run `python -m tools.command_inventory --write` and add an effect proof in `tests/communication/e2e/cli_extension_effects.py`.
+- Keep changes simple and verify claims against code or evidence. Capture unresolved objections and get agreement before implementing consequential design changes. See [independent review votes](docs/lessons.md#independent-review-votes-independent-peer-votes) for the review procedure.
+- For shared stores, follow `peerhub explain caller-ownership`. Near a session limit, record decisions, open work and file references in a handoff and leave one resume prompt.
+- Earlier handoff notes are in Git (`git show 7497a70f:docs/HANDOFF.md`). Previous maintainer checkpoints are in the [October session log](docs/history/session-log-2026-10.md) and the [cross-repository handoff audit](docs/history/cross-repo-handoff-audit-2026-10-16.md).

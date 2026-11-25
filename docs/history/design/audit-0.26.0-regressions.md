@@ -94,7 +94,7 @@ a-cx                     cx       COMPLETED
 
 ### UNVERIFIED (requires reading code/docs/tests)
 
-- **Tests pinning worse behaviour:** Check whether the [plain expanded fixture](../../tests/communication/fixtures/monitor/plain_expand_sections.json) was deleted or rewritten in `0.24.29`, and identify tests pinning `--probe` opt-in, `RECENT`-before-`ALERTS`/`RUNNING`, hidden `n/a` rows, alt-screen, and `height - 2`.
+- **Tests pinning worse behaviour:** Check whether the [plain expanded fixture](../../../tests/communication/fixtures/monitor/plain_expand_sections.json) was deleted or rewritten in `0.24.29`, and identify tests pinning `--probe` opt-in, `RECENT`-before-`ALERTS`/`RUNNING`, hidden `n/a` rows, alt-screen, and `height - 2`.
 - **Stale docs:** Check `docs/implementation/OBSERVATION_PROBES.md`, `docs/monitor.md`, `README.md`, and `peerhub explain monitor-view` for leftover `0.24.21` layout descriptions (`ALERTS` first, `DB:` at top, `plain --expand` byte-for-byte `0.24.20`) or pre-`0.25.0` auto-probing statements.
 - **`peerhub ask` stderr gating (`0.25.0`):** Verify whether terminal receipts and the `cx.deepthink` alias notice are suppressed under `--json` or non-TTY stderr.
 - **`plain --expand` height-bounding contradiction (`0.24.29` vs `0.25.0`):** `0.24.29` says sections are cut from the bottom while `0.25.0` says plain `--expand` is printed whole (not height-bounded); also check whether plain `Guide: <url>` obeys `PEERHUB_NO_LINKS=1` and dev-build omission.

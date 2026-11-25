@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Documentation
+
+- Consolidated the command, monitor, adapter, store and maintainer references, shortened overlapping offline lessons, and moved historical implementation and design records into `docs/history/`.
+
 ## [0.26.14] - 2026-11-25
 
 ### Fixed
@@ -202,7 +206,7 @@ they do not claim new validation or publication evidence.
 
 - `peerhub update --check` compares installed versions and packaged model defaults with available release metadata and the local Codex catalog. `peerhub update --plan` checks for running asks and prints blockers, store backup and upgrade commands, and resume hints. Both modes are read-only.
 - Rich terminal monitor frames link eligible `--query-file` inputs in RUNNING and RECENT to existing files inside the ask workspace. Monitor and human `diag quota` and `diag --live` show a refresh hint when quota readings are missing or over an hour old.
-- The [0.26.0 plan](docs/design/plan-0.26.0-2026-11-21.md) and [regression audit](docs/design/audit-0.26.0-regressions.md) document the release decisions and the behavior reviewed.
+- The [0.26.0 plan](docs/design/plan-0.26.0-2026-11-21.md) and [regression audit](docs/history/design/audit-0.26.0-regressions.md) document the release decisions and the behavior reviewed.
 
 ### Changed
 
@@ -682,7 +686,7 @@ Item-level review after 0.24.11 (cc.fable, ag.deepthink) found these; 0.24.11 is
 
 ### Fixed
 
-- A cc ask no longer becomes uncertain because an earlier stream line (typically a large tool result in a long ask) exceeded the 256 KB event cap: an intact later `result` event resolves the gap, like cx already did. An oversized `result` event, or a gap after the result, stays uncertain, and the skipped line is still reported as `oversized_event_count` (#325). Behavior and limits: docs/peer-limits.md.
+- A cc ask no longer becomes uncertain because an earlier stream line (typically a large tool result in a long ask) exceeded the 256 KB event cap: an intact later `result` event resolves the gap, like cx already did. An oversized `result` event, or a gap after the result, stays uncertain, and the skipped line is still reported as `oversized_event_count` (#325). See [event size limits](docs/adapters/peer-cli-reference.md#cc-and-cx-event-size).
 
 ## [0.24.4] - 2026-11-09
 

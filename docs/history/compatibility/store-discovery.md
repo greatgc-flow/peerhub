@@ -1,5 +1,7 @@
 # Store Discovery Compatibility
 
+> Historical record. See [Store selection](../../config-hierarchy.md#store) for the current contract.
+
 ## Precedence and Discovery Contract
 
 Store selection follows strict deterministic precedence:

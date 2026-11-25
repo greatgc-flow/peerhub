@@ -6,7 +6,7 @@ Method: independent opinions from ag·cx → mutual rebuttals → direct measure
 Policy update (PR1 committed, PR2 worktree, 2026-10-14): ordinary asks reuse the
 latest compatible retained peer/Stream session for **cc, cx and ag**. Otherwise they start fresh
 with bounded catch-up. Use a dedicated Stream for a separate task. The
-[canonical sequence](../design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence)
+[canonical sequence](../../design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence)
 supersedes the fresh-by-default and caller opt-in decisions below; the historical
 measurements remain evidence only for the recorded workloads and versions.
 
@@ -30,7 +30,7 @@ measurements remain evidence only for the recorded workloads and versions.
 3. Add a 24,000-byte cap to the default catch-up budget (within ag's 30,000-byte Windows inline limit).
 4. Implement `control.cancel` through process tree termination (`supports_terminate`). After termination, an in-progress delivery does not finish as a normal response.
 
-## Paired Measurement (2026-10-09, [`bench.py`](../benchmarks/context-bench-2026-10-09/bench.py))
+## Paired Measurement (2026-10-09, [`bench.py`](../../benchmarks/context-bench-2026-10-09/bench.py))
 
 Reproduce the paired measurement from the repository root with:
 

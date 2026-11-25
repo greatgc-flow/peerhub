@@ -1,4 +1,7 @@
 # General — Minimum Permission Model
+
+> Historical Engram policy. See the [PeerHub adapter reference](../../adapters/peer-cli-reference.md#sandbox-and-event-limits) for current permissions.
+
 > Source: protocol-permissions.md · user-directives.md §DIR-002
 > Principle: minimum non-interactive permissions required for collaborative tasks.
 

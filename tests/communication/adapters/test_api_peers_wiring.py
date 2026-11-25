@@ -98,32 +98,30 @@ def test_the_output_limit_is_per_class_in_every_text_that_names_it():
     named = "16,000 tokens for ca and oa; 32,000 for ga"
     assert named in REGISTRY["truncated"].meaning and named in RESULT_STATUS_REGISTRY["truncated"].meaning
     lesson = next(item for item in load_lessons() if item["id"] == "api-peers")
-    assert "16,000 output tokens for ca and oa and at 32,000 for ga" in lesson["fix"]
+    assert "docs/api-credits.md" in lesson["fix"]
     for pid, profile in API_PROFILES.items():
         assert f"{limits[pid.split('.', 1)[0]]:,}" in " ".join(profile["traits"]), pid
     for kind, cls in api.API_TARGETS.items():
         target = cls(REPO, model={"ca": "claude-x", "oa": "gpt-x", "ga": "gemini-x"}[kind])
         cut = target._reply("", None, complete=False, truncated=True, why="why")  # pyright: ignore[reportPrivateUsage]
         assert cut.detail == f"{kind} reply cut at {limits[kind]} output tokens (why)"
-    for path in ("README.md", "docs/adapters/README.md", "docs/guidance-reference.md", "docs/lessons.md"):
+    for path in ("docs/api-credits.md", "docs/guidance-reference.md"):
         text = (REPO / path).read_text(encoding="utf-8")
         assert "32,000" in text and "16,000" in text, path
 
 
 def test_the_ga_provider_limits_are_named_where_the_error_table_is_documented():
-    """#384: 402 and 429 with RESOURCE_EXHAUSTED are the provider limits of ga, in the code, the table, the README and the lesson."""
+    """#384: 402 and 429 with RESOURCE_EXHAUSTED are the provider limits of ga, in the code and the API peer reference."""
     from peerhub.cli.lessons import load_lessons
 
     assert api.GA_LIMITS == ((402, "RESOURCE_EXHAUSTED"), (429, "RESOURCE_EXHAUSTED"))
-    table = (REPO / "docs" / "adapters" / "README.md").read_text(encoding="utf-8")
+    table = (REPO / "docs" / "api-credits.md").read_text(encoding="utf-8")
     assert "| 402 or 429 | `RESOURCE_EXHAUSTED` | `not_executed`, `quota_exhausted`, no reset time, the message kept |" in table
     assert "| 429 | `RESOURCE_EXHAUSTED` |" not in table
-    readme = (REPO / "README.md").read_text(encoding="utf-8")
-    assert "HTTP 402 or 429 answer with the status `RESOURCE_EXHAUSTED`" in readme
-    for text in (readme, " ".join(table.split())):  # the adapter document wraps its lines
-        assert "04:24Z" in text and "Your prepayment credits are depleted" in text and "Google AI Studio" in text
+    for fact in ("04:24Z", "Your prepayment credits are depleted", "Google AI Studio"):
+        assert fact in " ".join(table.split())
     lesson = next(item for item in load_lessons() if item["id"] == "api-peers")
-    assert "HTTP 402 or 429 with RESOURCE_EXHAUSTED is a provider limit" in lesson["fix"] and "#384" in lesson["issue"]
+    assert "docs/api-credits.md" in lesson["fix"] and "#384" in lesson["issue"]
 
 
 @pytest.mark.parametrize("kind,cls", [("ca", CaRuntimeTarget), ("oa", OaRuntimeTarget), ("ga", GaRuntimeTarget)])
@@ -326,7 +324,7 @@ def test_guide_names_the_api_peers_and_points_to_their_topic(capsys):
     assert "ca/oa/ga = API credits, text only" in out and "api-peers" in out
     assert len(out.replace("\r\n", "\n").encode("utf-8")) <= GUIDE_MAX_BYTES
     api_topic = " ".join(lesson_by_id("api-peers")[0]["fix"].split())
-    assert "ca, oa and ga read no file" in api_topic and "ga (Gemini API; the key only in the environment variable GEMINI_API_KEY)" in api_topic
+    assert "--query-file" in api_topic and "docs/api-credits.md" in api_topic
     load_topic = " ".join(lesson_by_id("batch-and-load")[0]["fix"].split())
     assert "PeerHub does not cap the count" in load_topic
     assert "RAM is low or CPU load is high" in load_topic

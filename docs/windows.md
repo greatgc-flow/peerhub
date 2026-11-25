@@ -53,6 +53,10 @@ peerhub ask cc "Analyze schema" --stream par-task-1 --request-id req-p1-001 --js
 peerhub ask cx "Audit security" --stream par-task-2 --request-id req-p2-001 --json
 ```
 
+### Job lists
+
+Prefer [batch validation](batch.md) to a shell loop over a job list. In a POSIX shell reading a Windows list, strip carriage returns with `tr -d '\r'` and use `while read -r k p || [ -n "$k" ]` to keep a final line without a newline. Check each ask's status.
+
 ## Quoting Rules & Complex Prompts
 
 PowerShell parses quotes and special characters before passing arguments to native CLI programs.
@@ -96,6 +100,16 @@ When running PeerHub in workspaces or database locations containing non-ASCII ch
    ```powershell
    peerhub diag health
    ```
+
+## Upgrades and executable locks
+
+Follow the [upgrade procedure](../README.md#upgrade). If Windows reports WinError 32, check which processes use the target venv. Filter by executable path.
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='peerhub.exe'" | Where-Object { $_.ExecutablePath -like '<venv>\Scripts\*' }
+```
+
+Wait for those processes to exit before replacing the executable. If pip uses a stale cached wheel, retry with `--no-cache-dir`.
 
 ## Background Services & Unverified Recipes
 
