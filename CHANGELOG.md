@@ -8,6 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.14] - 2026-11-25
+
+### Fixed
+
+- The live monitor turns terminal auto-wrap off while it draws. A row wider than the terminal (symbols drawn double-width on CJK consoles) is now clipped at the edge. Since 0.26.12 rewrote only changed rows, such a row spilled onto the next row and left stale fragments there until the next full repaint.
+
 ## [0.26.13] - 2026-11-25
 
 ### Changed
