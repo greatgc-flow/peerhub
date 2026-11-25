@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed (internal)
+
+- Split bridge exceptions and durable control handling into dedicated modules.
+
 ## [0.26.14] - 2026-11-25
 
 ### Fixed

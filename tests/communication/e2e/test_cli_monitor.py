@@ -1542,7 +1542,8 @@ def test_monitor_quota_notes_option_reaches_human_renderer(tmp_path, monkeypatch
 def test_monitor_expand_snapshot_human_renders_all_rows(tmp_path, capsys):
     import sqlite3
     from peerhub.core.store import CoreStore
-    from peerhub.extensions.bridge import ClaimStore, Bridge
+    from peerhub.extensions.bridge_claims import ClaimStore
+    from peerhub.extensions.bridge import Bridge
     db = _db(tmp_path)
     cs = CoreStore(db)
     Bridge(cs, ClaimStore(db, "gen"))

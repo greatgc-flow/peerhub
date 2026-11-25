@@ -7,7 +7,7 @@ from contextlib import closing
 
 import pytest
 
-from peerhub.extensions.bridge import ReconcileRejectedError
+from peerhub.extensions.bridge_errors import ReconcileRejectedError
 from peerhub.extensions.bridge_claims import ClaimHeldError, ClaimToken, StaleClaimError
 from tests.communication.bridge_helpers import bseed, delivery_rows, evidence, kinds, offset_row, records, responses, sql
 from tests.communication.fakes import FakeRuntimeTarget

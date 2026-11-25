@@ -14,7 +14,7 @@ import pytest
 
 from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, process, run_bounded
 from peerhub.extensions.adapters.base import SPECS
-from peerhub.extensions.bridge import PrespawnError, RuntimeTargetError
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTargetError
 from peerhub.extensions.ask import ask
 from tests.communication.adapters.conftest import FAKE, calls
 from tests.communication.bridge_helpers import bseed, delivery_rows, kinds, offset_row, responses, sql

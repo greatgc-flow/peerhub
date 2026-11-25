@@ -19,7 +19,7 @@ from peerhub.extensions.adapters.base import EXCERPT_CHARS, AgSpec
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
 from peerhub.extensions.adapters.telemetry import unknown_usage
 from peerhub.extensions.ask import ask
-from peerhub.extensions.bridge import PrespawnError
+from peerhub.extensions.runtime_contract import PrespawnError
 from tests.communication.bridge_helpers import bseed, sql
 from tests.communication.test_provider_refusal import AG_QUOTA_EXIT_3_OUTPUT as Q_STDERR
 

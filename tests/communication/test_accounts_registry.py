@@ -18,7 +18,7 @@ from peerhub.core.models import Peer
 from peerhub.core.store import CoreStore
 from peerhub.extensions import accounts
 from peerhub.extensions.ask import ask
-from peerhub.extensions.bridge import PrespawnError
+from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.core.peer_kinds import ALIASES
 
 

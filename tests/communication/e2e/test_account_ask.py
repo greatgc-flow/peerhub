@@ -20,7 +20,7 @@ from peerhub.core.store import CoreStore
 from peerhub.extensions import accounts
 from peerhub.extensions import ask as ask_module
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.bridge import PrespawnError
+from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.extensions.bridge_claims import ClaimStore
 from peerhub.extensions.quota_capture import refresh_quota
 from tests.communication.fakes import FakeRuntimeTarget

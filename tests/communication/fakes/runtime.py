@@ -4,7 +4,8 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Iterable
 
-from peerhub.extensions.bridge import ContextLostError, PrespawnError, RuntimeTargetError, SessionError
+from peerhub.extensions.runtime_contract import ContextLostError, PrespawnError, RuntimeTargetError
+from peerhub.extensions.bridge_errors import SessionError
 
 
 class FakeRuntimeTarget:

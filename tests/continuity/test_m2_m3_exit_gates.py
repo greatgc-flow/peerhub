@@ -218,7 +218,7 @@ def test_deleting_every_derived_projection_and_rebuilding_from_records_is_logica
 def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1_modules():
     ext = REPO / "peerhub" / "extensions"
     assert all((ext / f"{name}.py").is_file() for name in M2_M3_MODULES)  # a renamed module must not silently escape the gate
-    m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
+    m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_errors", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
           "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "pool_health", "peer_kinds", "schema_guard",
           "quota_projection", "bridge_registry", "session_receipts", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions"}  # neutral helpers of the M1 Session Bridge and its read model (#374, #376)

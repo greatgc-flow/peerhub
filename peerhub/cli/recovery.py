@@ -613,8 +613,8 @@ def select_guidance_code(
     """Select guidance code using composite context (not error.code or message text)."""
     if exception is not None:
         from peerhub.extensions.bridge_claims import ClaimHeldError
-        from peerhub.extensions.bridge import (
-            PrespawnError,
+        from peerhub.extensions.runtime_contract import PrespawnError
+        from peerhub.extensions.bridge_errors import (
             SessionBridgeError,
             ConflictingSessionFlagsError,
             InvalidSessionHandleSyntaxError,

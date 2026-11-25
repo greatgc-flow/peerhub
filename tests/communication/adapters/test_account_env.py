@@ -16,7 +16,7 @@ import pytest
 from peerhub.extensions import accounts
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters import base
-from peerhub.extensions.bridge import PrespawnError
+from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.extensions.diag_readiness import _matches_binding
 from tests.communication.adapters.conftest import calls
 from tests.communication.adapters.test_t1_adapters import drain, rec
