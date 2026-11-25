@@ -1,6 +1,7 @@
 """Stage 1 native session identities, argv, binding and static adapter capability."""
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -118,16 +119,18 @@ def test_ag_fresh_and_resume_argv(writable, model, effort):
 
 @pytest.mark.parametrize("kind,sample,source", [("cc", CC, "cc.result.session_id"), ("cx", CX, "cx.thread.started"),
                                                    ("ag", AG, "ag.conversation_id")])
-def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypatch, tmp_path):
+def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypatch):
     invocations = []
-    result = ProcessResult(123, 0, sample.encode(), b"", False, False, 0.1)
 
     def process(argv, **kwargs):
         invocations.append((argv, kwargs))
-        return SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
+        stdin = kwargs["stdin"]
+        result = ProcessResult(123, 0, sample.encode(), b"", False, False, 0.1,
+                               stdin_state="none" if stdin is None else "complete", stdin_bytes_written=len(stdin or b""))
+        return SimpleNamespace(pid=123, start=lambda *, suspended=False: None, cancel_launch=lambda: None, wait=lambda: result)
 
     monkeypatch.setattr(cli_runtime, "BoundedProcess", process)
-    adapter = CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
+    adapter = CliRuntimeTarget(kind, Path(__file__).parent, command=["fake.exe"], writable=(kind == "ag"))
     session = adapter.create_session()
     record = SimpleNamespace(body="question")
     first = list(adapter.deliver(session, record, []))
@@ -157,26 +160,28 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypat
 
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX), ("ag", AG)])
-def test_invalid_vendor_binding_and_failed_terminal(kind, sample, monkeypatch, tmp_path):
-    adapter = CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
+def test_invalid_vendor_binding_and_failed_terminal(kind, sample, monkeypatch):
+    adapter = CliRuntimeTarget(kind, Path(__file__).parent, command=["fake.exe"], writable=(kind == "ag"))
     assert adapter.resume_session("session", vendor_session_id="bad/id") == "rejected"
     assert adapter.resume_session("session", vendor_session_id="a" * 201) == "rejected"
-    result = ProcessResult(123, 1, sample.encode(), b"error", False, False, 0.1)
+    result = ProcessResult(123, 1, sample.encode(), b"error", False, False, 0.1,
+                           stdin_state="none" if kind == "ag" else "complete", stdin_bytes_written=0 if kind == "ag" else 8)
     monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *a, **kw: SimpleNamespace(
-        pid=123, start=lambda: None, wait=lambda: result))
+        pid=123, start=lambda *, suspended=False: None, cancel_launch=lambda: None, wait=lambda: result))
     events = adapter.deliver("session", SimpleNamespace(body="question"), [])
     assert next(events)[0] == "started"
-    with pytest.raises(RuntimeTargetError):
+    with pytest.raises(RuntimeTargetError, match=f"{kind} exited 1"):
         next(events)
 
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX)])
-def test_conflicting_ids_omit_terminal_candidate(kind, sample, monkeypatch, tmp_path):
+def test_conflicting_ids_omit_terminal_candidate(kind, sample, monkeypatch):
     stdout = sample + sample.replace("opaque.A_1:-", "other")
-    result = ProcessResult(123, 0, stdout.encode(), b"", False, False, 0.1)
+    result = ProcessResult(123, 0, stdout.encode(), b"", False, False, 0.1,
+                           stdin_state="complete", stdin_bytes_written=8)
     monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *a, **kw: SimpleNamespace(
-        pid=123, start=lambda: None, wait=lambda: result))
-    adapter = CliRuntimeTarget(kind, tmp_path, command=["fake.exe"])
+        pid=123, start=lambda *, suspended=False: None, cancel_launch=lambda: None, wait=lambda: result))
+    adapter = CliRuntimeTarget(kind, Path(__file__).parent, command=["fake.exe"])
     events = list(adapter.deliver("session", SimpleNamespace(body="question"), []))
     assert "vendor_session" not in events[-1][1]
 

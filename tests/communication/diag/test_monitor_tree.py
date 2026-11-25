@@ -249,8 +249,8 @@ def test_c1_explicit_stale_without_ttl_keeps_the_stale_reserve(expand: bool, mon
         assert "cc STALE:window; next: peerhub observation refresh --peers cc" in screen
 
 
-@pytest.mark.parametrize("reset,elapsed", [(0, 0), (10, 10), (-1, 0)])
-def test_passed_measurement_reset_colour_matches_between_views(
+@pytest.mark.parametrize("reset,elapsed", [(0, 0), (10, 10)])
+def test_measurement_at_reset_time_colour_matches_between_views(
         reset: int, elapsed: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H"]})

@@ -17,7 +17,7 @@ from peerhub.extensions import quota_capture
 from peerhub.cli.app import main
 from peerhub.extensions import monitor_read_model
 from peerhub.extensions.quota_probes import common, poll_claude_usage
-from tests.communication.diag.test_monitor_activity_view import pool
+from tests.communication.diag.test_monitor_activity_view import NOW, pool
 from tests.communication.diag.test_monitor_plain_golden import GOLDEN_GUIDE_URL, _payload, full_payload
 
 
@@ -30,16 +30,55 @@ def _result(peer: str, pool: str) -> dict[str, str]:
     return {"kind": "quota", "subject_ref": peer, "resource_pool_ref": f"quota:{peer}:{pool}", "state": "MEASURED"}
 
 
-def test_oldest_age_ignores_pools_that_are_not_required():
-    """A measured reading of a pool the peer no longer needs (a retired window) must not age the live title."""
-    from peerhub.cli.monitor_refresh import RefreshSchedule
+def test_live_title_ignores_pools_that_are_not_required():
+    older = pool("cx", "X-30D", .50)
+    older["age_seconds"] = 120
+    payload = _payload([], [pool("cx", "X-7D", .50), older])
+    live = payload["_live_refresh"] = {"heartbeat": 0, "selected_pools": {"cx": {"quota:cx:X-7D"}}}
+    assert "oldest quota age 10s" in monitor_view.render_grouped_frame(payload).splitlines()[1]
+    live["selected_pools"] = {"cx": set()}
+    assert "oldest quota age 2m" in monitor_view.render_grouped_frame(payload).splitlines()[1]
 
-    schedule = RefreshSchedule({"cx": {"quota:cx:X-7D"}})
-    schedule.update([_reading("cx", "X-7D", 20), _reading("cx", "X-30D", 900000)], 500.0)
-    assert schedule.oldest_age(500.0) == 20
-    schedule = RefreshSchedule({"cx": set()})  # no configured list: every measured pool counts
-    schedule.update([_reading("cx", "X-7D", 20), _reading("cx", "X-30D", 900000)], 500.0)
-    assert schedule.oldest_age(500.0) == 900000
+
+@pytest.mark.parametrize("expanded", [False, True])
+def test_no_probe_title_uses_plan_retirement_and_selected_peers(monkeypatch, expanded):
+    older = pool("cx", "X-30D", .0)
+    current = pool("cx", "X-7D", .50)
+    other_peer = pool("cc", "C-7D", .60)
+    older.update(state="STALE", age_seconds=1200, source="probe:cx", effective_at_us=(NOW - 1200) * 1_000_000)
+    current.update(source="probe:cx", effective_at_us=(NOW - 10) * 1_000_000)
+    other_peer.update(age_seconds=90)
+    observations = [older, current, other_peer]
+    payload = _payload([], observations, _human_observations=observations, selected_groups=["capacity"])
+    payload["groups"]["capacity"]["data"]["accounts"] = [{"peer_id": "cx", "plan": "pro", "state": "MEASURED"}]
+    single_peer = _payload([], [older, current], groups={
+        "capacity": {"status": "OK", "data": {"observations": [older, current],
+            "accounts": payload["groups"]["capacity"]["data"]["accounts"]}},
+    })
+    snapshot_title = monitor_view.render_grouped_frame(single_peer, view="plain", expand=expanded).splitlines()[1]
+    assert "quota age 10s" in snapshot_title
+
+    from peerhub.cli import monitor_refresh
+
+    frames = []
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console.FrameOutput, "write", lambda self, frame: frames.append(frame))
+    monkeypatch.setattr(_console.FrameOutput, "geometry", staticmethod(lambda: (120, 40)))
+    monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
+    monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *a, **kw: payload)
+    monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [
+        _reading("cx", "X-30D", 1200), _reading("cx", "X-7D", 10), _reading("cc", "C-7D", 90)])
+    monkeypatch.setattr(monitor, "monotonic", lambda: 100.0)
+
+    def stop(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(monitor, "sleep", stop)
+    assert main(["--db", __file__, "monitor", "--group", "capacity", "--peers", "cx", "--no-probe",
+                 "--view", "plain", "--cycles", "0", *(["--expand"] if expanded else [])]) == 0
+    assert "oldest quota age 10s" in frames[0].splitlines()[1]
+    assert "X-30D" not in frames[0]
 
 
 def test_per_peer_due_at_lead_with_missing_and_partial_pools():
@@ -56,12 +95,10 @@ def test_per_peer_due_at_lead_with_missing_and_partial_pools():
     now = 500.0
     readings = [_reading("cc", "C-7D", due - 1), _reading("cc", "C-5H", 5), _reading("cx", "X-7D", 20)]
     schedule.update(readings, now)
-    assert schedule.oldest_age(now) == due - 1
     assert schedule.due(now) == ()
     assert schedule.due(now + 1) == ("cc",)
     assert schedule.next_in(now) == 1
     finish = now + 1 + lead / 2
-    assert schedule.oldest_age(finish) < QUOTA_TTL_SECONDS
     schedule.update([_reading("cc", "C-7D", 0), _reading("cc", "C-5H", 0), _reading("cx", "X-7D", finish - now + 20)], finish)
     assert schedule.due(finish) == ()
 

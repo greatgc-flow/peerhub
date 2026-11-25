@@ -1,6 +1,7 @@
 """Synthesize monitor alerts and report the coverage of their sources."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, cast
 
 from peerhub.extensions.liveness import ORPHAN_RUNNING
@@ -16,6 +17,10 @@ TOKEN_EXPIRY_WARN_S = 48 * 3600
 
 def _alert(code: str, kind: str, subject: str, age_s: float | None, severity: str) -> dict[str, Any]:
     return {"code": code, "kind": kind, "subject": subject, "age_s": age_s, "severity": severity}
+
+
+def pool_out_alerts(pools: Iterable[str]) -> list[dict[str, Any]]:
+    return [_alert("a3", "pool_out", pool, None, "high") for pool in pools]
 
 
 def build_alerts(*, asks: list[dict[str, Any]] | None, pools: list[dict[str, Any]] | None,
@@ -56,7 +61,7 @@ def build_alerts(*, asks: list[dict[str, Any]] | None, pools: list[dict[str, Any
             login.append(_alert("a5", "token_expired", peer, round(now - expires, 3), "high"))
         elif expires is not None and expires - now <= TOKEN_EXPIRY_WARN_S:
             expiring.append(_alert("a5", "token_expiring", peer, None, "low"))
-    out_pools = [_alert("a3", "pool_out", str(p["pool"]), None, "high") for p in pools or [] if p.get("state") == "out"]
+    out_pools = pool_out_alerts(str(p["pool"]) for p in pools or [] if p.get("state") == "out")
     facts: list[dict[str, Any]] = []
     if isinstance(facts_report, dict) and facts_report.get("status") == "needs_recheck":
         raw_reasons: object = facts_report.get("reasons")

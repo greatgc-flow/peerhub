@@ -6,7 +6,7 @@ import math
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterator, cast
+from typing import Any, cast
 
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 from peerhub.extensions.monitor_queries import (
@@ -32,7 +32,6 @@ from peerhub.extensions.observation_model import (
     valid_epoch_seconds,
 )
 from peerhub.extensions.quota_projection import project_exhaustion
-from peerhub.extensions.quota_windows import quota_window_remaining
 
 
 def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -87,6 +86,64 @@ def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, 
             "scope": "mapped",
         }
     return None
+
+
+def peer_quota(peer_observations: list[dict[str, Any]], configured_pools: list[str] | None,
+               *, has_session: bool) -> dict[str, Any] | None:
+    """Summarize measured quota for a peer, using a proven profile mapping when available."""
+    if configured_pools is not None:
+        return mapped_quota(configured_pools, peer_observations)
+    unmapped_scope = "unmapped" if has_session else None
+    q_data: dict[str, Any] | None = None
+    measured_candidates: list[tuple[float, dict[str, Any]]] = []
+    stale_candidates: list[dict[str, Any]] = []
+    for item in peer_observations:
+        raw_m: object = item.get("measurements")
+        measurements = cast(dict[str, Any], raw_m) if isinstance(raw_m, dict) else {}
+        remaining = finite_number(measurements.get("remaining_fraction"), overflow_is_missing=True)
+        state = item.get("state")
+        if state == "MEASURED" and remaining is not None and 0 <= remaining <= 1:
+            measured_candidates.append((remaining, item))
+        elif state == "STALE":
+            stale_candidates.append(item)
+
+    if measured_candidates:
+        lowest_rem, best_obs = min(measured_candidates, key=lambda x: (x[0], str(x[1].get("pool_ref") or "")))
+        q_data = {
+            "pool_ref": best_obs.get("pool_ref") or best_obs.get("pool_kind"),
+            "remaining_fraction": lowest_rem,
+            "percent": round(lowest_rem * 100),
+            "state": "MEASURED",
+            "source": best_obs.get("source"),
+            "age_seconds": best_obs.get("age_seconds"),
+        }
+        if unmapped_scope is not None:
+            q_data["scope"] = unmapped_scope
+    elif stale_candidates:
+        stale_obs = stale_candidates[0]
+        q_data = {
+            "pool_ref": stale_obs.get("pool_ref") or stale_obs.get("pool_kind"),
+            "remaining_fraction": None,
+            "percent": None,
+            "state": "STALE",
+            "source": stale_obs.get("source"),
+            "age_seconds": stale_obs.get("age_seconds"),
+        }
+        if unmapped_scope is not None:
+            q_data["scope"] = unmapped_scope
+    elif peer_observations:
+        first_obs = peer_observations[0]
+        q_data = {
+            "pool_ref": first_obs.get("pool_ref") or first_obs.get("pool_kind"),
+            "remaining_fraction": None,
+            "percent": None,
+            "state": first_obs.get("state") or "UNKNOWN",
+            "source": first_obs.get("source"),
+            "age_seconds": first_obs.get("age_seconds"),
+        }
+        if unmapped_scope is not None:
+            q_data["scope"] = unmapped_scope
+    return q_data
 
 
 # One poller is one probe source even when its rows carry different refs: ag falls back from /usage to the statusline log inside
@@ -191,23 +248,34 @@ def _fill_unknown_plans(observations: list[dict[str, Any]], accounts: list[dict[
             item["display_plan"], item["plan_source"] = plan, "account"  # `reason` stays exactly as stored
 
 
-def _quota_age_observations(conn: sqlite3.Connection, now: float) -> Iterator[dict[str, Any]]:
-    """Supply quota age evidence for human frames without a capacity read."""
+def _read_quota_age(conn: sqlite3.Connection, now: float) -> dict[str, list[dict[str, Any]]]:
+    """Read the fields the human title needs when neither quota group was selected."""
     read_us = round(now * 1_000_000)
     policy = FreshnessPolicy()
+    observations: list[dict[str, Any]] = []
+    account_rows: list[sqlite3.Row] = []
     for row in quota_age_rows(conn, read_us):
+        if row["kind"] == "account":
+            account_rows.append(row)
+            continue
         try:
             observation, capture_seq = row_to_observation(row)
         except ObservationCorruptError:
             continue
         freshness = evaluate_observation(observation, capture_seq, read_us, policy)
-        item = {"kind": observation.kind, "subject_ref": observation.subject_ref, "resource_pool_ref": observation.resource_pool_ref,
-                "state": freshness.state.value, "stored_state": freshness.stored_state.value,
-                "age_seconds": freshness.age_seconds, "payload": observation.payload}
-        remaining = quota_window_remaining(item, now)
-        if remaining is None or remaining >= 0:
-            yield {**item, "payload": {"remaining_fraction": observation.payload.get("remaining_fraction")},
-                   "expires_in": remaining}
+        observations.append({
+            "kind": observation.kind, "peer_id": observation.subject_ref, "subject_ref": observation.subject_ref,
+            "pool_ref": observation.resource_pool_ref, "source": observation.source,
+            "state": freshness.state.value, "stored_state": freshness.stored_state.value,
+            "age_seconds": freshness.age_seconds, "ttl_seconds": freshness.ttl_seconds,
+            "observed_at": observation.observed_at, "effective_at_us": row["effective_at_us"],
+            "reason": observation.payload.get("reason"),
+            "payload": {key: observation.payload[key] for key in ("remaining_fraction", "resets_at", "reset_in_seconds")
+                        if key in observation.payload},
+        })
+    accounts = (_read_accounts(conn, account_rows[:ACCOUNT_ROW_CAP], now)
+                if any(item["state"] == "STALE" for item in observations) else [])
+    return {"_quota_age_readings": observations, "_human_quota_accounts": accounts}
 
 
 def _incomplete_quota() -> dict[str, Any]:
@@ -444,7 +512,7 @@ def read_human_quota(conn: sqlite3.Connection, groups: list[str], observations: 
     quota_age: dict[str, list[dict[str, Any]]] = {}
     if not set(groups) & {"capacity", "peers"}:
         try:
-            quota_age["_quota_age_readings"] = list(_quota_age_observations(conn, now))
+            quota_age = _read_quota_age(conn, now)
         except sqlite3.Error as exc:
             if no_observation_tables(conn, exc):
                 quota_age["_quota_age_readings"] = []
@@ -465,5 +533,6 @@ def read_human_quota(conn: sqlite3.Connection, groups: list[str], observations: 
                     if isinstance(prior, dict):
                         display["_prior_measurement"] = prior
                         display["_prior_age"] = now - row["prior_at_us"] / 1_000_000
+                        display["_prior_observed_at"] = row["prior_observed_at"]
             human_observations.append(display)
     return human_observations, quota_age

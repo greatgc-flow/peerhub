@@ -8,7 +8,6 @@ import sys
 from contextlib import closing
 from pathlib import Path
 from threading import Lock, Thread
-from time import time
 from typing import Any, Callable, ClassVar, Mapping, Sequence, cast
 
 from peerhub.core.peer_kinds import ALIASES
@@ -162,18 +161,14 @@ class RefreshSchedule:
         self._evidence_due: dict[str, float] = {}
         self._retry_at: dict[str, float] = {}
         self._failed_at: dict[str, float] = {}
-        self._age_windows: list[tuple[float, float]] = []
 
     def update(self, readings: Sequence[Mapping[str, Any]], now: float) -> None:
         from peerhub.extensions.observation_model import ABSENT_FACT_REASONS
-        from peerhub.extensions.quota_windows import quota_window_remaining
 
         by_peer: dict[str, dict[str, Mapping[str, Any]]] = {}
         for item in readings:
             if item.get("kind") == "quota" and (pool := item.get("resource_pool_ref")):
                 by_peer.setdefault(item["subject_ref"], {})[pool] = item
-        age_windows: list[tuple[float, float]] = []
-        wall_at = time()
         for peer, required in self.required.items():
             pools = by_peer.get(peer, by_peer.get(ALIASES.get(peer, peer), {}))
             usable: dict[str, float] = {}
@@ -182,19 +177,12 @@ class RefreshSchedule:
                 if age is None:
                     continue
                 if item["stored_state"] == "MEASURED" and payload.get("remaining_fraction") is not None:
-                    if not required or pool in required:  # a pool the peer no longer needs must not age the title
-                        remaining = quota_window_remaining(item, wall_at)
-                        age_windows.append((now - age, float("inf") if remaining is None else now + remaining))
                     usable[pool] = age
                 elif item["stored_state"] == "ABSENT" and str(payload.get("reason", "")).startswith(ABSENT_FACT_REASONS):
                     usable[pool] = age
             needed = required or pools.keys()
             self._evidence_due[peer] = (now + MONITOR_QUOTA_MAX_AGE_SECONDS - max(usable[p] for p in needed)
                                         if needed and all(p in usable for p in needed) else now)
-        self._age_windows = age_windows
-
-    def oldest_age(self, now: float) -> float | None:
-        return max((now - measured_at for measured_at, expires_at in self._age_windows if now <= expires_at), default=None)
 
     def _due_at(self, peer: str) -> float:
         evidence_due = self._evidence_due.get(peer, float("-inf"))

@@ -34,7 +34,7 @@ ALLOWED: dict[str, set[str]] = {
                          "monitor_values"},
     "monitor_alerts": {"liveness", "monitor_activity", "monitor_preferences", "monitor_queries", "monitor_quota", "monitor_values"},
     "monitor_queries": {"delivery_reads", "observation_model"},
-    "monitor_quota": {"monitor_queries", "observation_model", "quota_projection", "quota_windows"},
+    "monitor_quota": {"monitor_queries", "observation_model", "quota_projection"},
     "monitor_sessions": {"adapters", "monitor_queries", "monitor_values", "session_receipts", "usage_normalization"},
     "monitor_values": {"adapters"},
     "caller": {"process_tree"},
@@ -57,7 +57,7 @@ ALLOWED: dict[str, set[str]] = {
     "diag_watch": {"diag"},
     "diag_read_model": {"diag", "diag_quota", "observation_model", "pool_health", "quota_windows"},
     "quota_windows": {"observation_model", "quota_projection"},
-    "pool_health": {"diag_quota", "observation_model", "quota_projection"},
+    "pool_health": {"diag_quota", "observation_model", "quota_projection", "quota_windows"},
     # M2
     "batch": {"process_tree"},
     "host": {"manifest", "sqlite_tx"},

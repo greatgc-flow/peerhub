@@ -5,9 +5,9 @@ import re
 from collections.abc import Mapping
 from typing import Any, cast
 
+from peerhub.core.scalars import finite_number
 from peerhub.core.text import clean_text
-from peerhub.core.scalars import finite_converted_number as finite_number
-from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, DISABLED_REASON, NOT_REPORTED_REASON
+from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, DISABLED_REASON, NOT_REPORTED_REASON, instant_us
 from peerhub.extensions.quota_projection import scoped_parent_ref
 
 WEEK_SECONDS = 7 * 86400
@@ -35,6 +35,34 @@ def pool_family(pool: str) -> str:
     return family if family in FAMILIES and re.fullmatch(r"[0-9]+[HD]", window) else "?"
 
 
+def quota_reset_at(reading: Mapping[str, object], payload: Mapping[str, object], frame_time: float) -> float | None:
+    """Resolve the reset instant from an absolute time or an anchored duration."""
+    absolute = finite_number(reading.get("resets_at"), overflow_is_missing=True)
+    if absolute is None:
+        absolute = finite_number(payload.get("resets_at"), overflow_is_missing=True)
+    if absolute is not None:
+        return absolute
+    # Stored durations use their observation clock. An evaluated countdown
+    # outside the payload uses the snapshot clock when supplied.
+    duration = finite_number(payload.get("reset_in_seconds"), overflow_is_missing=True)
+    snapshot_at = finite_number(reading.get("read_at"), overflow_is_missing=True)
+    if duration is None:
+        duration = finite_number(reading.get("reset_in_seconds"), overflow_is_missing=True)
+        if snapshot_at is not None and duration is not None:
+            return snapshot_at + duration
+    if duration is None:
+        return None
+    observed_at = reading.get("observed_at")
+    if isinstance(observed_at, str):
+        try:
+            return instant_us(observed_at) / 1_000_000 + duration
+        except (ValueError, OverflowError):
+            pass
+    age = finite_number(reading.get("age_seconds"), overflow_is_missing=True)
+    anchor = snapshot_at if snapshot_at is not None else frame_time - (age or 0)
+    return anchor + duration
+
+
 def quota_window_remaining(item: Mapping[str, Any], read_at: float) -> float | None:
     """Seconds until the reading's reset or maximum window age, whichever comes first."""
     pool = item.get("pool_ref") or item.get("resource_pool_ref")
@@ -45,17 +73,12 @@ def quota_window_remaining(item: Mapping[str, Any], read_at: float) -> float | N
     if not isinstance(raw, Mapping):
         return None
     measurements = cast(Mapping[str, object], raw)
-    remaining = finite_number(measurements.get("remaining_fraction"))
+    remaining = finite_number(measurements.get("remaining_fraction"), overflow_is_missing=True)
     if remaining is None or not 0 <= remaining <= 1:
         return None
-    reset = finite_number(item.get("resets_at"))
-    if reset is None:
-        reset = finite_number(measurements.get("resets_at"))
-    if reset is None:
-        countdown = finite_number(item.get("reset_in_seconds"))
-        if countdown is not None:
-            reset = read_at + countdown
-    age = finite_number(item.get("age_seconds"))
+    reading = {**item, "read_at": read_at} if item.get("pool_ref") else item
+    reset = quota_reset_at(reading, measurements, read_at)
+    age = finite_number(item.get("age_seconds"), overflow_is_missing=True)
     window, _ = parse_window(str(pool))
     limits = [reset - read_at] if reset is not None else []
     if age is not None and 0 < window < UNKNOWN_WINDOW_SECONDS:
@@ -69,16 +92,15 @@ def scoped_weekly_parents(rows: list[dict[str, Any]]) -> dict[int, dict[str, Any
     As in the detailed quota tree, require a strict consumer-set inclusion. Equal sets, duplicate display names
     and different account identities cannot establish a parent. This is presentation only, never a quota rewrite.
     """
+    rows = [row for row in rows if not row["retired"] and row.get("state") != "n/a"]
     parents: dict[int, dict[str, Any]] = {}
     for child in rows:
         parent_ref = scoped_parent_ref(str(child["pool_ref"]))
-        if parent_ref is None or child["retired"]:
+        if parent_ref is None:
             continue
         parent_name = parent_ref.rsplit(":", 1)[-1]
-        common = [row for row in rows if row["peer"] == child["peer"] and row["pool"] == parent_name
-                  and not row["retired"]]
-        same_name = [row for row in rows if row["peer"] == child["peer"] and row["pool"] == child["pool"]
-                     and not row["retired"]]
+        common = [row for row in rows if row["peer"] == child["peer"] and row["pool"] == parent_name]
+        same_name = [row for row in rows if row["peer"] == child["peer"] and row["pool"] == child["pool"]]
         if len(common) != 1 or common[0]["pool_ref"] != parent_ref or len(same_name) != 1:
             continue
         parent = common[0]
@@ -100,7 +122,7 @@ def omitted_plan_windows(observations: list[dict[str, Any]], plans: Mapping[str,
 
     latest: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for item in observations:
-        if item.get("kind", "quota") != "quota" or finite_number(item.get("effective_at_us")) is None:
+        if item.get("kind", "quota") != "quota" or finite_number(item.get("effective_at_us"), overflow_is_missing=True) is None:
             continue
         account = account_key(item)
         previous = latest.get(account, [])
@@ -123,9 +145,10 @@ def omitted_plan_windows(observations: list[dict[str, Any]], plans: Mapping[str,
             continue
         successful = all(row.get("pool_ref") and (row.get("state") == "MEASURED" or
                          (row.get("state") == "ABSENT" and clean_text(row.get("reason") or "").startswith(ABSENT_FACT_REASONS)))
-                         and (finite_number(row.get("age_seconds")) or 0) + elapsed < (finite_number(row.get("ttl_seconds")) or 0)
+                         and (finite_number(row.get("age_seconds"), overflow_is_missing=True) or 0) + elapsed
+                         < (finite_number(row.get("ttl_seconds"), overflow_is_missing=True) or 0)
                          for row in report)
-        at = finite_number(item.get("effective_at_us"))
+        at = finite_number(item.get("effective_at_us"), overflow_is_missing=True)
         if not successful or at is None or at >= report[0]["effective_at_us"]:
             continue
         replacements[(peer, str(item["pool_ref"]))] = {**item, "state": "ABSENT", "stored_state": "ABSENT",

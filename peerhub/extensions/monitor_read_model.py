@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
@@ -119,10 +118,11 @@ def _read_scope_groups(conn: sqlite3.Connection, groups: list[str], output: dict
 def _assemble_peers(conn: sqlite3.Connection, db_path: str, workspace: str | Path | None,
                     peers: list[dict[str, Any]], peer_sample_truncated: bool, peers_total: int,
                     sessions: list[dict[str, Any]], truncated: bool, quota: monitor_quota.QuotaSnapshot,
-                    output: dict[str, Any], errors: dict[str, str]) -> None:
+                    output: dict[str, Any], errors: dict[str, str]) -> dict[str, list[str]]:
     latest_facts_report = quota.facts_report
     config_workspace = monitor_workspace(db_path, workspace)
     peer_records: list[dict[str, Any]] = []
+    mapped_pools: dict[str, list[str]] = {}
     for p in peers:
         pid = p["peer_id"]
         peer_sessions = [s for s in sessions if s["peer_id"] == pid]
@@ -165,63 +165,9 @@ def _assemble_peers(conn: sqlite3.Connection, db_path: str, workspace: str | Pat
             }
 
         peer_observations = [o for o in quota.observations if o["peer_id"] == pid]
-        q_data: dict[str, Any] | None = None
-        measured_candidates: list[tuple[float, dict[str, Any]]] = []
-        stale_candidates: list[dict[str, Any]] = []
-        for o in peer_observations:
-            raw_m: object = o.get("measurements")
-            q_m: dict[str, Any] = cast(dict[str, Any], raw_m) if isinstance(raw_m, dict) else {}
-            raw_rem: object = q_m.get("remaining_fraction")
-            is_valid_rem = (
-                isinstance(raw_rem, (int, float)) and not isinstance(raw_rem, bool)
-                and math.isfinite(float(raw_rem)) and 0.0 <= float(raw_rem) <= 1.0
-            )
-            state = o.get("state")
-            if state == "MEASURED" and is_valid_rem:
-                measured_candidates.append((float(cast(float, raw_rem)), o))
-            elif state == "STALE":
-                stale_candidates.append(o)
-
         if is_mapped:
-            q_data = monitor_quota.mapped_quota(configured_pools, peer_observations)
-        else:
-            unmapped_scope = "unmapped" if s_item is not None else None
-            if measured_candidates:
-                lowest_rem, best_obs = min(measured_candidates, key=lambda x: (x[0], str(x[1].get("pool_ref") or "")))
-                q_data = {
-                    "pool_ref": best_obs.get("pool_ref") or best_obs.get("pool_kind"),
-                    "remaining_fraction": lowest_rem,
-                    "percent": round(lowest_rem * 100),
-                    "state": "MEASURED",
-                    "source": best_obs.get("source"),
-                    "age_seconds": best_obs.get("age_seconds"),
-                }
-                if unmapped_scope is not None:
-                    q_data["scope"] = unmapped_scope
-            elif stale_candidates:
-                stale_obs = stale_candidates[0]
-                q_data = {
-                    "pool_ref": stale_obs.get("pool_ref") or stale_obs.get("pool_kind"),
-                    "remaining_fraction": None,
-                    "percent": None,
-                    "state": "STALE",
-                    "source": stale_obs.get("source"),
-                    "age_seconds": stale_obs.get("age_seconds"),
-                }
-                if unmapped_scope is not None:
-                    q_data["scope"] = unmapped_scope
-            elif peer_observations:
-                first_obs = peer_observations[0]
-                q_data = {
-                    "pool_ref": first_obs.get("pool_ref") or first_obs.get("pool_kind"),
-                    "remaining_fraction": None,
-                    "percent": None,
-                    "state": first_obs.get("state") or "UNKNOWN",
-                    "source": first_obs.get("source"),
-                    "age_seconds": first_obs.get("age_seconds"),
-                }
-                if unmapped_scope is not None:
-                    q_data["scope"] = unmapped_scope
+            mapped_pools[pid] = configured_pools
+        q_data = monitor_quota.peer_quota(peer_observations, mapped_pools.get(pid), has_session=s_item is not None)
         sess_data: dict[str, Any] | None = None
         if s_item is not None:
             sess_data = {
@@ -284,6 +230,7 @@ def _assemble_peers(conn: sqlite3.Connection, db_path: str, workspace: str | Pat
         },
     }
     quota.facts_report = latest_facts_report
+    return mapped_pools
 
 
 def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | None = None,
@@ -327,9 +274,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         sessions, truncated = read_session_groups(conn, groups, output, errors, db_path, workspace)
         _read_scope_groups(conn, groups, output, errors, start_day, end_day)
         quota = monitor_quota.read_quota_groups(conn, groups, output, errors, now)
-        if "peers" in groups:
-            _assemble_peers(conn, db_path, workspace, peers, peer_sample_truncated, peers_total,
-                            sessions, truncated, quota, output, errors)
+        mapped_pools = (_assemble_peers(conn, db_path, workspace, peers, peer_sample_truncated, peers_total,
+                                      sessions, truncated, quota, output, errors) if "peers" in groups else {})
         text_on = os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off"
         activity_data = (monitor_activity.read_activity_group(conn, db_path, now, human=human, text_on=text_on,
                                                               liveness=liveness, process_probe=process_probe,
@@ -385,7 +331,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         return {"schema_version": "2.0", "status": "PARTIAL" if errors else "OK", "read_at": now,
                 "groups": output, "errors": errors, "alert_sources": alert_sources, "alerts": alerts,
                 "min_quota": monitor_quota.min_quota(pools) if pools is not None else None, "query_families": select_count,
-                **({"_human_observations": human_observations, **quota_age} if human else {})}
+                **({"_human_observations": human_observations, "_human_peer_pools": mapped_pools,
+                    "_human_quota_accounts": quota.accounts, **quota_age} if human else {})}
     finally:
         if conn.in_transaction:
             conn.execute("ROLLBACK")
