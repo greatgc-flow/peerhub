@@ -4,9 +4,9 @@
 
 ## Current decisions and contracts
 
-- **Active** — [Monitor pace health and caller ownership](monitor-pace-health-2026-11-23.md) records the decisions behind the [monitor guide](../monitor.md).
+- **Active** — [Monitor pace health and caller ownership](monitor-pace-health-2026-11-23.md) records the quota column grammar and ownership rules used by the [monitor guide](../monitor.md) and `peerhub explain caller-ownership`.
 - **Active** — [Inbound A2A server](a2a-inbound-server.md) records the deferred proposal and the conditions for implementation referenced by the [remote ask guide](../remote-ask.md).
-- **Active** — [Per-peer prompt-cache TTL](backlog-cache-ttl-2026-11-20.md) records the measurements and start trigger for the backlog item.
+- **Active** — [Per-peer prompt-cache TTL](backlog-cache-ttl-2026-11-20.md) defines the measurements and start trigger referenced by the [current backlog](../STATUS.md).
 - **Active** — [Retained session contract](../implementation/RETAINED_SESSIONS.md) covers the registry, retention, replay, and the `--session` and `--fresh` selectors.
 
 ## Historical records

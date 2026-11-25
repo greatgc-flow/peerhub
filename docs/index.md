@@ -38,6 +38,8 @@
 - [Retained session implementation](implementation/RETAINED_SESSIONS.md) records registry migration, replay, and receipts.
 - [Observation probe implementation](implementation/OBSERVATION_PROBES.md) records provider probe behavior and usage costs.
 - [History](history/) holds work logs, audits, and the [archival ledger](history/ledger-2026-10-17.md).
+- [Lesson observations](history/observations.md) record the dated measurements behind operational guidance.
+- [Archived M1 skill examples](history/m1_spec/05_SKILLS/) preserve the original skill catalog examples.
 - [Design audits and shipped monitor designs](history/design/) record release and design provenance.
 - [Benchmarks](benchmarks/) hold performance and model comparisons.
 - [Archived release evidence](implementation/live_evidence/) holds canary receipts through 0.24.12. Later receipts accompany the [GitHub releases](https://github.com/greatgc-flow/peerhub/releases).

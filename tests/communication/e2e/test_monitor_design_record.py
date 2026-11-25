@@ -44,7 +44,7 @@ def test_the_evidence_facts_are_listed_and_the_rounds_are_kept():
 
 def test_the_design_index_links_the_record_and_nothing_leaks_local_paths():
     index = (DESIGN / "README.md").read_text(encoding="utf-8")
-    assert f"]({RECORD.name})" in index
+    assert any(line.startswith("- **Active**") and f"]({RECORD.name})" in line for line in index.splitlines())
     for directory in (ROUNDS, SCORING):
         link = directory.relative_to(DESIGN.parent).as_posix()
         assert f"](../{link}/)" in index and f"](../{link}/)" in TEXT

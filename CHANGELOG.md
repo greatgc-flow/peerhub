@@ -77,6 +77,7 @@ they do not claim new validation or publication evidence.
 ### Documentation
 
 - Consolidated the command, monitor, adapter, store and maintainer references, shortened overlapping offline lessons, and moved historical implementation and design records into `docs/history/`.
+- Archived dated lesson observations and M1 skill examples, identified the monitor and prompt-cache decisions as active, and labeled the frozen M1 audit as historical evidence.
 
 ## [0.26.15] - 2026-11-25
 

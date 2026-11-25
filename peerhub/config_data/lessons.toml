@@ -74,10 +74,10 @@ issue = "#350"
 
 [[lessons]]
 id = "ag-bulk-profile-heuristics"
-title = "ag profile choice for bulk work (observed 2026-11-01)"
+title = "ag profile choice for bulk work"
 keywords = ["ag", "agy", "profile", "effort", "flash", "argon", "bulk", "image", "WinError", "206", "prompt", "size"]
 symptom = "A low-effort ag profile returns an empty reply on a long list of file or shell items; very long inline prompts fail on Windows."
-fix = "Observation from one small test (Windows, one run per cell, no ground truth for images): flash-low broke down somewhere between 25 and 150 items, flash-medium finished them, high only cost time. Treat these as heuristics, not thresholds. ag prompts, including catch-up history, go over stdin up to 1,000,000 bytes; only an agy without stream-json input or PEERHUB_AG_TRANSPORT=argv uses argv, limited to 30,000 bytes (30 KB) on Windows and 120,000 bytes (120 KB) on POSIX. For ask_prompt_too_large, split into parts under the limit (one ask each), or for an ag argv limit use cc/cx on a separate stream (stdin, 1,000,000-byte maximum); if the prompt alone is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id. File paths do not bypass the limit and ag file reads may be denied; inline small excerpts. Dense numeric image tables stay unreliable for every model: cross-read before trusting."
+fix = "Try flash-medium if flash-low returns an empty reply on bulk work. ag prompts, including catch-up history, go over stdin up to 1,000,000 bytes; only an agy without stream-json input or PEERHUB_AG_TRANSPORT=argv uses argv, limited to 30,000 bytes (30 KB) on Windows and 120,000 bytes (120 KB) on POSIX. For ask_prompt_too_large, split into parts under the limit (one ask each), or for an ag argv limit use cc/cx on a separate stream (stdin, 1,000,000-byte maximum); if the prompt alone is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id. File paths do not bypass the limit and ag file reads may be denied; inline small excerpts. Dense numeric image tables stay unreliable for every model: cross-read before trusting."
 issue = "#290, #309"
 
 [[lessons]]
@@ -109,8 +109,8 @@ id = "stream-reuse-cost"
 title = "Stream reuse cost: reuse within one task only"
 keywords = ["stream", "reuse", "resume", "session", "context", "tokens", "quota", "cost", "vote"]
 symptom = "Quota drains fast although prompts are short: a long-lived --stream is reused across many tasks, so every ask re-sends the whole earlier conversation (on every model turn)."
-fix = "Reuse only within one task. Move a new task to a new stream and send votes fresh with facts inline. A 19-ask cx stream used 23.6M input tokens in one 2026-11-10 measurement. See docs/commands.md#ask."
-issue = "2026-11-10 quota diet"
+fix = "Reuse only within one task. Move a new task to a new stream and send votes fresh with facts inline. See docs/commands.md#ask."
+issue = "#340"
 
 [[lessons]]
 id = "independent-peer-votes"
@@ -118,7 +118,7 @@ guide_order = 1
 title = "Independent review votes"
 keywords = ["peer", "vote", "votes", "author", "independent", "unanimity", "review", "self-vote", "batch", "responses", "verdict", "fresh", "consequential"]
 symptom = "A document author votes AGREE on their own work and the result is treated as unanimous approval, votes are collected one ask at a time, or a routine check is sent to three peers or to a named stream."
-fix = "Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Routine checks and all three consequential votes always run FRESH, even when a stream name is given: a named stream is for review rounds on one diff only. Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. There is no `vote` command: votes and reviews run in one command, peerhub batch run votes.json --batch-id ID --max-parallel n --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Verdict template for every voter, one reply of <= 300 tokens: VERDICT / BLOCKERS / NITS (VERDICT: AGREE or DISAGREE; BLOCKERS: each with file:line and the exact fix, or none; NITS: optional, one line each). Measured 2026-11-14: three peers answered in 11 s."
+fix = "Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Routine checks and all three consequential votes always run FRESH, even when a stream name is given: a named stream is for review rounds on one diff only. Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. There is no `vote` command: votes and reviews run in one command, peerhub batch run votes.json --batch-id ID --max-parallel n --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Verdict template for every voter, one reply of <= 300 tokens: VERDICT / BLOCKERS / NITS (VERDICT: AGREE or DISAGREE; BLOCKERS: each with file:line and the exact fix, or none; NITS: optional, one line each)."
 issue = "#297, #366, 0.25.0 plan D6"
 
 [[lessons]]
@@ -229,7 +229,7 @@ issue = "#337"
 id = "concurrent-cc-lanes"
 title = "Concurrent cc lanes and parent shell lifetime"
 keywords = ["cc", "concurrent", "lanes", "memory", "reaper", "supervisor", "parent", "shell"]
-symptom = "On a 32 GB Windows host, memory pressure reaped parent shells and killed long cc asks when about six lanes ran and one loaded a large index (PeerHub 0.24.8; checked 2026-11-12, #352)."
+symptom = "On Windows, memory pressure can reap parent shells and kill long cc asks when concurrent lanes load large indexes."
 fix = "Keep 2-3 concurrent cc lanes on a 32 GB host when a lane may load large indexes. Long asks die with their parent shell: run them from one supervisor, wait for completion, and do not restart reaped work blindly. Check peerhub diag running, then inspect results and effects before deciding how to continue. This is an operational lesson, not an enforced concurrency or free-memory guard."
 issue = "#352"
 
@@ -238,8 +238,8 @@ id = "peer-subagents"
 title = "Peer sub-agents inside one ask"
 keywords = ["subagent", "subagents", "sub-agent", "sub-agents", "Agent", "spawn_agent", "invoke_subagent", "multi_agent", "fan-out", "loop"]
 symptom = "A large task could run as parallel helpers inside one peer ask, or a prompt expects /loop-style persistence inside an ask."
-fix = "Every peer can fan out sub-agents inside one ask: cc through its Agent tool; cx through spawn_agent only when the prompt names that tool explicitly (codex 0.167.2, features.multi_agent on); ag through invoke_subagent. There is no /loop-style persistence inside an ask: the ask ends with the peer's reply. Sub-agents spend the same peer quota: give each a disjoint task and ask for one merged final report."
-issue = "#361 (checked 2026-11-13)"
+fix = "Every peer can fan out sub-agents inside one ask: cc through its Agent tool; cx through spawn_agent only when the prompt names that tool explicitly (with features.multi_agent enabled); ag through invoke_subagent. There is no /loop-style persistence inside an ask: the ask ends with the peer's reply. Sub-agents spend the same peer quota: give each a disjoint task and ask for one merged final report."
+issue = "#361"
 
 [[lessons]]
 id = "api-peers"

@@ -262,8 +262,11 @@ def test_independent_peer_votes_is_extended_not_duplicated():
                    "a named stream is for review rounds on one diff only", "VERDICT / BLOCKERS / NITS", "<= 300 tokens",
                    "no `vote` command", "--max-parallel n --responses",
                    # the earlier facts stay
-                   "did not author it", "not writable", "private empty directory", "11 s"):
+                   "did not author it", "not writable", "private empty directory"):
         assert needle in text, needle
+    assert "11 s" not in text
+    observations = Path("docs/history/observations.md").read_text(encoding="utf-8")
+    assert "Three peers answered in 11 s" in observations
 
 
 # ---- freeze rule (D12) --------------------------------------------------------------------------------------------
