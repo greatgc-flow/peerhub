@@ -15,7 +15,7 @@ import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.view import PLAN_BUDGET_COLUMN, PLAN_TAG_LEGEND, plan_action, plan_data, render_plan, visible_len
-from peerhub.core.load_limits import format_load, load_snapshot
+from peerhub.core.load_limits import ResourceSample, format_load, load_snapshot
 from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import DiagnosticReport, Section
 from tests.communication.harness.observation import ObservationHarness
@@ -191,7 +191,7 @@ def test_plan_profiles_footer_wraps_within_the_sample_text_budget():
     profiles = {f"{family}-{window}": [f"{peer}.effort", f"{peer}.standard"]
                 for peer, family in families.items() for window in windows}
     width = 100
-    load = load_snapshot({}, None)
+    load = load_snapshot({}, ResourceSample())
     out = render_plan(_report(*reversed(items)), width=width, store_path="D:/w/.peerhub/core.db",
                       store_source="explicit", load=load, profiles_by_pool=profiles)
     lines = out.splitlines()

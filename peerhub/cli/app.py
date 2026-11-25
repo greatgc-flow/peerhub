@@ -299,7 +299,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     batch_run.add_argument("manifest", help="Path to the JSON manifest (see the example below)")
     batch_run.add_argument("--batch-id", required=True, help="Batch ID; stream and request IDs derive from it")
-    batch_run.add_argument("--max-parallel", required=True, type=int, help="Maximum tasks to run at the same time")
+    batch_run.add_argument("--max-parallel", required=True, type=int, help="Caller-chosen maximum simultaneous tasks (integer >= 1)")
     batch_run.add_argument("--dry-run", action="store_true", help="Validate the manifest and list the tasks without running them")
     batch_run.add_argument("--json", action="store_true")
     batch_run.add_argument("--responses", action="store_true", help="Include each completed task's reply text in the report")
@@ -1317,23 +1317,15 @@ def _peer_kind(db: str | None, peer: str, *, offline: bool = False) -> str | Non
     return peer_kind(adapter_ref, peer)
 
 
-def _batch_load_sample(db: str) -> tuple[int | None, dict[str, int], float | None, dict[str, int | None]]:
+def _batch_load_sample(db: str) -> dict[str, Any]:
     try:
         from peerhub.extensions.diag_running import sample_load
 
-        sample = sample_load(db)
-        ram_free_gb = cast(float | None, sample.get("ram_free_gb"))
-        active = sample["active"]
-        relations = cast(dict[str, int | None], sample["active_by_relation"])
-        if isinstance(active, int) and not isinstance(active, bool):
-            peers = cast(dict[str, dict[str, int | None]], sample["peers"])
-            counts = {peer: count for peer, load in peers.items() if (count := load["active"]) is not None}
-            return active, counts, ram_free_gb, relations
-        return None, {}, ram_free_gb, relations
+        return sample_load(db)
     except Exception:  # diagnostic sampling is best-effort and cannot affect manifest validation
-        from peerhub.core.load_limits import CALLER_RELATIONS
+        from peerhub.core.load_limits import ResourceSample, load_snapshot
 
-        return None, {}, None, dict.fromkeys(CALLER_RELATIONS)
+        return load_snapshot(None, ResourceSample())
 
 
 def _run_batch_cli(args: argparse.Namespace) -> int:
@@ -1372,10 +1364,10 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
                         return batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
                 return batch.DEFAULT_PROFILE_DISPLAY
 
-            active, active_by_peer, ram_free_gb, active_by_relation = _batch_load_sample(db)
-            warnings.extend(batch.load_warnings(tasks, max_parallel=max_parallel, kind_of=kind_of,
-                                                active=active, active_by_peer=active_by_peer, ram_free_gb=ram_free_gb,
-                                                active_by_relation=active_by_relation))
+            from peerhub.core.load_limits import format_load
+
+            load = _batch_load_sample(db)
+            warnings.extend(batch.load_warnings(load))
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
@@ -1387,7 +1379,7 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
             replay = read_replay_counts(Path(db), ((row["stream"], row["peer"], row["request_id"]) for row in rows))
             if args.json:
                 dry_report: dict[str, Any] = dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel,
-                                                  tasks=rows, active_now=active, active_by_relation=active_by_relation)
+                                                  tasks=rows, load=load)
                 if replay is not None:
                     dry_report["replay"] = replay
                 dry_report["warnings"] = warnings
@@ -1400,6 +1392,7 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
                           f"{row['profile_display']} {row['workspace']}")
                 if replay is not None:
                     print(batch.REPLAY_LINE.format(**replay))
+                print(format_load(load))
                 for warning in warnings:
                     print(warning)
             return 0

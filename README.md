@@ -53,7 +53,7 @@ peerhub --db .peerhub/core.db ask cc "Reply OK" --profile cc.standard --stream s
 
 The reply prints on stdout with a receipt line; use a new `--request-id` for every ask and a new `--stream` for every new task.
 
-- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, load and free RAM, about 350 tokens). `peerhub explain <topic or keywords>` finds a lesson.
+- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, active asks, free RAM and CPU, about 350 tokens). `peerhub explain <topic or keywords>` finds a lesson.
 - Shared stores: follow `peerhub explain caller-ownership` to export a unique `PEERHUB_OWNER` per lead session, a readable `PEERHUB_LEAD` and batch lane identifiers.
 - People: `peerhub monitor` is the human screen (quota, running asks, recent asks).
 - Something wrong: `peerhub explain report-issues` lists what to include before filing an issue.
@@ -79,7 +79,7 @@ Keep the same body, timestamp, and idempotency key when retrying an append.
 
 ## Quick reference & guide
 
-Run `peerhub guide` (or bare `peerhub` with no arguments) for the decisions in at most 1600 bytes, offline: which peer, which tier, when to reuse a stream, fresh votes (one reviewer for a routine check, three independent peers for a consequential one, reply `VERDICT / BLOCKERS / NITS`), the batch cap, the timeout and what to do when a result is uncertain. Models and tiers: `peerhub profile list`. The rare hazards, the store and upgrade steps, the load limits and the discovery commands are topics of `peerhub explain <topic>` (`peerhub explain lessons` lists them). Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
+Run `peerhub guide` (or bare `peerhub` with no arguments) for the decisions in at most 1600 bytes, offline: which peer, which tier, when to reuse a stream, fresh votes (one reviewer for a routine check, three independent peers for a consequential one, reply `VERDICT / BLOCKERS / NITS`), batch launch planning, the timeout and what to do when a result is uncertain. Models and tiers: `peerhub profile list`. The rare hazards, the store and upgrade steps, machine resource warnings and the discovery commands are topics of `peerhub explain <topic>` (`peerhub explain lessons` lists them). Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
 
 ```powershell
 peerhub guide
@@ -92,7 +92,7 @@ CLI output defaults to compact human text, including when redirected. Use `--jso
 
 [Account-bound peers](docs/accounts.md) isolate cc/cx vendor roots behind immutable peer identities; `peerhub account list` inspects bindings.
 
-[Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run` validates a flat batch before execution.
+[Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel n --dry-run` validates a flat batch before execution. Choose a positive integer for `n` based on quota and machine resources.
 
 ```powershell
 # Persist the prompt, execute one provider, and persist its response.
@@ -108,7 +108,7 @@ peerhub suggest --tier effort --task review --candidates
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
 
-# AIs read quota with one low-token command (pools + load + free RAM); `peerhub monitor` is the human screen.
+# AIs read quota with one low-token command (pools + active asks + RAM and CPU); `peerhub monitor` is the human screen.
 peerhub diag --plan
 
 # Read committed observations without probing or writing.
@@ -344,7 +344,7 @@ What they can and cannot do:
 - One ask per stream. An ask on a stream that already has any record (another ask, delivered, failed, uncertain or still running, or a record put there some other way) is refused: `ca is stateless; use a new stream`. Only the same ask may come again: the same request-id and the same author (`--author-peer`) replay the stored result; another author with that request-id is refused the same way. Without `--stream`, every ask gets its own stream, `peer:<peer>:<request-id>` (PeerHub generates the request id when none is given), and the text output prints it before the `session:` line, for example `stream: peer:ca:<request-id>`; `--json` has it in `stream_id`. Other peers keep the default `peer:<peer>:chat`.
 - Refused before anything is stored or sent, with `request_rejected` and exit status 2: no `--profile` and no `--model`, a model that does not match, `--effort`, and `--writable`. See `peerhub explain request_rejected`.
 - The `@` rule: `ant` replaces a string that starts with `@` by the content of the file it names. The text that PeerHub sends to `ant` always starts with the fixed line `PeerHub ask (text only, no tools, no files).`, so a prompt that starts with `@<path>` is sent as that literal text, and no file is read.
-- Limits: replies up to 16,000 output tokens for `ca` and `oa` and up to 32,000 for `ga`; prompts up to 1,000,000 bytes; `peerhub explain batch-and-load` advises at most 3 asks at once per API peer (nothing enforces it). The limit of `ga` is higher because a Gemini model counts its thinking against the output limit: in a real call with a limit of 20 tokens the thinking used them all, and the reply came back cut and without text.
+- Limits: replies up to 16,000 output tokens for `ca` and `oa` and up to 32,000 for `ga`; prompts up to 1,000,000 bytes. The limit of `ga` is higher because a Gemini model counts its thinking against the output limit: in a real call with a limit of 20 tokens the thinking used them all, and the reply came back cut and without text.
 - `oa` always calls `https://api.openai.com/v1/responses`, and `ga` always calls `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`. `OPENAI_BASE_URL` and the proxy variables are ignored, redirects are not followed and TLS is always verified. A network that needs a proxy is not supported. For `oa` and `ga`, `--timeout-seconds` is a total over the whole call (connecting, the headers and the body): when it passes, the ask ends `uncertain`. `--silence-timeout-seconds`, when given, limits one network operation.
 
 Outcomes:

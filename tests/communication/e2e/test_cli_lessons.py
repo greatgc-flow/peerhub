@@ -169,7 +169,7 @@ def test_new_and_moved_lesson_content():
                    "plan_changed: true", "at least five minutes old"):
         assert needle in by_id["monitor-accounts"]["fix"], needle
     votes = by_id["independent-peer-votes"]["fix"]
-    for needle in ("--max-parallel 3 --responses", "not writable", "private empty directory", "inline", "11 s",
+    for needle in ("--max-parallel n --responses", "not writable", "private empty directory", "inline", "11 s",
                    "routine check = ONE reviewer, FRESH", "3 independent peers, unanimity", "VERDICT / BLOCKERS / NITS"):
         assert needle in votes, needle
     timeouts = by_id["ask-timeouts"]["fix"]

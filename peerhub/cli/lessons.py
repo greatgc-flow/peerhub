@@ -31,9 +31,10 @@ def load_lessons() -> list[Lesson]:
                 diag=DIAG_EXIT_BY_STATUS,
             )
         elif lesson["id"] == "parallel-quota":
-            from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL
+            from peerhub.core.load_limits import CPU_BUSY_WARN_PCT, MIN_FREE_RAM_GB, PLAN_NA_POOLS_LABEL
 
-            lesson["fix"] = lesson["fix"].format(plan_na_pools=PLAN_NA_POOLS_LABEL)
+            lesson["fix"] = lesson["fix"].format(plan_na_pools=PLAN_NA_POOLS_LABEL,
+                                                ram_min=MIN_FREE_RAM_GB, cpu_warn=CPU_BUSY_WARN_PCT)
     return sorted(lessons, key=lambda lesson: lesson["id"])
 
 

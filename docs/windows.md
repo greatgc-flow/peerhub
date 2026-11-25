@@ -38,12 +38,13 @@ $tasks = @(
 )
 
 $dbPath = "C:/PeerHub/core.db"
+$parallelism = [int](Read-Host "Simultaneous tasks allowed by quota and machine resources")
 
 $tasks | ForEach-Object -Parallel {
     $task = $_
     $db = $using:dbPath
     peerhub --db $db ask $task.Peer $task.Prompt --stream $task.Stream --request-id $task.ReqId --json
-} -ThrottleLimit 4
+} -ThrottleLimit $parallelism
 ```
 
 Example commands executed by parallel workers:

@@ -1,4 +1,4 @@
-"""Flat, bounded-parallel `peerhub ask` batches: one OS subprocess per task through the public CLI.
+"""Flat `peerhub ask` batches: one OS subprocess per task through the public CLI.
 
 Identity, claims and idempotency stay in `ask`; this module validates and describes a manifest, derives stable stream/request ids,
 runs at most N workers, classifies each worker's outcome (default UNCERTAIN) and cancels process trees.
@@ -15,20 +15,18 @@ import sys
 import tempfile
 import threading
 import time
-from collections import Counter
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
 from peerhub._console import format_shell_command
-from peerhub.core.load_limits import ACTIVE_ASKS_CEILING, ACTIVE_ASKS_DEFAULT, MIN_FREE_RAM_GB, PER_PEER_LIMITS, format_active_split
+from peerhub.core.load_limits import ResourceSample, read_resources
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES
 from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
 DEFAULT_TIMEOUT_S = 600.0
-MAX_TASKS = 256
-MAX_PARALLEL = 16
-RECOMMENDED_MAX_PARALLEL = 3  # the one value the guide and every example use (0.25.0 plan D5); the option stays required
+RESOURCE_POLL_SECONDS = 3.0
 STDOUT_CAP = 4 * 1024 * 1024
 STDERR_CAP = 64 * 1024
 PROMPT_FILE_CAP = 1024 * 1024
@@ -48,14 +46,10 @@ _TASK_FIELDS = {
 _KEYS = _TASK_FIELDS.keys()
 _PROMPT_CHOICE = f"exactly one of {_PROMPT_KEY} or {_PROMPT_FILE_KEY}"
 _WARNING_MESSAGES = {
-    "per_peer_limit": "{peer}: {load} exceed per-peer limit {limit}",
-    "active_asks_ceiling": "batch: {load} exceed active-ask ceiling {ceiling} (also above the default {default})",
-    "active_asks_default": "batch: {load} exceed active-ask default {default} (within the ceiling {ceiling})",
-    "active_asks_sample": "active now {active}",
     "free_ram": "free RAM {free:.1f} GB is below minimum {minimum} GB",
+    "cpu_busy": "CPU load {busy:.1f}% is at or above warning level {warning}%",
     "workspace_overlap": "writable tasks {first} and {second} have {relationship} workspaces",
 }
-UNKNOWN_ACTIVE_SAMPLE = "?"
 DEFAULT_PROFILE_DISPLAY = "(peer default)"
 RESOLVED_DEFAULT_PROFILE_DISPLAY = "(default: {profile})"
 REPLAY_LINE = "replay: {settled} settled, {uncertain} uncertain"
@@ -110,8 +104,8 @@ def derive_ids(batch_id: str, task_id: str) -> tuple[str, str]:
 
 
 def check_max_parallel(value: object) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_PARALLEL:
-        raise ManifestError(f"--max-parallel must be an integer 1..{MAX_PARALLEL}")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ManifestError("--max-parallel must be an integer >= 1")
     return value
 
 
@@ -136,8 +130,8 @@ def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
     if not isinstance(doc, dict) or set(cast(dict[str, Any], doc)) != {"tasks"} or not isinstance(doc["tasks"], list):
         raise ManifestError('manifest must be {"tasks": [...]}')
     rows = cast(list[Any], doc["tasks"])
-    if not 1 <= len(rows) <= MAX_TASKS:
-        raise ManifestError(f"manifest needs 1..{MAX_TASKS} tasks")
+    if not rows:
+        raise ManifestError("manifest needs at least one task")
     tasks: list[Task] = []
     seen: set[str] = set()
     for row in rows:
@@ -204,6 +198,9 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
         if t.workspace is not None and not t.workspace.is_dir():
             raise ManifestError(f"task {t.task_id}: workspace {t.workspace} is not an existing directory")
         spaces.append((t, _real(t.workspace), t.writable or kind == "ag"))  # ag writes regardless of the flag (#140)
+    workspaces = {task.task_id: path for task, path, _ in spaces}
+    if not any(writable for _, _, writable in spaces):
+        return workspaces
     first_overlap = None
     for i, (ta, pa, wa) in enumerate(spaces):
         for tb, pb, wb in spaces[i + 1:]:
@@ -220,34 +217,16 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
                     first=ta.task_id, second=tb.task_id, relationship=relationship))
     if first_overlap is not None:
         raise ManifestError(first_overlap)
-    return {task.task_id: path for task, path, _ in spaces}
+    return workspaces
 
 
-def load_warnings(tasks: Sequence[Task], *, max_parallel: int, kind_of: Callable[[str], str | None],
-                  active: int | None, active_by_peer: Mapping[str, int], ram_free_gb: float | None = None,
-                  active_by_relation: Mapping[str, int | None] | None = None) -> list[str]:
-    def describe_load(parallel: int, active_count: int) -> str:
-        batch_load = f"{parallel} concurrent batch tasks"
-        return f"{batch_load} + {active_count} active asks" if active is not None else batch_load
-
+def load_warnings(load: Mapping[str, Any]) -> list[str]:
     warnings: list[str] = []
-    for peer, count in Counter(task.peer for task in tasks).items():
-        limit = PER_PEER_LIMITS.get(kind_of(peer) or peer)
-        parallel = min(count, max_parallel)
-        peer_active = active_by_peer.get(peer, 0)
-        if limit is not None and parallel + peer_active > limit:
-            warnings.append(_WARNING_MESSAGES["per_peer_limit"].format(
-                peer=peer, load=describe_load(parallel, peer_active), limit=limit))
-    parallel = min(len(tasks), max_parallel)
-    projected = parallel + (active or 0)
-    if projected > ACTIVE_ASKS_DEFAULT:
-        warning = "active_asks_ceiling" if projected > ACTIVE_ASKS_CEILING else "active_asks_default"
-        warnings.append(_WARNING_MESSAGES[warning].format(
-            load=describe_load(parallel, active or 0), default=ACTIVE_ASKS_DEFAULT, ceiling=ACTIVE_ASKS_CEILING))
-    active_line = _WARNING_MESSAGES["active_asks_sample"].format(active=UNKNOWN_ACTIVE_SAMPLE if active is None else active)
-    warnings.append(active_line + format_active_split(active_by_relation))
-    if ram_free_gb is not None and ram_free_gb < MIN_FREE_RAM_GB:
-        warnings.append(_WARNING_MESSAGES["free_ram"].format(free=ram_free_gb, minimum=MIN_FREE_RAM_GB))
+    if load["ram_ok"] is False:
+        warnings.append(_WARNING_MESSAGES["free_ram"].format(free=load["ram_free_gb"], minimum=load["ram_min_gb"]))
+    busy = load["cpu_busy_pct"]
+    if busy is not None and busy >= load["cpu_busy_warn_pct"]:
+        warnings.append(_WARNING_MESSAGES["cpu_busy"].format(busy=busy, warning=load["cpu_busy_warn_pct"]))
     return warnings
 
 
@@ -431,12 +410,12 @@ def _launch_flags() -> dict[str, Any]:
 
 
 def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: str, argv_builder: ArgvBuilder = default_argv_builder,
-              cancel: threading.Event | None = None, grace_s: float = 30.0, responses: bool = False) -> dict[str, Any]:
+              cancel: threading.Event | None = None, grace_s: float = 30.0, responses: bool = False,
+              resource_reader: Callable[[], ResourceSample] | None = None) -> dict[str, Any]:
     check_max_parallel(max_parallel)
     cancel = cancel or threading.Event()
+    resource_reader = resource_reader or read_resources
     rows: dict[str, dict[str, Any]] = {}
-    pending = list(tasks)
-    lock = threading.Lock()
 
     def blocked(t: Task, reason: str) -> dict[str, Any]:
         stream, request = derive_ids(batch_id, t.task_id)
@@ -499,43 +478,57 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             out_row["response"] = result["response"]  # the stored reply, as printed by `ask --json`
         return out_row
 
-    def supervisor(tmp: Path) -> None:
-        while True:
-            with lock:
-                if not pending:
-                    return
-                t = pending.pop(0)
-                stop = cancel.is_set()
-            launched: list[subprocess.Popen[Any]] = []
-            started = time.monotonic()
-            try:
-                row = blocked(t, "cancelled") if stop else work(t, tmp, launched)
-            except Exception as exc:
-                reason = f"worker_error:{type(exc).__name__}" if launched else f"worker_setup_error:{type(exc).__name__}"
-                if launched:
-                    proc = launched[0]
-                    try:
-                        if kill_tree_confirmed(proc):
-                            proc.wait(timeout=5)
-                            for pipe in (proc.stdout, proc.stderr):
-                                if pipe is not None:
-                                    pipe.close()
-                        else:
-                            reason += ":kill_unconfirmed"
-                    except Exception as cleanup_exc:
-                        reason += f":cleanup_error:{type(cleanup_exc).__name__}"
-                row = {**blocked(t, ""), "status": "UNCERTAIN" if launched else "FAILED", "reason": reason,
-                       "elapsed_s": round(time.monotonic() - started, 3)}
-            rows[t.task_id] = row
+    def supervise(t: Task, tmp: Path) -> None:
+        launched: list[subprocess.Popen[Any]] = []
+        started = time.monotonic()
+        try:
+            row = blocked(t, "cancelled") if cancel.is_set() else work(t, tmp, launched)
+        except Exception as exc:
+            reason = f"worker_error:{type(exc).__name__}" if launched else f"worker_setup_error:{type(exc).__name__}"
+            if launched:
+                proc = launched[0]
+                try:
+                    if kill_tree_confirmed(proc):
+                        proc.wait(timeout=5)
+                        for pipe in (proc.stdout, proc.stderr):
+                            if pipe is not None:
+                                pipe.close()
+                    else:
+                        reason += ":kill_unconfirmed"
+                except Exception as cleanup_exc:
+                    reason += f":cleanup_error:{type(cleanup_exc).__name__}"
+            row = {**blocked(t, ""), "status": "UNCERTAIN" if launched else "FAILED", "reason": reason,
+                   "elapsed_s": round(time.monotonic() - started, 3)}
+        rows[t.task_id] = row
 
     scratch = store_scratch_dir(db)
     scratch.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="peerhub-batch-", dir=scratch) as d:
-        threads = [threading.Thread(target=supervisor, args=(Path(d),), daemon=True) for _ in range(min(max_parallel, len(tasks)))]
-        for th in threads:
-            th.start()
-        for th in threads:
-            th.join()
+    workers = max(1, min(max_parallel, len(tasks)))
+    waiting_reported = False
+    with (tempfile.TemporaryDirectory(prefix="peerhub-batch-", dir=scratch) as d,
+          ThreadPoolExecutor(max_workers=workers) as executor):
+        tmp = Path(d)
+        in_flight: set[Future[None]] = set()
+        for task in tasks:
+            if len(in_flight) >= workers:
+                _, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+            # Low resources hold further launches while asks run; with none running the task starts (with the
+            # warning), so a machine that never recovers cannot stall the batch forever.
+            while not cancel.is_set():
+                warnings = load_warnings(resource_reader().facts())
+                in_flight = {future for future in in_flight if not future.done()}
+                if not warnings or not in_flight:
+                    if warnings:
+                        print(f"batch: starting with no ask running ({'; '.join(warnings)})", file=sys.stderr, flush=True)
+                    break
+                if not waiting_reported:
+                    print(f"batch: waiting for machine resources ({'; '.join(warnings)})", file=sys.stderr, flush=True)
+                    waiting_reported = True
+                cancel.wait(RESOURCE_POLL_SECONDS)
+            if cancel.is_set():
+                rows[task.task_id] = blocked(task, "cancelled")
+            else:
+                in_flight.add(executor.submit(supervise, task, tmp))
     results: list[dict[str, Any]] = []
     diag = ["peerhub", "--db", os.path.abspath(db), "diag"]
     for t in tasks:

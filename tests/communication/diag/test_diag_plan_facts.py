@@ -12,7 +12,7 @@ import pytest
 from peerhub.cli.app import main
 from peerhub.cli.monitor_view import FAMILIES
 from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
-from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, load_snapshot
+from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, ResourceSample, load_snapshot
 from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION, epoch_to_iso
@@ -188,7 +188,10 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     assert profile_reads == [Path.cwd(), Path.cwd()]
     groups = [f"{row['pool']} {','.join(row['profiles'])}" for row in data["pools"]
               if row["action"] != "n/a" and row["profiles"]]
-    legend, footer, gaps, load = out.splitlines()[-4:]
+    lines = out.splitlines()
+    load_start = next(index for index, line in enumerate(lines) if line.startswith("load:"))
+    legend, footer, gaps = lines[load_start - 3:load_start]
+    load = " ".join(lines[load_start:])
     assert legend.endswith(PLAN_TAG_LEGEND)
     assert footer == "profiles: " + " | ".join(groups)
     assert gaps.startswith("gap: ")
@@ -209,7 +212,7 @@ def test_load_names_only_mapped_in_flight_na_pools_and_caps_the_list(overflow):
     idle_pool = "X-7D"
     report = _report(*(_item("cx", pool, None, span=SHORT, elapsed=HOUR, state="ABSENT",
                              reason="not reported by provider", age=FRESH_AGE) for pool in [*pools, idle_pool]))
-    load = load_snapshot({"cx": 1}, None, dict.fromkeys(reversed(pools), 1))
+    load = load_snapshot({"cx": 1}, ResourceSample(), dict.fromkeys(reversed(pools), 1))
     names = ", ".join(pools[:cap])
     suffix = f" +{overflow}" if overflow else ""
     load_line = render_plan(report, load=load, width=180).splitlines()[-1]

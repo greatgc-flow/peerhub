@@ -407,8 +407,8 @@ class ReadonlyDiag:
             if conn is not None:
                 conn.close()
 
-    def running(self, *, read_at: float, limit: int, workspace_generation: str | None = None) -> dict[str, Any]:
-        """Lease-active, unacknowledged deliveries (NOT_STARTED/STARTED) from one read-only snapshot; at most `limit` raw rows.
+    def running(self, *, read_at: float, limit: int | None, workspace_generation: str | None = None) -> dict[str, Any]:
+        """Lease-active, unacknowledged deliveries from one read-only snapshot; None reads all rows.
 
         A lease is not proof of a live process. Read the newest session_call/STARTED and caller evidence per delivery.
         """
@@ -436,8 +436,8 @@ class ReadonlyDiag:
                 "AND d.claim_generation=c.generation LEFT JOIN records r ON r.record_id=d.record_id "
                 "WHERE c.expires_at>? AND (? IS NULL OR c.workspace_generation=?) AND d.acked=0 "
                 "AND d.certainty IN ('NOT_STARTED','STARTED') ORDER BY d.seq,d.delivery_id LIMIT ?",
-                (read_at, workspace_generation, workspace_generation, limit + 1))]
-            return dict(out, rows=rows[:limit], truncated=len(rows) > limit)
+                (read_at, workspace_generation, workspace_generation, -1 if limit is None else limit + 1))]
+            return dict(out, rows=rows[:limit], truncated=limit is not None and len(rows) > limit)
         except SchemaVersionError as exc:
             return dict(out, status="SCHEMA_VERSION", error=f"{type(exc).__name__}: {exc}")
         except (sqlite3.Error, OSError, DiagReadOnlyError, ValueError) as exc:

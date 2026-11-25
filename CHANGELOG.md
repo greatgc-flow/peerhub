@@ -8,6 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.13] - 2026-11-25
+
+### Changed
+
+- Parallel asks have no PeerHub count cap. Batch runs require a positive caller-chosen `--max-parallel` and wait to launch more work when free RAM is below 6 GB or CPU load reaches 90% while other asks run; with none running the task starts with the warning. Already running asks continue.
+- The JSON `load` object drops `limit_default`, `limit_ceiling`, `slots_free`, and the per-peer `limit` and `free` fields. It adds `cpu_busy_pct`, `cpu_busy_warn_pct`, and `cpu_logical_cores`. Batch dry runs now use the same `load` object, with `load.active` and `load.active_by_relation` replacing the top-level `active_now` and `active_by_relation`.
+- Packaged defaults record cc 2.1.332 (2026-11-25); the cx and agy model catalogs were re-observed unchanged.
+
 ## [0.26.12] - 2026-11-25
 
 ### Fixed

@@ -699,7 +699,7 @@ def batch_effect(e, option):
         with patch.object(batch, "run_batch", forbidden):
             result = e.j(db, *argv)
         assert result["dry_run"] is True
-        assert result["active_by_relation"] == dict.fromkeys(("mine", "other", "unknown"))
+        assert result["load"]["active_by_relation"] == dict.fromkeys(("mine", "other", "unknown"))
     elif option == "--responses":  # a dry run ran nothing, so it has no replies to show
         code, out, err = e.run(db, *argv, "--responses")
         assert code == 0 and json.loads(out)["dry_run"] and "response" not in out and not err

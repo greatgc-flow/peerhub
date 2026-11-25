@@ -1,10 +1,12 @@
 """Batch reports expose load and outcome facts without dispatching providers."""
 
+import io
 import json
 import os
 import sqlite3
 import subprocess
 import sys
+import threading
 from contextlib import closing, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,7 +25,7 @@ def _task(task_id, peer="cc", **fields):
     return {"task_id": task_id, "peer": peer, "prompt": "mode:ok", **fields}
 
 
-def _argv(db, manifest, max_parallel=batch.RECOMMENDED_MAX_PARALLEL):
+def _argv(db, manifest, max_parallel=1):
     return ["--db", str(db), "batch", "run", str(manifest), "--batch-id", "facts",
             "--max-parallel", str(max_parallel)]
 
@@ -32,9 +34,9 @@ def _argv(db, manifest, max_parallel=batch.RECOMMENDED_MAX_PARALLEL):
 def dry_run(monkeypatch):
     db = Path.cwd() / "batch-facts-missing.db"
     manifest = Path("batch-facts.json")
-    monkeypatch.setattr(diag_running, "sample_load", lambda _db: load_limits.load_snapshot(None, None))
+    monkeypatch.setattr(diag_running, "sample_load", lambda _db: load_limits.load_snapshot(None, load_limits.ResourceSample()))
 
-    def prepare(tasks, max_parallel=batch.RECOMMENDED_MAX_PARALLEL):
+    def prepare(tasks, max_parallel=1):
         def read_manifest(path, **kwargs):
             assert path == manifest
             return json.dumps({"tasks": tasks})
@@ -49,101 +51,52 @@ def dry_run(monkeypatch):
     return prepare
 
 
-def test_dry_run_reports_load_facts_after_the_task_table(dry_run, monkeypatch, capsys):
-    peer = "cc"
-    limit = load_limits.PER_PEER_LIMITS[peer]
-    ceiling = load_limits.ACTIVE_ASKS_CEILING
-    count = max(limit, ceiling) + 1
-    parallel = batch.RECOMMENDED_MAX_PARALLEL
-    argv = dry_run([_task(f"t{i}", peer) for i in range(count)], parallel)
-    active_by_peer = {peer: limit, "cx": ceiling - parallel - limit + 1}
-    sampled = load_limits.load_snapshot(active_by_peer, None)
-
-    def sample(db):
-        assert Path(db) == Path(argv[1])
-        return sampled
-
-    monkeypatch.setattr(diag_running, "sample_load", sample)
+def test_dry_run_reports_large_batches_and_active_counts_without_warnings(dry_run, monkeypatch, capsys):
+    count = diag_running.MAX_ROWS ** 2
+    argv = dry_run([_task(f"t{i}") for i in range(count)], count)
+    resources = load_limits.ResourceSample(load_limits.MIN_FREE_RAM_GB * load_limits._GB,
+                                           load_limits.CPU_BUSY_WARN_PCT - 1, os.cpu_count())
+    sample = load_limits.load_snapshot({"cc": count}, resources)
+    monkeypatch.setattr(diag_running, "sample_load", lambda _db: sample)
     assert main([*argv, "--dry-run", "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert len(report["tasks"]) == count
-    assert "replay" not in report
-    warnings = report["warnings"]
-    assert len(warnings) == 3
-    assert any(peer in line and f"{parallel} concurrent batch tasks + {limit} active asks" in line
-               and f"limit {limit}" in line for line in warnings)
-    assert any(f"{parallel} concurrent batch tasks + {sum(active_by_peer.values())} active asks" in line
-               and f"ceiling {ceiling}" in line
-               and f"also above the default {load_limits.ACTIVE_ASKS_DEFAULT}" in line for line in warnings)
-    assert f"active now {sum(active_by_peer.values())}" in warnings
-
+    assert report["max_parallel"] == len(report["tasks"]) == count
+    assert report["load"] == sample and report["warnings"] == []
     assert main([*argv, "--dry-run"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines[1].startswith("TASK PEER")
     assert [line.split()[0] for line in lines[2:2 + count]] == [row["task_id"] for row in report["tasks"]]
-    assert lines[2 + count:] == warnings
+    assert lines[2 + count:] == [load_limits.format_load(sample)]
 
 
 def test_dry_run_displays_the_same_ownership_split_as_plan(dry_run, monkeypatch, capsys):
-    from peerhub.core.load_limits import format_load
-
     argv = dry_run([_task("a", "cx")])
-    counts = {"mine": 1, "other": 1, "unknown": 1}
-    sample = {**load_limits.load_snapshot({"cx": sum(counts.values())}, None), "active_by_relation": counts}
+    counts = dict.fromkeys(load_limits.CALLER_RELATIONS, 1)
+    sample = load_limits.load_snapshot({"cx": sum(counts.values())}, load_limits.ResourceSample(),
+                                       active_by_relation=counts)
     monkeypatch.setattr(diag_running, "sample_load", lambda _db: sample)
     assert main([*argv, "--dry-run", "--json"]) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["active_by_relation"] == counts
-    suffix = format_load(sample).split("(mine", 1)[1].split(")", 1)[0]
-    assert f"active now {sum(counts.values())} (mine{suffix})" in result["warnings"]
+    assert json.loads(capsys.readouterr().out)["load"]["active_by_relation"] == counts
     assert main([*argv, "--dry-run"]) == 0
-    assert result["warnings"][-1] in capsys.readouterr().out
-
-
-@pytest.mark.parametrize("extra_tasks", [0, 1])
-def test_dry_run_capped_parallelism_allows_long_queue(dry_run, monkeypatch, capsys, extra_tasks):
-    peer = "cx"
-    count = load_limits.ACTIVE_ASKS_CEILING + extra_tasks
-    parallel = load_limits.PER_PEER_LIMITS[peer] - 1
-    argv = dry_run([_task(f"t{i}", peer) for i in range(count)], parallel)
-    monkeypatch.setattr(diag_running, "sample_load", lambda _db: load_limits.load_snapshot({}, None))
-    assert main([*argv, "--dry-run", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["warnings"] == ["active now 0"]
-
-
-@pytest.mark.parametrize("other_active", [1, 2])
-def test_dry_run_compares_sample_with_actual_batch_size(dry_run, monkeypatch, capsys, other_active):
-    peer = "cx"
-    limit = load_limits.PER_PEER_LIMITS[peer]
-    ceiling = load_limits.ACTIVE_ASKS_CEILING
-    # Both projections exactly meet their limits with one active ask on another peer.
-    active = {peer: limit - 1, "cc": ceiling - limit - 2 + other_active}
-    argv = dry_run([_task("cx-task", peer), _task("cc-task")], ceiling)
-    monkeypatch.setattr(diag_running, "sample_load", lambda _db: load_limits.load_snapshot(active, None))
-    assert main([*argv, "--dry-run", "--json"]) == 0
-    warnings = json.loads(capsys.readouterr().out)["warnings"]
-    assert sum("exceed active-ask ceiling" in line for line in warnings) == other_active - 1
-    assert all(not line.startswith(f"{peer}:") for line in warnings)
+    assert load_limits.format_load(sample) in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("active", [None, 0, OSError("unreadable load")])
 def test_dry_run_distinguishes_zero_from_unavailable_load(dry_run, monkeypatch, capsys, active):
-    peer = "cc"
-    argv = dry_run([_task(f"t{i}", peer) for i in range(load_limits.PER_PEER_LIMITS[peer])])
+    argv = dry_run([_task("sample")])
 
     def sample(_db):
         if isinstance(active, Exception):
             raise active
-        return load_limits.load_snapshot(None if active is None else {}, None)
+        return load_limits.load_snapshot(None if active is None else {}, load_limits.ResourceSample())
 
     monkeypatch.setattr(diag_running, "sample_load", sample)
     assert main([*argv, "--dry-run", "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
-    line = batch._WARNING_MESSAGES["active_asks_sample"].format(active=active if active == 0 else batch.UNKNOWN_ACTIVE_SAMPLE)
-    assert report["warnings"] == [line]
-    assert report["active_now"] == (0 if active == 0 else None)
+    assert report["warnings"] == []
+    assert report["load"]["active"] == (0 if active == 0 else None)
     assert main([*argv, "--dry-run"]) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == line
+    assert capsys.readouterr().out.splitlines()[-1] == load_limits.format_load(report["load"])
 
 
 def test_dry_run_reports_replay_counts_from_the_selected_store(dry_run, monkeypatch, capsys):
@@ -197,13 +150,14 @@ def test_dry_run_reports_replay_counts_from_the_selected_store(dry_run, monkeypa
 
         assert main([*argv, "--dry-run"]) == 0
         lines = capsys.readouterr().out.splitlines()
-        assert lines[2 + len(cases):] == [batch.REPLAY_LINE.format(**report["replay"]), *report["warnings"]]
+        assert lines[2 + len(cases):] == [batch.REPLAY_LINE.format(**report["replay"]), load_limits.format_load(report["load"]), *report["warnings"]]
 
         argv[argv.index("--batch-id") + 1] = "unseen"
         assert main([*argv, "--dry-run", "--json"]) == 0
-        assert "replay" not in json.loads(capsys.readouterr().out)
+        fresh = json.loads(capsys.readouterr().out)
+        assert "replay" not in fresh
         assert main([*argv, "--dry-run"]) == 0
-        assert capsys.readouterr().out.splitlines()[2 + len(cases):] == report["warnings"]
+        assert capsys.readouterr().out.splitlines()[2 + len(cases):] == [load_limits.format_load(fresh["load"]), *fresh["warnings"]]
 
 
 def test_batch_docs_list_all_dry_run_warning_kinds():
@@ -213,7 +167,6 @@ def test_batch_docs_list_all_dry_run_warning_kinds():
     documented = {kind for kind in batch._WARNING_MESSAGES if f"`{kind}`" in paragraph}
     assert documented == set(batch._WARNING_MESSAGES)
     assert f"`{batch.REPLAY_LINE.format(settled='N', uncertain='M')}`" in paragraph
-    assert f'`{batch._WARNING_MESSAGES["active_asks_sample"].format(active=batch.UNKNOWN_ACTIVE_SAMPLE)}`' in paragraph
 
 
 @pytest.mark.parametrize("peer", ["ag", "agy"])
@@ -287,54 +240,134 @@ def test_dry_run_displays_the_named_profile_resolved_by_ask(dry_run, monkeypatch
     assert capsys.readouterr().out.splitlines()[2].endswith(f" {named['profile_display']} {named['workspace']}")
 
 
-@pytest.mark.parametrize(("projected", "warns_default"), [
-    (load_limits.ACTIVE_ASKS_DEFAULT, False),
-    (load_limits.ACTIVE_ASKS_DEFAULT + 1, True),
-    (load_limits.ACTIVE_ASKS_CEILING, True),
-    (load_limits.ACTIVE_ASKS_CEILING + 1, False),
+@pytest.mark.parametrize(("ram_delta", "cpu_delta", "expected"), [
+    (-1, -1, ["free_ram"]),
+    (0, 0, ["cpu_busy"]),
+    (1, 1, ["cpu_busy"]),
+    (-1, 1, ["free_ram", "cpu_busy"]),
+    (0, -1, []),
+    (None, None, []),
 ])
-def test_dry_run_reports_default_threshold_and_ceiling_status(dry_run, monkeypatch, capsys, projected, warns_default):
-    tasks = [_task("cc-task"), _task("cx-task", "cx")]
-    active = projected - len(tasks)
-    argv = dry_run(tasks, load_limits.ACTIVE_ASKS_CEILING)
-    sample = load_limits.load_snapshot({"ag": active}, None)
+def test_dry_run_warns_at_resource_thresholds(dry_run, monkeypatch, capsys, ram_delta, cpu_delta, expected):
+    ram = None if ram_delta is None else (load_limits.MIN_FREE_RAM_GB + ram_delta) * load_limits._GB
+    cpu = None if cpu_delta is None else load_limits.CPU_BUSY_WARN_PCT + cpu_delta
+    sample = load_limits.load_snapshot(None, load_limits.ResourceSample(ram, cpu))
     monkeypatch.setattr(diag_running, "sample_load", lambda _db: sample)
+    argv = dry_run([_task("resources")])
 
     assert main([*argv, "--dry-run", "--json"]) == 0
-    warnings = json.loads(capsys.readouterr().out)["warnings"]
-    defaults = [line for line in warnings if "active-ask default" in line]
-    ceiling_warnings = [line for line in warnings if "exceed active-ask ceiling" in line]
-    assert len(ceiling_warnings) == int(projected > load_limits.ACTIVE_ASKS_CEILING)
-    assert len(defaults) == int(warns_default)
-    if defaults:
-        (warning,) = defaults
-        assert f"{len(tasks)} concurrent batch tasks + {active} active asks" in warning
-        assert f"active-ask default {load_limits.ACTIVE_ASKS_DEFAULT}" in warning
-        assert f"within the ceiling {load_limits.ACTIVE_ASKS_CEILING}" in warning
+    report = json.loads(capsys.readouterr().out)
+    assert report["load"] == sample
+    messages = {
+        "free_ram": f"below minimum {load_limits.MIN_FREE_RAM_GB} GB",
+        "cpu_busy": f"at or above warning level {load_limits.CPU_BUSY_WARN_PCT}%",
+    }
+    assert len(report["warnings"]) == len(expected)
+    assert all(messages[kind] in warning for kind, warning in zip(expected, report["warnings"]))
 
 
-@pytest.mark.parametrize("ram_delta_gb", [-1, 0, 1, None])
-def test_dry_run_reports_low_sampled_ram_even_without_lease_counts(dry_run, monkeypatch, capsys, ram_delta_gb):
-    floor = load_limits.MIN_FREE_RAM_GB
-    available_gb = None if ram_delta_gb is None else floor + ram_delta_gb
-    available_bytes = None if available_gb is None else available_gb * load_limits._GB
-    sample = load_limits.load_snapshot(None, available_bytes)
-    monkeypatch.setattr(diag_running, "sample_load", lambda _db: sample)
-    argv = dry_run([_task("ram")])
+@pytest.fixture
+def no_scratch(monkeypatch):
+    monkeypatch.setattr(batch, "store_scratch_dir", lambda _db: Mock(spec=Path))
+    monkeypatch.setattr(batch, "tempfile", SimpleNamespace(TemporaryDirectory=lambda **_: nullcontext(".")))
+    monkeypatch.setattr(Path, "write_text", lambda *_args, **_kwargs: None)
 
-    assert main([*argv, "--dry-run", "--json"]) == 0
-    warnings = json.loads(capsys.readouterr().out)["warnings"]
-    warnings.remove(batch._WARNING_MESSAGES["active_asks_sample"].format(active=batch.UNKNOWN_ACTIVE_SAMPLE))
-    if ram_delta_gb == -1:
-        (warning,) = warnings
-        assert f"free RAM {available_gb:.1f} GB" in warning
-        assert f"below minimum {floor} GB" in warning
-    else:
-        assert warnings == []
+
+def test_runner_waits_on_both_resources_before_launch_and_leaves_running_work_alone(no_scratch, monkeypatch, capsys):
+    started = threading.Event()
+    finish = threading.Event()
+    exited = threading.Event()
+    launches = []
+    sample = load_limits.ResourceSample
+    min_ram = load_limits.MIN_FREE_RAM_GB * load_limits._GB
+    warn = load_limits.CPU_BUSY_WARN_PCT
+    reply = b'{"status": "delivered", "certainty": "TERMINAL", "response": "reply"}'
+
+    def spawn(argv, **kwargs):
+        task_id, = argv
+        launches.append(task_id)
+
+        def poll():
+            if task_id == "first":
+                if not finish.is_set():
+                    return None
+                exited.set()
+            return 0
+
+        proc = SimpleNamespace(poll=poll, returncode=0, stdout=io.BytesIO(reply), stderr=io.BytesIO())
+        started.set()
+        return proc
+
+    reads = iter(range(4))
+
+    def read():
+        step = next(reads)
+        if step == 0:
+            return sample(min_ram, warn - 1)
+        assert started.wait(5) and launches == ["first"]
+        if step == 1:
+            return sample(min_ram - 1, warn - 1)
+        if step == 2:
+            assert not exited.is_set()
+            return sample(min_ram, warn)
+        finish.set()
+        assert exited.wait(5)
+        return sample(min_ram, warn - 1)
+
+    monkeypatch.setattr(batch.subprocess, "Popen", spawn)
+    monkeypatch.setattr(batch, "RESOURCE_POLL_SECONDS", 0)
+    tasks = [batch.Task(name, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S)
+             for name in ("first", "second")]
+    report = batch.run_batch(tasks, batch_id="facts", max_parallel=len(tasks), db="x.db",
+                             argv_builder=lambda task, **_: [task.task_id], resource_reader=read)
+    assert launches == [task.task_id for task in tasks]
+    assert [row["status"] for row in report["tasks"]] == ["COMPLETED"] * len(tasks)
+    output = capsys.readouterr()
+    assert not output.out
+    assert len(output.err.splitlines()) == 1 and "waiting for machine resources" in output.err
+
+
+def test_runner_cancel_interrupts_resource_wait_without_launch(no_scratch, monkeypatch):
+    cancel = threading.Event()
+    launches = []
+    reply = b'{"status": "delivered", "certainty": "TERMINAL", "response": "reply"}'
+
+    def spawn(argv, **kwargs):
+        launches.append(argv[0])
+        return SimpleNamespace(poll=lambda: 0 if cancel.is_set() else None, returncode=0,
+                               stdout=io.BytesIO(reply), stderr=io.BytesIO())
+
+    def cancel_wait(timeout):
+        assert timeout == batch.RESOURCE_POLL_SECONDS
+        cancel.set()
+        return True
+
+    readings = iter([load_limits.ResourceSample()])
+    monkeypatch.setattr(batch.subprocess, "Popen", spawn)
+    monkeypatch.setattr(cancel, "wait", cancel_wait)
+    tasks = [batch.Task(name, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S) for name in ("running", "held")]
+    report = batch.run_batch(tasks, batch_id="facts", max_parallel=len(tasks), db="x.db", cancel=cancel,
+                             argv_builder=lambda task, **_: [task.task_id],
+                             resource_reader=lambda: next(readings, load_limits.ResourceSample(
+                                 cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT)))
+    assert launches == ["running"]
+    assert {row["task_id"]: row.get("reason") for row in report["tasks"]}["held"] == "cancelled"
+
+
+def test_runner_starts_with_a_warning_when_no_ask_is_running(no_scratch, monkeypatch, capsys):
+    reply = b'{"status": "delivered", "certainty": "TERMINAL", "response": "reply"}'
+    monkeypatch.setattr(batch.subprocess, "Popen", lambda argv, **_: SimpleNamespace(
+        poll=lambda: 0, returncode=0, stdout=io.BytesIO(reply), stderr=io.BytesIO()))
+    task = batch.Task("only", "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S)
+    report = batch.run_batch([task], batch_id="facts", max_parallel=1, db="x.db",
+                             argv_builder=lambda task, **_: [task.task_id],
+                             resource_reader=lambda: load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT))
+    assert report["tasks"][0]["status"] == "COMPLETED"
+    assert "starting with no ask running" in capsys.readouterr().err
 
 
 def test_final_text_summarizes_existing_task_rows():
-    report = {"batch_id": "facts", "max_parallel": batch.RECOMMENDED_MAX_PARALLEL, "tasks": [
+    report = {"batch_id": "facts", "max_parallel": 1, "tasks": [
         {"task_id": task_id, "peer": "cc", "status": status}
         for task_id, status in [("a", "COMPLETED"), ("b", "COMPLETED"), ("c", "UNCERTAIN")]
     ]}
@@ -352,11 +385,11 @@ def test_final_summary_uses_refusal_reasons_and_unverified_status():
         result = json.dumps(dict(status=status, certainty=certainty, response=response, reason=reason))
         worker_status, worker_reason = batch.classify_worker(int(response is None), result)
         rows.append(dict(task_id=f"t{i}", peer="cc", status=worker_status, reason=worker_reason))
-    report = dict(batch_id="facts", max_parallel=batch.RECOMMENDED_MAX_PARALLEL, tasks=rows)
+    report = dict(batch_id="facts", max_parallel=1, tasks=rows)
     assert batch.render_text(report).splitlines()[-1] == "outcomes: failed 1, uncertain 1, quota_refused 1"
 
 
-def test_final_cli_counts_each_outcome_and_runs_over_limit(tmp_path, monkeypatch, capsys):
+def test_final_cli_counts_each_outcome(tmp_path, monkeypatch, capsys):
     def unexpected_sample(_db):
         pytest.fail("the execution path does not need a load sample")
 
@@ -364,7 +397,8 @@ def test_final_cli_counts_each_outcome_and_runs_over_limit(tmp_path, monkeypatch
     monkeypatch.setattr(batch, "default_argv_builder", builder(tmp_path))
     modes = {"notstarted": "FAILED", "empty": "UNVERIFIED", "uncertain": "UNCERTAIN",
              "claimheld": "BLOCKED", "refused": "FAILED"}
-    ok_count = max(load_limits.ACTIVE_ASKS_CEILING + 1 - len(modes), 1)
+    monkeypatch.setattr(batch, "read_resources", load_limits.ResourceSample)
+    ok_count = len(modes)
     rows = [_task(f"ok-{i}") for i in range(ok_count)]
     rows.extend(_task(mode, prompt=f"mode:{mode}") for mode in modes)
     manifest = write(tmp_path, {"tasks": rows})
@@ -376,7 +410,7 @@ def test_final_cli_counts_each_outcome_and_runs_over_limit(tmp_path, monkeypatch
     assert report["outcomes"] == {"ok": ok_count, "failed": 2, "uncertain": 2, "quota_refused": 1}
 
 
-def test_final_report_exposes_task_diagnostics_and_child_explain(monkeypatch):
+def test_final_report_exposes_task_diagnostics_and_child_explain(no_scratch):
     explain = "peerhub explain ask_blocked_uncertain"
     results = {
         "ok": {"status": "delivered", "certainty": "TERMINAL", "response": "reply"},
@@ -391,15 +425,11 @@ def test_final_report_exposes_task_diagnostics_and_child_explain(monkeypatch):
             raise ValueError("worker setup failed")
         return [sys.executable, "-c", "import sys; print(sys.argv[1])", json.dumps(results[t.task_id])]
 
-    # Exercise the runner and child JSON without creating disk-backed scratch files.
-    monkeypatch.setattr(batch, "store_scratch_dir", lambda _db: Mock(spec=Path))
-    monkeypatch.setattr(batch, "tempfile", SimpleNamespace(TemporaryDirectory=lambda **_: nullcontext(".")))
-    monkeypatch.setattr(Path, "write_text", lambda *_args, **_kwargs: None)
     tasks = [batch.Task(task_id, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S)
              for task_id in [*results, "setup-error"]]
     db = Path("lane e") / "peer's store.db"
-    report = batch.run_batch(tasks, batch_id="facts", max_parallel=batch.RECOMMENDED_MAX_PARALLEL,
-                             db=str(db), argv_builder=build)
+    report = batch.run_batch(tasks, batch_id="facts", max_parallel=1,
+                             db=str(db), argv_builder=build, resource_reader=load_limits.ResourceSample)
     lines = batch.render_text(report).splitlines()
     assert batch.exit_code(report) == 1
     assert "next" not in report["tasks"][0]
@@ -439,7 +469,7 @@ def test_batch_help_lists_warning_kinds_and_full_replies(capsys):
     warning_line = next(line for line in lines if line.startswith("Dry-run warning kinds:"))
     warning_kinds = set(warning_line.split(": ", 1)[1].split(", "))
     assert warning_kinds == set(batch._WARNING_MESSAGES)
-    assert {"active_asks_default", "free_ram"} <= warning_kinds
+    assert {"cpu_busy", "free_ram"} <= warning_kinds
     assert any("--batch-id" in line and "replays settled tasks" in line and "reconcile uncertain rows first" in line.lower()
                for line in lines)
     assert any("--responses" in line and "in full" in line and "large" in line for line in lines)

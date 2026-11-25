@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.core.load_limits import ResourceSample
 from peerhub.extensions import batch
 from peerhub.extensions.batch import ManifestError, Task
 
@@ -30,7 +31,7 @@ def builder(outdir):
 
 def run(tmp_path, tasks, n=2, **kw):
     return batch.run_batch(tasks, batch_id="b1", max_parallel=n, db=str(tmp_path / "x.db"),
-                           argv_builder=builder(tmp_path), **kw)
+                           argv_builder=builder(tmp_path), resource_reader=ResourceSample, **kw)
 
 
 def status_of(report):
@@ -102,7 +103,6 @@ def test_manifest_loads_prompt_and_prompt_file(tmp_path):
     {"tasks": [{"task_id": "a", "peer": "cc", "prompt": "x", "timeout_s": True}]},
     {"tasks": [{"task_id": "a", "peer": "cc", "prompt": "x", "writable": "yes"}]},
     {"tasks": [{"task_id": "a b", "peer": "cc", "prompt": "x"}]},
-    {"tasks": [{"task_id": f"t{i}", "peer": "cc", "prompt": "x"} for i in range(batch.MAX_TASKS + 1)]},
 ])
 def test_manifest_rejects_invalid(tmp_path, doc):
     with pytest.raises(ManifestError):
@@ -120,14 +120,16 @@ def test_manifest_rejects_missing_prompt_file_and_bad_json(tmp_path):
         batch.load_manifest(tmp_path / "missing.json", batch_id="b1")
 
 
-@pytest.mark.parametrize("n", [0, -1, 17, True, 1.5, float("nan"), "2"])
+@pytest.mark.parametrize("n", [0, -1, True, 1.5, float("nan"), "2"])
 def test_max_parallel_bounds(n):
     with pytest.raises(ManifestError):
         batch.check_max_parallel(n)
 
 
-def test_max_parallel_accepts_1_to_16():
-    assert [batch.check_max_parallel(n) for n in (1, 2, 16)] == [1, 2, 16]
+def test_max_parallel_accepts_any_positive_integer():
+    values = (1, sys.maxsize, sys.maxsize + 1)
+    assert tuple(batch.check_max_parallel(n) for n in values) == values
+
 
 
 # ---- validation: peers and workspace overlap -------------------------------------------------------------------------
@@ -450,7 +452,7 @@ def test_argv_builder_receives_derived_ids_and_prompt_file(tmp_path):
         return [sys.executable, FAKE, str(query_file), str(tmp_path), t.task_id]
 
     database = str(tmp_path / "abs.db")
-    batch.run_batch([task("a")], batch_id="b1", max_parallel=1, db=database, argv_builder=build)
+    batch.run_batch([task("a")], batch_id="b1", max_parallel=1, db=database, argv_builder=build, resource_reader=ResourceSample)
     tid, stream, rid, db, text = seen[0]
     assert (stream, rid) == batch.derive_ids("b1", tid) and db == database and text == "mode:ok\n"
 
