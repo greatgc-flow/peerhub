@@ -261,6 +261,35 @@ def _set_pool(store, remaining, reset):
         c.commit()
 
 
+@pytest.mark.parametrize("remaining", [0, .5])
+@pytest.mark.parametrize("reset_form", ["absolute", "relative", "relative_offset"])
+@pytest.mark.parametrize("offset", [59, 60, 61])
+def test_cli_reset_boundary_invalidates_quota_within_ttl(store, capsys, monkeypatch, remaining, reset_form, offset):
+    delivery(store)
+    payload = {"remaining_fraction": remaining}
+    payload.update({"resets_at": T0 + 60} if reset_form == "absolute" else {"reset_in_seconds": 60})
+    observed_at = "2026-10-01T09:00:00+09:00" if reset_form == "relative_offset" else "2026-10-01T00:00:00Z"
+    with closing(sqlite3.connect(store[0].db_path)) as c:
+        c.execute("UPDATE observations SET payload_json=?, observed_at=?", (json.dumps(payload), observed_at))
+        c.commit()
+    monkeypatch.setattr("peerhub.extensions.diag.time.time", lambda: T0 + offset)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: pytest.fail("provider spawn"))
+    assert main(["--db", str(store[0].db_path), "diag", "readiness", "--json"]) == 0
+    rep = json.loads(capsys.readouterr().out)
+    cached = rep["pools"]["quota:cx:P"]
+    assert cached["state"] == "MEASURED" and cached["age"] == offset
+    assert cached["reset_in"] == max(0, 60 - offset)
+    p = profile(rep)
+    if offset < 60:
+        assert cached["remaining"] == remaining
+        assert p["state"] == ("EXHAUSTED" if remaining == 0 else "READY")
+        assert (p["next"]["code"] if p["next"] else None) == ("wait_reset" if remaining == 0 else None)
+    else:
+        assert cached["remaining"] is None
+        assert p["state"] == "UNKNOWN" and p["next"]["code"] == "inspect_facts"
+        build_parser().parse_args(p["next"]["argv"][1:])
+
+
 @pytest.mark.parametrize("remaining,action", [(0, "wait_reset"), (.5, "ask_delivery_failed")])
 def test_ag_wait_reset_precedes_consent_policy(store, remaining, action):
     _ag_store(store)

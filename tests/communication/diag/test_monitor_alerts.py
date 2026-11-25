@@ -147,16 +147,16 @@ def test_stale_pools_are_aged_with_their_last_known_value_and_never_out_low_or_f
     observations = [stale("ag", "3P-7D", "o1"), stale("cc", "C-7D", "o2"), stale("cx", "X-7D", "o3"), stale("cx", "X-5H", "o4")]
     last_known = {"o1": (0.0, None), "o2": (0.05, NOW + 100.0), "o3": (0.5, NOW - 1.0)}  # o4: no valid last value
     pools = {p["pool"]: p for p in monitor_quota.pool_states(observations, last_known, NOW)}
-    assert (pools["ag 3P-7D"]["state"], pools["ag 3P-7D"]["shown"], pools["ag 3P-7D"]["left_pct"]) == ("aged", "out", 0)
+    assert (pools["ag 3P-7D"]["state"], pools["ag 3P-7D"]["shown"], pools["ag 3P-7D"]["left_pct"]) == ("aged", "aged", 0)
     assert (pools["cc C-7D"]["state"], pools["cc C-7D"]["shown"], pools["cc C-7D"]["left_pct"]) == ("aged", "low", 5)
     assert (pools["cx X-7D"]["state"], pools["cx X-7D"]["shown"], pools["cx X-7D"]["left_pct"]) == ("reset", "reset", None)
     assert (pools["cx X-5H"]["state"], pools["cx X-5H"]["left_pct"]) == ("?", None)
     assert alerts(pools=list(pools.values())) == []  # a3 is fresh-only: `state`, never `shown`
-    assert monitor_quota.min_quota(list(pools.values())) == {"pool": "ag 3P-7D", "left_pct": 0, "state": "out", "aged": True}
+    assert monitor_quota.min_quota(list(pools.values())) == {"pool": "ag 3P-7D", "left_pct": 0, "state": "aged", "aged": True}
 
 
 @pytest.mark.parametrize("fraction,projection,samples,shown", [
-    (0.01, {}, 0, "low"), (0.60, {}, 0, "aged"), (0.0, {}, 0, "out"), (0.60, {"state": "threat"}, 2, "fast"),
+    (0.01, {}, 0, "low"), (0.60, {}, 0, "aged"), (0.0, {}, 0, "aged"), (0.60, {"state": "threat"}, 2, "fast"),
     (0.60, {"state": "threat"}, 1, "aged")])
 def test_min_quota_of_a_stale_pool_shows_the_view_precedence(fraction, projection, samples, shown):
     item = {**stale("ag", "3P-7D", "o1"), "projection": projection, "projection_samples": samples}
@@ -227,7 +227,7 @@ def test_all_stale_frame_reports_stale_capacity_and_an_aged_min_quota_without_a3
     out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 300, preference_source="command")
     assert out["groups"]["capacity"]["data"]["observations"][0]["state"] == "STALE"
     assert out["alert_sources"]["capacity"] == "stale"
-    assert out["min_quota"] == {"pool": "cx X-7D", "left_pct": 0, "state": "out", "aged": True}  # A6: the shown state
+    assert out["min_quota"] == {"pool": "cx X-7D", "left_pct": 0, "state": "aged", "aged": True}
     assert out["alerts"] == []  # still no a3 for a stale 0%
     assert out["groups"]["capacity"]["data"]["observations"][0]["measurements"] is None  # the public value stays hidden
 

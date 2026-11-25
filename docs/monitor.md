@@ -52,6 +52,7 @@ PeerHub Monitor 2026-11-20 14:02Z · DB:env · quota age 3m                     
 After the status come `N running` asks, `N leads` and `min quota 68% cc C-7D ok`: the lowest 7-day pool that has a
 number, with the state POOLS shows for it (`(aged)` when its evidence is stale). The right-hand fields drop first on a
 narrow terminal; the rich view puts the snapshot time at the right edge when it fits.
+JSON `min_quota.state` also reports `aged` for a stale zero, with `aged: true`.
 
 **Line 2 (the title)** is `PeerHub Monitor <UTC time> · DB:<source> · quota age <age>`:
 
@@ -176,7 +177,7 @@ plus the superseded asks in the read model's `SUPERSEDED_CAP` sample. A running 
 | stream | the stream's name, `s-ab12`. |
 | `R` / `F` | the ask resumed an existing session (`R`) or started a fresh one (`F`). |
 | `u<n>` | how many times the stream's session has been used. |
-| ctx | context at the end of the ask, `62k/6%` (tokens and share of the model's maximum input). For `cx` and `ag`, the `CONTEXT_ESTIMATE_LABEL` (`est`) marks a fallback when the SESSIONS sample provides one. |
+| ctx | context at the end of the ask, `62k/6%` (tokens and share of the model's maximum input). For `cx` and `ag`, `est` marks a compatible SESSIONS sample observed at or after the ask started. |
 | `c91%` | the cache-read share of the ask's input. |
 | reply | the reply's first words, in quotes. |
 
@@ -193,6 +194,7 @@ normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller is gone and
 `--expand` lists every field of every running ask.
 
 Continuous terminal watch reads activity every `min(5 s, --interval-seconds)` using `RUNNING_REFRESH_SECONDS`.
+Activity rows, alerts, source status and the verdict update together, including when an activity alert clears.
 Full reads and quota probes keep their existing schedules. Scripted cycles still use `--interval-seconds`.
 
 ## ALERTS
@@ -251,6 +253,8 @@ unknown; `!` after the percentage means 80% or more (a mark, not an alert). The 
 
 The sampled sections (EXECUTION, SESSIONS, USAGE, CONTEXT) say `sample N/M` when the read was capped. The last line
 is `Coverage: complete|partial; peerhub explain <code>`.
+
+QUOTA groups pools by peer and orders peers by their most urgent family. The order is `out`, `low`, a binding short window, `fast`, then the rest.
 
 ### Accounts
 

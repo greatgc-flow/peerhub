@@ -52,25 +52,52 @@ def argv(tmp_path, path, *options):
             "--batch-id", "b1", "--max-parallel", "2", *options]
 
 
-@pytest.mark.parametrize("profile, error", [
-    ("cx.no-such-profile", "unknown model profile"),
-    ("cc.standard", "target provider"),
-    ("standard", None),
+@pytest.mark.parametrize("profile,error,dry_run", [
+    ("cx.no-such-profile", "unknown model profile", False),
+    ("cx.no-such-profile", "unknown model profile", True),
+    ("cc.standard", "target provider", False),
+    ("cc.standard", "target provider", True),
+    ("standard", None, True),
 ])
-def test_dry_run_validates_explicit_profiles(profile, error, capsys, monkeypatch):
+def test_batch_validates_explicit_profiles_before_dispatch(profile, error, dry_run, capsys, monkeypatch):
     base = batch.Task(task_id="valid-first", peer="cx", prompt="OK", workspace=None,
                       profile="cx.standard", writable=False, timeout_s=batch.DEFAULT_TIMEOUT_S)
     tasks = [base, replace(base, task_id="profile-check", profile=profile)]
     monkeypatch.setattr(batch, "load_manifest", lambda *args, **kwargs: tasks)
     monkeypatch.setattr(batch, "run_batch", lambda *args, **kwargs: pytest.fail("unexpected workers"))
+    monkeypatch.setattr("peerhub.extensions.caller.host_id", lambda: "batch-test-host")
+    monkeypatch.setattr(batch.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("unexpected provider probe"))
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(Path(__file__) / "no-global"))
-    assert main(argv(Path(__file__), "tasks.json", "--dry-run", "--json")) == int(error is not None)
+    options = ["--dry-run"] if dry_run else []
+    assert main(argv(Path(__file__), "tasks.json", "--json", *options)) == int(error is not None)
     output = json.loads(capsys.readouterr().out)
     if error is None:
         assert output["tasks"][1]["profile_display"] == profile
     else:
         assert output["error"]["code"] == "invalid_manifest"
         assert "profile-check" in output["error"]["message"] and error in output["error"]["message"]
+
+
+@pytest.mark.parametrize("peer", ["ca", "oa", "ga"])
+@pytest.mark.parametrize("named,dry_run", [(False, False), (False, True), (True, True)])
+def test_batch_validates_api_profiles_offline(peer, named, dry_run, capsys, monkeypatch):
+    profile = f"{peer}.standard" if named else None
+    task = batch.Task("api", peer, "offline", None, profile, False, batch.DEFAULT_TIMEOUT_S)
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(Path(__file__) / "no-global"))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(batch, "load_manifest", lambda *args, **kwargs: [task])
+    monkeypatch.setattr(batch, "run_batch", lambda *args, **kwargs: pytest.fail("unexpected workers"))
+    monkeypatch.setattr("peerhub.extensions.caller.host_id", lambda: "batch-test-host")
+    monkeypatch.setattr(batch.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("unexpected provider probe"))
+    options = ["--dry-run"] if dry_run else []
+    assert main(argv(Path(__file__), "tasks.json", "--json", *options)) == int(not named)
+    output = json.loads(capsys.readouterr().out)
+    if named:
+        assert output["tasks"][0]["profile_display"] == profile
+    else:
+        assert output["error"]["code"] == "invalid_manifest"
+        assert "task api:" in output["error"]["message"] and f"{peer} needs --profile" in output["error"]["message"]
 
 
 @pytest.mark.parametrize("flag", ["--batch-id", "--max-parallel"])
@@ -122,6 +149,26 @@ def test_unknown_peer(tmp_path, capsys):
     assert main(argv(tmp_path, manifest(tmp_path, peer="unknown"), "--dry-run", "--json")) == 1
     error = json.loads(capsys.readouterr().out)["error"]
     assert error["code"] == "invalid_manifest" and "unknown peer" in error["message"]
+    assert not (tmp_path / "missing").exists()
+
+
+def test_batch_profile_resolution_uses_each_task_workspace(tmp_path, monkeypatch, capsys):
+    """The same named profile can be valid in one task's workspace and invalid in another."""
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
+    monkeypatch.setattr(batch, "run_batch", lambda *a, **kw: pytest.fail("dry run has no workers"))
+    configured, other = tmp_path / "configured", tmp_path / "other"
+    policy = configured / ".peerhub" / "config" / "models.toml"
+    policy.parent.mkdir(parents=True)
+    other.mkdir()
+    policy.write_text('[profiles."cx.review-local"]\nselection_mode = "pinned"\nmodel = "gpt-review"\n', encoding="utf-8")
+    row = {"task_id": "local", "peer": "codex", "prompt": "offline", "profile": "cx.review-local",
+           "workspace": str(configured)}
+    assert main(argv(tmp_path, manifest(tmp_path, rows=[row]), "--dry-run", "--json")) == 0
+    assert json.loads(capsys.readouterr().out)["tasks"][0]["profile_display"] == "cx.review-local"
+    rows = [row, {**row, "task_id": "other", "workspace": str(other)}]
+    assert main(argv(tmp_path, manifest(tmp_path, rows=rows), "--dry-run", "--json")) == 1
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert "task other:" in error["message"] and "unknown model profile" in error["message"]
     assert not (tmp_path / "missing").exists()
 
 

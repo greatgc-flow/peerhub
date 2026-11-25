@@ -53,7 +53,7 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 | `diag` | Read committed evidence. With `--plan`, show per-pool `spend` (PACE <= -10), `hold`, `rest` (PACE > +20 or forecast exhausts before reset) or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. The plan supports plain text and JSON. Passing `--view rich` is a usage error. |
 | `diag quota` | Stored quota and rate-limit evidence, filtered by `--peer`, `--pool` or `--max-age-seconds`. Missing evidence is `UNKNOWN`. |
 | `diag health` | Store selection and health, or a stream's health. |
-| `diag readiness` | Cached profile readiness. `READY` requires fresh positive verified quota and a matching terminal delivery. |
+| `diag readiness` | Cached profile readiness. `READY` requires fresh positive verified quota and a matching terminal delivery. A pool's remaining value expires at its reset even when its observation is still fresh. |
 | `diag running` | Lease-active asks, with caller relation `mine`, `other` or `unknown`. The peer filter applies before the limit. A lease can outlast the process. See [caller ownership](lessons.md#identify-your-sessions-running-asks-caller-ownership). |
 | `diag integrity` | Full SQLite integrity check, which may take time. |
 

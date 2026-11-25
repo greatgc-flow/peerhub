@@ -204,8 +204,8 @@ def test_every_topic_is_one_short_explain_entry(capsys):
 
 def test_guide_separates_batch_validation_from_quota_spend(capsys):
     line = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
-    assert "--max-parallel n --dry-run" in line
-    assert "execution spends quota" in line
+    assert "--max-parallel n --dry-run (checks profiles, no calls)" in line
+    assert "Execution spends quota" in line
 
 
 def test_guide_uses_shared_resource_thresholds(capsys):

@@ -12,7 +12,9 @@ peerhub batch run tasks.json --batch-id review-001 --max-parallel n --json
 
 Use global `--db PATH` before `batch` to select a store. The parent resolves one
 absolute store path for every worker, including tasks with different workspaces.
-Dry runs validate the manifest and resolve explicit profiles without spawning workers or creating the store.
+Both dry runs and execution resolve every task's effective profile in its workspace before starting workers or creating the store.
+Invalid local settings reject the entire manifest with `invalid_manifest` and exit 1. The error names the task.
+This validation runs offline and checks local configuration. Provider installation, login and quota are checked separately.
 `--batch-id` and `--max-parallel` are required. PeerHub does not cap the count.
 
 Dry-run warnings cover equal or nested workspaces for writable pairs
@@ -39,8 +41,9 @@ Optional keys: `workspace`, `profile`, `writable` (default false), `timeout_s`
 (finite positive seconds, default 600). Unknown keys, including `stream`, fail.
 Dry runs show the profile in the table and in JSON `profile_display`. Tasks without a
 manifest profile retain `null` in JSON `profile`. They display `(default: PROFILE)`
-when `ask --dry-run` resolves a named profile, or `(peer default)` when it cannot.
-IDs match `[A-Za-z0-9._-]{1,64}`; task IDs must be unique. Prompt files are UTF-8,
+when the effective default is a named profile, or `(peer default)` for a valid unnamed default.
+API peers (`ca`, `oa`, `ga`) require a manifest `profile` to select a model.
+IDs match `[A-Za-z0-9._-]{1,64}`. Task IDs must be unique and are case-sensitive on all platforms. Prompt files are UTF-8,
 at most 1 MiB, and resolved relative to the manifest; workspaces must exist and
 relative workspace paths use the current directory. Peers must be builtin aliases
 or registered with a supported adapter. Prompts must contain non-whitespace text.

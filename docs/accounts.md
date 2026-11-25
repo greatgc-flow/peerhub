@@ -4,15 +4,14 @@ Bind a new Peer to an existing vendor configuration directory for `cc` or `cx`:
 
 ```powershell
 peerhub --db .peerhub/core.db account bind --peer reviewer --provider cc --alias work --root C:\accounts\reviewer
-peerhub account list --json
-peerhub account show --peer reviewer --show-root --json
-peerhub ask reviewer "Review this code" --stream review --request-id review-001
+peerhub --db .peerhub/core.db account list --json
+peerhub --db .peerhub/core.db account show --peer reviewer --show-root --json
+peerhub --db .peerhub/core.db ask reviewer "Review this code" --stream review --request-id review-001
 ```
 
 `--root` must be absolute and already exist. Log in through the vendor CLI using
 that root before asking. Binding does not log in, read credentials, or call a
-provider. `ask` executes the provider and may spend quota. Use the same global
-`--db` selection for binding and execution. Builtin aliases keep their default
+provider. `ask` executes the provider and may spend quota. Builtin aliases keep their default
 account behavior; bind a new peer name, never `cc`, `cx`, `ag` or their aliases.
 ag is unsupported because its authentication lives in the OS keyring rather
 than an isolated CLI configuration root.

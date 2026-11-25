@@ -6,7 +6,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from peerhub.core.load_limits import load_warnings
 from peerhub.cli.arguments import ArgumentParser
@@ -60,6 +60,8 @@ def run_batch(args: argparse.Namespace) -> int:
     from functools import cache
 
     from peerhub.extensions import batch
+    from peerhub.extensions.ask import build_ask_target, read_replay_counts
+    from peerhub.extensions.runtime_contract import PrespawnError
 
     db = os.path.abspath(args.db)
     warnings: list[str] | None = [] if args.dry_run else None
@@ -68,31 +70,24 @@ def run_batch(args: argparse.Namespace) -> int:
     def kind_of(peer: str) -> str | None:
         return resolve_peer_kind(db, peer)
 
+    @cache
+    def resolved_profile(kind: str, workspace: Path, profile: str | None, writable: bool) -> str | None:
+        # Target construction resolves local settings without contacting providers.
+        return build_ask_target(kind, workspace, profile=profile, writable=writable).session_binding()["profile"]
+
     try:
         max_parallel = batch.check_max_parallel(args.max_parallel)
         tasks = batch.load_manifest(args.manifest, batch_id=args.batch_id)
         workspaces = batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
+        profiles: dict[str, str | None] = {}
+        for task in tasks:
+            kind = cast(str, kind_of(task.peer))  # validate_tasks checked every cached kind
+            try:
+                profiles[task.task_id] = resolved_profile(kind, task.workspace or Path.cwd(), task.profile, task.writable)
+            except (OSError, ValueError, PrespawnError) as exc:
+                raise batch.ManifestError(f"task {task.task_id}: invalid runtime settings: {exc}") from exc
         if warnings is not None:
-            from peerhub.extensions.ask import build_ask_target, read_replay_counts
-            from peerhub.extensions.runtime_contract import PrespawnError
-
-            @cache
-            def profile_display(peer: str, workspace: Path, writable: bool, profile: str | None) -> str:
-                kind = kind_of(peer)
-                if kind is not None:
-                    try:
-                        resolved = build_ask_target(kind, workspace, writable=writable, profile=profile).session_binding()["profile"]
-                    except (OSError, ValueError, PrespawnError):
-                        if profile is not None:
-                            raise
-                        resolved = None
-                    if profile is not None:
-                        return profile
-                    if resolved:
-                        return batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
-                return batch.DEFAULT_PROFILE_DISPLAY
-
             from peerhub.core.load_limits import format_load
 
             load = _batch_load_sample(db)
@@ -100,10 +95,9 @@ def run_batch(args: argparse.Namespace) -> int:
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
-                try:
-                    display = profile_display(task.peer, task.workspace or Path.cwd(), task.writable, task.profile)
-                except (OSError, ValueError, PrespawnError) as exc:
-                    raise batch.ManifestError(f"task {task.task_id}: {exc}") from exc
+                profile = profiles[task.task_id]
+                display = task.profile or (batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=profile)
+                                           if profile else batch.DEFAULT_PROFILE_DISPLAY)
                 rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
                                  request_id=request, writable=task.writable, profile=task.profile,
                                  profile_display=display,

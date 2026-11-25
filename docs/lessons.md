@@ -83,7 +83,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: batch, shell, crlf, profile, newline, windows, read, job, ALL_DONE, dry-run
 - Symptom: A shell loop over a job list passes the profile with a trailing carriage return (unknown profile), drops the last line when it has no trailing newline, and prints ALL_DONE although jobs failed.
-- Fix: Validate the manifest with peerhub batch run --dry-run. See [docs/windows.md#job-lists](windows.md#job-lists) for shell loops that handle CRLF and the final line.
+- Fix: Validate with peerhub batch run --dry-run ([docs/batch.md](batch.md)). See [docs/windows.md#job-lists](windows.md#job-lists) for shell loops that handle CRLF and the final line.
 - Issue: #289
 
 ## Identify your session's running asks (`caller-ownership`)
@@ -202,7 +202,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: monitor, pace, low, fast, aged, suggest, alternative, cycles, tty, legend, quota, unknown, est, estimated, gone, overdue, orphan
 - Symptom: Monitor states, including gone and overdue asks, quota pace, or redirected watch behavior need explanation.
-- Fix: Check the reading's age before acting on LEFT or PACE. Use --show-quota-notes to see omitted windows. See [docs/monitor.md#pools](monitor.md#pools).
+- Fix: Check the reading's age before acting on LEFT or PACE. Use --show-quota-notes to see omitted windows. See [docs/monitor.md#pools](monitor.md#pools) for quota states and [docs/monitor.md#running](monitor.md#running) for activity states and alert timing.
 - Issue: #310, #311, 0.24.4, #376, #378, 2026-11-25 gone ask follow-up
 
 ## Monitor view: frame order and the rich look (`monitor-view`)
