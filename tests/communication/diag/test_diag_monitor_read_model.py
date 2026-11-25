@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
+from datetime import date, timedelta
+from math import ceil
+from time import perf_counter
 
 import pytest
-from xdist import is_xdist_worker
 
 pytestmark = [pytest.mark.unit, pytest.mark.diag, pytest.mark.platform_sensitive]
 
@@ -130,15 +131,14 @@ def test_required_scope_failure_propagates_only_to_dependent_selected_groups(tmp
     assert frame["groups"]["store"]["status"] == "OK"
 
 
-@pytest.mark.serial_timing
-def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path, request):
-    from math import ceil
-    from time import perf_counter
-    from datetime import date, timedelta
+_SCALE_GROUPS = ["execution", "coverage", "sessions", "usage"]
+
+
+@pytest.fixture
+def monitor_scale_store(tmp_path):
     from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
     from tests.communication.harness.bridge import BridgeHarness
     from tests.communication.bridge_helpers import bseed
-    from peerhub.extensions.monitor_read_model import render_monitor_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness)
@@ -166,7 +166,13 @@ def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path, 
                     values[0], values[1] = f"scale-{peer}-{index:02d}", peer
                     values[2] = (date(2026, 10, 15) - timedelta(days=age)).isoformat()
                     conn.execute(f"INSERT INTO bridge_monitor_delivery_day ({','.join(day_columns)}) VALUES ({day_marks})", values)
+    return harness
 
+
+def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes(monitor_scale_store):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    with monitor_scale_store.cs.transaction() as conn:
         scope_plan = " ".join(str(row[3]) for row in conn.execute(
             "EXPLAIN QUERY PLAN SELECT stream_id FROM bridge_monitor_delivery_scope WHERE peer_id='b' ORDER BY stream_id LIMIT 21"))
         day_plan = " ".join(str(row[3]) for row in conn.execute(
@@ -175,19 +181,22 @@ def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path, 
     assert "idx_monitor_delivery_peer" in scope_plan
     assert "idx_monitor_delivery_day" in day_plan
 
-    groups = ["execution", "coverage", "sessions", "usage"]
+    frame = render_monitor_frame(monitor_scale_store.db_path, _SCALE_GROUPS, read_at=1792022400.0)
+    assert frame["query_families"] <= 6
+    assert frame["groups"]["execution"]["data"]["sample_size"] == 60
+
+
+@pytest.mark.serial_timing
+def test_monitor_frame_scale_p95(monitor_scale_store):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
     samples = []
-    frame = None
     for _ in range(10):
         started = perf_counter()
-        frame = render_monitor_frame(harness.db_path, groups, read_at=1792022400.0)
+        render_monitor_frame(monitor_scale_store.db_path, _SCALE_GROUPS, read_at=1792022400.0)
         samples.append(perf_counter() - started)
-    assert frame is not None and frame["query_families"] <= 6
-    assert frame["groups"]["execution"]["data"]["sample_size"] == 60
     p95_ms = sorted(samples)[ceil(len(samples) * 0.95) - 1] * 1000
-    # The CI companion step enforces the same wall-clock budget without competing pytest workers.
-    if not (os.environ.get("PEERHUB_CI_SERIAL_TIMING") == "1" and is_xdist_worker(request)):
-        assert p95_ms < 250
+    assert p95_ms < 250
 
 
 def test_session_latency_reads_only_named_scope_and_thirty_utc_days():

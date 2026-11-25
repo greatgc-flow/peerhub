@@ -24,6 +24,9 @@ they do not claim new validation or publication evidence.
 ### Fixed
 
 - Deterministic tests use a quiet CPU and RAM sample and isolate the Antigravity transport cache. The ask gate and probe tests supply their own resource readings.
+- CI failure artifacts and G2 release evidence include the outcomes of the serial monitor latency checks.
+- Package tests retry interrupted builds and installs in fresh directories and share only completed attempts across workers.
+- The monitor activity SQL wall-clock check runs in the serial CI step. VM-step and query-plan checks stay in the parallel suite.
 
 ### Removed
 

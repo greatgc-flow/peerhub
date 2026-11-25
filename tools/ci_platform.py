@@ -1,4 +1,4 @@
-"""Small CI helpers for selecting and verifying the Windows platform suite."""
+"""Small helpers for CI suite selection, JUnit reports, and lane results."""
 from __future__ import annotations
 
 import argparse
@@ -88,6 +88,19 @@ def verify_junit(path: Path, inventory: Path) -> None:
         raise ValueError(f"platform-sensitive test inventory was not collected: {missing}")
 
 
+def merge_junit(parallel: ET.Element, serial: ET.Element) -> None:
+    """Append pytest's serial suites, preserving their outcomes and counts."""
+    suites = serial.findall("testsuite")
+    if parallel.tag != "testsuites" or serial.tag != "testsuites" or not parallel.findall("testsuite"):
+        raise ValueError("expected pytest JUnit <testsuites> reports")
+    if not serial.findall("testsuite/testcase"):
+        raise ValueError("serial JUnit contains no test cases")
+    parallel_cases = {(case.get("classname"), case.get("name")) for case in parallel.iter("testcase")}
+    if any((case.get("classname"), case.get("name")) in parallel_cases for case in serial.iter("testcase")):
+        raise ValueError("serial JUnit contains test cases already reported by the parallel suite")
+    parallel.extend(suites)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -100,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
     verify = sub.add_parser("verify-junit")
     verify.add_argument("junit", type=Path)
     verify.add_argument("--inventory", type=Path, default=Path("ci/platform_sensitive_tests.txt"))
+    merge = sub.add_parser("merge-junit")
+    merge.add_argument("parallel", type=Path)
+    merge.add_argument("serial", type=Path)
     marker = sub.add_parser("verify-marker-inventory")
     marker.add_argument("--inventory", type=Path, default=Path("ci/platform_sensitive_tests.txt"))
     aggregate = sub.add_parser("verify-ci-results")
@@ -115,6 +131,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "verify-junit":
             verify_junit(args.junit, args.inventory)
+        elif args.command == "merge-junit":
+            tree = ET.parse(args.parallel)
+            merge_junit(tree.getroot(), ET.parse(args.serial).getroot())
+            pending = args.parallel.with_suffix(".xml.tmp")
+            tree.write(pending, encoding="utf-8", xml_declaration=True)
+            pending.replace(args.parallel)
         elif args.command == "verify-marker-inventory":
             verify_marker_inventory(args.inventory)
         else:
@@ -123,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             verify_ci_results(args.event, args.run_full_matrix == "true", args.windows_suite,
                               {name: value for name, value in results.items() if value})
     except (OSError, ET.ParseError, ValueError) as exc:
-        print(f"platform-sensitive JUnit verification failed: {exc}", file=sys.stderr)
+        print(f"{args.command} failed: {exc}", file=sys.stderr)
         return 1
     return 0
 
