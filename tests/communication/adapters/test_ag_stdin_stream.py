@@ -272,6 +272,23 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
     assert probes.calls[5:] == ["--version", "--help"]
 
 
+def test_06_wrappers_sharing_executable_and_version_probe_help_independently(monkeypatch):
+    calls = []
+
+    def probe(base, args, **kwargs):
+        wrapper, arg = base[1], args[0]
+        calls.append((wrapper, arg))
+        if arg == "--version":
+            return _probe_result(b"agy 1.5.9")
+        return _probe_result(b"--input-format stream-json" if wrapper == "stream.py" else b"usage: agy -p PROMPT")
+
+    monkeypatch.setattr(common, "probe_cli", probe)
+    for wrapper, expected in (("stream.py", "stream"), ("legacy.py", "argv"), ("stream.py", "stream")):
+        assert ag_transport._detect_ag_transport([PY, wrapper], {}, ".").transport == expected
+    assert calls == [(wrapper, arg) for wrapper in ("stream.py", "legacy.py", "stream.py")
+                     for arg in ("--version", "--help")]
+
+
 def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch):
     from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
 

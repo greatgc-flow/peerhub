@@ -24,6 +24,10 @@ class SpawnFailure(OSError):
     """The OS refused to create the process (nothing ran): the only genuine pre-spawn failure."""
 
 
+class WorkerStartFailure(RuntimeError):
+    """A process was spawned but its I/O workers could not start."""
+
+
 @dataclass(frozen=True)
 class ProcessResult:
     pid: int
@@ -161,7 +165,6 @@ class BoundedProcess:
         self._aborted = threading.Event()
         self._kill_lock = threading.Lock()
         self._termination_confirmed: bool | None = None
-        self._threads: list[threading.Thread] = []
         self._drain_threads: list[threading.Thread] = []
         self._display_queue: queue.Queue[bytes | None] = queue.Queue()
         self._display_thread: threading.Thread | None = None
@@ -205,18 +208,42 @@ class BoundedProcess:
         except (OSError, ValueError) as e:
             raise SpawnFailure(f"{type(e).__name__}: {getattr(e, 'strerror', None) or e}") from e
         p = self._proc
-        # default bufsize=-1 => the pipes are io.BufferedReader (read1 available)
-        out, err = cast(io.BufferedReader, p.stdout), cast(io.BufferedReader, p.stderr)
-        out_thread = threading.Thread(target=self._pump, args=(out, "out"), daemon=True)
-        err_thread = threading.Thread(target=self._pump, args=(err, "err"), daemon=True)
-        feed_thread = threading.Thread(target=self._feed, args=(p,), daemon=True)
-        self._drain_threads = [out_thread, err_thread]
-        self._threads = [out_thread, err_thread, feed_thread]
-        if self._on_display is not None:
-            self._display_thread = threading.Thread(target=self._drain_display, daemon=True)
-            self._display_thread.start()
-        for t in self._threads:
-            t.start()
+        workers: list[threading.Thread] = []
+        try:
+            # default bufsize=-1 => the pipes are io.BufferedReader (read1 available)
+            out, err = cast(io.BufferedReader, p.stdout), cast(io.BufferedReader, p.stderr)
+            out_thread = threading.Thread(target=self._pump, args=(out, "out"), daemon=True)
+            err_thread = threading.Thread(target=self._pump, args=(err, "err"), daemon=True)
+            feed_thread = threading.Thread(target=self._feed, args=(p,), daemon=True)
+            self._drain_threads = [out_thread, err_thread]
+            workers = [out_thread, err_thread, feed_thread]
+            if self._on_display is not None:
+                self._display_thread = threading.Thread(target=self._drain_display, daemon=True)
+                self._display_thread.start()
+            for worker in workers:
+                worker.start()
+        except Exception as e:
+            self._termination_confirmed = False
+            killed = p.poll() is None and kill_process_tree(p)
+            if not killed and p.poll() is None:
+                try:
+                    p.kill()
+                except OSError:
+                    pass
+            try:
+                p.wait(timeout=10)
+                self._termination_confirmed = killed
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            self._on_display = None
+            self._display_queue.put_nowait(None)
+            for index, pipe in enumerate((p.stdout, p.stderr, p.stdin)):
+                if pipe is not None and (index >= len(workers) or not workers[index].is_alive()):
+                    try:
+                        pipe.close()
+                    except (OSError, ValueError):
+                        pass
+            raise WorkerStartFailure(f"could not start process workers: {e}") from e
         return self
 
     def _drain_display(self) -> None:

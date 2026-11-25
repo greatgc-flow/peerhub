@@ -36,6 +36,10 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- CLI adapters kill and reap a spawned child if a worker fails to start, and report the delivery as uncertain.
+- Claude Code and Codex CLI deliveries report uncertainty when the prompt was only partially written, even if the CLI exits successfully.
+- Antigravity argv parsing applies the event-size limit to the JSON object and validates trailing whitespace independently of pipe chunk boundaries.
+- Antigravity commands with wrapper arguments probe their own help output instead of reusing a transport decision for the same interpreter and version.
 - Monitor hides expired quota windows in both layouts and excludes them from the header age. `--show-quota-notes` names the retired windows.
 - Monitor and diagnostics report quota probes that still time out under high CPU load as delayed by load.
 

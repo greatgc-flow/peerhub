@@ -179,7 +179,7 @@ class IncrementalEventParser:
             self._ag_invalid_top_level = True
             return
         trailing = text[end_idx:]
-        if trailing.strip():
+        if trailing.strip(" \t\n\r\v\f"):
             self._ag_invalid_top_level = True
             return
         self._ag_parsed = True
@@ -209,16 +209,18 @@ class IncrementalEventParser:
                 else:
                     return
             if not self._ag_parsed:
-                if len(self._ag_raw_buf) + len(chunk) > MAX_EVENT_BYTES:
+                # Decode at most one object's worth of bytes, then check any
+                # remainder as trailing whitespace rather than charging it to the object.
+                room = MAX_EVENT_BYTES - len(self._ag_raw_buf)
+                self._ag_raw_buf.extend(chunk[:room])
+                self._try_parse_ag()
+                chunk = chunk[room:]
+                if chunk and not (self._ag_parsed or self._ag_invalid_top_level):
                     self.oversized_count += 1
                     self._ag_invalid_top_level = True
-                    return
-                self._ag_raw_buf.extend(chunk)
-                self._try_parse_ag()
-            else:
-                if chunk.strip():
-                    self._ag_invalid_top_level = True
-                    self.ag_results.clear()
+            if self._ag_parsed and chunk.strip():
+                self._ag_invalid_top_level = True
+                self.ag_results.clear()
             return
         start = 0
         n = len(chunk)
@@ -253,7 +255,7 @@ class IncrementalEventParser:
         if self.parser_failed:
             return
         if self.kind == "ag":
-            if not self._ag_parsed:
+            if not self._ag_parsed and not self._ag_invalid_top_level:
                 self._try_parse_ag()
                 if not self._ag_parsed:
                     self._ag_invalid_top_level = True

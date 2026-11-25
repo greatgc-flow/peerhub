@@ -27,7 +27,7 @@ import pytest
 pytestmark = pytest.mark.platform_sensitive
 
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.adapters.event_parser import IncrementalEventParser
+from peerhub.extensions.adapters.event_parser import MAX_EVENT_BYTES, IncrementalEventParser
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult, run_bounded
 from peerhub.extensions.runtime_contract import RuntimeTargetError
 from tests.communication.bridge_helpers import bseed, records, responses
@@ -1204,3 +1204,29 @@ def test_cx_event_size_limit_excludes_newline(extra_bytes, terminated):
             parser.parse()
     else:
         assert parser.parse() == "answer"
+
+
+@pytest.mark.parametrize("split_trailing", [False, True])
+@pytest.mark.parametrize("extra_bytes,trailing,expected_error", [
+    (-4, b"      ", None),
+    (0, b" \r\n\t  ", None),
+    (1, b"      ", "oversized event"),
+    (-4, b"     x", "well-formed top-level"),
+])
+def test_ag_event_size_limit_excludes_trailing_whitespace(split_trailing, extra_bytes, trailing, expected_error):
+    parser = IncrementalEventParser("ag")
+    # The cap is in bytes, including any multibyte characters inside the object.
+    prefix, suffix = '{"response":"é'.encode(), b'"}'
+    response_padding = b"x" * (MAX_EVENT_BYTES + extra_bytes - len(prefix) - len(suffix))
+    event = prefix + response_padding + suffix
+    parser.feed(event[:-8])
+    parser.feed(event[-8:] if split_trailing else event[-8:] + trailing)
+    if split_trailing:
+        parser.feed(trailing)
+    parser.close()
+    assert parser.oversized_count == int(extra_bytes > 0)
+    if expected_error is None:
+        assert parser.parse() == "é" + response_padding.decode()
+    else:
+        with pytest.raises(ValueError, match=expected_error):
+            parser.parse()

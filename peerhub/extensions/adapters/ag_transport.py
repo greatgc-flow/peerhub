@@ -121,7 +121,7 @@ def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str) -> A
         return undetermined("cannot identify the agy executable", version)
     key = (identity, version)
     with _AG_TRANSPORT_LOCK:
-        cached = _AG_TRANSPORT_CACHE.get(key)
+        cached = _AG_TRANSPORT_CACHE.get(key) if len(base) == 1 else None
     if cached is not None:
         return AgTransport(cached, "help", version)
     h = probe("--help")
