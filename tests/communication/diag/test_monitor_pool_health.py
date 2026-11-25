@@ -329,7 +329,7 @@ def test_m9_and_g_gap_order_and_single_legend_match_docs() -> None:
         assert screen.count(mv.POOL_LEGEND) == 1
         assert screen.index(line) < screen.index(mv.POOL_LEGEND) < screen.index("suggest:")
     assert POOL_MARGIN_LEGEND in mv.POOL_LEGEND
-    for path in ("docs/monitor.md", "README.md"):
+    for path in ("docs/monitor.md",):  # the monitor guide is the single home
         assert mv.POOL_LEGEND in " ".join(Path(path).read_text(encoding="utf-8").split())
 
 

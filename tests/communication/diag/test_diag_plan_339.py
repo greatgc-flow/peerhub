@@ -273,5 +273,5 @@ def test_plan_thresholds_have_one_source_and_the_legend_and_docs_derive_from_it(
     assert (view.PLAN_SPEND_PACE_PT, view.PLAN_REST_PACE_PT) == (10.0, 20.0)
     assert f"spend PACE<=-{view.PLAN_SPEND_PACE_PT:.0f}" in view.PLAN_LEGEND
     assert f"rest PACE>+{view.PLAN_REST_PACE_PT:.0f}" in view.PLAN_LEGEND
-    index = (Path(__file__).resolve().parents[3] / "docs" / "index.md").read_text(encoding="utf-8")
+    index = (Path(__file__).resolve().parents[3] / "docs" / "commands.md").read_text(encoding="utf-8")  # diag --plan home
     assert f"(PACE <= -{view.PLAN_SPEND_PACE_PT:.0f})" in index and f"(PACE > +{view.PLAN_REST_PACE_PT:.0f} or" in index

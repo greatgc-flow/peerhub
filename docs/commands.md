@@ -34,7 +34,7 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 | Command | Reads |
 |---|---|
-| `diag --plan [--json]` | Per-pool `spend`, `hold`, `rest` or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. |
+| `diag --plan [--json]` | Per-pool `spend` (PACE <= -10), `hold`, `rest` (PACE > +20 or forecast exhausts before reset) or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. |
 | `diag quota [--json]` | Stored quota and rate-limit evidence, filtered by `--peer`, `--pool` or `--max-age-seconds`. Missing evidence is `UNKNOWN`. |
 | `diag health [--stream ID]` | Store selection and health, or a stream's health. |
 | `diag readiness [--json]` | Cached profile readiness. `READY` requires fresh positive verified quota and a matching terminal delivery. |
