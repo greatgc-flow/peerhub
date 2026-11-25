@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import FAMILIES
+from peerhub.cli.monitor_format import FAMILIES
 from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
 from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, ResourceSample, load_snapshot
 from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS

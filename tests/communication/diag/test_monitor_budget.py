@@ -5,9 +5,15 @@ from typing import Any
 
 import pytest
 
+from peerhub.cli.monitor_layout import cell_width
 from peerhub.cli.monitor_view import (
-    COMPACT_MAX_LINES, FRAME_HEADS, FRAME_SECTION_HEADS, FRAME_TRAILING_ROWS,
-    CompactFrame, fit_compact_frame, render_grouped_frame, _width,
+    COMPACT_MAX_LINES,
+    FRAME_HEADS,
+    FRAME_SECTION_HEADS,
+    FRAME_TRAILING_ROWS,
+    CompactFrame,
+    fit_compact_frame,
+    render_grouped_frame,
 )
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool, frame  # noqa: F401
 
@@ -107,19 +113,19 @@ def test_an_updated_overflow_line_is_refitted_to_the_width():
     for width in (19, 17, 9, 4):
         for height in range(3, 12):
             lines = fit_compact_frame(parts(**base), width=width, height=height, unicode=False).splitlines()
-            assert all(_width(line) <= width for line in lines), (width, height, lines)
+            assert all(cell_width(line) <= width for line in lines), (width, height, lines)
             shown = sum(line.startswith(" r") for line in lines)
             overflow = [line for line in lines if line.startswith("+")]
             hidden = 12 - shown
             if shown:  # the overflow line names exactly the rows that are not shown, as long as rows remain
                 assert overflow == [next(text for text in (f"+{hidden} more (--expand)", f"+{hidden} more", f"+{hidden}")
-                                         if _width(text) <= width)], (width, height, lines)
+                                         if cell_width(text) <= width)], (width, height, lines)
             else:
                 assert overflow == []
     # "+11 more (--expand)" needs 19 columns; at 18 the hint gives way, the number never does
     lines = fit_compact_frame(parts(**base), width=18, height=6, unicode=False).splitlines()
     assert lines[-1] == "+11 more"
-    assert all(_width(line) <= 18 for line in lines)
+    assert all(cell_width(line) <= 18 for line in lines)
 
 
 def test_wide_and_zero_width_characters_fit_the_width():
@@ -127,8 +133,8 @@ def test_wide_and_zero_width_characters_fit_the_width():
     zero = "e" + "́" * 40
     lines = fitted(None, width=80, verdict="OK | " + wide, header=["PeerHub Monitor " + zero * 3],
                    running=["RUNNING 1", f" 1m  {wide}  {zero}"], running_total=1)
-    assert all(_width(line) <= 79 for line in lines)
-    assert lines[0].endswith("…") and _width(lines[0]) in (78, 79)
+    assert all(cell_width(line) <= 79 for line in lines)
+    assert lines[0].endswith("…") and cell_width(lines[0]) in (78, 79)
 
 
 def test_byte_ceiling_removes_lines_in_order_then_cuts_line_1():
@@ -169,7 +175,7 @@ def test_worst_case_frame_stays_within_the_bounds(frame, width):  # noqa: F811
     screen = render_grouped_frame(frame, view="rich", unicode=True, width=width)
     lines = screen.splitlines()
     assert len(lines) <= 24 and len(screen.encode("utf-8")) <= 8192
-    assert all(_width(line) <= min(100, width) - 1 for line in lines)
+    assert all(cell_width(line) <= min(100, width) - 1 for line in lines)
 
 
 def test_ascii_frame_is_at_most_2400_bytes(frame):  # noqa: F811

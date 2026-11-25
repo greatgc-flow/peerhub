@@ -43,6 +43,19 @@ REQUIRED_DEFAULTS = {
 }
 
 
+@pytest.mark.parametrize("command", [("monitor",), ("monitor", "defaults", "set")])
+def test_monitor_help_fits_narrow_terminal(command, capsys, monkeypatch):
+    columns = 80
+    monkeypatch.setenv("COLUMNS", str(columns))
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args([*command, "--help"])
+    assert exc.value.code == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "--group GROUP" in " ".join(" ".join(lines).split())
+    assert "peerhub monitor groups" in " ".join(" ".join(lines).split())
+    assert all(len(line) <= columns for line in lines)
+
+
 def _walk(parser, path=()):
     yield " ".join(path), parser
     for action in parser._actions:

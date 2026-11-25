@@ -79,7 +79,7 @@ Keep the same body, timestamp, and idempotency key when retrying an append. See 
 
 ## Quick reference & guide
 
-Run `peerhub guide` (or bare `peerhub`) for the offline quick start and its safety decisions in at most 1600 bytes. Use [`peerhub explain`](docs/commands.md#guide-and-explain) to look up a topic or an outcome code such as `ask_blocked_uncertain`.
+Run `peerhub guide` (or bare `peerhub`) for the offline quick start and its safety decisions in at most 1600 UTF-8 bytes with LF line endings. Use [`peerhub explain`](docs/commands.md#guide-and-explain) to look up a topic or an outcome code such as `ask_blocked_uncertain`.
 
 ## Everyday commands
 

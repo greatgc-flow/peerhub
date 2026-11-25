@@ -1,6 +1,6 @@
 # PeerHub Documentation Map
 
-PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`, `ag`). The Core owns only Peer, Stream, Record, and Offset. All higher-level coordination primitives are extensions.
+PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`, `ag`, `ca`, `oa`, `ga`). The Core owns only Peer, Stream, Record, and Offset. All higher-level coordination primitives are extensions.
 
 ## Core & Everyday Guides
 - [Account-bound Peers](accounts.md): Immutable cc/cx roots, environment isolation, and quota limitations.
@@ -27,7 +27,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Config Hierarchy](config-hierarchy.md): Workspace, global, and packaged configuration tiers.
 - [Model Profiles](model-profiles/README.md) for packaged defaults and the refresh recipe.
 - [API peers and credits](api-credits.md) for ca, oa and ga setup, outcomes and billing.
-- [Adapter Guide](adapters/README.md): Vendor CLI prerequisites, authentication, and execution flags (`cc`, `cx`, `ag`).
+- [Adapter Guide](adapters/README.md): Prerequisites, authentication, and execution options for CLI peers (`cc`, `cx`, `ag`) and API peers (`ca`, `oa`, `ga`).
 - [CLI Reference](adapters/peer-cli-reference.md): Low-level adapter options and platform constraints.
 - [Operational lessons](lessons.md): Searchable troubleshooting lessons for `peerhub explain <free words>`.
 - [Guidance & Session Reference](guidance-reference.md): Status outcome codes, safe recovery actions, and session lifecycle state definitions.

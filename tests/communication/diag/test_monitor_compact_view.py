@@ -8,8 +8,19 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.cli.monitor_format import (
+    BAR_CELLS,
+    _bar_quota,
+)
+from peerhub.cli.monitor_layout import cell_width
+from peerhub.cli.monitor_legend import (
+    POOL_LEGEND,
+    POOL_MARGIN_COLUMN,
+)
 from peerhub.cli.monitor_view import (
-    BAR_CELLS, FRAME_SECTIONS, POOL_LEGEND, POOL_MARGIN_COLUMN, POOLS_USE_FIRST_HINT, _bar_quota, render_grouped_frame, _width,
+    FRAME_SECTIONS,
+    POOLS_USE_FIRST_HINT,
+    render_grouped_frame,
 )
 from tests.communication.diag.test_monitor_activity_view import anchor_pool
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
@@ -78,7 +89,7 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
     assert screen.splitlines()[1] == "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m"
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    assert _header(screen).split() == ["POOLS", "7", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
+    assert _header(screen).split() == ["POOLS", "6", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "aged", "0%!"),
                                 ("A-7D", "aged", "55%"), ("G-7D", "reset", None), ("F-7D", "?", None),
                                 ("X-7D", "ok", "89%")):
@@ -86,7 +97,7 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
         assert state in row.split()
         assert "%" not in row if value is None else value in row
     assert screen.index(_row(screen, "3P-7D")) < screen.index(_row(screen, "3P-5H")) < screen.index(_row(screen, "X-7D"))
-    assert "G-5H" not in screen and "(X-5H n/a)" in screen
+    assert "G-5H" not in screen and "X-5H" not in screen
     assert "claude-via-ag" in _row(screen, "3P-7D")
     for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "ok enough",
                 "PEERS", "facts ok", "sessions >=", "delivery", "telemetry", "unmapped", "deepthink 0%"):
@@ -172,7 +183,7 @@ def test_narrow_pool_table_keeps_pace_and_quota_facts(compact_frame, width):
     assert POOL_MARGIN_COLUMN in header
     assert cells[cells.index("+5.0") + 1].startswith("-")
     assert any(cell.endswith("/1h!") for cell in cells) == ("EXH/RESET" in header)
-    assert all(_width(line) <= width for line in screen.splitlines())
+    assert all(cell_width(line) <= width for line in screen.splitlines())
 
 
 @pytest.fixture
@@ -245,8 +256,8 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     assert POOL_LEGEND in flat
     assert "the header time is the snapshot time" in flat
     assert "precedence:" not in screen
-    assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
-    assert all(_width(line) <= width - 1 for line in expanded.splitlines())
+    assert all(cell_width(line) <= min(99, width - 1) for line in screen.splitlines())
+    assert all(cell_width(line) <= width - 1 for line in expanded.splitlines())
 
 
 def test_m1_fast_with_threat_forecast_uses_state_warning_colour(compact_frame, monkeypatch):
@@ -254,7 +265,7 @@ def test_m1_fast_with_threat_forecast_uses_state_warning_colour(compact_frame, m
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection_samples=2)
     anchor_pool(row, NOW, 5)
-    from peerhub.cli.monitor_view import RICH_SGR
+    from peerhub.cli.monitor_layout import RICH_SGR
 
     screen = _solo(compact_frame, view="rich", color=True, width=100)
     line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
@@ -297,7 +308,7 @@ def test_database_path_ignores_sampling_caps_but_shows_read_errors(compact_frame
 def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
     compact_frame["configured_profiles"][0]["profile"] = "ag." + "long" * 60
     screen = render_grouped_frame(compact_frame, width=width, unicode=False)
-    assert all(_width(line) <= width for line in screen.splitlines())
+    assert all(cell_width(line) <= width for line in screen.splitlines())
     # #374: the footer with "details: --expand" left the compact frame; below 26 columns POOLS keeps POOL and STATE
     # whole (LEFT drops as a column, never as a cut number).
     head = re.escape(FRAME_SECTIONS["pools"])
@@ -353,7 +364,7 @@ def test_human_only_last_measurements_are_read_only_and_json_bytes_unchanged(tmp
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame",
                         lambda *a, **kw: deepcopy(human if kw.get("human") else payload))
     baseline = h.db_path.read_bytes()
-    from peerhub.cli.monitor_preferences import GROUP_IDS
+    from peerhub.core.monitor_groups import GROUP_IDS
     expected = {**payload, "selected_groups": ["capacity"], "available_groups": list(GROUP_IDS),
                 "preference": {"status": "OK", "source": "command", "reason": None},
                 "store_selection": {"path": str(h.db_path.resolve()), "source": "explicit"}}
@@ -438,7 +449,7 @@ def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_fra
     reset.update(resets_at=NOW - 1, age_seconds=540, state="STALE")
     compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    assert "(X-5H n/a)" in screen
+    assert "X-5H" not in screen
     assert "reset" in _row(screen, "X-7D").split()
     assert "%" not in _row(screen, "X-7D")
     assert "89%" not in screen
@@ -725,7 +736,7 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
     fast = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     fast.update(projection_samples=2)
     anchor_pool(fast, NOW, 5)
-    from peerhub.cli.monitor_view import RICH_SGR
+    from peerhub.cli.monitor_layout import RICH_SGR
 
     colored = _solo(compact_frame, view="rich", color=True, width=100)
     plain = _solo(compact_frame, view="rich", color=False, width=100)
@@ -738,7 +749,7 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
                                 ("A-7D", "○ aged", "dim"), ("G-5H", "▲ fast", "warn"), ("X-7D", "● ok", "ok")):
         line = _row(colored, pool)
         assert f"\x1b[{RICH_SGR[colour]}m{state}\x1b[0m" in line
-        assert not line.startswith("\x1b") and _width(line) <= 99
+        assert not line.startswith("\x1b") and cell_width(line) <= 99
     assert "\x1b" not in _solo(compact_frame, view="plain", color=True, width=100)
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b" not in _solo(compact_frame, view="rich", color=True, width=100)

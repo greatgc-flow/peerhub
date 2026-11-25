@@ -8,19 +8,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from peerhub.cli.monitor_legend import (
-    MONITOR_LEGEND as MONITOR_LEGEND,
-    POOL_LEGEND as POOL_LEGEND,
-    POOL_MARGIN_COLUMN as POOL_MARGIN_COLUMN,
-    POOL_MARGIN_LEGEND as POOL_MARGIN_LEGEND,
-)
-from peerhub.core import monitor_preferences as saved_preferences
-from peerhub.core.monitor_preferences import (
-    DEFAULT_GROUPS as DEFAULT_GROUPS,
-    GROUP_IDS as GROUP_IDS,
-    GROUPS as GROUPS,
-    effective_preferences as effective_preferences,
-)
+from peerhub.core.monitor_groups import GROUP_IDS, GROUPS
+
+SHOW_QUOTA_NOTES_DEFAULT = False
 
 
 def _atomic_write(path: Path, groups: list[str]) -> None:
@@ -49,6 +39,8 @@ def _emit(payload: dict[str, Any], json_output: bool) -> None:
 
 def run_preferences(args: Any) -> int:
     """Run management subcommands without opening the database or starting peers."""
+    from peerhub.extensions.monitor_preferences import effective_preferences, preference_paths
+
     cwd = Path.cwd()
     env = dict(os.environ)
     preference = effective_preferences(cwd, env)
@@ -88,11 +80,11 @@ def run_preferences(args: Any) -> int:
                 print(f"{group:<10} {selected}")
             source = preference["source"]
             if sys.stdout.isatty() and source in ("workspace", "global"):
-                from peerhub.cli.monitor_view import file_link_url, monitor_links_enabled, osc_link
+                from peerhub.cli.monitor_links import file_link_url, monitor_links_enabled, osc_link
                 from peerhub.cli.view import FrameOutput
 
                 if monitor_links_enabled(env):
-                    workspace, global_path = saved_preferences.preference_paths(cwd, env)
+                    workspace, global_path = preference_paths(cwd, env)
                     path = workspace if source == "workspace" else global_path
                     output = FrameOutput(overwrite=False)
                     try:
@@ -104,7 +96,7 @@ def run_preferences(args: Any) -> int:
             if preference.get("reason"):
                 print(f"Reason: {preference['reason']}")
         return int(preference["status"] != "OK")
-    workspace, global_path = saved_preferences.preference_paths(cwd, env)
+    workspace, global_path = preference_paths(cwd, env)
     target = global_path if args.global_preferences else workspace
     source = "global" if args.global_preferences else "workspace"
     if subaction == "set":

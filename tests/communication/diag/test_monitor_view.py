@@ -43,7 +43,9 @@ def quota_visual_frame():
 
 @pytest.mark.parametrize("color", [False, True])
 def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeypatch):
-    from peerhub.cli.monitor_view import POOL_LEGEND, _render_expanded_frame as render_grouped_frame, _width
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_legend import POOL_LEGEND
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     # The grouped layout is the plain view's and is never painted, whatever the colour flag (the rich --expand frame
@@ -53,7 +55,7 @@ def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeyp
     rendered = render_grouped_frame(quota_visual_frame, view="plain", color=color, width=120, height=60)
     snapshot = Path(__file__).with_name("fixtures") / "quota_s2_color_off.txt"
     assert rendered == snapshot.read_text(encoding="utf-8")
-    assert all(_width(line) <= 119 for line in rendered.splitlines())
+    assert all(cell_width(line) <= 119 for line in rendered.splitlines())
     assert rendered.count("cc PROBE:") == 1
     assert len(re.findall(r"(?m)^ag .*STALE:window; next: peerhub observation refresh --peers ag", rendered)) == 1
     assert "soonest exhaust: ag P-4H 0% exhausted" in rendered  # C1: a fresh zero is already out.
@@ -83,7 +85,7 @@ def test_quota_color_suppression_preserves_identical_text(quota_visual_frame, mo
 
 @pytest.mark.parametrize("unicode_mode", [False, True])
 def test_quota_bar_boundaries_and_monotonic_fill(unicode_mode):
-    from peerhub.cli.monitor_view import _bar_quota
+    from peerhub.cli.monitor_format import _bar_quota
 
     full, empty, low = ("█", "░", "▏") if unicode_mode else ("#", ".", ":")
     assert _bar_quota(1.0, unicode=unicode_mode) == f"[{full * 8}]"
@@ -118,7 +120,7 @@ def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
 @pytest.mark.parametrize("elapsed", [0, 60])
 def test_quota_reset_countdown_plain_and_tty_parity(frame, state, seconds, expected, elapsed):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
-    from peerhub.cli.monitor_view import missing_pool_fact
+    from peerhub.cli.monitor_format import missing_pool_fact
 
     frame["selected_groups"] = ["capacity"]
     item = frame["groups"]["capacity"]["data"]["observations"][0]
@@ -259,17 +261,19 @@ def test_human_renderer_is_isolated_from_schema_11_adapter():
 
 @pytest.mark.parametrize("width", [32, 48, 80, 120])
 def test_rich_frame_respects_terminal_width_without_losing_groups(frame, width):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=width)
     assert all(group.upper() in rendered or (group == "capacity" and "QUOTA" in rendered) for group in frame["selected_groups"] if group not in {"overview", "coverage"})
-    assert all(_width(line) <= width for line in rendered.splitlines())
+    assert all(cell_width(line) <= width for line in rendered.splitlines())
     if width >= 48:  # P21: the rule's line and its title are separate spans
         assert any(re.sub(r"\x1b\[[0-9;]*m", "", line).startswith("── ") for line in rendered.splitlines())
 
 
 def test_colored_heading_keeps_ansi_after_width_fitting(frame, monkeypatch):
-    from peerhub.cli.monitor_view import RICH_SGR, _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_layout import RICH_SGR
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=80)
@@ -293,7 +297,8 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
     elif height == 3:
         assert rendered.splitlines()[1].startswith("PeerHub")
     elif height == 5:
-        assert "POOLS" not in rendered and "gap vs " not in rendered
+        assert ("POOLS 1" in rendered) == (width >= 40)
+        assert "gap vs " not in rendered
     elif height >= 4 and len(frame["selected_groups"]) > max(0, height - 3):
         assert "omitted" in rendered or "hidden" in rendered or any(f"+{i}" in rendered for i in range(1, 10))
         if width >= 64 and height > 4:
@@ -370,22 +375,24 @@ def test_dependent_error_groups_show_safe_root_reason(frame):
 
 
 def test_display_width_ignores_combining_and_joiner_and_sanitizes_bidi(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="plain", unicode=True, width=20, height=8)
-    assert _width("e\u0301") == 1
-    assert _width("👩\u200d💻") <= 4
+    assert cell_width("e\u0301") == 1
+    assert cell_width("👩\u200d💻") <= 4
     assert "\u202e" not in rendered
 
 
 def test_cjk_combining_and_joined_emoji_fit_actual_viewport(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["sessions"]
     frame["groups"]["sessions"]["data"]["items"][0]["state"] = "\u202e\u200b東京 cafe\u0301 👩\u200d💻\u0378"
     rendered = render_grouped_frame(frame, view="rich", unicode=True, width=20, height=8)
 
-    assert all(_width(line) <= 19 for line in rendered.splitlines())
+    assert all(cell_width(line) <= 19 for line in rendered.splitlines())
     assert "\u202e" not in rendered
     assert "�" in rendered
 
@@ -458,7 +465,8 @@ def test_plain_ascii_monitor_replaces_middle_dot_cleanly_without_question_marks(
 
 
 def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     # Add 4 sessions so total is 4 (exceeding 2-row cap)
     frame["groups"]["sessions"]["data"]["items"] = [
@@ -501,7 +509,7 @@ def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
     assert "sess_test_4" in expanded_rendered
     # Widths must be <= width - 1 (79 columns)
     for line in expanded_rendered.splitlines():
-        assert _width(line) <= 79, f"Line exceeds width - 1: {line}"
+        assert cell_width(line) <= 79, f"Line exceeds width - 1: {line}"
 
 
 def test_expanded_sessions_show_uses_after_gen_and_compact_view_does_not(frame):
@@ -666,7 +674,8 @@ def test_monitor_capacity_renders_argon_a_7d_pool_row_like_other_pools(frame):
 @pytest.mark.parametrize("color", [False, True])
 def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
     """Fixed-time render fixtures at 80x12, 80x24, 100x30, 120x40 (+plain) obey boundaries."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     t0 = 1760790000.0  # 2025-10-18T12:20:00Z
@@ -726,7 +735,7 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
             lines = rendered.rstrip("\n").split("\n")
             assert len(lines) <= height - 1, f"Height exceeded: {len(lines)} > {height - 1} at {width}x{height} {view}"
             for line in lines:
-                assert _width(re.sub(r"\x1b\[[0-9;]*m", "", line)) <= width - 1, f"Line width exceeded at {width}x{height}: {line}"
+                assert cell_width(re.sub(r"\x1b\[[0-9;]*m", "", line)) <= width - 1, f"Line width exceeded at {width}x{height}: {line}"
 
             # #412: line 1, the title and POOLS (the quota) are always at the top, whatever the height
             assert lines[0].startswith("OK") and lines[1].startswith("PeerHub Monitor")
@@ -756,11 +765,12 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
 @pytest.mark.parametrize("unicode_mode", [False, True])
 @pytest.mark.parametrize("view", ["plain", "rich"])
 def test_append_frame_leaves_terminal_last_column_free(frame, width, expand, unicode_mode, view):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
+    from peerhub.cli.monitor_layout import cell_width
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view=view, width=width, unicode=unicode_mode,
                                     color=unicode_mode, expand=expand)
-    assert all(_width(line) <= width - 1 for line in rendered.splitlines())  # #412: both views fit every line
+    assert all(cell_width(line) <= width - 1 for line in rendered.splitlines())  # #412: both views fit every line
 
 
 @pytest.mark.parametrize("width", [50, 60])
@@ -781,7 +791,7 @@ def test_narrow_quota_keeps_leftmost_columns_and_names_the_dropped_ones(frame, w
 
 
 def test_g_expand_quota_bar_tick_and_painted_pace_preserve_plain_facts(monkeypatch):
-    from peerhub.cli import monitor_view as mv
+    from peerhub.cli import monitor_format, monitor_layout, monitor_view as mv
     from tests.communication.diag.test_monitor_pool_health import frame, pool_cells, reading
 
     monkeypatch.delenv("NO_COLOR", raising=False)
@@ -790,12 +800,12 @@ def test_g_expand_quota_bar_tick_and_painted_pace_preserve_plain_facts(monkeypat
     compact, quota = pool_cells(plain, "G-7D")
     assert compact == quota[:-1]
     bar = compact[1]
-    assert mv.BAR_CELLS <= len(bar) <= mv.BAR_MAX_CELLS
-    assert bar == mv._bar_quota(.5, len(bar), unicode=False, even_burn=.625)[1:-1]
+    assert monitor_format.BAR_CELLS <= len(bar) <= monitor_format.BAR_MAX_CELLS
+    assert bar == monitor_format._bar_quota(.5, len(bar), unicode=False, even_burn=.625)[1:-1]
     assert (compact[0], *compact[2:4]) == ("ok", "50%", "+12.5")
     assert "\x1b" not in plain
     rich = mv.render_grouped_frame(payload, view="rich", color=True, width=120, expand=True)
-    assert rich.count(f"\x1b[{mv.RICH_SGR['ok']}m+12.5\x1b[0m") == 2  # M1
+    assert rich.count(f"\x1b[{monitor_layout.RICH_SGR['ok']}m+12.5\x1b[0m") == 2  # M1
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b" not in mv.render_grouped_frame(payload, view="rich", color=True, width=120, expand=True)
 
@@ -981,7 +991,7 @@ def test_stored_escape_sequences_never_reach_the_terminal_even_when_colour_is_on
     plain = render_grouped_frame(quota_visual_frame, view="plain", color=True, width=140, height=height)
     assert "\x1b" not in plain and "\x07" not in plain
     colored = render_grouped_frame(quota_visual_frame, view="rich", color=True, width=140, height=height)
-    from peerhub.cli.monitor_view import PILL_SGR, RICH_SGR
+    from peerhub.cli.monitor_layout import PILL_SGR, RICH_SGR
     assert f"\x1b[{RICH_SGR['ok']}m● ok\x1b[0m" in colored  # the palette still paints the quota cells
     ours = "|".join(re.escape(code) for code in ("0", *RICH_SGR.values(), *PILL_SGR.values()))  # one palette (P21)
     assert not re.sub(rf"\x1b\[(?:{ours})m", "", colored).count("\x1b") and "\x1b[1;36m" not in colored

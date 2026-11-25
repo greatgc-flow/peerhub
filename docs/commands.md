@@ -34,11 +34,11 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 | Command | Reads |
 |---|---|
-| `diag --plan [--json]` | Per-pool `spend` (PACE <= -10), `hold`, `rest` (PACE > +20 or forecast exhausts before reset) or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. |
+| `diag --plan [--json]` | Per-pool `spend` (PACE <= -10), `hold`, `rest` (PACE > +20 or forecast exhausts before reset) or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. The plan supports plain text and JSON. Passing `--view rich` is a usage error. |
 | `diag quota [--json]` | Stored quota and rate-limit evidence, filtered by `--peer`, `--pool` or `--max-age-seconds`. Missing evidence is `UNKNOWN`. |
 | `diag health [--stream ID]` | Store selection and health, or a stream's health. |
 | `diag readiness [--json]` | Cached profile readiness. `READY` requires fresh positive verified quota and a matching terminal delivery. |
-| `diag running [--json]` | Lease-active asks, with caller relation `mine`, `other` or `unknown`. A lease can outlast the process. See [caller ownership](lessons.md#identify-your-sessions-running-asks-caller-ownership). |
+| `diag running [--peer PEER] [--limit N] [--json]` | Lease-active asks, with caller relation `mine`, `other` or `unknown`. The peer filter applies before the limit. A lease can outlast the process. See [caller ownership](lessons.md#identify-your-sessions-running-asks-caller-ownership). |
 | `diag integrity` | Full SQLite integrity check, which may take time. |
 
 Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. Plan load still comes from the selected store. See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing. A missing selected store exits 5.
@@ -47,7 +47,7 @@ Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observati
 
 ## Guide and explain
 
-`peerhub guide` gives the quick start and safety decisions offline. `peerhub explain lessons` lists the lesson IDs. Ask for one ID, an outcome code, an exact profile ID such as `cc.effort`, or free words such as `peerhub explain ag silence`. Both commands support `--json`. Run `peerhub explain exit-codes` for process exit codes and stdout/stderr behavior. See the [lookup order and lesson catalog](lessons.md).
+`peerhub guide` gives the quick start and safety decisions offline. Bare `peerhub explain`, `peerhub explain list`, and `peerhub explain lessons` list the lesson IDs. Ask for one ID, an outcome code, an exact profile ID such as `cc.effort`, or free words such as `peerhub explain ag silence`. Both commands support `--json`. Run `peerhub explain exit-codes` for process exit codes and stdout/stderr behavior. See the [lookup order and lesson catalog](lessons.md).
 
 ## Update
 

@@ -31,7 +31,7 @@ For a command you can run, use `peerhub suggest --tier standard` and see
 ## Commands and output
 
 - `monitor groups` lists all eleven group IDs and whether the effective defaults select them. The defaults select nine groups. Use `--group GROUP` (repeatable), `--group all`, or `monitor defaults show|set|reset` to inspect or change the selection.
-- `monitor --snapshot` renders one read-only frame. `monitor --no-probe --interval-seconds 60` watches committed evidence. Pass the global `--db PATH` before `monitor` to choose another store.
+- `monitor --snapshot` renders one read-only frame. Use `monitor --snapshot --expand --group sessions --group execution` for the retained-session and execution tables. `monitor --no-probe --interval-seconds 60` watches committed evidence. Pass the global `--db PATH` before `monitor` to choose another store.
 - Without `--cycles`, a terminal watches until interrupted and redirected output runs one cycle. Explicit `--cycles 0` watches everywhere until interrupted. Positive values bound the watch.
 - `--json` emits schema 2.0: one object for a snapshot, or one `initial` frame plus a `complete` frame per watch cycle (NDJSON). Older scripts can select `--json --schema-version 1.1`.
 - `--view plain` uses an ASCII frame. `--view rich` uses terminal glyphs and colour when available. See [CLI help](commands.md#guide-and-explain) and the [probe contract](implementation/OBSERVATION_PROBES.md).
@@ -74,9 +74,10 @@ such as `cc probe timeout (value 3m old)`.
 
 ## POOLS
 
-`POOLS n` counts pools selected for the current view before row limits are applied. Each unavailable (`n/a`) pool
-also counts once and is named inline. This includes the legacy Antigravity weekly bucket when the provider
-omits it from a complete report. See [Antigravity quota pools](adapters/ag.md#quota-pools).
+`POOLS n` counts pools selected for the current view before row limits are applied. Both layouts hide unavailable
+(`n/a`) windows by default, including the legacy Antigravity weekly bucket when the provider omits it from a
+complete report. Add `--show-quota-notes` to count and name them inline and show reasons in compact POOLS or
+expanded QUOTA. This display option applies to snapshots and watches. See [Antigravity quota pools](adapters/ag.md#quota-pools).
 
 The compact view applies `POOLS_CAP` and omits nonbinding short windows unless they have a scoped parent.
 The expanded view includes all short windows, with visible rows limited by the frame height.
@@ -92,8 +93,10 @@ The expanded view includes all short windows, with visible rows limited by the f
 | EXH/RESET | forecast time until exhaustion and time until reset. Different times that display the same way gain one unit of precision, for example `3d13h05m/3d13h40m!`. A `!` means the forecast is earlier than reset. When the displayed times still tie, the margin follows it (for example `!30s`). Either side can show `—` when unavailable (`?` in ASCII), as can a weekly pace gap. `OUT` marks a fresh zero and `past est.` marks a forecast that has already passed while measured quota remains positive. |
 | FAMILY | the family label and configured profiles using the pool, including child pools. For example, `flash: ag.effort,ag.neon +1` shows two profiles and counts one more. A child pool also shows its dependency, for example `limited by C-7D (own 26%)`. |
 
-The gap line compares each weekly parent pool's pace with `X-7D` in percentage points. It shows `—` when either reading
-is unavailable, stale or unmeasured. The gap line leaves the frame with POOLS. All pools use the even-burn reference
+The gap line compares weekly parent pools with readings against `X-7D` in percentage points. It shows `—` when a
+comparison cannot be calculated, for example when the baseline reading is missing or a reading is stale.
+`--show-quota-notes` also includes pools without readings in the gap line. The gap line leaves the frame with POOLS.
+All pools use the even-burn reference
 of 0 pp. The design rejected per-pool targets in `[pool_targets]` and `[pools.<ID>]` (spend, rest and priority settings).
 The legend under the gap line reads:
 
@@ -114,7 +117,7 @@ PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = earl
 | `blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. <a id="state-blocked"></a> |
 | `aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. <a id="state-aged"></a> |
 | `reset` | `○` | the reset time has passed, so the number is no longer true; refresh. <a id="state-reset"></a> |
-| `n/a` | | the plan no longer reports this window (or the provider switched it off). POOLS includes the window in its count and names it inline. QUOTA also gives the reason. <a id="state-na"></a> |
+| `n/a` | | the plan no longer reports this window (or the provider switched it off). Shown in the human frame with `--show-quota-notes`. <a id="state-na"></a> |
 | `?` | `○` | unknown: no number. <a id="state-unknown"></a> |
 
 **Order.** POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools.
@@ -217,7 +220,7 @@ k sessions found` counts entries before the display cap (three rows in the compa
 state (`busy`, `?busy` = alive not confirmed, `?` unknown, `-` no session), age of the last activity, `ctx`, running
 asks, model, title. `ctx 11%` is a share of the model's maximum input, `ctx 106k` tokens with an unknown window, `ctx ?`
 unknown; `!` after the percentage means 80% or more (a mark, not an alert). The rich view draws a five-cell meter
-(`■■□□□`, ASCII `##...`). `PEERHUB_MONITOR_TEXT=off` hides names, titles and prompts.
+(`■■□□□`, ASCII `##...`). `PEERHUB_MONITOR_TEXT=off` hides names, titles and prompts. Historical lead-session measurements used Claude Code 2.1.323 and 2.1.325 on Windows 11. See the [packaged CLI version observations](../peerhub/config_data/model-defaults.toml).
 
 ## The detail sections (`--expand`)
 
@@ -263,8 +266,9 @@ ALERTS and RUNNING take priority over RECENT when space is limited.
 
 ## The alternate screen and LIVE_ROW_MARGIN
 
-A continuous VT watch uses the full alternate screen. Each row has its own screen position, so wide glyphs
-do not push later rows down. On exit the monitor restores the normal screen and prints the final frame there.
+A continuous VT watch uses the full alternate screen and updates the clock and countdowns at most once a second.
+The monitor rewrites changed rows at fixed screen positions with auto-wrap disabled. It repaints the full frame
+when the row count changes and every 60 frames. On exit it restores the normal screen and prints the final frame there.
 
 Finite watches use the normal screen. Bounded normal-screen frames reserve `LIVE_ROW_MARGIN` rows.
 A terminal without VT (or `TERM=dumb`) appends each frame. A pipe receives one completed frame per cycle.

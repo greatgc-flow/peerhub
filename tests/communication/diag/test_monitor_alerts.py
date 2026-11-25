@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.extensions import monitor_read_model as mrm
+from peerhub.extensions import monitor_queries, monitor_read_model as mrm
 from tests.communication.harness.core import CoreHarness
 
 pytestmark = [pytest.mark.unit, pytest.mark.diag]
@@ -29,7 +29,7 @@ def alerts(**kw: Any) -> list[dict[str, Any]]:
 
 
 def test_window_constant():
-    assert mrm.ALERT_WINDOW_S == 1800
+    assert monitor_queries.ALERT_WINDOW_S == 1800
 
 
 def test_alert_shape():
@@ -71,8 +71,8 @@ def test_every_rule_in_order():
 
 @pytest.mark.parametrize("state", ["empty", "error", "unsure"])
 def test_a1_window_boundary(state):
-    inside = ask(state, "in", ended_at=NOW - mrm.ALERT_WINDOW_S, age_s=float(mrm.ALERT_WINDOW_S))
-    outside = ask(state, "out", ended_at=NOW - mrm.ALERT_WINDOW_S - 1, age_s=float(mrm.ALERT_WINDOW_S + 1))
+    inside = ask(state, "in", ended_at=NOW - monitor_queries.ALERT_WINDOW_S, age_s=float(monitor_queries.ALERT_WINDOW_S))
+    outside = ask(state, "out", ended_at=NOW - monitor_queries.ALERT_WINDOW_S - 1, age_s=float(monitor_queries.ALERT_WINDOW_S + 1))
     assert [a["subject"] for a in alerts(asks=[inside, outside])] == ["cx.standard in"]
 
 
@@ -82,8 +82,8 @@ def test_a1_with_an_inexact_end_uses_the_bound_and_has_no_age():
 
 
 def test_overdue_window_boundary():
-    inside = ask("overdue", "in", lease_left_s=-float(mrm.ALERT_WINDOW_S))
-    outside = ask("overdue", "out", lease_left_s=-float(mrm.ALERT_WINDOW_S) - 1)
+    inside = ask("overdue", "in", lease_left_s=-float(monitor_queries.ALERT_WINDOW_S))
+    outside = ask("overdue", "out", lease_left_s=-float(monitor_queries.ALERT_WINDOW_S) - 1)
     assert [a["subject"] for a in alerts(asks=[inside, outside])] == ["cx.standard in"]
 
 

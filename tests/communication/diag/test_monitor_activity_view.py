@@ -8,8 +8,17 @@ from typing import Any
 
 import pytest
 
+from peerhub.cli.monitor_layout import cell_width
+from peerhub.cli.monitor_legend import (
+    POOL_LEGEND,
+    POOL_MARGIN_COLUMN,
+)
+from peerhub.cli.monitor_links import GUIDE_TEXT
 from peerhub.cli.monitor_view import (
-    FRAME_HEADS, FRAME_SECTIONS, GUIDE_TEXT, POOL_LEGEND, POOL_MARGIN_COLUMN, POOLS_USE_FIRST_HINT, render_grouped_frame, _width,
+    FRAME_HEADS,
+    FRAME_SECTIONS,
+    POOLS_USE_FIRST_HINT,
+    render_grouped_frame,
 )
 
 NOW = 1_794_700_000.0  # 2026-11-14 23:46:40Z
@@ -136,7 +145,7 @@ def test_compact_frame_order_and_width_with_korean_text(frame, width, unicode_mo
     heads = [line.split()[0] for line in lines if line.startswith(FRAME_HEADS)]
     assert heads == [head for head in FRAME_HEADS if head not in {"ALERTS", "LEADS"}]  # M9/G8
     assert any(line.startswith("POOLS 8 ") for line in lines) and "RUNNING 3 | cc 2 cx 1" in lines
-    assert all(_width(line) <= width - 1 for line in lines), screen
+    assert all(cell_width(line) <= width - 1 for line in lines), screen
     korean = next(line for line in lines if "activity-374-cc" in line or "평가" in line or "?? ??" in line)
     assert korean.startswith(" ") and "cc.fable" in korean
     # A5: the plain view keeps the Korean text (the output encoding can encode it); its cut mark is `~`
@@ -171,7 +180,7 @@ def test_plain_view_keeps_encodable_non_ambiguous_text(frame, encoding, text, ex
     screen = render_grouped_frame(frame, view="plain", unicode=False, width=width, text_encoding=encoding)
     row = next(line for line in lines_of(screen) if "review-api" in line)
     # a kept zero-width character never pushes a line over the width
-    assert expected in row and all(_width(line) <= width - 1 for line in lines_of(screen))
+    assert expected in row and all(cell_width(line) <= width - 1 for line in lines_of(screen))
     screen.encode(encoding)  # the frame can be written to that stream
 
 
@@ -184,7 +193,7 @@ def test_plain_expand_keeps_korean_and_fits_after_replacement(frame):
     assert lines[0].startswith("ATTN 1 | empty: ag.standard 거부됨 1m")
     assert any("ask: 검토 요청" in line for line in lines) and any("name 이름-1" in line for line in lines)
     assert "empty: ag.standard 거부됨 | age 1m | high | a1" in lines
-    assert all(_width(line) <= 79 for line in lines), [line for line in lines if _width(line) > 79]
+    assert all(cell_width(line) <= 79 for line in lines), [line for line in lines if cell_width(line) > 79]
 
 
 def test_monitor_passes_the_output_encoding_as_the_text_capability(monkeypatch):
@@ -279,7 +288,7 @@ def test_request_line_is_at_most_60_characters(frame):
 def test_narrow_activity_rows_drop_columns_from_the_right(frame, width):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=width))
     running = section(lines, "RUNNING")
-    assert all(_width(line) <= width - 1 for line in running)
+    assert all(cell_width(line) <= width - 1 for line in running)
     assert all(line.split()[0] in {"16m", "5m", "41s"} for line in running[1:])
     assert "~" not in "".join(line.split()[1] for line in running[1:])
 
@@ -328,7 +337,7 @@ def test_right_hand_fields_drop_before_alert_names(frame, width, expected):
         assert line == "ATTN 2 | gone: cc.effort rank-374-r1/cc 41s | pool_out: cx X-5H | 3 running | 2 leads"
     else:
         assert line == expected
-        assert _width(line) <= width - 1
+        assert cell_width(line) <= width - 1
 
 
 def test_agy_token_stop_is_one_more_alert_before_the_low_ones(frame):
@@ -538,7 +547,7 @@ def test_expand_lists_every_field_of_asks_leads_and_alerts(frame):
     assert ("QA cc 9f9f9f9f no session found (ended, or its Claude folder is not in PEERHUB_LEAD_DIRS) running 1"
             " asks 24h 1 last ask 2026-11-14 23:30:40Z") in flat.replace(" | ", " ")
     assert "RUNNING 3 | cc 2 cx 1" in flat and "RECENT 3" in flat
-    assert all(_width(line) <= 119 for line in lines)
+    assert all(cell_width(line) <= 119 for line in lines)
 
 
 def test_expand_without_alerts_prints_no_alerts_section_and_keeps_existing_groups(frame):
@@ -552,7 +561,7 @@ def test_bounded_expand_keeps_the_verdict_first_and_the_height(frame):
         screen = render_grouped_frame(deepcopy(frame), view="plain", unicode=False, width=100, height=height, expand=True)
         lines = lines_of(screen)
         assert lines[0].startswith("OK | 3 running") and len(lines) < height, (height, screen)
-        assert all(_width(line) < 100 for line in lines)
+        assert all(cell_width(line) < 100 for line in lines)
 
 
 def test_monitor_passes_the_preference_source_to_the_read_model(tmp_path, monkeypatch, capsys):

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.cli import monitor, monitor_view, support, view
+from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_view, support, view
 from peerhub.cli.app import main
 from peerhub.extensions import monitor_read_model
 from peerhub.extensions.quota_probes import common, poll_claude_usage
@@ -163,13 +163,13 @@ def test_live_title_lists_distinct_countdowns(expand):
 
 @pytest.mark.parametrize("columns", [0, 1])
 def test_live_title_at_minimum_width_defaults_heartbeat(columns):
-    assert monitor_view._fit_live_quota_title({}, "", "", "", columns, False) == (
-        monitor_view.QUOTA_HEARTBEAT_ASCII[0], True)
+    assert monitor_layout.fit_live_quota_title({}, "", "", "", columns, False) == (
+        monitor_layout.QUOTA_HEARTBEAT_ASCII[0], True)
 
 
 def test_live_title_at_zero_width_keeps_heartbeat():
-    assert monitor_view._fit_live_quota_title({"heartbeat": 0}, "", "", "", 0, False) == (
-        monitor_view.QUOTA_HEARTBEAT_ASCII[0], True)
+    assert monitor_layout.fit_live_quota_title({"heartbeat": 0}, "", "", "", 0, False) == (
+        monitor_layout.QUOTA_HEARTBEAT_ASCII[0], True)
 
 
 @pytest.mark.parametrize("second_status", ["OK", "PARTIAL", "FAILED", "raises"])
@@ -518,7 +518,7 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
         b'"runtime","coverage","store"],"preference":{"status":"OK","source":"command","reason":null},'
         b'"store_selection":{"path":"README.md","source":"explicit"}}'
     )
-    terminal_frame = frame + f"{monitor_view.GUIDE_TEXT}: {GOLDEN_GUIDE_URL}\n".encode("utf-8")
+    terminal_frame = frame + f"{monitor_links.GUIDE_TEXT}: {GOLDEN_GUIDE_URL}\n".encode("utf-8")
     expected = {
         "snapshot": terminal_frame,
         "redirected": terminal_frame + b"\n",

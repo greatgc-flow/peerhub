@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import QUOTA_NA
+from peerhub.cli.monitor_legend import QUOTA_NA
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation_model import EvidenceState, Observation
 from tests.communication.diag.test_monitor_328 import Store, iso
@@ -342,7 +342,8 @@ def test_5h_na_notes_use_the_fresh_account_plan_when_the_quota_probe_reports_non
     store.h.create_peer({"peer_id": "cc", "display_name": "Claude", "adapter_ref": "claude"})  # the PEERS block needs a registered peer
     cc_without_5h(store)
     account(store, "cc", age=30, plan="pro", plan_status="reported")
-    compact, expanded = snapshot(store, capsys), snapshot(store, capsys, "--expand", "--show-quota-notes")
+    compact = snapshot(store, capsys, "--show-quota-notes")
+    expanded = snapshot(store, capsys, "--expand", "--show-quota-notes")
     observations = json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
     item = next(o for o in observations if o["pool_ref"] == "quota:cc:C-5H")
     assert item["reason"] == NOT_REPORTED + "unknown"  # the stored fact is not rewritten
@@ -358,7 +359,7 @@ def test_5h_na_notes_use_the_fresh_account_plan_when_the_quota_probe_reports_non
 def test_unknown_plan_stays_unknown_without_a_fresh_account_plan(store, capsys):
     cc_without_5h(store)
     account(store, "cc", age=7 * 3600, plan="pro", plan_status="reported")  # aged: not a fresh reading
-    assert "plan unknown" in snapshot(store, capsys, "--expand", "--show-quota-notes")  # #374: the n/a 5-hour note is --expand only
+    assert "plan unknown" in snapshot(store, capsys, "--expand", "--show-quota-notes")
     store2 = Store(store.db.parent.parent / "second")
     cc_without_5h(store2)
     account(store2, "cc", age=30, plan=None, plan_status="UNKNOWN")  # reported nothing
@@ -369,7 +370,7 @@ def test_a_quota_probe_plan_is_never_overridden_by_the_account_plan(store, capsy
     store.measured("cx", "X-7D", age=20, source="codex_app_server", evidence_ref="probe:cx:app-server")
     store.add("cx", "X-5H", "ABSENT", age=20, source="codex_app_server", evidence_ref="probe:cx:app-server", reason=NOT_REPORTED + "prolite")
     account(store, "cx", age=30, plan="other", plan_status="reported")
-    out = snapshot(store, capsys, "--expand", "--show-quota-notes")  # #374: the n/a 5-hour note is --expand only
+    out = snapshot(store, capsys, "--expand", "--show-quota-notes")
     assert "(plan prolite)" in out and "plan other" not in out
     items = json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
     assert all("display_plan" not in o for o in items)

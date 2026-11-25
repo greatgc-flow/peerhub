@@ -11,7 +11,6 @@ POOLS 8    STATE                                            LEFT      PACE(pp)  
  ag P-7H   aged   ████████████████████████████████░░░░░░░░   80% ~0m  —         —         —/2h       ?
  ag P-8H   ok     ████████████████████████████████████░░░░   90%      —         —         —/2h       ?
  ag P-4H   out    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    0%      —         —         OUT/2h     ?
-gap vs X-7D (pp): C-7D —, G-7D —, A-7D —, 3P-7D —
 PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | MARGIN=EXH-RESET, - = early |
 EVN=even-burn remaining
 suggest: no eligible profiles; next: peerhub observation refresh

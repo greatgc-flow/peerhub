@@ -1,6 +1,7 @@
 import json
 import tomllib
 from importlib import resources
+from pathlib import Path
 
 import pytest
 
@@ -107,6 +108,22 @@ def test_profile_list_table_shows_known_models_and_pool_evidence(tmp_path, capsy
     assert "Known models (pool)" in out
     assert all(model in out for model in PACKAGED["exact_model_pools"])
     assert "gpt-oss-120b-medium" in out and "unverified" in out
+
+
+@pytest.mark.parametrize("columns", [80, 240])
+def test_profile_list_fits_terminal_and_preserves_guidance(columns, capsys, monkeypatch):
+    workspace = Path(__file__).parent
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(workspace / "no-global"))
+    monkeypatch.setenv("COLUMNS", str(columns))
+    args = ["--db", str(workspace / "no-store.db"), "profile", "list", "--workspace", str(workspace)]
+    assert main([*args, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    profile = next(row for row in payload["profiles"] if row["profile"] == "ag.effort")
+    use_for = profile["card"]["use_for"]["value"]
+    assert main(args) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert all(len(line) <= columns for line in lines)
+    assert use_for in " ".join(" ".join(lines).split())
 
 
 def test_profile_show_reports_invalid_config_in_json(tmp_path, capsys):

@@ -284,7 +284,7 @@ def seed_view_pool(db):
 def assert_view_glyph_effect(rich, plain, *, monitor=False):
     assert rich != plain
     if monitor:
-        from peerhub.cli.monitor_view import RICH_GLYPHS
+        from peerhub.cli.monitor_layout import RICH_GLYPHS
 
         rules = tuple(f"{glyphs['rule'] * 2} POOLS " for glyphs in RICH_GLYPHS.values())
         assert any(line.startswith(rules) for line in rich.splitlines())

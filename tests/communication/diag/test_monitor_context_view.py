@@ -152,7 +152,7 @@ def test_the_peers_section_shows_the_newest_session_estimate(frame):
 
 
 def test_the_legend_says_what_the_estimate_is(frame):
-    from peerhub.cli.monitor_view import MONITOR_LEGEND
+    from peerhub.cli.monitor_legend import MONITOR_LEGEND
 
     line = next(text for text in MONITOR_LEGEND if text.startswith("CTX est:"))
     assert line == ("CTX est: estimated context of a cc session at the end of its last ask (percent of the model's maximum"

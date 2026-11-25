@@ -8,8 +8,9 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor, monitor_view as mv, view
-from peerhub.extensions import monitor_read_model
+from peerhub.cli import monitor, monitor_legend, monitor_links, monitor_view as mv, view
+from peerhub.extensions.observation_model import DISABLED_REASON
+from peerhub.extensions import monitor_queries, monitor_read_model
 from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
 from tests.communication.diag.test_monitor_plain_golden import full_payload, quiet_payload
 from tests.communication.diag.test_monitor_recent_layout import (
@@ -41,7 +42,7 @@ def test_active_work_survives_history_pressure(width, style, expand):
 @pytest.mark.parametrize("style", ["plain", "rich"])
 def test_expanded_history_restores_finished_and_sampled_superseded_rows(width, style):
     payload = full_payload()
-    cap = monitor_read_model.TEXT_NEWEST_ROWS
+    cap = monitor_queries.TEXT_NEWEST_ROWS
     payload["groups"]["activity"]["data"] = activity_data([
         *(ended(f"history-{i:02}", i) for i in range(cap + 1)),
         ask("unsure", name="replaced-ask", superseded=True, age=4000, exact=True),
@@ -59,13 +60,18 @@ def test_expanded_history_restores_finished_and_sampled_superseded_rows(width, s
 @pytest.mark.parametrize("width", [60, 118])
 @pytest.mark.parametrize("style", ["plain", "rich"])
 @pytest.mark.parametrize("expand", [False, True])
-def test_unavailable_pool_count_and_quota_reason(width, style, expand):
-    payload = na_payload()
-    screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width, expand=expand)
+@pytest.mark.parametrize("notes", [False, True])
+def test_unavailable_pool_count_and_quota_reason(width, style, expand, notes):
+    payload = na_payload(selected_groups=["capacity"])
+    observations = payload["groups"]["capacity"]["data"]["observations"]
+    next(obs for obs in observations if obs["pool_ref"].endswith(":C-5H"))["reason"] = DISABLED_REASON
+    screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width,
+                                     expand=expand, show_quota_notes=notes)
     pools = screen.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
-    assert pools.startswith("4 ")
-    assert all(f"({pool} {mv.QUOTA_NA})" in pools for pool in ("C-5H", "X-30D"))
-    assert ("not reported (plan prolite)" in screen) == expand
+    assert pools.startswith("4 " if notes else "2 ")
+    assert all((f"({pool} {monitor_legend.QUOTA_NA})" in pools) == notes for pool in ("C-5H", "X-30D"))
+    assert screen.count("not reported (plan prolite)") == int(notes)
+    assert screen.count(DISABLED_REASON) == int(notes)
 
 
 @pytest.mark.parametrize("width", [64, 118])
@@ -102,8 +108,8 @@ def test_plain_guide_stays_visible_with_or_without_terminal_or_opt_out(monkeypat
     monkeypatch.setenv("PEERHUB_GUIDE_URL", url)
     payload = full_payload() if expand else quiet_payload()
     screen = mv.render_grouped_frame(payload, view="plain", width=118, expand=expand, tty=tty)
-    guides = [line for line in screen.splitlines() if line.startswith(f"{mv.GUIDE_TEXT}:")]
-    assert guides == [f"{mv.GUIDE_TEXT}: {url}"]
+    guides = [line for line in screen.splitlines() if line.startswith(f"{monitor_links.GUIDE_TEXT}:")]
+    assert guides == [f"{monitor_links.GUIDE_TEXT}: {url}"]
     assert "\x1b" not in screen
 
 

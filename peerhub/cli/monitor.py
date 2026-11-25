@@ -13,6 +13,7 @@ import math
 import os
 import sqlite3
 import sys
+import textwrap
 from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, cast
@@ -20,10 +21,19 @@ from typing import Any, cast
 from peerhub.cli.support import (MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
                                  print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
 from peerhub.cli.monitor_legend import MONITOR_LEGEND, POOL_LEGEND
+from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
-from peerhub.core.monitor_preferences import GROUP_IDS, effective_preferences
+from peerhub.core.monitor_groups import GROUP_IDS
 
 RUNNING_REFRESH_SECONDS = 5
+_GROUP_METAVAR = "GROUP"
+_GROUP_CHOICES_HELP = " Choices: %(choices)s."
+
+
+class _MonitorHelpFormatter(argparse.HelpFormatter):
+    def _fill_text(self, text: str, width: int, indent: str) -> str:
+        return "\n".join(textwrap.fill(line, width, initial_indent=indent, subsequent_indent=indent)
+                         for line in text.splitlines())
 
 
 def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -34,7 +44,7 @@ def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
 def register_monitor_parser(subparsers: Any) -> None:
     p = subparsers.add_parser("monitor", help="Watch committed quota evidence and diagnostics",
-                             epilog="\n".join((POOL_LEGEND, *MONITOR_LEGEND)), formatter_class=argparse.RawDescriptionHelpFormatter)
+                             epilog="\n".join((POOL_LEGEND, *MONITOR_LEGEND)), formatter_class=_MonitorHelpFormatter)
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
                    help="Run watch cycles every N s (positive seconds, default %(default)s). "
                         "On supported TTYs, the countdown redraws at most 1 Hz.")
@@ -62,14 +72,15 @@ def register_monitor_parser(subparsers: Any) -> None:
                    help="Check for quota collection every Kth cycle (K>=1, default %(default)s)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
                    help="Explicit portable provider installation directory")
-    p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None,
-                   help="Select monitor groups for a read-only snapshot or grouped watch")
+    p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None, metavar=_GROUP_METAVAR,
+                   help="Select groups for a snapshot or watch. See peerhub monitor groups and use --expand for detailed sections."
+                        + _GROUP_CHOICES_HELP)
     p.add_argument("--snapshot", action="store_true", help="Render one read-only grouped snapshot without refreshing providers")
     layout = p.add_mutually_exclusive_group()
     layout.add_argument("--compact", action="store_true", help="Render the compact dashboard (default)")
     layout.add_argument("--expand", action="store_true", help="Render detailed grouped sections with bars, pace and forecasts")
-    p.add_argument("--show-quota-notes", action="store_true",
-                   help="Show why quota windows are unavailable (plan omissions or provider-disabled windows)")
+    p.add_argument("--show-quota-notes", action="store_true", default=SHOW_QUOTA_NOTES_DEFAULT,
+                   help="Include unavailable quota windows and their reasons in compact and expanded output (hidden by default)")
 
     actions = p.add_subparsers(dest="monitor_action")
     groups = actions.add_parser("groups", help="List monitor groups and default selection")
@@ -83,7 +94,8 @@ def register_monitor_parser(subparsers: Any) -> None:
         action.add_argument("--global", dest="global_preferences", action="store_true",
                             help="Select the global configuration layer")
         if action_name == "set":
-            action.add_argument("--group", choices=GROUP_IDS, nargs="+", required=True, help="Monitor groups to show by default")
+            action.add_argument("--group", choices=GROUP_IDS, nargs="+", required=True, metavar=_GROUP_METAVAR,
+                                help="Groups to show by default. See peerhub monitor groups." + _GROUP_CHOICES_HELP)
         action.add_argument("--json", action="store_true")
     repair = actions.add_parser("repair", help="Rebuild monitor projections from durable PeerHub evidence")
     repair.add_argument("--chunk-size", type=int, default=500, help="Bounded delivery read chunk (1-5000)")
@@ -104,7 +116,7 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
     if (getattr(args, "expand", False) or getattr(args, "compact", False)) and args.json:
         option = "--expand" if getattr(args, "expand", False) else "--compact"
         parser.error(f"{option} applies to human dashboard output and cannot be combined with --json")
-    if getattr(args, "show_quota_notes", False) and args.json:
+    if getattr(args, "show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT) and args.json:
         parser.error("--show-quota-notes applies to human dashboard output and cannot be combined with --json")
     legacy = bool(getattr(args, "legacy", False))
     schema = getattr(args, "schema_version", None)
@@ -167,9 +179,11 @@ def _profile_fingerprints(workspace: Path) -> tuple[tuple[str, str, int, int], .
 
 
 def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
-                        height: int | None, color: bool, expand: bool = False, show_quota_notes: bool = False,
+                        height: int | None, color: bool, expand: bool = False,
+                        show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT,
                         links: bool = False) -> str:
-    from peerhub.cli.monitor_view import FRAME_TRAILING_ROWS, file_link_url, monitor_links_enabled, render_grouped_frame
+    from peerhub.cli.monitor_links import file_link_url, monitor_links_enabled
+    from peerhub.cli.monitor_view import FRAME_TRAILING_ROWS, render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
     # A5: separately from the decoration, text cells keep every character this stream can encode (not only on UTF).
@@ -241,6 +255,8 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
         selected = list(GROUP_IDS) if requested == ["all"] else sorted(requested, key=GROUP_IDS.index)
         preference = {"status": "OK", "source": "command", "reason": None, "selected_groups": selected}
     else:
+        from peerhub.extensions.monitor_preferences import effective_preferences
+
         preference = effective_preferences()
         if preference["status"] != "OK":
             payload = {"schema_version": "2.0", "status": "ERROR", "groups": {},
@@ -269,7 +285,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     color = effective_view == "rich" and use_color(output.live, os.environ)
     links = color and output.vt
     expand = bool(getattr(args, "expand", False))
-    show_quota_notes = bool(getattr(args, "show_quota_notes", False))
+    show_quota_notes = bool(getattr(args, "show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
     last_payload: dict[str, Any] | None = None
     last_frame_monotonic = 0.0
 
@@ -491,8 +507,12 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     unique_requested = list(dict.fromkeys(requested or []))
     if "all" in unique_requested and len(unique_requested) > 1:
         parser.error("--group all cannot be combined with other group IDs")
-    preference = ({"status": "OK", "source": "command", "reason": None}
-                  if unique_requested else effective_preferences())
+    if unique_requested:
+        preference = {"status": "OK", "source": "command", "reason": None}
+    else:
+        from peerhub.extensions.monitor_preferences import effective_preferences
+
+        preference = effective_preferences()
     if preference["status"] != "OK":
         payload = {"schema_version": "2.0", "status": "ERROR", "selected_groups": None,
                    "preference": {key: preference[key] for key in ("status", "source", "reason")}}
@@ -510,7 +530,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.core.schema_version import SchemaVersionError
     expand = bool(getattr(args, "expand", False))
-    show_quota_notes = bool(getattr(args, "show_quota_notes", False))
+    show_quota_notes = bool(getattr(args, "show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
     try:
         payload = render_monitor_frame(args.db, selected, human=not args.json,
                                        preference_source=preference["source"], lead_reader=_lead_reader)
@@ -546,7 +566,7 @@ def _live_rows(height: int, *, alternate: bool = False) -> int:
 
 
 def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = False,
-                            show_quota_notes: bool = False) -> None:
+                            show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT) -> None:
     """Render a human dashboard from one schema 2.0 snapshot."""
     from peerhub.cli.view import FrameOutput, use_color
     tty = sys.stdout.isatty()

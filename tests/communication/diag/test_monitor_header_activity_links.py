@@ -10,9 +10,8 @@ from typing import Any, get_args
 import pytest
 
 from peerhub import __version__
-from peerhub.cli import monitor, monitor_preferences, monitor_refresh, monitor_view, support, view
-from peerhub.core import monitor_preferences as saved_preferences
-from peerhub.extensions import monitor_read_model
+from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_preferences, monitor_refresh, monitor_view, support, view
+from peerhub.extensions import monitor_preferences as saved_preferences, monitor_read_model
 from peerhub.extensions.pool_health import PoolState
 from tests.communication.diag.test_monitor_plain_golden import _payload
 from tests.communication.diag.test_monitor_pool_health import frame, reading
@@ -20,7 +19,7 @@ from tests.communication.diag.test_monitor_tree import frame_for
 
 DOC_URL = "https://example.test/docs/monitor.md"
 OSC_LINK = re.compile(r"\x1b\]8;;([^\x1b]+)\x1b\\([^\x1b]+)\x1b\]8;;\x1b\\")
-MONITOR_DOC = Path(__file__).resolve().parents[3] / monitor_view.GUIDE_DOC
+MONITOR_DOC = Path(__file__).resolve().parents[3] / monitor_links.GUIDE_DOC
 
 
 @pytest.fixture(autouse=True)
@@ -47,8 +46,8 @@ def test_title_reserves_guide_at_right_edge(width: int, expand: bool, style: str
     if style == "plain":
         assert linked == base and all("\x1b" not in line for line in linked)
         return
-    assert monitor_view._ANSI.sub("", linked[0]) == base[0]
-    assert OSC_LINK.findall(linked[1]) == [(DOC_URL, monitor_view.GUIDE_TEXT)]
+    assert monitor_layout.ANSI_ESCAPE.sub("", linked[0]) == base[0]
+    assert OSC_LINK.findall(linked[1]) == [(DOC_URL, monitor_links.GUIDE_TEXT)]
     assert view.visible_len(linked[1]) == width - 1
     assert ("refresh failed" if live else "PeerHub Monitor") in linked[1]
     assert linked[2:] == base[2:len(linked)]
@@ -79,7 +78,7 @@ def test_existing_db_path_has_a_link_with_unchanged_visible_text(monkeypatch: py
         assert linked == disabled and "\x1b" not in linked
         return
     assert any(url == db.as_uri() for url, _ in OSC_LINK.findall(linked))
-    linked_path_lines = [monitor_view._ANSI.sub("", line) for line in linked.splitlines() if db.as_uri() in line]
+    linked_path_lines = [monitor_layout.ANSI_ESCAPE.sub("", line) for line in linked.splitlines() if db.as_uri() in line]
     assert linked_path_lines and all(line in disabled.splitlines() for line in linked_path_lines)
     assert all(view.visible_len(line) < 80 for line in linked_path_lines)
     missing = db.with_name("missing.db")
@@ -102,7 +101,7 @@ def test_defaults_show_links_only_the_existing_config_file(monkeypatch: pytest.M
     assert OSC_LINK.findall(linked) == [(config.as_uri(), "workspace")]
     monkeypatch.setenv("PEERHUB_NO_LINKS", "1")
     assert monitor_preferences.run_preferences(args) == 0
-    assert capsys.readouterr().out == monitor_view._ANSI.sub("", linked)
+    assert capsys.readouterr().out == monitor_layout.ANSI_ESCAPE.sub("", linked)
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -112,7 +111,7 @@ def test_header_quota_state_links_to_its_documented_vocabulary(expand: bool) -> 
     linked = monitor_view.render_grouped_frame(payload, links=True, expand=expand)
     [(url, label)] = OSC_LINK.findall(linked.splitlines()[0])
     base, anchor = url.split("#")
-    assert (base, label) == (monitor_view.guide_link_url({}), payload["min_quota"]["state"])
+    assert (base, label) == (monitor_links.guide_link_url({}), payload["min_quota"]["state"])
     assert f'id="{anchor}"' in MONITOR_DOC.read_text(encoding="utf-8")
 
 
@@ -122,11 +121,11 @@ def test_every_pool_state_link_targets_an_anchor_in_the_monitor_doc() -> None:
     screen = monitor_view.render_grouped_frame(display, links=True, expand=True)
     [(url, _), *_] = [(url, label) for url, label in OSC_LINK.findall(screen) if label == state]
     base = url.split("#")[0]
-    assert base.endswith(f"/blob/v{__version__}/{monitor_view.GUIDE_DOC}")
+    assert base.endswith(f"/blob/v{__version__}/{monitor_links.GUIDE_DOC}")
     doc = MONITOR_DOC.read_text(encoding="utf-8")
     anchors = set()
     for state in get_args(PoolState):
-        [(url, label)] = OSC_LINK.findall(monitor_view.link_pool_state(base, state))
+        [(url, label)] = OSC_LINK.findall(monitor_links.link_pool_state(base, state))
         target, anchor = url.split("#")
         assert target == base and label == state and f'id="{anchor}"' in doc
         anchors.add(anchor)
@@ -147,11 +146,11 @@ def test_pool_state_links_preserve_visible_table_cells(monkeypatch: pytest.Monke
     linked_rows = [line for line in linked.splitlines() if f"{pool}  " in line]
     disabled_rows = [line for line in disabled.splitlines() if f"{pool}  " in line]
     assert len(linked_rows) == (2 if expand else 1)
-    base = monitor_view.guide_link_url({})
+    base = monitor_links.guide_link_url({})
     assert base is not None
-    target = monitor_view.link_pool_state(base, state)
+    target = monitor_links.link_pool_state(base, state)
     assert all(target in line for line in linked_rows)
-    assert [monitor_view._ANSI.sub("", line) for line in linked_rows] == disabled_rows
+    assert [monitor_layout.ANSI_ESCAPE.sub("", line) for line in linked_rows] == disabled_rows
     assert "\x1b]8" not in disabled and f"Guide: {DOC_URL}" in disabled
 
 
@@ -174,11 +173,11 @@ def test_displayed_profile_links_to_its_config_file(monkeypatch: pytest.MonkeyPa
     linked = monitor._render_human_frame(payload, links=True, **options)
     plain = monitor._render_human_frame(payload, **options)
     assert OSC_LINK.findall(linked).count((config.as_uri(), profile)) == (4 if expand else 2)
-    linked_rows = [line for line in linked.splitlines() if f"claude: {monitor_view.osc_link(config.as_uri(), profile)}" in line]
+    linked_rows = [line for line in linked.splitlines() if f"claude: {monitor_links.osc_link(config.as_uri(), profile)}" in line]
     assert len(linked_rows) == (2 if expand else 1)
-    assert all(monitor_view._ANSI.sub("", line) in plain.splitlines() for line in linked_rows)
+    assert all(monitor_layout.ANSI_ESCAPE.sub("", line) in plain.splitlines() for line in linked_rows)
     assert next(line for line in plain.splitlines() if line.startswith("suggest:")) == next(
-        monitor_view._ANSI.sub("", line) for line in linked.splitlines() if line.startswith("suggest:")
+        monitor_layout.ANSI_ESCAPE.sub("", line) for line in linked.splitlines() if line.startswith("suggest:")
     )
 
 
@@ -256,4 +255,4 @@ def test_guide_trailer_when_snapshot_has_no_guide_link(monkeypatch: pytest.Monke
     monitor._print_grouped_snapshot(_payload([], []), style, expand)
     screen = capsys.readouterr().out
     assert OSC_LINK.findall(screen) == []
-    assert screen.splitlines()[-1] == f"{monitor_view.GUIDE_TEXT}: {DOC_URL}"
+    assert screen.splitlines()[-1] == f"{monitor_links.GUIDE_TEXT}: {DOC_URL}"

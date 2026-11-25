@@ -11,7 +11,7 @@ import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.lessons import lesson_by_id
-from peerhub.cli.monitor_view import POOLS_USE_FIRST_ASCENDING
+from peerhub.cli.monitor_format import POOLS_USE_FIRST_ASCENDING
 from peerhub.core import load_limits as L
 from peerhub.cli.guide import GUIDE_MAX_BYTES
 
@@ -94,7 +94,7 @@ def test_docs_match_the_resource_thresholds():
 
 def test_topic_gives_facts_and_leaves_the_decision_to_the_ai():
     text = _text()
-    assert "You decide" in text and "default" in text
+    assert "you decide" in text and "default" in text
     assert "must" not in text and "do not start more" not in text
 
 

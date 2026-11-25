@@ -794,7 +794,7 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
         from peerhub.cli.lessons import render_lesson
 
         # Order: guidance code > exact profile id (above) > lessons index > exact lesson id > keywords.
-        if code.strip().casefold() == "lessons":
+        if code.strip().casefold() in {"", "lessons", "list"}:
             index = lessons.lesson_index()
             print(json.dumps({"lessons": index}, indent=2, ensure_ascii=True) if json_output
                   else "\n".join(f"{item['id']}: {item['title']}" for item in index))

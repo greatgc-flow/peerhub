@@ -8,7 +8,7 @@ from threading import Event
 
 import pytest
 
-from peerhub.cli import monitor, monitor_view, support
+from peerhub.cli import monitor, monitor_layout, monitor_view, support
 from peerhub.cli.app import main
 from peerhub.extensions.diag_quota import format_quota_table
 from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, QUOTA_NOTICE_AGE_SECONDS
@@ -35,7 +35,7 @@ def test_stale_notice_has_the_same_position_and_wording(age, notice, view, width
     payload = _frame([] if age is None else [_reading(age)])
     for expand in (False, True):
         rendered = monitor_view.render_grouped_frame(payload, view=view, width=width, height=12, expand=expand)
-        rows = monitor_view._ANSI.sub("", rendered).splitlines()
+        rows = monitor_layout.ANSI_ESCAPE.sub("", rendered).splitlines()
         if notice:
             assert " ".join(rows[2:]).startswith(notice + " -> peerhub observation refresh")
         else:

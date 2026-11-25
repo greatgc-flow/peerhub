@@ -92,9 +92,9 @@ def running_report(db_path: str | Path, *, read_at: float | None = None, peer: s
     except OSError as exc:  # unreadable, or replaced by a restore mid-read: report it, never a traceback
         return {"schema_version": "1.0", "status": "FAILED", "basis": "lease", "read_at": now, "rows": [], "truncated": False,
                 "error": f"{type(exc).__name__}: workspace.generation unreadable", "reader_identified": identified}
-    snap = ReadonlyDiag(db_path).running(read_at=now, limit=limit, workspace_generation=generation)
+    snap = ReadonlyDiag(db_path).running(read_at=now, limit=limit, workspace_generation=generation, peer=peer)
     return {"schema_version": "1.0", "status": snap["status"], "basis": "lease", "read_at": now,
-            "rows": [_row(r, now, reader) for r in snap["rows"] if peer is None or r["peer_id"] == peer],
+            "rows": [_row(r, now, reader) for r in snap["rows"]],
             "truncated": snap["truncated"], "error": snap["error"], "limit": limit, "peer": peer,
             "reader_identified": identified}
 
@@ -164,9 +164,9 @@ def format_running(report: dict[str, Any], *, width: int | None = None) -> str:
         formatted = ["  ".join(str(cell).ljust(w) for cell, w in zip(line, widths)) for line in table]
         lines.append(formatted[0] + "  CALLER")
         lines.extend(f"{line}  {_caller_suffix(row)}" for line, row in zip(formatted[1:], rows))
-        if report["truncated"]:
-            lines.append(f"(more rows not shown; limit {report.get('limit', MAX_ROWS)})")
-    elif report["status"] == "OK":
+    if report["truncated"]:
+        lines.append(f"(more rows not shown; limit {report.get('limit', MAX_ROWS)})")
+    elif not rows and report["status"] == "OK":
         lines.append("(none)")
     if width is not None:
         lines = [part for line in lines for part in textwrap.wrap(

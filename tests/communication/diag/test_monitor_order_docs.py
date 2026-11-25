@@ -4,8 +4,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from peerhub.cli.monitor_format import POOLS_USE_FIRST_ASCENDING
 from peerhub.cli.monitor_view import (
-    FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER, POOLS_USE_FIRST_ASCENDING, POOLS_USE_FIRST_HINT,
+    FRAME_HEADS,
+    FRAME_SECTIONS,
+    FRAME_SECTION_ORDER,
+    POOLS_USE_FIRST_HINT,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -21,7 +25,7 @@ def test_docs_list_the_frame_sections_in_the_code_order() -> None:
 
 
 def test_monitor_docs_list_expanded_details_in_catalog_order() -> None:
-    text = (ROOT / "docs/monitor.md").read_text(encoding="utf-8")
+    text = (ROOT / MONITOR_DOC).read_text(encoding="utf-8")
     details = [head for key, head in FRAME_SECTIONS.items() if key not in FRAME_SECTION_ORDER]
     expected = f"After {FRAME_SECTIONS['leads']} it shows {', '.join(details)} and any other selected group."
     assert expected in " ".join(text.split())

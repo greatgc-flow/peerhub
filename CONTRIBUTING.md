@@ -396,7 +396,7 @@ A product-maturity item may be `VERIFIED` only with a `git_sha`
 
 #### Installed-CLI profile smoke
 
-For a manual smoke check (#148), list profiles with `peerhub profile list`, then use a dedicated store and a fresh stream and request ID per profile. Ask for a unique nonce and verify the reply matches. See [ask flags](docs/commands.md#ask) and [adapter permissions](docs/adapters/peer-cli-reference.md#sandbox-and-event-limits). Record profile, peer, stream, nonce match, status and verdict together. An exhausted peer stays unverified. Follow the [recovery guidance](docs/guidance-reference.md#ask_uncertain) for uncertain attempts.
+For a manual smoke check (#148), list profiles with `peerhub profile list` for human-readable output or `peerhub profile list --json` for scripts. Use a dedicated store and a fresh stream and request ID per profile. Ask for a unique nonce and verify the reply matches. See [ask flags](docs/commands.md#ask) and [adapter permissions](docs/adapters/peer-cli-reference.md#sandbox-and-event-limits). Record profile, peer, stream, nonce match, status and verdict together. An exhausted peer stays unverified. Follow the [recovery guidance](docs/guidance-reference.md#ask_uncertain) for uncertain attempts.
 
 ## Working with AI peers
 

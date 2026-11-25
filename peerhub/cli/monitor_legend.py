@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
 
+POOLS_HEADING = "POOLS"
+QUOTA_NA = "n/a"
 POOL_MARGIN_COLUMN = "MARGIN"
 POOL_MARGIN_LEGEND = f"{POOL_MARGIN_COLUMN}=EXH-RESET, - = early"
 POOL_LEGEND = (

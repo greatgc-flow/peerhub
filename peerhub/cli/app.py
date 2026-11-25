@@ -29,6 +29,7 @@ import json
 import os
 import sqlite3
 import sys
+import textwrap
 from copy import copy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -355,7 +356,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     diag_parser.add_argument("--interval-seconds", type=float, default=2,
                              help="Live snapshot interval in positive seconds (default %(default)s)")
     diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain",
-                             help="Dashboard style, plain (ASCII) or rich (bars, pace and alerts). With --live, snapshots every N s "
+                             help="Dashboard style for ordinary and live snapshots. The plan uses its own text layout. With --live, snapshots every N s "
                                   "(a one-second interval targets 1 Hz). A TTY with VT overwrites in place. A non-TTY or a terminal "
                                   "without VT appends snapshots without escapes.")
     diag_parser.add_argument("--cycles", dest="count", type=int, default=0,
@@ -367,7 +368,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     diag_parser.add_argument("--observation-db", dest="plan_obs_db", metavar="PATH",
                              help="With --plan, read observations from this other workspace database (read-only, never created). "
                                   "Load still comes from the selected store.")
-    diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub monitor (collects quota evidence every cycle and draws the dashboard)"
+    diag_parser.epilog = "Examples: peerhub diag --json | peerhub diag --live | peerhub monitor (refreshes quota when due on a TTY by default)"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
     
     d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
@@ -420,11 +421,11 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     update_mode.add_argument("--plan", action="store_true", help="Show blocking processes, upgrade commands and resume hints")
 
     explain_parser = subparsers.add_parser("explain", help="Explain outcome codes or look up operational lessons")
-    explain_parser.add_argument("code", nargs="+", help="Guidance code or free words to look up")
+    explain_parser.add_argument("code", nargs="*", help="Guidance code, profile, lesson ID, or keywords. Omit it or use lessons (also list) for the index.")
     explain_parser.add_argument("--json", action="store_true", default=False)
 
-    guide_parser = subparsers.add_parser("guide", help="Quick reference, profile tables, and best practices")
-    guide_parser.description = "Print the quick reference guide, model profile table, and operational best practices."
+    guide_parser = subparsers.add_parser("guide", help="Print the offline quick reference")
+    guide_parser.description = "Print the offline quick reference. Use peerhub profile list for model profiles."
 
     def add_json(node: argparse.ArgumentParser) -> None:
         if "--json" not in node._option_string_actions:
@@ -632,6 +633,8 @@ def _run_observation_cli(args: argparse.Namespace) -> int:
 
 def _reject_dashboard_flags_on_subcommand(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """Dashboard-only flags must not be accepted and silently ignored by a diag subcommand."""
+    if args.plan and args.view != "plain":
+        parser.error("diag --view rich applies to the dashboard")
     if args.action is None:
         return
     if args.view != "plain":
@@ -949,9 +952,8 @@ def _print_page(items: list[dict[str, Any]], next_cursor: str | None, output_for
         print(f"next_cursor: {next_cursor}")
 
 
-def _use_for_cell(card: dict[str, Any] | None, width: int = 44) -> str:
-    text = str(card["use_for"]["value"]) if card and "use_for" in card else "-"
-    return text if len(text) <= width else text[:width - 1] + "~"
+def _use_for_cell(card: dict[str, Any] | None) -> str:
+    return str(card["use_for"]["value"]) if card and "use_for" in card else "-"
 
 
 def _card_value(value: object) -> str:
@@ -1037,14 +1039,30 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
         print("(no profiles)")
         return 0
     widths = [max(len(col), *(len(row[index]) for row in rows)) for index, col in enumerate(columns)]
-    print("  ".join(col.ljust(widths[i]) for i, col in enumerate(columns)))
-    print("  ".join("-" * width for width in widths))
-    for row in rows:
-        print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)))
     if args.action == "list":
-        print("\nKnown models (pool):")
+        from peerhub.cli.view import FrameOutput
+
+        terminal_width = FrameOutput.width()
+        wrapper = textwrap.TextWrapper(width=terminal_width, subsequent_indent="  " if terminal_width > 2 else "",
+                                       break_on_hyphens=False)
+    else:
+        wrapper = None
+    if wrapper is not None and sum(widths) + 2 * (len(columns) - 1) > wrapper.width:
+        for profile, *values in rows:
+            print(wrapper.fill(profile))
+            for label, value in zip(columns[1:], values):
+                print(wrapper.fill(f"  {label}: {value}"))
+            print()
+    else:
+        print("  ".join(col.ljust(widths[i]) for i, col in enumerate(columns)).rstrip())
+        print("  ".join("-" * width for width in widths))
+        for row in rows:
+            print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)).rstrip())
+    if args.action == "list":
+        assert wrapper is not None
+        print("\n" + wrapper.fill("Known models (pool):"))
         for model, entry in payload["known_models"].items():
-            print(f"  {model}: {', '.join(entry['pools'])} ({entry.get('pools_source') or 'unverified'})")
+            print(wrapper.fill(f"  {model}: {', '.join(entry['pools'])} ({entry.get('pools_source') or 'unverified'})"))
     return 0
 
 
@@ -1055,9 +1073,9 @@ def _session_context_text(session: dict[str, Any]) -> str:
     percent, age = session["ctx_est_pct"], session["ctx_age_seconds"]
     if percent is None or age is None:
         return ""
-    from peerhub.cli.monitor_view import _compact_age  # pyright: ignore[reportPrivateUsage]
+    from peerhub.cli.monitor_layout import compact_age
 
-    return f"ctx {percent}% ({_compact_age(age)} ago)"
+    return f"ctx {percent}% ({compact_age(age)} ago)"
 
 
 def _run_session_cli(args: argparse.Namespace) -> int:
@@ -1353,13 +1371,17 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
             from peerhub.extensions.runtime_contract import PrespawnError
 
             @cache
-            def default_profile_display(peer: str, workspace: Path, writable: bool) -> str:
+            def profile_display(peer: str, workspace: Path, writable: bool, profile: str | None) -> str:
                 kind = kind_of(peer)
                 if kind is not None:
                     try:
-                        resolved = build_ask_target(kind, workspace, writable=writable).session_binding()["profile"]
+                        resolved = build_ask_target(kind, workspace, writable=writable, profile=profile).session_binding()["profile"]
                     except (OSError, ValueError, PrespawnError):
+                        if profile is not None:
+                            raise
                         resolved = None
+                    if profile is not None:
+                        return profile
                     if resolved:
                         return batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
                 return batch.DEFAULT_PROFILE_DISPLAY
@@ -1371,10 +1393,13 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
+                try:
+                    display = profile_display(task.peer, task.workspace or Path.cwd(), task.writable, task.profile)
+                except (OSError, ValueError, PrespawnError) as exc:
+                    raise batch.ManifestError(f"task {task.task_id}: {exc}") from exc
                 rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
                                  request_id=request, writable=task.writable, profile=task.profile,
-                                 profile_display=task.profile or default_profile_display(
-                                     task.peer, task.workspace or Path.cwd(), task.writable),
+                                 profile_display=display,
                                  workspace=workspaces[task.task_id]))
             replay = read_replay_counts(Path(db), ((row["stream"], row["peer"], row["request_id"]) for row in rows))
             if args.json:

@@ -230,21 +230,28 @@ def test_flags_do_not_count_as_a_binding_change(tmp_path, monkeypatch):
 
 # ---- CLI ---------------------------------------------------------------------------------------------------------
 
-def _row(out: str, pid: str) -> str:
-    return next(line for line in out.splitlines() if line.startswith(pid + " "))
-
-
-def test_profile_list_shows_alias_not_suggested_and_unmeasured(tmp_path, capsys):
-    assert main(["profile", "list", "--workspace", str(tmp_path)]) == 0
+@pytest.mark.parametrize("columns,stacked", [(80, True), (240, False)], ids=["stacked", "table"])
+def test_profile_list_shows_alias_not_suggested_and_unmeasured(columns, stacked, monkeypatch, capsys):
+    workspace = Path(__file__).parent
+    monkeypatch.setenv("COLUMNS", str(columns))
+    assert main(["--db", str(workspace / "unused.db"), "profile", "list", "--workspace", str(workspace)]) == 0
     out = capsys.readouterr().out
-    assert "NOTES" in out.splitlines()[0] and "USE FOR" in out.splitlines()[0]
-    assert "alias of cx.effort (xhigh)" in _row(out, "cx.deepthink") and "not suggested" in _row(out, "cx.deepthink")
-    assert "not suggested" in _row(out, "cc.deepthink") and "unmeasured" not in _row(out, "cc.deepthink")
-    assert "not suggested" in _row(out, "ag.effort")
-    for pid in ("ca.standard", "oa.effort", "ga.effort"):
-        assert "unmeasured" in _row(out, pid) and "not suggested" not in _row(out, pid), pid
-    plain = _row(out, "cx.standard")
-    assert "alias" not in plain and "not suggested" not in plain and "unmeasured" not in plain
+    lines = out.splitlines()
+    expected = {"cx.deepthink": "alias of cx.effort (xhigh); not suggested",
+                "cc.deepthink": "not suggested", "ag.effort": "not suggested",
+                "ca.standard": "unmeasured", "oa.effort": "unmeasured", "ga.effort": "unmeasured",
+                "cx.standard": "-"}
+    if stacked:
+        for pid, notes in expected.items():
+            block = next(block for block in out.split("\n\n") if block.startswith(pid + "\n"))
+            assert f"  NOTES: {notes}" in block.splitlines()
+    else:
+        header = lines[0]
+        assert "USE FOR" in header
+        notes_start, notes_end = header.index("NOTES"), header.index("STATS")
+        for pid, notes in expected.items():
+            row = next(line for line in lines if line.startswith(pid + " "))
+            assert row[notes_start:notes_end].strip() == notes
 
 
 def test_profile_show_lists_the_four_fields(tmp_path, capsys):

@@ -8,7 +8,9 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_SECTIONS, FRAME_TRAILING_ROWS, GUIDE_TEXT, render_grouped_frame, _width
+from peerhub.cli.monitor_layout import cell_width
+from peerhub.cli.monitor_links import GUIDE_TEXT
+from peerhub.cli.monitor_view import FRAME_SECTIONS, FRAME_TRAILING_ROWS, render_grouped_frame
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 
 NOW = 1_794_522_324.0
@@ -89,7 +91,7 @@ def test_d2_compact_pools_name_every_peer_without_peers_lines(frame: dict[str, A
         assert any(line.startswith(f" {peer} ") for line in pools.splitlines()), screen
     assert "PEERS" not in screen and "ok enough" not in screen and "rows hidden" not in screen
     assert len(screen.splitlines()) < height
-    assert all(_width(line) < width for line in screen.splitlines())
+    assert all(cell_width(line) < width for line in screen.splitlines())
 
 
 def test_d3_bounded_usage_is_per_peer_and_session_usage_has_identity(frame: dict[str, Any]) -> None:
@@ -181,7 +183,7 @@ def test_d7_expanded_profiles_fit_at_120_columns(frame: dict[str, Any]) -> None:
     screen = render_grouped_frame(frame, width=120, height=40, view="plain", expand=True, unicode=False)
     header = next(line for line in screen.splitlines() if line.startswith("PEER "))
     assert "EXH/RESET" in header and "FAMILY" in header, screen
-    assert "ag.standard" in screen and all(_width(line) < 120 for line in screen.splitlines())
+    assert "ag.standard" in screen and all(cell_width(line) < 120 for line in screen.splitlines())
 
 
 @pytest.mark.parametrize("case", ["failed", "partial", "other_source", "expired", "no_plan", "same_probe"])
@@ -233,7 +235,7 @@ def test_all_measured_viewports_preserve_bounds_and_disclose_cuts(
     assert screen.startswith("OK")  # #374: line 1 is the verdict; the `PeerHub Monitor` header is line 2
     assert screen.splitlines()[1].startswith("PeerHub Monitor")
     assert len(screen.splitlines()) < height
-    assert all(_width(line) < width for line in screen.splitlines())
+    assert all(cell_width(line) < width for line in screen.splitlines())
     if expand:
         assert "hidden" in screen
         assert "--expand" in screen
@@ -282,9 +284,9 @@ def test_peer_separators_at_100x40_and_data_priority_at_80x24(
         assert "\n\n" not in spacious
         for pool in ("3P-7D", "A-7D", "G-7D", "C-7D", "F-7D", "X-7D"):
             assert pool in tight
-        assert "3P-5H" not in tight and "(X-5H" in tight and "X-30D" in tight
-    assert len(lines) < 40 and all(_width(line) < 100 for line in lines)
-    assert len(tight.splitlines()) < 24 and all(_width(line) < 80 for line in tight.splitlines())
+        assert all(pool not in tight for pool in ("3P-5H", "X-5H", "X-30D"))
+    assert len(lines) < 40 and all(cell_width(line) < 100 for line in lines)
+    assert len(tight.splitlines()) < 24 and all(cell_width(line) < 80 for line in tight.splitlines())
     assert round2_frame == before
 
 
@@ -296,7 +298,7 @@ def test_e1_e2_e4_e5_priority_and_whole_fields_at_fixed_viewports(
     screen = render_grouped_frame(round2_frame, width=width, height=height, view=_view(expand), expand=expand, unicode=unicode_mode)
     lines = screen.splitlines()
     assert lines[0].startswith("OK") and lines[1].startswith("PeerHub Monitor"), screen  # #374: verdict first
-    assert len(lines) < height and all(_width(line) < width for line in lines)
+    assert len(lines) < height and all(cell_width(line) < width for line in lines)
     if not expand:  # #374: the compact frame names each peer in its POOLS rows; PEERS is --expand only
         assert "PEERS" not in screen
     for peer in ("ag", "cc", "cx"):  # #412: --expand starts with the same POOLS rows
@@ -314,7 +316,7 @@ def test_e3_legend_pointer_target_prints_the_complete_legend(
     from peerhub.cli import main
 
     # #374: the legend left the compact frame; `monitor --help` and the unbounded --expand frame print the same legend
-    from peerhub.cli.monitor_view import MONITOR_LEGEND
+    from peerhub.cli.monitor_legend import MONITOR_LEGEND
 
     bounded = render_grouped_frame(round2_frame, width=80, height=24, unicode=False)
     assert "Legend:" not in bounded and "ok enough" not in bounded
@@ -343,10 +345,10 @@ def test_e2_accounts_drop_complete_fields(round2_frame: dict[str, Any], width: i
 
 @pytest.mark.parametrize("width", [20, 32, 34, 35, 36, 60, 80])
 def test_e2_group_rules_disclose_trailing_field_cuts(width: int) -> None:
-    from peerhub.cli.monitor_view import _section_rule
+    from peerhub.cli.monitor_layout import section_rule
 
-    line = _section_rule("QUOTA [OK] | measured remaining | soonest exhaust: ag G-7D 5% in 6h42m", width, True)
-    assert _width(line) <= width
+    line = section_rule("QUOTA [OK] | measured remaining | soonest exhaust: ag G-7D 5% in 6h42m", width, True)
+    assert cell_width(line) <= width
     if width == 20:
         assert line.startswith("── QUOTA [OK]") and line.endswith("…")
     elif " | " in line:
@@ -395,11 +397,11 @@ def test_r3_bounded_latest_session_rows_name_their_peer(round2_frame: dict[str, 
     ("PeerHub Monitor | OK | REFRESH OK | refresh in 589s | 2026-11-12 22:25:24Z", 59),
 ])
 def test_r3_every_dropped_field_has_a_note(text: str, width: int) -> None:
-    from peerhub.cli.monitor_view import _fit_fields
+    from peerhub.cli.monitor_layout import fit_fields
 
-    rendered = _fit_fields(text, width, True)
+    rendered = fit_fields(text, width, True)
     assert "fields hidden" in rendered and "…" not in rendered
-    assert _width(rendered) <= width
+    assert cell_width(rendered) <= width
 
 
 def test_r3_compact_snapshot_without_vt_keeps_append_behaviour(
@@ -453,7 +455,7 @@ def test_r3_height_3_through_60_sweep_has_exact_cuts_and_peer_priority(
         for height in range(4, 61):
             screen = render_grouped_frame(payload, width=width, height=height, view="plain", expand=True)
             lines = screen.splitlines()
-            assert len(lines) < height and all(_width(line) < width for line in lines), (width, height, screen)
+            assert len(lines) < height and all(cell_width(line) < width for line in lines), (width, height, screen)
             shown = _data_rows(screen)
             assert not shown - all_rows, (width, height, shown - all_rows, screen)  # nothing is invented
             # #412: the frame is cut from the bottom; the count is exactly the lines left out (the coverage line aside)
@@ -487,7 +489,7 @@ def test_r3_colour_keeps_bounds_content_and_disclosures(
     plain = render_grouped_frame(round2_frame, width=width, height=40, view="plain", expand=True, color=False)
     assert "\x1b[" not in coloured and coloured == plain
     assert plain.splitlines()[0] == "OK"
-    assert all(_width(line) < width for line in coloured.splitlines())
+    assert all(cell_width(line) < width for line in coloured.splitlines())
     assert "all rows" in coloured and "--expand | more" in coloured
 
 
@@ -506,7 +508,7 @@ def test_live_title_keeps_refresh_and_countdown_before_lower_priority_fields(
     assert refresh_state in title and f"refresh in {seconds}s" in title, screen
     if not expand or width < 80:
         assert "fields hidden" in screen.lower() or "rows hidden" in screen.lower()
-    assert "…" not in title and all(_width(line) < width for line in screen.splitlines())
+    assert "…" not in title and all(cell_width(line) < width for line in screen.splitlines())
     if width == 80 and (not expand or refresh_state == "REFRESH OK" or seconds == 1):
         assert "2026-11-12 22:25Z" in title
         assert "long-source-label" not in title and "quota age" not in title
@@ -519,7 +521,7 @@ def test_usage_field_drop_has_a_cut_marker(frame: dict[str, Any], width: int, un
     screen = render_grouped_frame(frame, width=width, height=40, view="plain", expand=True, unicode=unicode_mode)
     row = next(line for line in screen.splitlines() if line.lstrip().startswith("ag provider-reported tokens:"))
     assert row.endswith(("fields hidden", "…" if unicode_mode else "~")), screen  # #412: a viewport names the fields it drops
-    assert _width(row) < width
+    assert cell_width(row) < width
 
 
 @pytest.mark.parametrize("view,unicode_mode,sep", [("plain", False, " | "), ("rich", True, " · ")])  # P21: the separator
@@ -544,7 +546,7 @@ def test_live_title_falls_back_to_complete_countdown(round2_frame: dict[str, Any
 def test_live_title_never_shows_partial_countdown_digits(round2_frame: dict[str, Any], width: int) -> None:
     title = render_grouped_frame(round2_frame, width=width, height=40).splitlines()[1]  # #374: line 2
     assert not re.search(r"\d", title)
-    assert _width(title) < width
+    assert cell_width(title) < width
 
 
 @pytest.mark.parametrize("height", [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 20])
@@ -566,7 +568,7 @@ def test_compact_frame_at_80x24_discloses_line_2_cuts_and_keeps_every_pool(round
     assert lines[2] == "Fields hidden | --expand"  # line 2 lost DB and quota age at 80 columns
     pools = next(i for i, line in enumerate(lines) if line.startswith("POOLS "))
     # every 7-day pool; no cut, no overflow line (P21: the suggestion follows the rows)
-    assert lines[pools].split()[1] == "9"
+    assert lines[pools].split()[1] == "6"
     assert lines.index(next(line for line in lines if line.startswith("gap vs "))) > pools
     assert any(line.startswith("suggest:") for line in lines)  # M9
     assert "Legend:" not in screen and "PEERS" not in screen and "rows hidden" not in screen
@@ -575,15 +577,15 @@ def test_compact_frame_at_80x24_discloses_line_2_cuts_and_keeps_every_pool(round
 @pytest.mark.parametrize("sep", [" | ", " · "])
 @pytest.mark.parametrize("unicode_mode", [False, True])
 def test_painted_field_fitting_preserves_cell_bounds(sep: str, unicode_mode: bool) -> None:
-    from peerhub.cli.monitor_view import _fit_fields
+    from peerhub.cli.monitor_layout import fit_fields
 
     plain = sep.join(["ag provider-reported tokens: 51,225", "sessions 50 with/0 without usage", "cache 50%"])
     painted = plain.replace("51,225", "\x1b[32m51,225\x1b[0m")
-    for width in range(1, _width(plain) + 2):
-        fitted = _fit_fields(painted, width, unicode_mode, painted=True)
-        assert _width(fitted) <= width
-        assert re.sub(r"\x1b\[[0-9;]*m", "", fitted) == _fit_fields(plain, width, unicode_mode)
-        if width >= _width(plain):
+    for width in range(1, cell_width(plain) + 2):
+        fitted = fit_fields(painted, width, unicode_mode, painted=True)
+        assert cell_width(fitted) <= width
+        assert re.sub(r"\x1b\[[0-9;]*m", "", fitted) == fit_fields(plain, width, unicode_mode)
+        if width >= cell_width(plain):
             assert fitted == painted
         else:
             assert "\x1b" not in fitted
@@ -628,7 +630,7 @@ def test_no_quota_guidance_never_loses_command_silently(
         "source": "explicit", "path": "/tmp/pytest-of-runner/pytest-0/test_posix_pty_snapshot_obeys_0/m.db"}
     screen = render_grouped_frame(frame, width=width, height=height, unicode=unicode_mode)
     lines = screen.splitlines()
-    assert len(lines) < height and all(_width(line) < width for line in lines)
+    assert len(lines) < height and all(cell_width(line) < width for line in lines)
     if height == 8:  # #374 H2: the POOLS rows go before the header; `POOLS 0` still says there is no quota evidence
         head = "── POOLS 0 " + "─" * 28 if unicode_mode else "-- POOLS 0 " + "-" * 28  # P21: this view draws a rule
         assert head in lines and "rows hidden" not in screen, screen

@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_view as mv
+from peerhub.cli import monitor_format, monitor_layout, monitor_links, monitor_view as mv
 from peerhub.cli import view
 from peerhub.cli.view import FrameOutput
 from tests.communication.diag.test_monitor_tree import frame_for
@@ -43,7 +43,7 @@ def row(screen: str, pool: str) -> str:
 
 
 def bars(line: str, full: str, empty: str) -> str:
-    match = re.search(rf"[{re.escape(full)}{re.escape(empty)}]{{{mv.BAR_CELLS},}}", mv._ANSI.sub("", line))
+    match = re.search(rf"[{re.escape(full)}{re.escape(empty)}]{{{monitor_format.BAR_CELLS},}}", monitor_layout.ANSI_ESCAPE.sub("", line))
     assert match, line
     return match[0]
 
@@ -53,9 +53,9 @@ def bars(line: str, full: str, empty: str) -> str:
 def test_glyphs_are_one_cell_narrow() -> None:
     for char in "▬╌":
         assert unicodedata.east_asian_width(char) in {"N", "Na"}, (char, unicodedata.east_asian_width(char))
-        assert mv._width(char) == 1
-    assert mv.RICH_GLYPHS[True]["cfull"] == "▬" and mv.RICH_GLYPHS[True]["cempty"] == "╌"
-    assert mv.RICH_GLYPHS[False]["cfull"] == "=" and mv.RICH_GLYPHS[False]["cempty"] == "-"
+        assert monitor_layout.cell_width(char) == 1
+    assert monitor_layout.RICH_GLYPHS[True]["cfull"] == "▬" and monitor_layout.RICH_GLYPHS[True]["cempty"] == "╌"
+    assert monitor_layout.RICH_GLYPHS[False]["cfull"] == "=" and monitor_layout.RICH_GLYPHS[False]["cempty"] == "-"
 
 
 @pytest.mark.parametrize("cells", [20, 12, 4])
@@ -65,9 +65,9 @@ def test_pool_bar_child_and_parent_use_distinct_glyphs(cells: int, unicode: bool
     full, empty = ("█", "░") if unicode else ("#", ".")
     cfull, cempty = ("▬", "╌") if unicode else ("=", "-")
     half = int(0.5 * cells + 0.5)
-    assert mv._pool_bar(item, cells, unicode) == full * half + empty * (cells - half)
-    assert mv._pool_bar(item, cells, unicode, child=False) == full * half + empty * (cells - half)
-    assert mv._pool_bar(item, cells, unicode, child=True) == cfull * half + cempty * (cells - half)
+    assert monitor_format._pool_bar(item, cells, unicode) == full * half + empty * (cells - half)
+    assert monitor_format._pool_bar(item, cells, unicode, child=False) == full * half + empty * (cells - half)
+    assert monitor_format._pool_bar(item, cells, unicode, child=True) == cfull * half + cempty * (cells - half)
 
 
 @pytest.mark.parametrize("unicode", [True, False])
@@ -75,19 +75,19 @@ def test_pool_bar_child_and_parent_use_distinct_glyphs(cells: int, unicode: bool
                                               (0.5, 10), (0.974, 19), (0.975, 20), (1.0, 20)])
 def test_pool_bar_child_edges_never_use_a_space_and_keep_one_cell(remaining: float, filled: int, unicode: bool) -> None:
     cfull, cempty = ("▬", "╌") if unicode else ("=", "-")
-    bar = mv._pool_bar({"state": "ok", "remaining": remaining, "health": {"even_left_pct": None}}, 20, unicode, child=True)
+    bar = monitor_format._pool_bar({"state": "ok", "remaining": remaining, "health": {"even_left_pct": None}}, 20, unicode, child=True)
     assert bar == cfull * filled + cempty * (20 - filled) and " " not in bar and len(bar) == 20
 
 
 def test_pool_bar_child_without_a_value_is_the_none_bar() -> None:
-    assert mv._pool_bar({"state": "?", "remaining": None, "health": {"even_left_pct": None}}, 6, True, child=True) == "─" * 6
-    assert mv._pool_bar({"state": "n/a", "remaining": None, "health": {"even_left_pct": None}}, 6, False, child=True) == "-" * 6
+    assert monitor_format._pool_bar({"state": "?", "remaining": None, "health": {"even_left_pct": None}}, 6, True, child=True) == "─" * 6
+    assert monitor_format._pool_bar({"state": "n/a", "remaining": None, "health": {"even_left_pct": None}}, 6, False, child=True) == "-" * 6
 
 
 def test_m1_rich_child_bar_uses_one_pace_colour() -> None:
     screen = render(tree(), color=True, expand=True)
     child, parent = row(screen, "C-5H"), row(screen, "C-7D")
-    dim = mv.RICH_SGR["dim"]  # the fixture has no anchored pace for either pool
+    dim = monitor_layout.RICH_SGR["dim"]  # the fixture has no anchored pace for either pool
     for line, full, empty, remaining in ((child, "▬", "╌", .1), (parent, "█", "░", .2)):
         bar = bars(line, full, empty)
         assert bar.count(full) == int(remaining * len(bar) + .5)
@@ -99,7 +99,7 @@ def test_m1_rich_child_at_zero_percent_is_bold_red() -> None:
     frame["groups"]["capacity"]["data"]["observations"][0]["measurements"]["remaining_fraction"] = 0
     child = row(render(frame, color=True, expand=True), "C-5H")
     bar = bars(child, "▬", "╌")
-    assert set(bar) == {"╌"} and f"\x1b[{mv.RICH_SGR['out']}m{bar}\x1b[0m" in child
+    assert set(bar) == {"╌"} and f"\x1b[{monitor_layout.RICH_SGR['out']}m{bar}\x1b[0m" in child
 
 
 def test_g_rich_child_at_full_has_no_empty_cells() -> None:
@@ -130,15 +130,15 @@ def test_child_and_parent_bars_yield_then_grow_one_cell_at_a_time(unicode: bool)
     for width in range(32, 145):
         screen = render(tree(), color=True, unicode=unicode, expand=True, width=width)
         top = screen.split("suggest:", 1)[0]
-        child, parent = mv._ANSI.sub("", row(top, "C-5H")), mv._ANSI.sub("", row(top, "C-7D"))
+        child, parent = monitor_layout.ANSI_ESCAPE.sub("", row(top, "C-5H")), monitor_layout.ANSI_ESCAPE.sub("", row(top, "C-7D"))
         child_bar = re.findall(f"[{re.escape(cfull)}{re.escape(cempty)}]{{4,}}", child)
         parent_bar = re.findall(f"[{re.escape(full)}{re.escape(empty)}]{{4,}}", parent)
         assert len(child_bar) == len(parent_bar) <= 1, (width, child, parent)
         assert [len(bar) for bar in child_bar] == [len(bar) for bar in parent_bar]
         lengths.append(len(parent_bar[0]) if parent_bar else 0)
-        assert all(mv._width(line) <= width - 1 for line in screen.splitlines())
+        assert all(monitor_layout.cell_width(line) <= width - 1 for line in screen.splitlines())
     assert lengths == sorted(lengths)
-    assert list(dict.fromkeys(lengths)) == [0, *range(mv.BAR_CELLS, mv.BAR_MAX_CELLS + 1)]
+    assert list(dict.fromkeys(lengths)) == [0, *range(monitor_format.BAR_CELLS, monitor_format.BAR_MAX_CELLS + 1)]
 
 
 def test_expand_plain_quota_bar_distinguishes_child_from_parent() -> None:
@@ -147,7 +147,7 @@ def test_expand_plain_quota_bar_distinguishes_child_from_parent() -> None:
     child_bar = re.search(r"\blow +([=|:-]+)(?= )", child)
     parent_bar = re.search(r"(?<= )[#|:.]+(?= )", parent)
     assert child_bar and parent_bar
-    assert len(child_bar[1]) == len(parent_bar[0]) > mv.BAR_CELLS
+    assert len(child_bar[1]) == len(parent_bar[0]) > monitor_format.BAR_CELLS
     assert "=" in child_bar[1] and "#" in parent_bar[0]
     uni = render(tree(), view="plain", unicode=True, expand=True, width=180)
     uni_child = row(uni[uni.index("PEER"):], "C-5H")
@@ -168,9 +168,9 @@ def test_guide_link_sits_at_the_right_end_of_the_title_line(monkeypatch: pytest.
     line = title_line(screen)
     assert line.count(OPEN) == 1 and line.count(CLOSE) == 1 and f"{OPEN}Guide{CLOSE}" in line
     assert line.endswith(CLOSE + "\x1b[0m" if color else CLOSE)  # always closed; the dim span (colour on) closes after it
-    visible = mv._ANSI.sub("", line)
-    assert visible.startswith("PeerHub Monitor") and visible.endswith(" Guide") and mv._width(visible) == 99
-    assert view.visible_len(line) == mv._width(line) == 99  # both width helpers ignore the link bytes
+    visible = monitor_layout.ANSI_ESCAPE.sub("", line)
+    assert visible.startswith("PeerHub Monitor") and visible.endswith(" Guide") and monitor_layout.cell_width(visible) == 99
+    assert view.visible_len(line) == monitor_layout.cell_width(line) == 99  # both width helpers ignore the link bytes
 
 
 def test_no_link_without_the_links_flag_or_with_the_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -214,46 +214,46 @@ def test_plain_expand_ends_with_one_plain_guide_line(monkeypatch: pytest.MonkeyP
 def test_plain_guide_line_is_never_cut_and_never_wider_than_the_frame(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PEERHUB_GUIDE_URL", URL)
     narrow = render(tree(), view="plain", unicode=False, expand=True, tty=True, width=40)
-    assert "Guide:" not in narrow and all(mv._width(line) <= 39 for line in narrow.splitlines())
+    assert "Guide:" not in narrow and all(monitor_layout.cell_width(line) <= 39 for line in narrow.splitlines())
 
 
 def test_guide_urls() -> None:
     base = "https://github.com/greatgc-flow/peerhub/blob/"
-    assert mv.guide_link_url({}, version="0.24.30") == f"{base}v0.24.30/docs/monitor.md"
-    assert mv.guide_text_url({}, version="0.24.30") == f"{base}v0.24.30/docs/monitor.md"
+    assert monitor_links.guide_link_url({}, version="0.24.30") == f"{base}v0.24.30/docs/monitor.md"
+    assert monitor_links.guide_text_url({}, version="0.24.30") == f"{base}v0.24.30/docs/monitor.md"
     for dev in ("0.24.30.dev1", "0.24.30+local", "0.25.0.dev0+g1234", "0.24.30-dev"):
-        assert mv.guide_link_url({}, version=dev) is None
-        assert mv.guide_text_url({}, version=dev) == f"{base}main/docs/monitor.md"
-    assert mv.guide_link_url({"PEERHUB_GUIDE_URL": URL}, version="0.24.30.dev1") == URL  # the override wins (tests)
-    assert mv.guide_link_url({"PEERHUB_GUIDE_URL": URL, "PEERHUB_NO_LINKS": "1"}, version="0.24.30") is None
-    assert mv.guide_link_url({"PEERHUB_GUIDE_URL": "http://x/\x1b]8;;evil"}, version="0.24.30") == f"{base}v0.24.30/docs/monitor.md"
-    assert mv.guide_link_url({"PEERHUB_GUIDE_URL": "javascript:alert(1)"}, version="0.24.30") == f"{base}v0.24.30/docs/monitor.md"
+        assert monitor_links.guide_link_url({}, version=dev) is None
+        assert monitor_links.guide_text_url({}, version=dev) == f"{base}main/docs/monitor.md"
+    assert monitor_links.guide_link_url({"PEERHUB_GUIDE_URL": URL}, version="0.24.30.dev1") == URL  # the override wins (tests)
+    assert monitor_links.guide_link_url({"PEERHUB_GUIDE_URL": URL, "PEERHUB_NO_LINKS": "1"}, version="0.24.30") is None
+    assert monitor_links.guide_link_url({"PEERHUB_GUIDE_URL": "http://x/\x1b]8;;evil"}, version="0.24.30") == f"{base}v0.24.30/docs/monitor.md"
+    assert monitor_links.guide_link_url({"PEERHUB_GUIDE_URL": "javascript:alert(1)"}, version="0.24.30") == f"{base}v0.24.30/docs/monitor.md"
 
 
 def test_the_released_version_builds_the_tag_url(monkeypatch: pytest.MonkeyPatch) -> None:
     from peerhub._version import __version__
 
-    expected = mv.guide_link_url({}, version=__version__)
+    expected = monitor_links.guide_link_url({}, version=__version__)
     assert expected is None or expected == f"https://github.com/greatgc-flow/peerhub/blob/v{__version__}/docs/monitor.md"
 
 
 def test_visible_len_and_width_ignore_osc8() -> None:
     link = f"{OPEN}Guide{CLOSE}"
-    assert view.visible_len(link) == 5 == mv._width(link)
-    assert view.visible_len(f"\x1b[2mTitle {link}\x1b[0m") == 11 == mv._width(f"\x1b[2mTitle {link}\x1b[0m")
+    assert view.visible_len(link) == 5 == monitor_layout.cell_width(link)
+    assert view.visible_len(f"\x1b[2mTitle {link}\x1b[0m") == 11 == monitor_layout.cell_width(f"\x1b[2mTitle {link}\x1b[0m")
     bel = f"\x1b]8;;{URL}\x07Guide\x1b]8;;\x07"  # the BEL terminator
-    assert view.visible_len(bel) == 5 == mv._width(bel)
-    assert mv._ANSI.sub("", f"a{link}b") == "aGuideb" == view._ANSI.sub("", f"a{link}b")
+    assert view.visible_len(bel) == 5 == monitor_layout.cell_width(bel)
+    assert monitor_layout.ANSI_ESCAPE.sub("", f"a{link}b") == "aGuideb" == view._ANSI.sub("", f"a{link}b")
 
 
 def test_truncation_never_cuts_inside_a_link() -> None:
     line = f"PeerHub Monitor 2026-11-20 10:00Z   {OPEN}Guide{CLOSE}"
-    for width in range(1, mv._width(line) + 2):
-        cut = mv._fit(line, width, True, painted=True)
-        assert mv._width(cut) <= width
+    for width in range(1, monitor_layout.cell_width(line) + 2):
+        cut = monitor_layout.fit_text(line, width, True, painted=True)
+        assert monitor_layout.cell_width(cut) <= width
         assert cut.count("\x1b]8") in (0, 2) and (cut.count("\x1b]8") == 0 or cut.endswith(CLOSE))
         assert "Guide" not in cut or f"{OPEN}Guide{CLOSE}" in cut
-    assert mv._fit_fields(f"{OPEN}Guide{CLOSE} | b | c", 8, True, painted=True).count("\x1b]8") == 0
+    assert monitor_layout.fit_fields(f"{OPEN}Guide{CLOSE} | b | c", 8, True, painted=True).count("\x1b]8") == 0
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -263,17 +263,17 @@ def test_narrow_width_fits_the_status_around_the_whole_link(monkeypatch: pytest.
         plain = render(tree(), expand=expand, width=width)
         linked = render(tree(), links=True, expand=expand, width=width)
         flat = OSC.sub("", linked).splitlines()
-        base = [line for line in plain.splitlines() if not line.startswith(f"{mv.GUIDE_TEXT}: ")]
+        base = [line for line in plain.splitlines() if not line.startswith(f"{monitor_links.GUIDE_TEXT}: ")]
         assert [line for i, line in enumerate(flat) if i != 1] == [line for i, line in enumerate(base) if i != 1], width
         assert title_line(linked).count(OPEN) == title_line(linked).count(CLOSE) == 1
         assert linked.count("\x1b]8;;") == 2 * linked.count(CLOSE)
-        assert flat[1].endswith(" " + mv.GUIDE_TEXT)
-        assert mv._width(flat[1]) == (min(100, width) if not expand else width) - 1
+        assert flat[1].endswith(" " + monitor_links.GUIDE_TEXT)
+        assert monitor_layout.cell_width(flat[1]) == (min(100, width) if not expand else width) - 1
 
 
 def test_link_requires_room_for_the_status_separator_and_label(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PEERHUB_GUIDE_URL", URL)
-    width = mv._width(mv.GUIDE_TEXT) + 2  # separator and autowrap column, but no status column yet
+    width = monitor_layout.cell_width(monitor_links.GUIDE_TEXT) + 2  # separator and autowrap column, but no status column yet
     assert "\x1b]8" not in render(tree(), links=True, width=width)
     assert "\x1b]8" in render(tree(), links=True, width=width + 1)
 
@@ -302,10 +302,10 @@ def test_anchored_frame_output_rows_keep_alignment(monkeypatch: pytest.MonkeyPat
 def test_monitor_guide_doc_exists_and_the_link_targets_it() -> None:
     doc = ROOT / "docs" / "monitor.md"
     assert doc.is_file()
-    url = mv.guide_link_url({}, version="1.2.3")
+    url = monitor_links.guide_link_url({}, version="1.2.3")
     assert url is not None and url.endswith("/blob/v1.2.3/docs/monitor.md")
     assert (ROOT / url.split("/blob/v1.2.3/")[1]) == doc
-    assert mv.guide_text_url({}, version="1.2.3.dev0").endswith("/blob/main/docs/monitor.md")
+    assert monitor_links.guide_text_url({}, version="1.2.3.dev0").endswith("/blob/main/docs/monitor.md")
     text = doc.read_text(encoding="utf-8")
     assert "\r" not in text
     for needle in ("`▬╌`", "`█░`", "`=-`", "`#.`", "PEERHUB_NO_LINKS", "PEERHUB_MONITOR_VIEW", "LIVE_ROW_MARGIN",

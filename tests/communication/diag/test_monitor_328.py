@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import QUOTA_NA, render_grouped_frame
+from peerhub.cli.monitor_legend import QUOTA_NA
+from peerhub.cli.monitor_view import render_grouped_frame
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool
@@ -237,9 +238,12 @@ def test_disabled_bucket_layout_shows_only_na(width, expand):
     disabled = {**absent("ag", "3P-5H"), "reason": DISABLED}
     payload = _payload([], [pool("ag", "3P-7D", 0.0, pace=66.7, reset=7080), disabled],
                        selected_groups=["capacity"])
-    text = render_grouped_frame(payload, view="plain", unicode=False, width=width, expand=expand)
+    hidden = render_grouped_frame(payload, view="plain", unicode=False, width=width, expand=expand)
+    assert "3P-5H" not in hidden
+    text = render_grouped_frame(payload, view="plain", unicode=False, width=width, expand=expand,
+                                show_quota_notes=True)
     pools, _, quota = text.split("POOLS ", 1)[1].partition("QUOTA [")
-    assert_disabled_bucket_note(pools)
+    assert_disabled_bucket_note(pools.split(f"ag 3P-5H {QUOTA_NA} ", 1)[0])
     if expand:
         quota_rows, reason, _ = quota.partition(f"ag 3P-5H {QUOTA_NA} disabled by provider:")
         assert reason and quota.count("3P-5H") == 2
@@ -249,10 +253,10 @@ def test_disabled_bucket_layout_shows_only_na(width, expand):
 def test_disabled_bucket_is_na_with_no_capacity_or_reset_in_compact_expanded_and_json(store, capsys):
     disabled_store(store)
     compact = snapshot(store, capsys)
+    assert "3P-5H" not in compact
     expanded = snapshot(store, capsys, "--expand", "--show-quota-notes")
-    for output in (compact, expanded):
-        pools = output.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
-        assert_disabled_bucket_note(pools)
+    pools = expanded.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
+    assert_disabled_bucket_note(pools)
     assert f"ag 3P-5H {QUOTA_NA} disabled by provider:" in expanded
     main(["--db", str(store.db), "monitor", "--snapshot", "--json"])
     items = json.loads(capsys.readouterr().out)["groups"]["capacity"]["data"]["observations"]

@@ -7,7 +7,7 @@ python -c "from pathlib import Path; from peerhub.cli.lessons import render_less
 ```
 
 Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.
-Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then `lessons` (an index: one `id: title` line per lesson), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order; one match prints in full, several print one `id: title` line each (open one with `peerhub explain <id>`).
+Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then the index (bare `peerhub explain`, `lessons` or `list`), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order; one match prints in full, several print one `id: title` line each (open one with `peerhub explain <id>`).
 
 ## ag profile choice for bulk work (observed 2026-11-01) (`ag-bulk-profile-heuristics`)
 
@@ -202,14 +202,14 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 - Keywords: monitor, pace, low, fast, aged, suggest, alternative, cycles, tty, legend, quota, unknown, est, estimated
 - Symptom: Monitor states, PACE, stale evidence, alternative profiles or redirected watch behavior need explanation.
-- Fix: Check quota age before acting on LEFT or PACE. Use peerhub diag --plan when planning parallel work. See docs/monitor.md#pools for states, parent limits and forecast fields.
+- Fix: Check quota age before acting on LEFT or PACE. Both human layouts omit n/a windows and skip pools without readings in the weekly pace gap. Use --show-quota-notes to restore the count, names, reasons and gap placeholders. Use peerhub diag --plan when planning parallel work. See docs/monitor.md#pools for states, parent limits and forecast fields.
 - Issue: #310, #311, 0.24.4, #376, #378
 
 ## Monitor view: frame order and the rich look (`monitor-view`)
 
 - Keywords: monitor, view, order, rich, plain, glyph, glyphs, colour, color, colours, bar, pill, rule, rules, meter, palette, NO_COLOR, unicode
 - Symptom: The order of the compact monitor frame, the plain or rich view, or a glyph, bar, pill, rule or colour of the rich view needs explanation.
-- Fix: Use --expand for the full DB path and detail rows. PEERHUB_NO_LINKS disables OSC 8 links and uses the copyable Guide: line when it fits. See docs/monitor.md for frame order, glyphs and watch modes.
+- Fix: Use --expand for the full DB path and detail rows. PEERHUB_NO_LINKS disables OSC 8 links and uses the copyable Guide: line when it fits. Continuous VT watch refreshes each selected peer in the background when its oldest required reading reaches 210 seconds or is missing, with a 60-second retry for failed or partial peers. The title shows quota age, refresh or retry timing, and a heartbeat. See docs/monitor.md for frame order, glyphs and redraw behavior.
 - Issue: #376 (P21, 0.24.18), P23, #412, #414, #422
 
 ## Quota shaping across peers (`multi-peer-quota-shaping`)
@@ -223,7 +223,7 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 - Keywords: parallel, quota, pace, pools, batch, loop, distribute, minimal, ram, free, memory, slots, load, diag, plan, resource, resources
 - Symptom: Several tasks can run at once and the caller wants them spread over the pools with the most spare quota, spending as little as possible.
-- Fix: You decide the wave size and pools. Read peerhub diag --plan, never peerhub monitor (the human screen). Check the load line for free RAM, CPU and in-flight asks. With --json, use the load object and pool profiles; each pool row also reports age_seconds, ttl_seconds, fast, family, parent and gates. A profile listed under several pools spends each. For a default wave, split independent tasks with no shared files. Use the lowest tier that fits, fresh asks with facts inline and a different model per vote. Use the lowest 7D PACE first (spend, then hold). Skip stale, rest, blocked, <5% and fast pools. 5H only gates. Use free RAM >= 6 GB, CPU below 90% to size the wave. PeerHub does not cap the count. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Start the wave, then after each wave run peerhub observation refresh, then diag --plan again. For parallel ag asks, watch G-5H after each wave. Keep a margin for asks in flight (including n/a pools and unmapped asks). When one task is refused for quota, the others still run. The same --batch-id replays settled work. If throttled, reduce concurrency and do not reroute the same work. After uncertainty, check peerhub diag running and peerhub diag health --stream STREAM and reconcile the workspace. If no pool is usable, defer. See docs/batch.md for probe costs and plan details.
+- Fix: PeerHub gives you the facts, and you decide the wave size and pools. Read peerhub diag --plan, never peerhub monitor (the human screen). Check the load line for free RAM, CPU and in-flight asks. With --json, use the load object and pool profiles; each pool row also reports age_seconds, ttl_seconds, fast, family, parent and gates. A profile listed under several pools spends each. For a default wave, split independent tasks with no shared files. Use the lowest tier that fits, fresh asks with facts inline and a different model per vote. Use the lowest 7D PACE first (spend, then hold). Skip stale, rest, blocked, <5% and fast pools. 5H only gates. Use free RAM >= 6 GB, CPU below 90% to size the wave. PeerHub does not cap the count. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Start the wave, then after each wave run peerhub observation refresh, then diag --plan again. For parallel ag asks, watch G-5H after each wave. Keep a margin for asks in flight (including n/a pools and unmapped asks). When one task is refused for quota, the others still run. The same --batch-id replays settled work. If throttled, reduce concurrency and do not reroute the same work. After uncertainty, check peerhub diag running and peerhub diag health --stream STREAM and reconcile the workspace. If no pool is usable, defer. Agy /usage or /credits can consume model tokens. See docs/batch.md for plan details and the probe costs reference.
 - Issue: owner request 2026-11-22
 
 ## Peer sub-agents inside one ask (`peer-subagents`)
@@ -236,8 +236,8 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 ## Quota windows depend on the peer plan (`plan-windows`)
 
 - Keywords: cc, ag, cx, absent, not reported, plan, window, windows, cx-plan-windows, codex, claude, agy, quota, pool, 5h, 7d, X-5H, X-7D, prolite, reported, monitor, incomplete
-- Symptom: peerhub monitor shows a cc, ag or cx pool as n/a not reported (plan X), and agents read the peer as 0% or unusable.
-- Fix: Pools come from the provider response: a plan may omit a configured window (observed cx prolite: 7-day only, no 5h window; cc ultra still reports its 5h window C-5H, measured 2026-11-09). Since 0.24.1, all peers record omitted configured pools from complete, successfully parsed reports as ABSENT; malformed or partial reports do not establish absence. The monitor draws no POOLS or QUOTA row for them (an n/a pool is named after its peer's QUOTA row, as in (C-5H n/a)) and skips them when computing peer quota: neither exhausted nor unlimited. Use monitor --expand --show-quota-notes to show the plan omission or provider-disabled explanation (hidden by default in compact and expanded output). Normal freshness TTL applies, then STALE. An ag bucket the provider flags disabled (for example the 5h limit while the weekly limit is hit) is recorded ABSENT with reason disabled by provider plus its bounded description, treated as n/a (no row, no capacity or reset), and skipped the same way; it returns to MEASURED when the provider re-enables it. Run peerhub observation refresh --peers cc ag cx and read the reported pools before assuming 0%; profile pool declarations stay unchanged.
+- Symptom: peerhub monitor --show-quota-notes labels a pool n/a, and agents read it as exhausted or unusable.
+- Fix: Complete provider reports mark omitted windows ABSENT. For example, cx prolite reported only 7D while cc ultra still reported C-5H (2026-11-09). Provider-disabled buckets also appear as ABSENT. Capacity and reset calculations skip these windows. Both human layouts hide them by default. The --show-quota-notes flag includes them in the POOLS count and shows their names and reasons in compact POOLS or expanded QUOTA. Evidence ages to STALE under the normal TTL. A re-enabled bucket returns to MEASURED when reported. Run peerhub observation refresh --peers cc ag cx and check the reported pools before assuming 0%. Profile pool declarations stay unchanged.
 - Issue: 0.24.0 (cx); 0.24.1 (all peers); #328 (disabled)
 
 ## Quota-aware peer runs (`quota-aware-peer-runs`)

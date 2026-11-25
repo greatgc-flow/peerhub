@@ -4,6 +4,7 @@ import os
 import signal
 import sqlite3
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -49,6 +50,27 @@ def test_implicit_miss_is_checked_after_manifest_validation(tmp_path, monkeypatc
 def argv(tmp_path, path, *options):
     return ["--db", str(tmp_path / "missing" / "core.db"), "batch", "run", str(path),
             "--batch-id", "b1", "--max-parallel", "2", *options]
+
+
+@pytest.mark.parametrize("profile, error", [
+    ("cx.no-such-profile", "unknown model profile"),
+    ("cc.standard", "target provider"),
+    ("standard", None),
+])
+def test_dry_run_validates_explicit_profiles(profile, error, capsys, monkeypatch):
+    base = batch.Task(task_id="valid-first", peer="cx", prompt="OK", workspace=None,
+                      profile="cx.standard", writable=False, timeout_s=batch.DEFAULT_TIMEOUT_S)
+    tasks = [base, replace(base, task_id="profile-check", profile=profile)]
+    monkeypatch.setattr(batch, "load_manifest", lambda *args, **kwargs: tasks)
+    monkeypatch.setattr(batch, "run_batch", lambda *args, **kwargs: pytest.fail("unexpected workers"))
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(Path(__file__) / "no-global"))
+    assert main(argv(Path(__file__), "tasks.json", "--dry-run", "--json")) == int(error is not None)
+    output = json.loads(capsys.readouterr().out)
+    if error is None:
+        assert output["tasks"][1]["profile_display"] == profile
+    else:
+        assert output["error"]["code"] == "invalid_manifest"
+        assert "profile-check" in output["error"]["message"] and error in output["error"]["message"]
 
 
 @pytest.mark.parametrize("flag", ["--batch-id", "--max-parallel"])
