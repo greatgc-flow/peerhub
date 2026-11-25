@@ -375,7 +375,7 @@ class CliRuntimeTarget:
         except WorkerStartFailure as e:
             raise RuntimeTargetError(san.clean(f"{self.runtime_kind} {e}", common.EXCERPT_CHARS),
                                      termination_confirmed=proc.termination_confirmed) from e
-        # ---- a process exists from here on: every failure is uncertain, never pre-spawn
+        # ---- a process exists; only an explicit exec rejection proves the provider never started
         finished = False
         try:
             try:
@@ -386,7 +386,7 @@ class CliRuntimeTarget:
                            provider_identity=capture_process_identity(proc.pid))
             if publish_launch is not None:
                 if process["provider_identity"] is None and (sys.platform.startswith("linux") or created is None):
-                    raise PrespawnError("could not verify the supervised launch process")
+                    raise RuntimeTargetError("could not verify the supervised launch process")
                 publish_launch(process)
                 try:
                     proc.release_launch()

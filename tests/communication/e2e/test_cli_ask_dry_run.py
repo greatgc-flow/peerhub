@@ -24,6 +24,8 @@ def _offline(monkeypatch):
     monkeypatch.setattr(socket, "socket", forbidden)
     monkeypatch.setattr(socket, "create_connection", forbidden)
     monkeypatch.setattr(socket, "getaddrinfo", forbidden)
+    # An uncached platform.node() can start a Windows version probe.
+    monkeypatch.setattr("peerhub.extensions.caller.host_id", lambda: "offline-host")
 
 
 def test_missing_selected_store_prints_resolved_ask(monkeypatch, capsys):
@@ -118,7 +120,7 @@ def _tree_bytes(root: Path) -> dict[str, bytes]:
 
 
 def test_retained_session_and_settled_replay(monkeypatch, capsys, tmp_path):
-    def deliver(self, external_session_id, record, catch_up):
+    def deliver(self, external_session_id, record, catch_up, *, publish_launch=None):
         yield ("started", "offline")
         yield ("terminal", {"response": "ok", "vendor_session": {"id": "offline-native"}})
 
@@ -157,13 +159,15 @@ def test_retained_session_and_settled_replay(monkeypatch, capsys, tmp_path):
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "idempotency_conflict"
     assert _tree_bytes(tmp_path) == before
 
+    assert main(argv(*first)) == 0
+    settled = json.loads(capsys.readouterr().out)
+    assert (settled["status"], settled["response"], settled["session"]["handle"]) == ("recovered_terminal", "ok", handle)
+
 
 def test_stateless_second_request_refusal_matches_real_ask(monkeypatch, capsys, tmp_path):
     db = tmp_path / "core.db"
     base = ["--db", str(db), "ask", "oa"]
     options = ["--profile", "oa.standard", "--stream", "api-review", "--json"]
-    # An uncached platform.node() can start a Windows version probe.
-    monkeypatch.setattr("peerhub.extensions.caller.host_id", lambda: "offline-host")
     _offline(monkeypatch)
     with monkeypatch.context() as dispatch:
         dispatch.delenv("OPENAI_API_KEY", raising=False)
@@ -187,7 +191,7 @@ def test_stateless_second_request_refusal_matches_real_ask(monkeypatch, capsys, 
 
 
 def test_uncertain_prior_invocation_blocks_preview(monkeypatch, capsys, tmp_path):
-    def timeout(self, external_session_id, record, catch_up):
+    def timeout(self, external_session_id, record, catch_up, *, publish_launch=None):
         yield ("started", "offline")
         yield ("timeout", 1)
 

@@ -127,6 +127,36 @@ def test_popen_failure_stays_prespawn(monkeypatch):
         _drain(target.deliver(target.create_session(), _record(), []))
 
 
+def test_unverified_supervised_process_is_uncertain_and_stays_behind_the_gate(monkeypatch):
+    runner = Mock(pid=4242)
+    publish = Mock()
+    monkeypatch.setattr(cli_runtime, "BoundedProcess", lambda *a, **kw: runner)
+    monkeypatch.setattr(cli_runtime, "process_created", lambda pid: None)
+    monkeypatch.setattr(cli_runtime, "capture_process_identity", lambda pid: None)
+    target = CliRuntimeTarget("cc", ".", command=["fake-cc"])
+    session = target.create_session()
+
+    with pytest.raises(RuntimeTargetError, match="could not verify the supervised launch process") as failure:
+        _drain(target.deliver(session, _record(), [], publish_launch=publish))
+    assert not isinstance(failure.value, PrespawnError)
+    runner.start.assert_called_once_with(suspended=True)
+    publish.assert_not_called()
+    runner.release_launch.assert_not_called()
+    runner.cancel_launch.assert_called_once_with()
+    runner.abort.assert_called_once_with()
+    assert session not in target._active
+
+
+def test_broken_launch_gate_does_not_prove_exec_was_rejected(monkeypatch):
+    close = Mock()
+    monkeypatch.setattr(process, "os", SimpleNamespace(write=Mock(side_effect=BrokenPipeError), close=close))
+    runner = BoundedProcess(["fake-cc"], stdin=None, cwd=".", env={})
+    runner._launch_gate, runner._launch_status = 101, 102
+    with pytest.raises(BrokenPipeError):
+        runner.release_launch()
+    assert close.call_args_list == [call(101), call(102)]
+
+
 @pytest.mark.parametrize("kind,stdout", [
     ("cc", b'{"type":"result","subtype":"success","is_error":false,"result":"OK"}\n'),
     ("cx", b'{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}\n'
@@ -458,6 +488,12 @@ def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pi
     release, violations = threading.Event(), []
     monkeypatch.setattr(proc_module.subprocess, "Popen", lambda *a, **k: _StuckPopen(returncode, release, violations))
     monkeypatch.setattr(proc_module, "kill_process_tree", failed_kill)
+    # Popen is a fake, so there is no launcher PID or child reading the approval pipe.
+    monkeypatch.setattr(cli_runtime, "process_created", lambda pid: 123.0)
+    monkeypatch.setattr(cli_runtime, "capture_process_identity",
+                        lambda pid: "linux:fake-boot:1" if sys.platform.startswith("linux") else None)
+    approve = Mock()
+    monkeypatch.setattr(BoundedProcess, "release_launch", approve)
     timeout_s = 0.5
     bound = timeout_s + 10 + 5 + 2
     ws = tmp_path / "ws_stuck"
@@ -478,6 +514,7 @@ def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pi
         result = bridge_h.delivery_cycle("b", "s", target)
         assert time.monotonic() - t0 <= bound
         assert (result.status, result.certainty) == ("uncertain", "STARTED")
+        assert approve.call_count == (0 if sys.platform == "win32" else 1)
         details = [e["detail"] for e in bridge_h.execution_evidence(rec.record_id, "b")["events"]
                    if e["kind"] in ("runtime_timeout", "runtime_error")]
         assert details and all(d.get("termination_confirmed") is not True for d in details)

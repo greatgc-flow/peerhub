@@ -37,7 +37,7 @@ _WAIT_FOR_LAUNCH = (
 
 
 class SpawnFailure(OSError):
-    """The OS refused to create the process (nothing ran): the only genuine pre-spawn failure."""
+    """The OS rejected the launch, directly or through the supervised exec status pipe."""
 
 
 class WorkerStartFailure(RuntimeError):
@@ -284,10 +284,7 @@ class BoundedProcess:
         gate, status = self._launch_gate, self._launch_status
         assert gate is not None and status is not None
         try:
-            try:
-                os.write(gate, b"1")
-            except BrokenPipeError as e:
-                raise SpawnFailure("supervised launch exited before release") from e
+            os.write(gate, b"1")
             remaining = max(0.0, self._t0 + self._timeout_s - time.monotonic())
             ready, _, _ = select.select([status], [], [], min(5.0, remaining))
             if not ready:
