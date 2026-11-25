@@ -37,11 +37,11 @@ def test_update_requires_exactly_one_mode(capsys):
 
 def fake_check(monkeypatch, *, offline):
     from peerhub.cli import update
-    from peerhub.extensions import quota_probes
     from peerhub.extensions.adapters import process
+    from peerhub.extensions.quota_probes import common
 
     calls = []
-    monkeypatch.setattr(quota_probes, "real_command", lambda peer: [{"cx": "codex", "cc": "claude", "ag": "agy"}[peer]])
+    monkeypatch.setattr(common, "real_command", lambda peer: [{"cx": "codex", "cc": "claude", "ag": "agy"}[peer]])
     monkeypatch.setattr(update.shutil, "which", lambda exe: exe if exe == "ant" else None)
 
     def run(argv, **kwargs):

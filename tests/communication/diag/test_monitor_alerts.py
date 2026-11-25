@@ -258,9 +258,10 @@ def test_stale_value_is_the_checked_fraction_not_one_minus_used(tmp_path, fracti
 @pytest.mark.parametrize("human", [False, True])
 def test_fast_needs_two_samples_on_every_path_without_another_statement(tmp_path, monkeypatch, captures, shown, human):
     """`fast` (two MEASURED samples of one window and a threat projection) is the same on the JSON, expand and compact paths."""
+    from peerhub.extensions import quota_projection
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from tests.communication.harness.observation import T0, ObservationHarness
-    monkeypatch.setattr(monitor_quota, "project_exhaustion", lambda *a, **k: {"state": "threat", "pace_pt": 30.0})
+    monkeypatch.setattr(quota_projection, "project_exhaustion", lambda *a, **k: {"state": "threat", "pace_pt": 30.0})
     h = ObservationHarness(tmp_path / "fast")
     h.register_pool({"schema_version": "1.0", "resource_pool_id": "cx:X-7D", "provider": "openai", "kind": "QUOTA", "metadata": {}})
     for n in range(captures):

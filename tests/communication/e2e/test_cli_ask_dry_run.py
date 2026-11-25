@@ -12,7 +12,7 @@ from peerhub.cli.app import build_parser, main
 from peerhub.core import load_limits
 from peerhub.core.store import CoreStore
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.adapters.api import API_TARGETS
+from peerhub.extensions.adapters.api import OaRuntimeTarget, Outcome
 from peerhub.extensions.ask import default_stream
 
 
@@ -159,27 +159,29 @@ def test_retained_session_and_settled_replay(monkeypatch, capsys, tmp_path):
 
 
 def test_stateless_second_request_refusal_matches_real_ask(monkeypatch, capsys, tmp_path):
-    def deliver(self, external_session_id, record, catch_up):
-        yield ("started", "offline")
-        yield ("terminal", {"response": "ok"})
-
     db = tmp_path / "core.db"
     base = ["--db", str(db), "ask", "oa"]
     options = ["--profile", "oa.standard", "--stream", "api-review", "--json"]
+    # An uncached platform.node() can start a Windows version probe.
+    monkeypatch.setattr("peerhub.extensions.caller.host_id", lambda: "offline-host")
     _offline(monkeypatch)
     with monkeypatch.context() as dispatch:
-        dispatch.setattr(API_TARGETS["oa"], "deliver", deliver)
+        dispatch.delenv("OPENAI_API_KEY", raising=False)
+        dispatch.setattr(OaRuntimeTarget, "_call_with_key", lambda self, prompt, key: Outcome("complete", "ok"))
         assert main([*base, "first", *options, "--request-id", "first"]) == 0
-    capsys.readouterr()
+    first = json.loads(capsys.readouterr().out)
+    assert first["status"] == "delivered" and first["response"] == "ok"
 
     second = [*base, "second", *options, "--request-id", "second"]
     before = db.read_bytes()
     code = main(second)
     original = capsys.readouterr()
     assert code != 0
+    refusal = json.loads(original.out)
+    assert "oa is stateless; use a new stream" in refusal["error"]["message"]
     assert main([*second, "--dry-run"]) == code
     preview = capsys.readouterr()
-    assert json.loads(preview.out) == json.loads(original.out)
+    assert json.loads(preview.out) == refusal
     assert preview.err == original.err
     assert db.read_bytes() == before
 
