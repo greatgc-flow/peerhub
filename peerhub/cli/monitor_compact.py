@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 from peerhub._console import clean_text, finite_number
-from peerhub.cli.monitor_activity_view import compact_activity, compact_leads, expanded_recent
+from peerhub.cli.monitor_activity_view import compact_activity
 from peerhub.cli.monitor_alert_view import alert_section, decorate_verdict, verdict_line
 from peerhub.cli.monitor_format import na_pool_note, pool_gap
 from peerhub.cli.monitor_layout import (
@@ -31,6 +31,7 @@ from peerhub.cli.monitor_layout import (
     paint_text,
     wrap_text,
 )
+from peerhub.cli.monitor_leads_view import compact_leads
 from peerhub.cli.monitor_legend import FRAME_SECTIONS, FRAME_SECTION_ORDER, POOL_LEGEND, QUOTA_NA
 from peerhub.cli.monitor_links import GUIDE_TEXT, link_profiles, location_lines, osc_link
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
@@ -42,6 +43,7 @@ from peerhub.cli.monitor_quota_view import (
     pool_section,
     with_min_quota,
 )
+from peerhub.cli.monitor_recent_view import expanded_recent
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, oldest_measured_quota_age
 

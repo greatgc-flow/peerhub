@@ -43,7 +43,7 @@ def render_prompt(record: Any, catch_up: list[Any], *, limit: int | None = None)
 
 def executable_not_found(binary: str) -> str:
     """The message for a tool that is not on PATH. It names the next step and keeps the text `executable not found`:
-    `peerhub.cli.recovery` classifies a launch failure by it."""
+    `peerhub.extensions.recovery_classification` classifies a launch failure by it."""
     return f"{binary} executable not found: install it and sign in {SETUP_HINT}"
 
 

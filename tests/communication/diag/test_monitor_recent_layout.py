@@ -11,7 +11,7 @@ import pytest
 from peerhub.cli.monitor_layout import cell_width
 from peerhub.cli.monitor_links import GUIDE_TEXT
 from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
-from peerhub.cli.monitor_activity_view import RECENT_CAP, RECENT_EXPAND
+from peerhub.cli.monitor_recent_view import RECENT_CAP, RECENT_EXPAND
 from peerhub.cli.monitor_view import render_grouped_frame
 from peerhub.extensions.caller import host_id
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame  # noqa: F401

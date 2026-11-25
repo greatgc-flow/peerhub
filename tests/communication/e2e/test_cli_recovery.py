@@ -9,14 +9,8 @@ import pytest
 
 from peerhub.cli.app import build_parser
 from peerhub.cli.explain_cmd import run_explain_cli
-from peerhub.cli.recovery import (
-    REGISTRY,
-    GuidanceEntry,
-    get_guidance,
-    make_guidance_payload,
-    render_guidance_hint,
-    select_guidance_code,
-)
+from peerhub.cli.recovery import REGISTRY, GuidanceEntry
+from peerhub.cli.recovery_render import get_guidance, make_guidance_payload, render_guidance_hint
 from typing import Any
 
 from peerhub.extensions.bridge_claims import ClaimHeldError
@@ -36,6 +30,7 @@ from peerhub.extensions.bridge_errors import (
     SessionUnavailableError,
     SessionWorkspaceMismatchError,
 )
+from peerhub.extensions.recovery_classification import select_guidance_code
 from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.extensions.ask import LegacySelectorUnsupported, PeerNotFoundError, StreamPeerMismatchError
 from peerhub.core.store import (
@@ -58,7 +53,7 @@ AG_WRITABLE_NEXT = (
 
 
 def test_writable_recovery_uses_exception_type_even_when_message_changes():
-    from peerhub.cli.recovery import render_exception_guidance_hint
+    from peerhub.cli.recovery_render import render_exception_guidance_hint
 
     error = AgRequiresWritableError("rephrased execution policy")
     assert render_exception_guidance_hint("ask_delivery_failed", error) == AG_WRITABLE_NEXT.removeprefix("next: ")

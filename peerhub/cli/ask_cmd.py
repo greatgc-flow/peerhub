@@ -70,7 +70,7 @@ def validate_ask_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
 
 
 def report_ask_parse_error(exc: SystemExit) -> int:
-    from peerhub.cli.recovery import make_guidance_payload
+    from peerhub.cli.recovery_render import make_guidance_payload
     argument = getattr(exc, "argument_error", "").split(":", 1)[0]
     guidance_code = "ask_selector_error" if argument in ("argument --session", "argument --fresh") else "ask_unexpected_failure"
     print(json.dumps(dict(status="error", response=None, session=None,
@@ -87,7 +87,8 @@ def report_ask_error(
     session: dict[str, Any] | None,
     exception: BaseException | None,
 ) -> None:
-    from peerhub.cli.recovery import make_guidance_payload, render_exception_guidance_hint, select_guidance_code
+    from peerhub.cli.recovery_render import make_guidance_payload, render_exception_guidance_hint
+    from peerhub.extensions.recovery_classification import select_guidance_code
     from peerhub.extensions.adapters.ag import AgRequiresWritableError
     guidance_code = select_guidance_code(exception=exception)
     db_arg = getattr(args, "db", None)
@@ -265,7 +266,8 @@ def run_ask(args: argparse.Namespace) -> int:
             for warning in warnings:
                 print(f"Warning: {warning}", file=sys.stderr)
         return 0
-    from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
+    from peerhub.cli.recovery_render import get_guidance, make_guidance_payload, render_guidance_hint
+    from peerhub.extensions.recovery_classification import select_guidance_code
     is_success = result.get("status") in ("delivered", "recovered_terminal") and result.get("error") is None
     guidance_entry = None
     detail_error: str | None = None

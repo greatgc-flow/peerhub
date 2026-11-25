@@ -13,6 +13,8 @@ from peerhub._console import ANSI_ESCAPE, clean_text, finite_number
 
 RULE_PREFIX_WIDTH = 3
 RULE_MIN_TAIL_WIDTH = 2
+ACTIVITY_SNIPPET_COLS = 60
+LEAD_LABEL_COLS = 16
 
 
 FILE_HYPERLINK = re.compile(r"\x1b\]8;;file://[^\x1b]*\x1b\\([^\x1b]*)\x1b\]8;;\x1b\\")
@@ -305,6 +307,11 @@ def compact_age(seconds: float | None) -> str:
     return format_duration(max(0, seconds))
 
 
+def timestamp_text(value: object, fmt: str = "%Y-%m-%d %H:%M:%SZ") -> str:
+    number = finite_number(value)
+    return "?" if number is None else utc_text(number, fmt) or "?"
+
+
 def utc_text(timestamp: float, fmt: str) -> str | None:
     """A UTC date text, or None for an instant that cannot be represented (the renderer must never raise on stored data)."""
     try:  # epoch + timedelta (not fromtimestamp): the platform C time functions stop at year 3000 on Windows
@@ -453,6 +460,13 @@ FRAME_TRAILING_ROWS = 1  # render_grouped_frame's height includes the line after
 def is_section_rule(line: str) -> bool:
     """A section head of the rich frame (a rule), colour or not."""
     return ANSI_ESCAPE.sub("", line).startswith(("── ", "-- "))
+
+
+def rich_entry(mark: str, lines: Sequence[str]) -> list[str]:
+    """One expanded entry: its first line from the second cell (after its mark, if it has one),
+    its other lines three cells in."""
+    return [("" if index == 0 else "  ") + (f"{mark} " if mark and index == 0 else "") + line
+            for index, line in enumerate(lines)]
 
 
 def rich_section(label: str, rows: Sequence[str], width: int, unicode: bool, paint: bool) -> list[str]:

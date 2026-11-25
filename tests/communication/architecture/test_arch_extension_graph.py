@@ -23,6 +23,7 @@ ALLOWED: dict[str, set[str]] = {
                         "catchup", "runtime_contract", "session_receipts"},
     "bridge_registry": {"delivery_projections", "session_receipts"},
     "ask_budgets": {"session_receipts"},
+    "recovery_classification": {"adapters", "ask", "bridge_claims", "bridge_errors", "runtime_contract"},
     "delivery_projections": {"session_receipts", "usage_normalization"},
     "bridge_control": {"bridge_claims", "bridge_errors", "bridge_registry", "runtime_contract"},
     "session_receipts": {"usage_normalization"},
@@ -142,7 +143,7 @@ def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
           "ask_budgets", "delivery_projections", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",
-          "diag_read_model", "quota_windows"}
+          "diag_read_model", "quota_windows", "recovery_classification"}
     helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "manifest", "a2a"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:

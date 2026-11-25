@@ -202,7 +202,7 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         return code
     if args.action == "readiness":
         from peerhub.extensions.diag_readiness import format_readiness, readiness_report
-        from peerhub.cli.recovery import get_guidance
+        from peerhub.cli.recovery_render import get_guidance
         rep = readiness_report(args.db)
         for profile in rep["profiles"]:
             action = profile.pop("action")

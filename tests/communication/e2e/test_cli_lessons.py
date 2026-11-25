@@ -241,7 +241,7 @@ def _links(text: str) -> set[str]:
 
 
 def test_setup_lesson_points_to_the_install_table(capsys):
-    from peerhub.cli.recovery import get_guidance
+    from peerhub.cli.recovery_render import get_guidance
 
     assert get_guidance("setup") is None
     (lesson,) = lesson_by_id("setup")

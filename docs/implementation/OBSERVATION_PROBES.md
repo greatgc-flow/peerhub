@@ -41,9 +41,10 @@ the snapshot. `monitor_queries.py` contains the bounded SQL. `monitor_activity.p
 
 `peerhub/cli/monitor_view.py` prepares the human view and selects the layout.
 `monitor_compact.py` builds the shared priority sections. `monitor_expanded.py`
-adds the detail sections from `monitor_sections.py`. `monitor_activity_view.py`,
-`monitor_alert_view.py`, and `monitor_quota_view.py` render their respective frame
-sections. They use `monitor_format.py` for quota tables, `monitor_layout.py` for
+adds the detail sections from `monitor_sections.py`. `monitor_activity_view.py`
+assembles activity sections from `monitor_running_view.py`, `monitor_recent_view.py`,
+and `monitor_leads_view.py`. `monitor_alert_view.py` and `monitor_quota_view.py`
+render alerts and quota. They use `monitor_format.py` for quota tables, `monitor_layout.py` for
 terminal text fitting, and `monitor_links.py` for OSC 8 hyperlinks.
 
 The dashboard and `diag --plan` use `peerhub/extensions/diag_read_model.py`

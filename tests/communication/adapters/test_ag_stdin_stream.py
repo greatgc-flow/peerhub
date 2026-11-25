@@ -274,9 +274,7 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
 
 
 def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch):
-    from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
-
-    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: load_limits.BUSY_PROBE_TIMEOUT_FACTOR)
     deadlines = []
 
     def probe(base, args, *, timeout_s, **options):
@@ -288,12 +286,11 @@ def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch)
     monkeypatch.setattr(common, "probe_cli", probe)
     result = ag_transport._detect_ag_transport([PY, FAKE], {}, str(Path.cwd()))
     assert result.transport == "stream"
-    assert deadlines == [(arg, ag_transport._AG_PROBE_TIMEOUT_S * BUSY_PROBE_TIMEOUT_FACTOR)
+    assert deadlines == [(arg, ag_transport._AG_PROBE_TIMEOUT_S * load_limits.BUSY_PROBE_TIMEOUT_FACTOR)
                          for arg in ("--version", "--version", "--help")]
 
 
 def test_06a_busy_detection_reuses_disk_cache_and_invalidates_it_on_replacement(monkeypatch, tmp_path):
-
     binary = tmp_path / "agy.exe"
     binary.write_bytes(b"first build")
     probes = Probes()
@@ -301,7 +298,7 @@ def test_06a_busy_detection_reuses_disk_cache_and_invalidates_it_on_replacement(
     args = ([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path))
     assert ag_transport._detect_ag_transport(*args).transport == "stream"
     ag_transport._AG_TRANSPORT_CACHE.clear()
-    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: load_limits.BUSY_PROBE_TIMEOUT_FACTOR)
     assert ag_transport._detect_ag_transport(*args).version == "1.5.9"
     assert probes.calls == ["--version", "--help"]
     binary.write_bytes(b"a different build")
