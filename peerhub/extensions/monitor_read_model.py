@@ -370,7 +370,8 @@ def public_telemetry(raw: object, *, handle: str, generation: int, provider: str
                             "state": "UNKNOWN", "reason": "invalid_or_missing_receipt"}}
     def model(value: object) -> str | None:
         return value if isinstance(value, str) and _SAFE_MODEL.fullmatch(value) else None
-    from peerhub.extensions.session_receipts import CONTEXT_SOURCE, context_estimate, validate_provider_usage
+    from peerhub.extensions.session_receipts import CONTEXT_SOURCE, context_estimate
+    from peerhub.extensions.usage_normalization import validate_provider_usage
     usage_raw: object = detail.get("usage")
     public_usage: dict[str, Any] | None = None
     if isinstance(usage_raw, dict):

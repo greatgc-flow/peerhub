@@ -39,9 +39,10 @@ from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIME
                                                  decode_stderr)
 from peerhub.extensions.adapters.profiles import qualified_profile, resolve_profile
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets
-from peerhub.extensions.adapters.telemetry import unknown_usage
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
-from peerhub.extensions.usage_normalization import REPORTED_FIELDS, normalize_provider_usage
+from peerhub.extensions.usage_normalization import (
+    PROVIDER_USAGE_CONTRACT, REPORTED_FIELDS, normalize_provider_usage, unknown_usage,
+)
 
 CA_HEADER = "PeerHub ask (text only, no tools, no files)."  # the content never starts with "@": `ant` inlines no file
 CA_MODEL = re.compile(r"claude-[a-z0-9.-]{1,64}")
@@ -282,7 +283,7 @@ class CaRuntimeTarget(ApiRuntimeTarget):
 
     runtime_kind = "ca"
     _model = CA_MODEL
-    _usage_source = "ca.message.usage"
+    _usage_source = PROVIDER_USAGE_CONTRACT["ca"][1]
 
     def __init__(self, workspace: str | Path, *, command: Sequence[str] | None = None,
                  env_extra: Mapping[str, str] | None = None, **options: Any) -> None:
@@ -446,7 +447,7 @@ class OaRuntimeTarget(HttpRuntimeTarget):
     runtime_kind = "oa"
     key_env = OA_KEY_ENV
     _model = OA_MODEL
-    _usage_source = "oa.response.usage"
+    _usage_source = PROVIDER_USAGE_CONTRACT["oa"][1]
 
     def __init__(self, workspace: str | Path, *, url: str = OA_URL, **options: Any) -> None:
         super().__init__(workspace, **options)
@@ -500,7 +501,7 @@ class GaRuntimeTarget(HttpRuntimeTarget):
     profile_tiers = ("standard", "effort")  # no deep profile is packaged (#381): a stronger model goes by --model
     key_env = GA_KEY_ENV
     _model = GA_MODEL
-    _usage_source = "ga.response.usage"
+    _usage_source = PROVIDER_USAGE_CONTRACT["ga"][1]
 
     def __init__(self, workspace: str | Path, *, base_url: str = GA_BASE_URL, **options: Any) -> None:
         super().__init__(workspace, **options)

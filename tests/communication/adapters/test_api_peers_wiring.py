@@ -71,7 +71,7 @@ def test_every_list_that_names_ca_and_oa_names_ga():
     from peerhub.cli import recovery
     from peerhub.extensions import batch, bridge, peer_kinds, session_receipts, usage_normalization
 
-    usage_contract = session_receipts._PROVIDER_USAGE_CONTRACT  # pyright: ignore[reportPrivateUsage]
+    usage_contract = usage_normalization.PROVIDER_USAGE_CONTRACT
     assert set(usage_contract) == set(BUILTIN_PEER_KINDS)
     assert usage_contract["ga"] == ("delivery", "ga.response.usage")
     for kind in BUILTIN_PEER_KINDS:
@@ -380,8 +380,7 @@ def test_batch_accepts_api_peers_refuses_writable_and_classifies_incomplete_repl
 
 
 def test_usage_contract_knows_the_api_peers():
-    from peerhub.extensions.session_receipts import validate_provider_usage
-    from peerhub.extensions.usage_normalization import normalize_provider_usage
+    from peerhub.extensions.usage_normalization import normalize_provider_usage, validate_provider_usage
 
     assert normalize_provider_usage("ca", {"input_tokens": 5, "output_tokens": 2}) == {"provider_input_tokens": 5, "output_tokens": 2}
     assert normalize_provider_usage("oa", {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7}) == {

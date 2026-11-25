@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.extensions.adapters import base
-from peerhub.extensions.adapters.telemetry import parse_provider_usage, unknown_usage
+from peerhub.extensions.adapters.telemetry import parse_provider_usage
+from peerhub.extensions.usage_normalization import unknown_usage
 from peerhub.extensions.catchup import ProjectedRecords
 
 pytestmark = pytest.mark.unit

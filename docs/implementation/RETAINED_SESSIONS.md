@@ -112,4 +112,6 @@ unsupported context occupancy remains unknown. See
 [monitoring](../../README.md#everyday-commands) for current commands.
 Writer implementations: [registry](../../peerhub/extensions/bridge_registry.py),
 [receipts](../../peerhub/extensions/session_receipts.py),
+[delivery projections](../../peerhub/extensions/delivery_projections.py),
+[ask budgets](../../peerhub/extensions/ask_budgets.py),
 [Bridge](../../peerhub/extensions/bridge.py), [ask](../../peerhub/extensions/ask.py).

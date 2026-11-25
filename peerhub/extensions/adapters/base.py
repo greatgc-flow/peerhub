@@ -1132,7 +1132,8 @@ class CliRuntimeTarget:
             payload["display_truncated"] = True
         if usage is not None:
             payload["usage"] = usage
-        from peerhub.extensions.adapters.telemetry import parse_provider_usage, unknown_usage
+        from peerhub.extensions.adapters.telemetry import parse_provider_usage
+        from peerhub.extensions.usage_normalization import unknown_usage
         payload["provider_telemetry"] = (
             unknown_usage("output_incomplete") if res.stdout_truncated or parser.truncated
             else parse_provider_usage(self.runtime_kind, stdout_text))
