@@ -6,7 +6,40 @@ The port describes capabilities; it never owns execution certainty or persistenc
 """
 from __future__ import annotations
 
-from typing import Any, Iterable, Protocol
+import hashlib
+import re
+from dataclasses import dataclass
+from typing import Any, Iterable, Literal, Protocol
+
+from peerhub.core.peer_kinds import API_PEER_KINDS
+
+
+_BILLING_FINGERPRINT = re.compile(r"(?:key|account):[0-9a-f]{64}")
+
+
+def valid_billing_fingerprint(value: object) -> bool:
+    return isinstance(value, str) and _BILLING_FINGERPRINT.fullmatch(value) is not None
+
+
+@dataclass(frozen=True)
+class BillingScope:
+    provider: str
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        if self.provider not in API_PEER_KINDS or not valid_billing_fingerprint(self.fingerprint):
+            raise ValueError("invalid billing account scope")
+
+    @classmethod
+    def from_verified_identity(
+        cls, provider: str, identity: str, *, identity_kind: Literal["key", "account"],
+    ) -> BillingScope:
+        """Fingerprint the identity bound to the source by the caller, in process memory."""
+        if provider not in API_PEER_KINDS or identity_kind not in ("key", "account") or not identity:
+            raise ValueError("invalid billing identity")
+        digest = hashlib.sha256(f"peerhub.billing.v1\x00{provider}\x00{identity_kind}\x00".encode())
+        digest.update(identity.encode("utf-8", errors="surrogatepass"))
+        return cls(provider, f"{identity_kind}:{digest.hexdigest()}")
 
 
 class RuntimeTargetError(RuntimeError):

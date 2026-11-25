@@ -6,10 +6,10 @@ Applies to the API peers `ca` (Claude), `oa` (OpenAI) and `ga` (Gemini). Billing
 
 Use these peers for one text-only ask paid from API credits. See the [installation table](../README.md#what-each-peer-needs) for official downloads and key setup.
 
-- `ca` runs the `ant` CLI. Put it on PATH and sign in once with `ant auth login`. PeerHub only runs `ant`; it never reads, stores or prints a credential, and it removes every `ANTHROPIC_*` variable from the environment of `ant`, so the call always uses the `ant` login and the official endpoint.
+- `ca` runs the `ant` CLI. Put it on PATH and sign in once with `ant auth login`. PeerHub leaves the login credential with `ant` and removes every `ANTHROPIC_*` variable from its child environment so the call uses the `ant` login and the official endpoint.
 - `oa` reads the key from the environment variable `OPENAI_API_KEY` at the moment of the call. Set it in the environment of the process that runs PeerHub, for example from your secret store. There is no option for the key: never put it on a command line or in a file for PeerHub. The key is sent only in the `Authorization` header and is removed from any error text.
 - `ga` reads the key from the environment variable `GEMINI_API_KEY` at the moment of the call, in the same way: there is no option for the key, so never put it on a command line or in a file for PeerHub. The key is sent only in the `x-goog-api-key` header, never in the URL, and is removed from any error text. `GOOGLE_API_KEY` is not read.
-- An API key in the environment is visible to every peer process that PeerHub starts, except that an account-bound cc or cx peer gets no `OPENAI_*` variable ([accounts](accounts.md)). With the Codex and agy CLIs logged in with an account, an invalid key in the environment did not change the answer (historical measurement with codex-cli 0.169.0 and agy 1.5.9 ([packaged CLI version observations](../peerhub/config_data/model-defaults.toml)); this does not tell "ignored" from "tried, then fell back"). Set the keys only where the API peers are used.
+- CLI peer processes can inherit API keys from the environment. The `ca` child environment excludes `OPENAI_API_KEY`, `GEMINI_API_KEY` and the reserved `PEERHUB_BILLING_*` prefix. Account-bound cc and cx peers exclude `OPENAI_*` variables. Set API keys only where they are needed. See [account environments](accounts.md).
 
 ```powershell
 peerhub ask ca --query-file review.md --profile ca.effort                        # its own stream: peer:ca:<request-id>
@@ -21,7 +21,7 @@ See [API peer canaries](../CONTRIBUTING.md#local-live-gate) for live validation.
 
 ## Reading the balance
 
-PeerHub cannot read the remaining credit of any of the three. Read it by hand:
+PeerHub does not query providers for the remaining credit. Read it by hand:
 
 | Provider | Where | Why PeerHub cannot |
 | --- | --- | --- |
@@ -30,6 +30,45 @@ PeerHub cannot read the remaining credit of any of the three. Read it by hand:
 | Gemini | https://aistudio.google.com/ (billing of the project) | no balance endpoint for a Gemini API key is known; **measured**: Cloud Billing answers 401 "API keys are not supported" |
 
 A spend report is not a balance: do not compute the balance as "grant minus spend". Never probe the balance with paid requests.
+
+## Stored billing observations
+
+`peerhub diag --json` and `peerhub monitor --snapshot --json --group peers`
+show the billing observations for each API peer. Each peer view shows up to
+five recent observations per kind and indicates truncation. The time, source,
+units and account scope describe each fact independently of any grant.
+`MEASURED` evidence ages to `STALE` after 24 hours. Staleness leaves the
+original evidence intact.
+
+- API replies provide token usage. A timeout, uncertain execution, missing or
+  partial usage, or an unverified account scope leaves an unreconciled
+  observation. The delivery reference is a digest of the Bridge delivery ID.
+  Any reported counters are retained. A proven pre-inference failure produces
+  no billing usage fact.
+- `oa` and `ga` fingerprint the exact key used for the call. A different key
+  gets a different scope even when both keys draw on the same ledger. A replay
+  keeps the original scope and observation. The managed `ca` login exposes no
+  verified identity to PeerHub, so its call evidence has a null account scope.
+  Asks recorded before scope capture have no billing observations.
+- Trusted offline collectors can import a balance, estimate or charge with
+  `peerhub.extensions.billing.record_amount`. The collector supplies the
+  source (`provider_console` or `provider_statement` for a balance,
+  `collector_estimate` for an estimate, `provider_statement` for a charge),
+  a stable source evidence ID, source time as Unix seconds, and an integer
+  amount in millionths of the stated three-letter currency. Build a
+  `BillingScope` with `from_verified_identity` from the account or key identity
+  of the reported fact. A credential that merely grants access to a report
+  does not establish the identity of the reported account.
+- Balance, estimate and charge observations remain separate from each other
+  and from token usage. The consumer does no automatic reconciliation or
+  pricing. An import of the same evidence is a no-op. A replay that changes
+  the scope or contents is rejected. Keep the source evidence ID stable
+  across credential changes.
+
+The existing `core.db` observation tables retain one row per distinct fact
+for the life of the store, allowing later replay and inspection of unresolved
+evidence. The collector keeps credentials in process memory. PeerHub retains
+fingerprints and normalized facts, without raw reports or credential material.
 
 ## Answers that mean "no inference ran because of the account"
 
@@ -119,8 +158,8 @@ required`); the error then reads `ant is not signed in or its login expired
 `failed_not_started`. Output without an HTTP status and an error object ends
 `uncertain`.
 
-`oa` and `ga` share one HTTP exchange (`HttpRuntimeTarget._call`). It reads the
-key from the environment at the call, refuses a key that cannot be a header
+`oa` and `ga` share one HTTP exchange. It snapshots the key from the
+environment for the invocation, refuses a key that cannot be a header
 value (`failed_not_started`), adds the key to the sanitizer, and sends one POST
 with the standard library. Proxy variables are ignored, redirects are not
 followed, and TLS is verified with the default context; a network that needs a

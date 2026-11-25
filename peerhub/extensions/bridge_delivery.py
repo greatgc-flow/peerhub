@@ -8,13 +8,15 @@ import time
 from typing import Any, Callable, Iterable, cast
 
 from peerhub.core.models import Record, json_digest
+from peerhub.core.peer_kinds import API_PEER_KINDS
 from peerhub.extensions import ask_budgets, session_receipts
 from peerhub.extensions.bridge_claims import ClaimStore, ClaimToken, StaleClaimError
 from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED, TERMINAL, is_control_kind
 from peerhub.extensions.bridge_errors import InvocationMarkerError, NoDeliveryError, OffsetAckConflictError, SessionBridgeError
 from peerhub.extensions.bridge_ledger import CycleResult
 from peerhub.extensions.bridge_sessions import BridgeSessions
-from peerhub.extensions.runtime_contract import ContextLostError, PrespawnError, RuntimeEvent, RuntimeTarget, RuntimeTargetError
+from peerhub.extensions.observation import ObservationStore
+from peerhub.extensions.runtime_contract import BillingScope, ContextLostError, PrespawnError, RuntimeEvent, RuntimeTarget, RuntimeTargetError
 
 
 class BridgeDelivery(BridgeSessions):
@@ -133,6 +135,8 @@ class BridgeDelivery(BridgeSessions):
                 self._settle_without_response(token, rec, infl["delivery_id"], detail, str(detail["reason"]))
                 return self._incomplete_result(rec, infl["delivery_id"], infl["session_generation"], detail)
             if infl["certainty"] in (STARTED, MAY_HAVE_STARTED):
+                if runtime.runtime_kind in API_PEER_KINDS:
+                    self._record_uncertain_billing(token, infl["delivery_id"])
                 self._mark_lost(token, "tainted")
             st = self.control_state(peer, stream)
             if st["paused"]:
@@ -244,11 +248,21 @@ class BridgeDelivery(BridgeSessions):
         refusal_payload: dict[str, Any] | None = None
         incomplete: dict[str, Any] | None = None
         last_termination_confirmed: bool | None = None
+        prepared_events = None
+        billing_binding: dict[str, str | None] = {}
+        prepare_billing = getattr(runtime, "prepare_billing_delivery", None)
+        if runtime.runtime_kind in API_PEER_KINDS and callable(prepare_billing):
+            scope, prepared_events = cast("tuple[object, Iterable[RuntimeEvent]]", prepare_billing(rec, catch_up))
+            if ((scope is None and runtime.runtime_kind == "ca")
+                    or (isinstance(scope, BillingScope) and scope.provider == runtime.runtime_kind)):
+                ObservationStore(self.claims.db_path, require_existing=True)
+                billing_binding = {"billing_provider": runtime.runtime_kind,
+                                   "billing_account_scope": scope.fingerprint if isinstance(scope, BillingScope) else None}
         # D-OWN-A4/TD-11: durable invocation marker BEFORE the runtime can possibly act; certainty stays NOT_STARTED while pending,
         # an unresolved marker after a crash is promoted to MAY_HAVE_STARTED by recovery (never re-invoked)
         quota_scope: Callable[[], list[str] | None] | None = getattr(runtime, "quota_pools", None)
         invocation = self._mark_invocation(token, did, external_session_id=ext, session_generation=gen,
-                                           quota_pools=quota_scope() if quota_scope is not None else None)
+                                           quota_pools=quota_scope() if quota_scope is not None else None, **billing_binding)
         self._fire("bridge.before_runtime_invoke")
         gated = self._gate(token, runtime, rec, did, after_marker=True)  # intent committed up to the very invoke still wins
         if gated is not None:
@@ -268,8 +282,10 @@ class BridgeDelivery(BridgeSessions):
 
         try:
             supervised = getattr(runtime, "deliver_supervised", None)
-            events = (cast("Iterable[RuntimeEvent]", supervised(ext, rec, catch_up, publish_launch)) if callable(supervised)
-                      else runtime.deliver(ext, rec, catch_up))
+            events = prepared_events
+            if events is None:
+                events = (cast("Iterable[RuntimeEvent]", supervised(ext, rec, catch_up, publish_launch)) if callable(supervised)
+                          else runtime.deliver(ext, rec, catch_up))
             for ev in events:
                 try:
                     self.claims.heartbeat(token)
@@ -411,7 +427,8 @@ class BridgeDelivery(BridgeSessions):
                 refused = dict(response=None, session=session_receipts.snapshot(row), error=dict(code=detail["reason"], message=detail.get("message", detail["reason"])), **detail)
                 conn.execute("UPDATE bridge_deliveries SET result_json=?,result_digest=? WHERE delivery_id=?",
                              (session_receipts.dumps(refused), json_digest(refused, strict=False), did))
-                session_receipts.telemetry(conn, row, self.claims.now(), provider_candidate)
+                session_receipts.telemetry(conn, row, self.claims.now(), provider_candidate,
+                                           billable=lost_reason in ("truncated", "incomplete"))
         # Durable refusal evidence authorizes recovery at each boundary. Keep the
         # delivery in flight until both session invalidation and offset commit.
         self._mark_lost(token, lost_reason)

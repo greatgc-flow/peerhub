@@ -30,7 +30,9 @@ _SCHEMAS = Path(__file__).parent / "schemas"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _US = timedelta(microseconds=1)
 
-KNOWN_KINDS = ("reachability", "cli_version", "runtime_capability", "session", "quota", "rate_limit", "activity", "execution_failure", "reset_credit")
+BILLING_KINDS = ("billing_usage", "billing_balance", "billing_estimate", "billing_charge")
+KNOWN_KINDS = ("reachability", "cli_version", "runtime_capability", "session", "quota", "rate_limit", "activity",
+               "execution_failure", "reset_credit", *BILLING_KINDS)
 # Measurement-bearing payload keys: only a MEASURED observation may carry them (honesty rule: unmeasured != 0/healthy/unlimited).
 MEASUREMENT_KEYS = frozenset({"remaining", "remaining_fraction", "remaining_tokens", "remaining_requests", "used", "limit",
                               "requests_per_minute", "tokens_per_minute", "reset_in_seconds", "retry_after_seconds"})
@@ -126,6 +128,7 @@ class SourceReading:
 
 
 ACCOUNT_TTL_SECONDS = 6 * 3600.0
+_KIND_TTLS = {"account": ACCOUNT_TTL_SECONDS, **dict.fromkeys(BILLING_KINDS, 86400.0)}
 
 QUOTA_MAX_AGE_SECONDS = 15 * 60
 QUOTA_NOTICE_AGE_SECONDS = 60 * 60
@@ -196,7 +199,7 @@ class FreshnessPolicy:
 
     def ttl_for(self, kind: str) -> float:
         # Login/plan facts change over days, not minutes: an explicit by_kind entry wins, else accounts get ACCOUNT_TTL_SECONDS.
-        return float(self.by_kind.get(kind, ACCOUNT_TTL_SECONDS if kind == "account" else self.default_ttl_seconds))
+        return float(self.by_kind.get(kind, _KIND_TTLS.get(kind, self.default_ttl_seconds)))
 
 
 @dataclass(frozen=True)

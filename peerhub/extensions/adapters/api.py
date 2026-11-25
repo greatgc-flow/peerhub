@@ -29,7 +29,7 @@ import threading
 import urllib.error
 import urllib.request
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 
@@ -38,7 +38,7 @@ from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIME
                                                  decode_stderr)
 from peerhub.extensions.adapters.profiles import qualified_profile, resolve_profile
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets
-from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
+from peerhub.extensions.runtime_contract import BillingScope, PrespawnError, RuntimeEvent, RuntimeTargetError
 from peerhub.extensions.usage_normalization import (
     PROVIDER_USAGE_CONTRACT, REPORTED_FIELDS, normalize_provider_usage, unknown_usage,
 )
@@ -218,6 +218,13 @@ class ApiRuntimeTarget:
         return "unsupported"
 
     def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]:
+        return self._deliver(record, catch_up, self._call)
+
+    def prepare_billing_delivery(self, record: Any, catch_up: list[Any]) -> tuple[BillingScope | None, Iterable[RuntimeEvent]]:
+        # The ant login is opaque to PeerHub. No environment value establishes its scope.
+        return None, self._deliver(record, catch_up, self._call)
+
+    def _deliver(self, record: Any, catch_up: list[Any], call: Callable[[str], Outcome]) -> Iterable[RuntimeEvent]:
         kind = self.runtime_kind
         prompt = render_prompt(record, catch_up)
         n_bytes = len(prompt.encode("utf-8", "replace"))
@@ -226,7 +233,7 @@ class ApiRuntimeTarget:
                                 f"(catch-up history is never truncated silently; lower the catch-up budget)")
         if not Path(self._workspace).is_dir():
             raise PrespawnError("workspace is not a directory")
-        outcome = self._call(prompt)
+        outcome = call(prompt)
         if outcome.kind == "not_started":
             raise PrespawnError(outcome.detail)
         yield ("started", f"{kind}:{uuid.uuid4().hex[:8]}")
@@ -239,7 +246,7 @@ class ApiRuntimeTarget:
             yield ("refusal", {"outcome": "NOT_EXECUTED", "reason": "quota_exhausted", "message": outcome.detail,
                                "reset_time": None})
             return
-        text = Sanitizer(env_secrets()).clean(outcome.text)  # secrets redacted; the prompt may legitimately be quoted
+        text = outcome.text  # sanitized with the same credential snapshot used by the call
         usage: object = outcome.usage
         reported = {key: value for key, value in cast("dict[str, Any]", usage).items()
                     if key in REPORTED_FIELDS[kind] and isinstance(value, int) and not isinstance(value, bool) and value >= 0
@@ -292,7 +299,8 @@ class CaRuntimeTarget(ApiRuntimeTarget):
 
     def _call(self, prompt: str) -> Outcome:
         merged = {**os.environ, **self._env_extra}
-        san = Sanitizer(env_secrets(merged)).with_prompt(prompt)
+        reply_san = Sanitizer(env_secrets(merged))
+        san = reply_san.with_prompt(prompt)
         found = shutil.which("ant") if self._command is None else None
         base = self._command if self._command is not None else [found] if found else None
         if base is None:
@@ -300,7 +308,8 @@ class CaRuntimeTarget(ApiRuntimeTarget):
         # Keys, tokens, base URL and profile overrides are removed: the call uses the `ant` login and the official endpoint.
         # The batch ids describe the ask process only (#374).
         env = {name: value for name, value in merged.items()
-               if not name.upper().startswith("ANTHROPIC_") and name.upper() not in ("PEERHUB_BATCH_ID", "PEERHUB_BATCH_TASK")}
+               if not name.upper().startswith(("ANTHROPIC_", "PEERHUB_BILLING_"))
+               and name.upper() not in (OA_KEY_ENV, GA_KEY_ENV, "PEERHUB_BATCH_ID", "PEERHUB_BATCH_TASK")}
         body = json.dumps({"model": self._model_id, "max_tokens": self.max_output_tokens,
                            "messages": [{"role": "user", "content": f"{CA_HEADER}\n\n{prompt}"}]}).encode("utf-8")
         proc = BoundedProcess([*base, "messages", "create", "--format", "json"], stdin=body, cwd=self._workspace, env=env,
@@ -308,7 +317,7 @@ class CaRuntimeTarget(ApiRuntimeTarget):
         try:
             proc.start()
         except SpawnFailure as e:
-            raise PrespawnError(san.clean(f"cannot spawn ant: {e}", EXCERPT_CHARS)) from e
+            raise PrespawnError(san.clean(f"cannot spawn ant: {e}", EXCERPT_CHARS)) from None
         finished = False
         try:
             res = proc.wait()
@@ -328,7 +337,7 @@ class CaRuntimeTarget(ApiRuntimeTarget):
             stop: object = message.get("stop_reason")
             reply = _joined_text(message.get("content"), "text")
             if reply is not None and isinstance(stop, str):  # a wrong shape is never a reply: it falls through to uncertain
-                return self._reply(reply, message.get("usage"), complete=stop in ("end_turn", "stop_sequence"),
+                return self._reply(reply_san.clean(reply), message.get("usage"), complete=stop in ("end_turn", "stop_sequence"),
                                    truncated=stop == "max_tokens", why=san.clean(f"stop_reason {stop}", 80))
         output = out + "\n" + decode_stderr(res.stderr)
         status_match = _ANT_STATUS.search(output)
@@ -394,12 +403,20 @@ class HttpRuntimeTarget(ApiRuntimeTarget):
     url: str
 
     def _call(self, prompt: str) -> Outcome:
+        return self._call_with_key(prompt, os.environ.get(self.key_env))
+
+    def prepare_billing_delivery(self, record: Any, catch_up: list[Any]) -> tuple[BillingScope | None, Iterable[RuntimeEvent]]:
         key = os.environ.get(self.key_env)
+        scope = BillingScope.from_verified_identity(self.runtime_kind, key, identity_kind="key") if key else None
+        return scope, self._deliver(record, catch_up, lambda prompt: self._call_with_key(prompt, key))
+
+    def _call_with_key(self, prompt: str, key: str | None) -> Outcome:
         if not key:
             raise PrespawnError(f"set {self.key_env} {SETUP_HINT}")
         if not key.isascii() or not key.isprintable() or " " in key:  # http.client would quote a refused header value in its error
             raise PrespawnError(f"{self.key_env} is not usable in a header (printable ASCII without spaces)")
-        san = Sanitizer([*env_secrets(), key]).with_prompt(prompt)
+        reply_san = Sanitizer([*env_secrets(), key])
+        san = reply_san.with_prompt(prompt)
         request = self._request(prompt, key)
         per_operation = min(self._timeout_s, self._silence_timeout_s or self._timeout_s)
         answers: list[tuple[int, bytes] | Exception] = []
@@ -427,7 +444,8 @@ class HttpRuntimeTarget(ApiRuntimeTarget):
                 return Outcome("timeout")
             return Outcome("uncertain", detail=san.clean(f"{self.runtime_kind} request failed: {type(answer).__name__}: {answer}",
                                                          EXCERPT_CHARS))
-        return self._classify(*answer, san)
+        outcome = self._classify(*answer, san)
+        return replace(outcome, text=reply_san.clean(outcome.text))
 
     # ---- the hooks
     def _request(self, prompt: str, key: str) -> urllib.request.Request:

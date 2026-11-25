@@ -251,17 +251,32 @@ class ObservationStore:
     # ------------------------------------------------------------------ write path
     def _insert(self, obs: Observation, point: str) -> Observation:
         obs = Observation.model_validate(obs.model_dump())  # re-validate before the write tx
-        check_honesty(obs)
         with self._tx(point) as conn:
-            self._require_pool(conn, obs.resource_pool_ref)  # binding validated before any mutation
-            if conn.execute("SELECT 1 FROM observations WHERE observation_id = ?", (obs.observation_id,)).fetchone():
-                raise ObservationExistsError(f"observation {obs.observation_id!r} already exists (evidence is immutable)")
-            conn.execute(
-                "INSERT INTO observations (observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, "
-                "observed_at, captured_at, effective_at_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (obs.observation_id, obs.subject_ref, obs.resource_pool_ref, obs.kind, obs.source, obs.state.value,
-                 _canon(obs.payload), obs.observed_at, obs.captured_at, effective_us(obs)))
+            self.append(conn, obs)
         return obs
+
+    @staticmethod
+    def append(conn: sqlite3.Connection, obs: Observation, *, replayable: bool = False) -> None:
+        """Append validated evidence in the caller's write transaction."""
+        check_honesty(obs)
+        ObservationStore._require_pool(conn, obs.resource_pool_ref)
+        select = _SELECT if replayable else "SELECT 1 FROM observations"
+        row = conn.execute(select + " WHERE observation_id=?", (obs.observation_id,)).fetchone()
+        if row is not None:
+            if replayable and row_to_observation(row)[0] == obs:
+                return
+            raise ObservationExistsError(f"observation {obs.observation_id!r} already exists (evidence is immutable)")
+        conn.execute(
+            "INSERT INTO observations (observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, "
+            "observed_at, captured_at, effective_at_us) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (obs.observation_id, obs.subject_ref, obs.resource_pool_ref, obs.kind, obs.source, obs.state.value,
+             _canon(obs.payload), obs.observed_at, obs.captured_at, effective_us(obs)))
+
+    def persist_replayable(self, obs: Observation) -> None:
+        """Persist an immutable fact with a stable observation ID."""
+        obs = Observation.model_validate(obs.model_dump())
+        with self._tx("observation.persist") as conn:
+            self.append(conn, obs, replayable=True)
 
     def persist(self, obs: Observation) -> Observation:
         """Append a fully formed Observation (wire/import path). The capture ordinal is assigned by the store."""

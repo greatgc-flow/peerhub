@@ -121,85 +121,59 @@ def _claude_usage_emit(section: str, used_pct: str | float, reset_text: str, now
         "window_hours": window_hours,
     }
 
-def _parse_claude_usage(text: str, now: Optional[datetime] = None) -> list[ClaudeQuotaDict]:
-    if not text.strip():
-        return []
+# The line grammar matters: a percentage or reset after an unfamiliar heading
+# must never complete the previous known section.
+_INLINE_USAGE = re.compile(r"([^:]+):\s*([^\s%]+)%\s+used\b.*?\bresets?\s+(.+)", re.I)
+_PERCENT_USED = re.compile(r"[\s\[\]█▉▊▋▌▍▎▏░▒▓━─■□]*([^\s%]+)%\s+used", re.I)
+_RESET_LINE = re.compile(r"resets?\s+(.+)", re.I)
+_USAGE_CHROME = re.compile(r"usage|settings:\s+status\s+config\s+usage|esc to (?:cancel|close)", re.I)
+
+
+def _parse_claude_usage(
+    text: str, now: datetime,
+) -> tuple[list[ClaudeQuotaDict], bool, TimezoneDatabaseMissingError | UnsupportedTimezoneError | None]:
     rows: list[ClaudeQuotaDict] = []
-    current_section = None
-    current_pct = None
-    inline = re.compile(
-        r"^(Current session|Current week \(all models\)|Current week \(Fable\)):"
-        r"\s*([^\s%]+)%\s+used\b.*?\bresets\s+(.+)$",
-        re.IGNORECASE,
-    )
-    section_names = {k.lower(): k for k in _CLAUDE_USAGE_SECTIONS}
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        m = inline.match(line)
-        if m:
-            row = _claude_usage_emit(m.group(1), m.group(2), m.group(3), now=now)
-            if row is None:
-                return []
+    complete = True
+    timezone_error = None
+    section = pct = None
+
+    def emit(label: str, used: str, reset: str) -> None:
+        nonlocal complete, timezone_error
+        try:
+            row = _claude_usage_emit(label, used, reset, now=now)
+        except (TimezoneDatabaseMissingError, UnsupportedTimezoneError) as exc:
+            timezone_error = exc
+            row = None
+        if row is None:
+            complete = False
+        else:
             rows.append(row)
-            current_section = None
-            current_pct = None
-            continue
-        lowered = line.lower().rstrip(":")
-        if lowered in section_names:
-            current_section = section_names[lowered]
-            current_pct = None
-            continue
-        if current_section and current_pct is None:
-            m_pct = re.search(r"([^\s%]+)%\s+used\b", line, re.IGNORECASE)
-            if m_pct:
-                current_pct = m_pct.group(1)
-            continue
-        if current_section and current_pct is not None:
-            m_reset = re.search(r"\bresets?\s+(.+)$", line, re.IGNORECASE)
-            if m_reset:
-                row = _claude_usage_emit(current_section, current_pct, m_reset.group(1), now=now)
-                if row is None:
-                    return []
-                rows.append(row)
-                current_section = None
-                current_pct = None
-    return rows
 
-
-def _claude_section_labels(text: str) -> set[str]:
-    """Pool labels of every recognised /usage section mentioned in the output, parsed or not."""
-    inline = re.compile(r"^(Current session|Current week \(all models\)|Current week \(Fable\)):", re.IGNORECASE)
-    labels: set[str] = set()
     for raw_line in text.splitlines():
         line = raw_line.strip()
-        m = inline.match(line)
-        spec = _CLAUDE_USAGE_SECTIONS.get((m.group(1) if m else line.rstrip(":")).strip().lower())
-        if spec is not None:
-            labels.add(spec[0])
-    return labels
-
-def _claude_usage_has_drift(text: str) -> bool:
-    """True when /usage shows a usage line or section this parser does not know (renamed/new window): a pool that looks
-    missing may merely be renamed, so no ABSENT may be inferred. Ordinary UI chrome is not drift."""
-    labelled_usage = re.compile(r"^[^:]{1,60}:\s*[^\s%]+%\s+used\b", re.IGNORECASE)
-    current: bool = False  # inside a recognised section header, awaiting its "N% used" / "Resets" lines
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line:
+        if not line or _USAGE_CHROME.fullmatch(line):
             continue
-        label = line.split(":", 1)[0].strip().lower() if ":" in line else line.rstrip(":").strip().lower()
-        if label in _CLAUDE_USAGE_SECTIONS:
-            current = ":" not in line or not re.search(r"%\s+used\b", line, re.IGNORECASE)
+        heading = line.removesuffix(":").strip().casefold()
+        inline = _INLINE_USAGE.fullmatch(line)
+        percent = _PERCENT_USED.fullmatch(line)
+        reset = _RESET_LINE.fullmatch(line)
+        if section is not None and pct is None and percent:
+            pct = percent[1]
             continue
-        if re.match(r"current\b", line, re.IGNORECASE) or labelled_usage.match(line):
-            return True
-        if re.search(r"%\s+used\b", line, re.IGNORECASE) and not current:
-            return True  # a usage figure that belongs to no recognised section
-        if current and re.search(r"\bresets?\b", line, re.IGNORECASE):
-            current = False
-    return False
+        if section is not None and pct is not None and reset:
+            emit(section, pct, reset[1])
+            section = pct = None
+            continue
+        if section is not None:
+            complete = False
+            section = pct = None
+        if inline and (label := inline[1].strip().casefold()) in _CLAUDE_USAGE_SECTIONS:
+            emit(label, inline[2], inline[3])
+        elif heading in _CLAUDE_USAGE_SECTIONS:
+            section = heading
+        else:
+            complete = False
+    return rows, complete and section is None, timezone_error
 
 
 def poll_claude_usage(
@@ -215,8 +189,8 @@ def poll_claude_usage(
 ) -> Sequence[UsageObserved]:
     """Poll claude.cmd /usage and return observations for each quota pool.
 
-    A declared pool whose section is absent from a fully parsed report is recorded ABSENT (never zero/unlimited);
-    any malformed or unrecognised-but-present section means no ABSENT rows at all."""
+    A fully parsed report supports ABSENT for an omitted declared pool.
+    A partial report leaves its unmeasured declared pools UNKNOWN."""
     resolved_sys = common.resolve_sys_dir(sys_dir)
     workspace_root = common.resolve_workspace_root(resolved_sys)
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
@@ -265,16 +239,14 @@ def poll_claude_usage(
 
     text = "\n".join(str(part) for part in (stdout, stderr) if part)
     dt_now = datetime.fromtimestamp(observed_at, tz=timezone.utc).astimezone()
-    try:
-        quotas = _parse_claude_usage(text, now=dt_now)
-    except TimezoneDatabaseMissingError:
-        return (common.fail_closed(ids, instance_id, profile_id, EvidenceState.UNAVAILABLE, observed_at, freshness_ttl,
-                                   extra={"reason": "timezone_database_missing"}),)
-    except UnsupportedTimezoneError as exc:
-        return (common.fail_closed(ids, instance_id, profile_id, EvidenceState.UNAVAILABLE, observed_at, freshness_ttl,
-                                   extra={"reason": f"unsupported_timezone:{exc.tz_name}"}),)
-
+    quotas, complete, timezone_error = _parse_claude_usage(text, dt_now)
     if not quotas:
+        if isinstance(timezone_error, TimezoneDatabaseMissingError):
+            return (common.fail_closed(ids, instance_id, profile_id, EvidenceState.UNAVAILABLE, observed_at, freshness_ttl,
+                                       extra={"reason": "timezone_database_missing"}),)
+        if isinstance(timezone_error, UnsupportedTimezoneError):
+            return (common.fail_closed(ids, instance_id, profile_id, EvidenceState.UNAVAILABLE, observed_at, freshness_ttl,
+                                       extra={"reason": f"unsupported_timezone:{timezone_error.tz_name}"}),)
         return (common.fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl,
                                    extra={"reason": "claude_usage_unparseable"}),)
 
@@ -315,11 +287,14 @@ def poll_claude_usage(
         )
 
     reported = {q["label"] for q in quotas}
-    # exit 0, no unrecognised usage section (drift), and every recognised section that appeared parsed into a row
-    if run_ok and not _claude_usage_has_drift(text) and _claude_section_labels(text) <= reported:
-        for pool_scope in (_CC_CONFIGURED_POOLS if configured_pools is None else configured_pools):
-            if pool_scope not in reported:
-                results.append(common.absent_pool(ids, instance_id, profile_id, "cc", observed_at, freshness_ttl, pool_scope))
+    for pool_scope in (_CC_CONFIGURED_POOLS if configured_pools is None else configured_pools):
+        if pool_scope in reported:
+            continue
+        if run_ok and complete:
+            results.append(common.absent_pool(ids, instance_id, profile_id, "cc", observed_at, freshness_ttl, pool_scope))
+        else:
+            results.append(common.fail_closed(ids, instance_id, profile_id, EvidenceState.UNKNOWN, observed_at, freshness_ttl,
+                                              extra={"pool_scope": pool_scope, "reason": "claude_usage_partial"}))
 
     return tuple(results)
 

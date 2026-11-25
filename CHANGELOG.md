@@ -11,6 +11,7 @@ they do not claim new validation or publication evidence.
 ### Added
 
 - `peerhub ask` samples machine load before launch. On high CPU or low free RAM it waits up to 120 seconds while other asks hold active leases. Dry runs report the load without waiting.
+- API peers retain scoped billing observations in `core.db` and expose them in diag and monitor JSON. Offline balances, estimates and charges stay separate from usage and unreconciled execution evidence (closes #472).
 
 ### Changed
 
@@ -23,6 +24,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- Claude Code `/usage` preserves recognized measurements from partial reports and leaves configured windows unknown when unfamiliar sections may account for them (closes #472).
 - Deterministic tests use a quiet CPU and RAM sample and isolate the Antigravity transport cache. The ask gate and probe tests supply their own resource readings.
 - Linux ask liveness uses the boot ID and process start ticks, so wall-clock corrections do not revoke live leases. Legacy timestamp mismatches and unverified leaderless sessions remain unknown.
 - POSIX asks record their launch identity before the provider can execute. The reaper leaves unresolved invocations with missing process evidence unknown.

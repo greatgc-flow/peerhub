@@ -439,27 +439,27 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "truncated": GuidanceEntry(
         code="truncated",
         meaning="The reply of an API peer (ca, oa, ga) was cut at its output limit (16,000 tokens for ca and oa; 32,000 for ga); the ask is not delivered.",
-        why="The provider stopped at the output limit (ca stop_reason max_tokens; oa status incomplete with reason max_output_tokens; ga finishReason MAX_TOKENS, where thinking counts against the limit, so the cut text can be empty). The call ran and spent API credits; the cut text is kept in partial_response (--json) and is not a response Record.",
+        why="The provider stopped at the output limit (ca stop_reason max_tokens; oa status incomplete with reason max_output_tokens; ga finishReason MAX_TOKENS, where thinking counts against the limit, so the cut text can be empty). The call may have incurred a charge. The cut text is kept in partial_response (--json).",
         recover=[{
             "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM_ID", "--profile", "PROFILE"],
             "purpose": "Ask again on a new stream with a narrower question or a request for a shorter answer, the text inlined",
             "prereqs": "A ca, oa or ga stream takes one ask only; read partial_response first to see where the reply stopped.",
         }],
         avoid="Do not treat the cut text as a complete reply, and do not ask again on the same stream (it is refused: one ask per stream).",
-        docs="docs/adapters/README.md",
+        docs="docs/api-credits.md",
         exits=[{"code": 1, "context": "API peer reply cut at the output token limit (truncated result status)."}],
     ),
     "incomplete": GuidanceEntry(
         code="incomplete",
         meaning="The reply of an API peer (ca, oa, ga) ended for a reason other than the token limit; the ask is not delivered.",
-        why="The provider ended the reply without completing it (for example ca stop_reason refusal, an oa status other than completed, or a ga finishReason other than STOP or a blocked prompt). The call ran and spent API credits; the error message names the reason, and any text is kept in partial_response (--json).",
+        why="The provider ended the reply without completing it (for example ca stop_reason refusal, an oa status other than completed, or a ga finishReason other than STOP or a blocked prompt). The call may have incurred a charge. The error names the reason, and any text is kept in partial_response (--json).",
         recover=[{
             "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM_ID", "--profile", "PROFILE"],
             "purpose": "Read the reason, then rephrase or use another profile or peer on a new stream",
             "prereqs": "A ca, oa or ga stream takes one ask only.",
         }],
         avoid="Do not count the partial text as a reply (for example as a vote), and do not ask again on the same stream.",
-        docs="docs/adapters/README.md",
+        docs="docs/api-credits.md",
         exits=[{"code": 1, "context": "API peer reply ended without completing (incomplete result status)."}],
     ),
     "request_rejected": GuidanceEntry(

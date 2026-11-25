@@ -46,6 +46,7 @@ from peerhub.cli.monitor_quota_view import (
     selected_quota_readings,
 )
 from peerhub.cli.monitor_recent_view import expanded_recent
+from peerhub.cli.monitor_sections import billing_summary
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, oldest_measured_quota_age
 
@@ -272,6 +273,11 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
     header = [paint_text(title, RICH_SGR["dim"]) if paint else title]
     if (selected_ids & {"capacity", "peers"} or "_quota_age_readings" in payload) and (notice := quota_stale_line(age)):
         header.extend(wrap_text(notice, width))
+    if "peers" in selected_ids and not expand:
+        peers = dict_items(as_dict(as_dict(groups.get("peers")).get("data")).get("peers"))
+        billing = [f"{clean_text(peer['peer_id'])} {summary}" for peer in peers if (summary := billing_summary(peer))]
+        if billing:
+            header.append(fit_text(sep.join(billing), width, unicode))
     header.extend(part for note in cast(list[str], payload.get("_quota_probe_notes", []))
                   for part in wrap_text(note, width))
     if cut and not expand:

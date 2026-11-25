@@ -274,11 +274,11 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 - **Exit Code**: 1
 - **Meaning**: The reply of an API peer (ca, oa, ga) ended for a reason other than the token limit; the ask is not delivered.
-- **Why**: The provider ended the reply without completing it (for example ca stop_reason refusal, an oa status other than completed, or a ga finishReason other than STOP or a blocked prompt). The call ran and spent API credits; the error message names the reason, and any text is kept in partial_response (--json).
+- **Why**: The provider ended the reply without completing it (for example ca stop_reason refusal, an oa status other than completed, or a ga finishReason other than STOP or a blocked prompt). The call may have incurred a charge. The error names the reason, and any text is kept in partial_response (--json).
 - **Safe Recovery Actions**:
   1. `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE`: Read the reason, then rephrase or use another profile or peer on a new stream (Prerequisites: A ca, oa or ga stream takes one ask only.)
 - **Avoid**: Do not count the partial text as a reply (for example as a vote), and do not ask again on the same stream.
-- **Documentation**: [docs/adapters/README.md](adapters/README.md)
+- **Documentation**: [docs/api-credits.md](api-credits.md)
 
 #### `invalid_arguments`
 
@@ -376,11 +376,11 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 - **Exit Code**: 1
 - **Meaning**: The reply of an API peer (ca, oa, ga) was cut at its output limit (16,000 tokens for ca and oa; 32,000 for ga); the ask is not delivered.
-- **Why**: The provider stopped at the output limit (ca stop_reason max_tokens; oa status incomplete with reason max_output_tokens; ga finishReason MAX_TOKENS, where thinking counts against the limit, so the cut text can be empty). The call ran and spent API credits; the cut text is kept in partial_response (--json) and is not a response Record.
+- **Why**: The provider stopped at the output limit (ca stop_reason max_tokens; oa status incomplete with reason max_output_tokens; ga finishReason MAX_TOKENS, where thinking counts against the limit, so the cut text can be empty). The call may have incurred a charge. The cut text is kept in partial_response (--json).
 - **Safe Recovery Actions**:
   1. `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE`: Ask again on a new stream with a narrower question or a request for a shorter answer, the text inlined (Prerequisites: A ca, oa or ga stream takes one ask only; read partial_response first to see where the reply stopped.)
 - **Avoid**: Do not treat the cut text as a complete reply, and do not ask again on the same stream (it is refused: one ask per stream).
-- **Documentation**: [docs/adapters/README.md](adapters/README.md)
+- **Documentation**: [docs/api-credits.md](api-credits.md)
 
 ## Session Lifecycle & State Definitions
 

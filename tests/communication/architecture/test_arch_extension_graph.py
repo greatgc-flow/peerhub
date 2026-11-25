@@ -13,10 +13,11 @@ ALLOWED: dict[str, set[str]] = {
     "ask": {"accounts", "bridge", "bridge_claims", "observation", "observation_model", "adapters",
             "bridge_control", "bridge_ledger", "bridge_sessions", "runtime_contract", "caller"},  # caller: who started an ask (neutral; stdlib and psutil only)
     "adapters": {"accounts", "runtime_contract", "binary_resolution", "process_tree", "usage_normalization"},  # adapters depend on neutral RuntimeTarget, not the Bridge implementation
+    "billing": {"observation", "observation_model", "runtime_contract", "usage_normalization"},
     "bridge": {"bridge_claims", "bridge_delivery", "bridge_schema", "bridge_sessions", "catchup"},
     "bridge_delivery": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger",
-                        "bridge_sessions", "runtime_contract", "session_receipts"},
-    "bridge_ledger": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_errors", "bridge_registry",
+                        "bridge_sessions", "observation", "runtime_contract", "session_receipts"},
+    "bridge_ledger": {"ask_budgets", "billing", "bridge_claims", "bridge_control", "bridge_errors", "bridge_registry",
                       "delivery_projections", "delivery_reads", "liveness", "schema_guard", "session_receipts", "sqlite_tx"},
     "bridge_schema": {"ask_budgets", "bridge_claims", "bridge_control", "bridge_registry", "schema_guard"},
     "bridge_sessions": {"bridge_claims", "bridge_control", "bridge_errors", "bridge_ledger", "bridge_registry",
@@ -27,8 +28,8 @@ ALLOWED: dict[str, set[str]] = {
     "profile_stats": {"ask_budgets", "quota_probes", "schema_guard", "session_receipts"},
     "delivery_projections": {"session_receipts", "usage_normalization"},
     "bridge_control": {"bridge_claims", "bridge_errors", "bridge_registry", "runtime_contract"},
-    "session_receipts": {"usage_normalization"},
-    "monitor_read_model": {"adapters", "monitor_activity", "monitor_alerts", "monitor_queries", "monitor_quota",
+    "session_receipts": {"billing", "usage_normalization"},
+    "monitor_read_model": {"adapters", "billing", "monitor_activity", "monitor_alerts", "monitor_queries", "monitor_quota",
                            "monitor_sessions"},
     "monitor_activity": {"adapters", "caller", "diag_running", "liveness", "monitor_queries", "monitor_sessions",
                          "monitor_values"},
@@ -50,12 +51,12 @@ ALLOWED: dict[str, set[str]] = {
     "quota_probes": {"quota_types", "observation_model", "binary_resolution", "process_tree", "win_job"},
     "quota_types": {"observation_model"},
     # M1 Diag
-    "diag": {"delivery_reads", "observation_model"},
+    "diag": {"billing", "delivery_reads", "observation_model"},
     "diag_readiness": {"adapters", "diag", "observation_model", "quota_projection"},
     "diag_running": {"caller", "diag", "liveness"},
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
-    "diag_read_model": {"diag", "diag_quota", "observation_model", "pool_health", "quota_windows"},
+    "diag_read_model": {"billing", "diag", "diag_quota", "observation_model", "pool_health", "quota_windows"},
     "quota_windows": {"observation_model", "quota_projection"},
     "pool_health": {"diag_quota", "observation_model", "quota_projection", "quota_windows"},
     # M2
@@ -138,7 +139,7 @@ def test_cli_adapter_layers_import_only_their_dependencies():
 
 
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
-    m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
+    m1 = {"ask", "billing", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
           "ask_budgets", "delivery_projections", "delivery_reads", "monitor_read_model", "usage_normalization", "runtime_contract",
