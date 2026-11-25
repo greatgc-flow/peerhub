@@ -205,8 +205,8 @@ def patch_cc(monkeypatch, proc):
         return proc
 
     monkeypatch.setattr(subprocess, "Popen", popen)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["claude.exe"] if peer == "cc" else None)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._cleanup_probe", lambda p: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["claude.exe"] if peer == "cc" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._cleanup_probe", lambda p: None)
     return seen
 
 
@@ -250,7 +250,7 @@ def test_cc_probe_failures_are_unknown_with_a_fixed_reason_and_leak_nothing(monk
 
 
 def test_cc_missing_cli_is_unavailable(monkeypatch, tmp_path):
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: None)
     reading = poll_claude_account(clock=lambda: NOW, sys_dir=tmp_path / "_sys")
     assert reading.state == EvidenceState.UNAVAILABLE and reading.payload["reason"] == "cli_not_found"
 
@@ -275,8 +275,8 @@ def fake_app_server(monkeypatch, *messages, spawn_raises=None):
         return FakeProc()
 
     monkeypatch.setattr(subprocess, "Popen", popen)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["codex.exe"] if peer == "cx" else None)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._cleanup_probe", lambda p: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["codex.exe"] if peer == "cx" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._cleanup_probe", lambda p: None)
     return seen, stdin
 
 
@@ -332,7 +332,7 @@ def patch_agy(monkeypatch, stdout, returncode=0, raises=None):
 
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
     monkeypatch.setattr(subprocess, "run", run)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     return seen
 
 

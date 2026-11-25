@@ -12,6 +12,10 @@ they do not claim new validation or publication evidence.
 
 - CI runs the full deterministic suites and the publish verification suites in parallel, with the monitor latency limit checked serially. Publish runs the G7 invariant tests as part of G0, and the release recipe puts the version bump in the last feature PR.
 
+### Changed (internal)
+
+- Split quota and account probes into provider modules with shared probe helpers.
+
 ## [0.26.14] - 2026-11-25
 
 ### Fixed

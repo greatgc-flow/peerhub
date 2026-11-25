@@ -10,8 +10,9 @@ from unittest.mock import Mock
 import psutil
 import pytest
 
-from peerhub.extensions import quota_capture, quota_probes
+from peerhub.extensions import quota_capture
 from peerhub.extensions.observation_model import EvidenceState
+from peerhub.extensions.quota_probes import ProbeCancellation, claude, common
 
 COMMAND = ["fake-provider"]
 PROCESS_HANDLE = 101
@@ -74,20 +75,20 @@ def windows(monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("Windows probe cleanup tried to look up a process by PID")
 
-    monkeypatch.setattr(quota_probes, "os", SimpleNamespace(name="nt", environ=os.environ))
-    monkeypatch.setattr(quota_probes, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(common, "os", SimpleNamespace(name="nt", environ=os.environ))
+    monkeypatch.setattr(claude, "sys", SimpleNamespace(platform="win32"))
     monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", NO_WINDOW, raising=False)
     monkeypatch.setattr(subprocess, "Popen", popen)
     monkeypatch.setattr(subprocess, "run", forbidden)
     monkeypatch.setattr(psutil, "process_iter", forbidden)
-    monkeypatch.setattr(quota_probes, "kill_process_tree", forbidden)
+    monkeypatch.setattr(common, "kill_process_tree", forbidden)
     monkeypatch.setattr(ctypes, "WinDLL", win_dll, raising=False)
     monkeypatch.setattr(ctypes, "get_last_error", lambda: WINERROR, raising=False)
     return SimpleNamespace(events=events, proc=proc, options=options, kernel=kernel, resume=resume)
 
 
 def test_windows_probe_assigns_before_resume_and_preserves_flags(windows):
-    cancellation = quota_probes.ProbeCancellation()
+    cancellation = ProbeCancellation()
     proc = cancellation.spawn(COMMAND, creationflags=CALLER_FLAGS)
     cancellation.finish(proc)
 
@@ -108,16 +109,16 @@ def test_windows_probe_assigns_before_resume_and_preserves_flags(windows):
 
 @pytest.mark.parametrize("finish_twice", [False, True])
 def test_synchronous_windows_probe_owns_job_until_finish(windows, finish_twice):
-    proc = quota_probes._spawn_probe(None, COMMAND)
+    proc = common.spawn_probe(None, COMMAND)
     assert proc is windows.proc
     windows.kernel.AssignProcessToJobObject.assert_called_once_with(JOB_HANDLE, PROCESS_HANDLE)
     windows.resume.assert_called_once_with(PROCESS_HANDLE)
     windows.kernel.CloseHandle.assert_not_called()
 
     proc.returncode = 0
-    quota_probes._finish_probe(proc, None)
+    common.finish_probe(proc, None)
     if finish_twice:
-        quota_probes._finish_probe(proc, None)
+        common.finish_probe(proc, None)
 
     windows.kernel.TerminateJobObject.assert_called_once()
     windows.kernel.CloseHandle.assert_called_once_with(JOB_HANDLE)
@@ -127,7 +128,7 @@ def test_synchronous_windows_probe_owns_job_until_finish(windows, finish_twice):
 def test_windows_probe_registers_a_process_double_without_a_handle(windows, monkeypatch):
     proc = Mock(spec=["poll", "kill", "wait"], poll=Mock(return_value=None))
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
-    cancellation = quota_probes.ProbeCancellation()
+    cancellation = ProbeCancellation()
 
     assert cancellation.spawn(COMMAND) is proc
     cancellation.finish(proc)
@@ -151,7 +152,7 @@ def test_windows_probe_job_failure_resumes_with_handle_only_cleanup(windows, api
         return 0
 
     failed.side_effect = fail
-    cancellation = quota_probes.ProbeCancellation()
+    cancellation = ProbeCancellation()
     proc = cancellation.spawn(COMMAND)
     cancellation.stop()
     cancellation.finish(proc)
@@ -167,10 +168,10 @@ def test_windows_probe_containment_warning_reaches_the_refresh_result(windows, m
     windows.kernel.AssignProcessToJobObject.return_value = False
     monkeypatch.setattr(quota_capture, "ObservationStore", lambda *a, **kw: Mock())
     monkeypatch.setattr(quota_capture, "_read_latest_facts_report", lambda store: None)
-    cancellation = quota_probes.ProbeCancellation()
+    cancellation = ProbeCancellation()
 
     def version_checker(kind):
-        quota_probes.run_text_probe(COMMAND, timeout=WAIT_SECONDS, cancellation=cancellation)
+        common.run_text_probe(COMMAND, timeout=WAIT_SECONDS, cancellation=cancellation)
         return None
 
     result = quota_capture.refresh_quota(__file__, ["cc"], pollers={}, version_checker=version_checker,
@@ -186,9 +187,9 @@ def test_windows_probe_resume_failure_kills_the_suspended_process(windows, monke
     else:
         windows.resume.side_effect = None
         windows.resume.return_value = RESUME_FAILURE
-    monkeypatch.setattr(quota_probes, "_real_command", lambda *a: COMMAND)
-    cancellation = quota_probes.ProbeCancellation()
-    result = quota_probes.poll_claude_account(cancellation=cancellation)
+    monkeypatch.setattr(common, "real_command", lambda *a: COMMAND)
+    cancellation = ProbeCancellation()
+    result = claude.poll_claude_account(cancellation=cancellation)
     cancellation.close()
 
     assert result.state == EvidenceState.ERROR
@@ -201,7 +202,7 @@ def test_windows_probe_resume_failure_kills_the_suspended_process(windows, monke
 
 @pytest.mark.parametrize("termination_raises", [False, True])
 def test_windows_probe_finishes_exited_wrapper_and_closes_the_job_once(windows, termination_raises):
-    cancellation = quota_probes.ProbeCancellation()
+    cancellation = ProbeCancellation()
     proc = cancellation.spawn(COMMAND)
     proc.returncode = 0
     if termination_raises:
@@ -217,9 +218,9 @@ def test_windows_probe_finishes_exited_wrapper_and_closes_the_job_once(windows, 
 
 def test_windows_text_probe_timeout_terminates_and_closes_job(windows):
     windows.proc.communicate.side_effect = subprocess.TimeoutExpired(COMMAND, WAIT_SECONDS)
-    cancellation = quota_probes.ProbeCancellation()
+    cancellation = ProbeCancellation()
     with pytest.raises(subprocess.TimeoutExpired):
-        quota_probes.run_text_probe(COMMAND, timeout=WAIT_SECONDS, cancellation=cancellation)
+        common.run_text_probe(COMMAND, timeout=WAIT_SECONDS, cancellation=cancellation)
     cancellation.close()
 
     assert windows.events[-3:] == ["terminate", "close", "wait"]
@@ -234,7 +235,7 @@ def test_windows_probe_cancel_kills_child_after_wrapper_exit_and_reaches_eof():
         "import subprocess, sys; sys.stdin.readline(); "
         f"subprocess.Popen([sys.executable, '-c', {child_code!r}], stdin=subprocess.DEVNULL, stdout=sys.stdout)"
     )
-    cancellation = quota_probes.ProbeCancellation()
+    cancellation = ProbeCancellation()
     child = None
     proc = cancellation.spawn([sys.executable, "-c", wrapper_code], stdin=subprocess.PIPE,
                               stdout=subprocess.PIPE, text=True)
@@ -277,7 +278,7 @@ def test_windows_probe_cancel_kills_child_after_wrapper_exit_and_reaches_eof():
 
 
 def test_a_cancel_during_job_setup_never_resumes_the_probe(windows):
-    cancellation = quota_probes.ProbeCancellation()
+    cancellation = ProbeCancellation()
 
     def stop_while_setting_up(*args, **kwargs):
         windows.events.append("set")

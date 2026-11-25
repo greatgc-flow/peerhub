@@ -36,7 +36,7 @@ def fake(tmp_path, monkeypatch):
     script = bindir / "fake_agy.py"
     script.write_text(SCRIPT, encoding="utf-8")
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: [sys.executable, str(script)] if peer == "ag" else None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command", lambda peer, _s=None: [sys.executable, str(script)] if peer == "ag" else None)
 
     class F:
         root = tmp_path

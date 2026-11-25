@@ -17,7 +17,7 @@ import pytest
 from peerhub.extensions.adapters.profiles import packaged_defaults_meta
 from peerhub.extensions.observation_model import EvidenceState
 from peerhub.extensions.quota_capture import refresh_quota
-from peerhub.extensions.quota_probes import _parse_agy_usage_output
+from peerhub.extensions.quota_probes.agy import _parse_agy_usage_output
 from peerhub.core.store import CoreStore
 
 pytestmark = [pytest.mark.unit]

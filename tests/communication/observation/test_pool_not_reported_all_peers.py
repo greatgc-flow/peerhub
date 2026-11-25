@@ -34,8 +34,8 @@ def run_cc(monkeypatch, text, returncode=0, **kw):
             return (text, "")
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
-    monkeypatch.setattr("peerhub.extensions.quota_probes._parse_claude_usage_reset", lambda *a, **k: RESET)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
+    monkeypatch.setattr("peerhub.extensions.quota_probes.claude._parse_claude_usage_reset", lambda *a, **k: RESET)
     return poll_claude_usage(DummyIdSource(), "cc", "default", **kw)
 
 
@@ -98,7 +98,7 @@ def test_cc_failed_or_unfinished_run_records_no_absent(monkeypatch, returncode):
 def run_ag(monkeypatch, tmp_path, stdout, **kw):
     completed = SimpleNamespace(returncode=0, stdout=stdout, stderr="")
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command",
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common.real_command",
                         lambda peer, _sys_dir=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: completed)
     return poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: 1_790_000_000, sys_dir=tmp_path / "_sys", **kw)

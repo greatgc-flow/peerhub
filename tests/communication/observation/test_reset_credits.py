@@ -55,7 +55,7 @@ def run_probe(monkeypatch, env, **options):
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Proc())
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
-    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda _p, _s=None: "dummy.exe")
+    monkeypatch.setattr("peerhub.extensions.quota_probes.common._real_binary", lambda _p, _s=None: "dummy.exe")
     res = poll_codex_usage(Ids(), "cx", "default", deadline_sec=1.0, **options)
     return [r for r in res if isinstance(r, UsageObserved)], [r for r in res if isinstance(r, ResetCreditObserved)]
 

@@ -271,7 +271,7 @@ def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
 
 def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatch):
     from peerhub.extensions import quota_capture
-    from peerhub.extensions.quota_probes import _fail_closed
+    from peerhub.extensions.quota_probes.common import fail_closed
     from peerhub.extensions.quota_types import EvidenceState
 
     class Store:
@@ -288,7 +288,7 @@ def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatc
     def poll(ids, instance_id, profile_id, **options):
         calls.append(instance_id)
         timeout = instance_id == "cc"
-        return [_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR if timeout else EvidenceState.ABSENT,
+        return [fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR if timeout else EvidenceState.ABSENT,
                              1_800_000_000, 300, peer=instance_id,
                              extra={"reason": "claude_usage_timeout"} if timeout else None)]
 
