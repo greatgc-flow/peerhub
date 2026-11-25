@@ -111,7 +111,8 @@ def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
     samples = _num(reading.get("projection_samples")) or 0
 
     state: PoolState
-    if evidence == "ABSENT" and not stale and str(payload.get("reason", "")).startswith(ABSENT_FACT_REASONS):
+    if evidence == "ABSENT" and not stale and (reading.get("display_retired")
+                                              or str(payload.get("reason", "")).startswith(ABSENT_FACT_REASONS)):
         state = "n/a"
     elif remaining is None:
         state = "aged" if stale and reading.get("stored_state") == "ABSENT" else "?"

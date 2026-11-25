@@ -38,6 +38,7 @@ UNICODE = "漢字 😀 שלום é  |  a\r\nb\rc\x00 end"
 @pytest.fixture(autouse=True)
 def _real_detection(monkeypatch):
     monkeypatch.setattr(ag, "_detect_ag_transport", REAL_DETECT)
+    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: 1.0)
     ag._AG_TRANSPORT_CACHE.clear()
     yield
     ag._AG_TRANSPORT_CACHE.clear()
@@ -258,7 +259,7 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
     monkeypatch.setattr(common, "probe_cli", probes)
 
     def detect():
-        return ag._detect_ag_transport([str(binary)], {}, str(tmp_path)).transport
+        return ag._detect_ag_transport([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path)).transport
 
     assert detect() == detect() == "stream"
     assert probes.calls == ["--version", "--help", "--version"]
@@ -269,6 +270,44 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
     probes.help = b"usage: agy -p PROMPT\n"
     assert detect() == "argv"
     assert probes.calls[5:] == ["--version", "--help"]
+
+
+def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch):
+    from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
+
+    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    deadlines = []
+
+    def probe(base, args, *, timeout_s, **options):
+        deadlines.append((args[0], timeout_s))
+        if len(deadlines) == 1:
+            return _probe_result(timed_out=True)
+        return _probe_result(b"agy 1.5.17" if args[0] == "--version" else b"--input-format stream-json")
+
+    monkeypatch.setattr(common, "probe_cli", probe)
+    result = ag._detect_ag_transport([PY, FAKE], {}, str(Path.cwd()))
+    assert result.transport == "stream"
+    assert deadlines == [(arg, ag._AG_PROBE_TIMEOUT_S * BUSY_PROBE_TIMEOUT_FACTOR)
+                         for arg in ("--version", "--version", "--help")]
+
+
+def test_06a_busy_detection_reuses_disk_cache_and_invalidates_it_on_replacement(monkeypatch, tmp_path):
+    from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
+
+    binary = tmp_path / "agy.exe"
+    binary.write_bytes(b"first build")
+    probes = Probes()
+    monkeypatch.setattr(common, "probe_cli", probes)
+    args = ([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path))
+    assert ag._detect_ag_transport(*args).transport == "stream"
+    ag._AG_TRANSPORT_CACHE.clear()
+    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    assert ag._detect_ag_transport(*args).version == "1.5.9"
+    assert probes.calls == ["--version", "--help"]
+    binary.write_bytes(b"a different build")
+    probes.help = b"usage: agy -p PROMPT"
+    assert ag._detect_ag_transport(*args).transport == "argv"
+    assert probes.calls == ["--version", "--help", "--version", "--help"]
 
 
 @pytest.mark.parametrize("probe", ["--version", "--help"])
@@ -283,7 +322,8 @@ def test_06b_unusable_probe_is_undetermined_and_never_cached(kit, bridge_h, monk
         result = bridge_h.delivery_cycle("b", "s", target)
         assert result.status == "failed_not_started"
         assert _error(result).startswith("cannot determine agy stdin support: ")
-    assert probes.calls.count("--version") == 2
+    times = 4 if probe == "--version" and flag in {"timed_out", "drain_timed_out", "silence_timed_out"} else 2
+    assert probes.calls.count("--version") == times
     assert kit.launches == 0
 
 

@@ -40,8 +40,8 @@ def render_guide(workspace: Path | None = None) -> str:
         "Stream: one --stream per task; reuse only for follow-ups/reviews on ONE diff; new task = new stream.",
         f"Votes: routine check = ONE reviewer; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. All run FRESH, even if a stream name is given; facts inline. Reply VERDICT / BLOCKERS / NITS, <= 300 tokens (peerhub explain {vote['id']}).",
         f"Batch: peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run (validates only); execution spends quota. "
-        f"n at once as quota and machine resources allow (free RAM >= {MIN_FREE_RAM_GB} GB, CPU below {CPU_BUSY_WARN_PCT}%); "
-        "PeerHub does not cap the count.",
+        f"n at once. Read load (free RAM >= {MIN_FREE_RAM_GB} GB, CPU below {CPU_BUSY_WARN_PCT}%). {CPU_BUSY_WARN_PCT}%+ CPU: hold. "
+        "Other sessions' asks count. No cap.",
         "Timeout: --timeout-seconds 1800-3600 for implementer/review (default 600); ag up to 7200.",
         "Uncertain (timeout, empty reply, pending_earlier_record): stop the stream, check diag running and working tree, never blind-retry.",
         f"More: peerhub profile list; peerhub explain <topic> for: {more}; peerhub explain lessons.",

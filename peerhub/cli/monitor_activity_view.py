@@ -5,6 +5,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
+from peerhub._console import clean_text, finite_number
 from peerhub.cli.monitor_alert_view import group_error
 from peerhub.cli.monitor_layout import (
     RICH_GLYPHS,
@@ -12,11 +13,9 @@ from peerhub.cli.monitor_layout import (
     as_dict,
     cell_text,
     cell_width,
-    clean_text,
     column_painter,
     compact_age,
     dict_items,
-    finite_number,
     fit_table,
     fit_text,
     format_count,

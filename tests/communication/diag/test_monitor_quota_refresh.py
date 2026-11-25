@@ -8,6 +8,7 @@ from threading import Event
 
 import pytest
 
+from peerhub._console import ANSI_ESCAPE
 from peerhub.cli import monitor, monitor_layout, monitor_view, support
 from peerhub.cli.app import main
 from peerhub.extensions.diag_quota import format_quota_table
@@ -29,13 +30,13 @@ def _frame(items):
 @pytest.mark.parametrize("age,notice", [
     (None, "quota: no reading"), (QUOTA_NOTICE_AGE_SECONDS, ""),
     (QUOTA_NOTICE_AGE_SECONDS + 1, "quota 1h old"), (5 * 3600, "quota 5h old"),
-    (86400, "quota 1d old"), (8 * 86400, "quota 8d old"),
+    (86400, "quota 1d old"), (8 * 86400, "quota: no reading"),
 ])
 def test_stale_notice_has_the_same_position_and_wording(age, notice, view, width):
     payload = _frame([] if age is None else [_reading(age)])
     for expand in (False, True):
         rendered = monitor_view.render_grouped_frame(payload, view=view, width=width, height=12, expand=expand)
-        rows = monitor_layout.ANSI_ESCAPE.sub("", rendered).splitlines()
+        rows = ANSI_ESCAPE.sub("", rendered).splitlines()
         if notice:
             assert " ".join(rows[2:]).startswith(notice + " -> peerhub observation refresh")
         else:
@@ -177,7 +178,7 @@ class _Terminal(io.StringIO):
 ])
 def test_finite_watch_retains_automatic_collection_cadence(monkeypatch, options, disabled, age, expected):
     monkeypatch.setattr("sys.stdout", _Terminal())
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: False)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: False)
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: _frame([]))
     monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [] if age is None else [
@@ -255,7 +256,7 @@ def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
 
     terminal = _Terminal()
     monkeypatch.setattr("sys.stdout", terminal)
-    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: False)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: False)
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: _frame([]))
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: pytest.fail("refresh in reader"))
@@ -296,6 +297,46 @@ def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatc
                                          version_checker=lambda kind: None, retry_timeouts=True)
     assert calls == ["cc", "cc", "cx"]
     assert [item["state"] for item in result["observations"]] == ["ERROR", "ABSENT"]
+
+
+@pytest.mark.parametrize("raised", [False, True])
+def test_busy_quota_timeout_has_a_scaled_deadline_and_a_display_reason(monkeypatch, raised):
+    from peerhub.cli.view import _probe_line
+    from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
+    from peerhub.extensions import quota_capture
+    from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY
+    from peerhub.extensions.quota_probes.common import fail_closed
+    from peerhub.extensions.quota_types import EvidenceState
+
+    class Store:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def persist(self, obs):
+            pass
+
+    monkeypatch.setattr(quota_capture, "ObservationStore", Store)
+    monkeypatch.setattr(quota_capture, "_read_latest_facts_report", lambda store: None)
+    monkeypatch.setattr(quota_capture, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    deadlines = []
+
+    def poll(ids, instance_id, profile_id, *, deadline_sec, **options):
+        deadlines.append(deadline_sec)
+        if raised:
+            raise TimeoutError
+        return [fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, 1_800_000_000, 300,
+                             peer=instance_id, extra={"reason": "claude_usage_timeout"})]
+
+    result = quota_capture.refresh_quota(__file__, ["cc"], deadline_sec=10, pollers={"cc": poll},
+                                         version_checker=lambda kind: None)
+    assert deadlines == [10 * BUSY_PROBE_TIMEOUT_FACTOR]
+    (observation,) = result["observations"]
+    assert observation["payload"]["reason"] == QUOTA_PROBE_LOAD_DELAY
+    assert "cc:delayed by load" in _probe_line([observation], None)
+    monitor_item = _reading(10, pool_ref=None, state="ERROR", reason=QUOTA_PROBE_LOAD_DELAY)
+    for expanded in (False, True):
+        screen = monitor_view.render_grouped_frame(_frame([monitor_item]), expand=expanded)
+        assert "cc probe delayed by load" in screen and "probe error" not in screen
 
 
 def test_pid_lock_reaps_dead_owner_and_bounds_wait_for_live_owner(tmp_path, monkeypatch):

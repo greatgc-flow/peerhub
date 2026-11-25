@@ -6,12 +6,14 @@ import json
 import os
 import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from peerhub.cli.arguments import WORKSPACE_OPTIONS
 from peerhub.cli.output import emit
 from peerhub.cli.support import error_line
+from peerhub.core import load_limits
 from peerhub.core.peer_kinds import BUILTIN_PEER_LABELS
 
 if TYPE_CHECKING:
@@ -19,6 +21,8 @@ if TYPE_CHECKING:
 
 
 ASK_QUERY_FILE_OPTIONS = ("--query-file", "--prompt-file")
+ASK_LOAD_MAX_WAIT_SECONDS = 120.0
+ASK_LOAD_POLL_SECONDS = 3.0
 
 
 def register_ask_parser(subparsers: Subparsers) -> None:
@@ -173,9 +177,30 @@ def _session_trailer(session: dict[str, Any]) -> str:
     return f"session: {session['handle']} {session['mode']} gen{session['generation']}{suffix}"
 
 
+def _wait_for_ask_resources(db: Path) -> None:
+    from peerhub.extensions.diag_running import running_report
+
+    deadline = time.monotonic() + ASK_LOAD_MAX_WAIT_SECONDS
+    waiting = False
+    while warnings := load_limits.load_warnings(load_limits.read_resources().facts()):
+        detail = "; ".join(warnings)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            print(f"Warning: {detail}. Starting ask after the resource wait limit.", file=sys.stderr, flush=True)
+            return
+        active = running_report(db, limit=1)["rows"]
+        if not active:
+            print(f"Warning: {detail}. Starting ask.", file=sys.stderr, flush=True)
+            return
+        if not waiting:
+            print(f"Waiting to start ask while other asks are active ({detail}).", file=sys.stderr, flush=True)
+            waiting = True
+        time.sleep(max(0, min(ASK_LOAD_POLL_SECONDS, deadline - time.monotonic())))
+
+
 def run_ask(args: argparse.Namespace) -> int:
     from peerhub.cli.support import refresh_dispatch_quota
-    from peerhub.extensions.ask import ask
+    from peerhub.extensions.ask import ask, open_ask_snapshot
     if args.query_file:
         query = Path(args.query_file).read_bytes()
         prompt = query.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
@@ -210,7 +235,7 @@ def run_ask(args: argparse.Namespace) -> int:
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                      fresh=args.fresh, session=args.session, query_file=args.query_file,
                      on_output=None if args.json else show_output, on_stream_budget=show_budget_warning,
-                     before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices,
+                     before_claim=_wait_for_ask_resources, before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices,
                      dry_run=bool(args.dry_run))
     except Exception:
         if has_streamed and not args.json and not output_has_newline:
@@ -219,11 +244,18 @@ def run_ask(args: argparse.Namespace) -> int:
             show_receipt({})
         raise
     if args.dry_run and "store_exists" in result:
+        from peerhub.extensions.diag_running import sample_load
+        load = (sample_load(args.db, connection_factory=lambda path: open_ask_snapshot(Path(path).resolve()))
+                if result["store_exists"] else load_limits.load_snapshot({}, load_limits.read_resources()))
+        warnings = load_limits.load_warnings(load)
         if args.json:
-            emit(result, True)
+            emit({**result, "load": load, "resource_warnings": warnings}, True)
         else:
             for key, value in result.items():
                 print(f"{key}: {json.dumps(value) if not isinstance(value, str) or not value.isprintable() else value}")
+            print(load_limits.format_load(load))
+            for warning in warnings:
+                print(f"Warning: {warning}", file=sys.stderr)
         return 0
     from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
     is_success = result.get("status") in ("delivered", "recovered_terminal") and result.get("error") is None

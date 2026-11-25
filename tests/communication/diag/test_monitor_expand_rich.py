@@ -339,14 +339,13 @@ def test_stale_duplicate_pool_names_keep_each_human_observations_state(unicode):
 
 
 @pytest.mark.parametrize("elapsed", [0, 2])
-def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
+def test_quota_hides_the_window_after_reset_and_names_it_in_notes(elapsed):
     payload = _payload([], [pool("cc", "C-7D", .10, fast=True, pace=31.0, reset=-1 if elapsed == 0 else 1)],
                        display_elapsed_seconds=elapsed)
     screen = expand(payload, width=160)
-    pool_cells = block(screen, "pools")[1].split()
-    quota_cells = quota_rows(screen)["C-7D"]
-    assert pool_cells[2:4] == quota_cells[:2] == [U["aged"], "reset"]
-    assert quota_cells[3:7] == pool_cells[5:9] == ["—", "—", "—", "—/passed"]  # expired window
+    assert "C-7D" not in screen
+    notes = expand(payload, width=160, show_quota_notes=True)
+    assert "cc C-7D n/a (quota window expired)" in [line.strip() for line in block(notes, "capacity")]
 
 
 def test_g_one_even_burn_legend_follows_pools_and_gap():

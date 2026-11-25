@@ -71,6 +71,7 @@ than an hour old. Ages of a day or more use days. Without quota readings, the li
 The per-pool `aged` state keeps its own freshness rule. Human `diag quota` and `diag --live` show the same notice.
 After a timeout, both monitor layouts keep a measured value less than 15 minutes old and show one note per affected peer,
 such as `cc probe timeout (value 3m old)`.
+A quota probe that still times out under high CPU load is labeled `delayed by load`.
 
 ## POOLS
 
@@ -78,6 +79,7 @@ such as `cc probe timeout (value 3m old)`.
 (`n/a`) windows by default, including the legacy Antigravity weekly bucket when the provider omits it from a
 complete report. Add `--show-quota-notes` to count and name them inline and show reasons in compact POOLS or
 expanded QUOTA. This display option applies to snapshots and watches. See [Antigravity quota pools](adapters/ag.md#quota-pools).
+Readings past their reset or older than their window are also shown as `n/a` and excluded from the header age.
 
 The compact view applies `POOLS_CAP` and omits nonbinding short windows unless they have a scoped parent.
 The expanded view includes all short windows, with visible rows limited by the frame height.

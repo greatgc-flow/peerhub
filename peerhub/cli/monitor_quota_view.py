@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, cast
 
+from peerhub._console import clean_text, finite_number
 from peerhub.cli.monitor_format import (
     PoolEntry,
     compact_pool,
@@ -12,13 +13,11 @@ from peerhub.cli.monitor_format import (
     fold_pool_markers,
     na_pool_note,
     na_reason,
-    omitted_plan_windows,
     ordered_pools,
     pct,
     pool_order,
     pool_table,
     quota_layout,
-    scoped_weekly_parents,
 )
 from peerhub.cli.monitor_layout import (
     RICH_SGR,
@@ -27,10 +26,8 @@ from peerhub.cli.monitor_layout import (
     as_dict,
     cell_text,
     cell_width,
-    clean_text,
     compact_age,
     dict_items,
-    finite_number,
     format_count,
     format_duration,
     heading_rule,
@@ -46,9 +43,12 @@ from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.extensions.observation_model import (
     ABSENT_FACT_REASONS,
     QUOTA_MAX_AGE_SECONDS,
+    QUOTA_PROBE_LOAD_DELAY,
+    QUOTA_PROBE_LOAD_LABEL,
     quota_probe_timed_out,
 )
 from peerhub.extensions.pool_health import PoolHealth
+from peerhub.extensions.quota_windows import EXPIRED_WINDOW_REASON, omitted_plan_windows, quota_window_remaining, scoped_weekly_parents
 
 
 HIDDEN_QUOTA_WINDOWS = "Unavailable quota windows hidden (use --show-quota-notes)"
@@ -119,7 +119,8 @@ def compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, Any
         fast = False
         for pool in pools:
             row = by_pool.get(f"{peer}:{pool}")
-            if row is None or row["aged"] or row["state"] in {"?", "reset", "aged"}:
+            if (row is None or row["aged"] or row["state"] in {"?", "reset", "aged"}
+                    or row.get("reason") == EXPIRED_WINDOW_REASON):
                 break
             if row["state"] == QUOTA_NA:
                 continue
@@ -224,8 +225,8 @@ def with_min_quota(payload: dict[str, Any], rows: list[dict[str, Any]]) -> dict[
     return {**payload, "min_quota": display_min_quota(rows)} if "_human_observations" in payload else payload
 
 
-def display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
-    """Mark omitted quota rows on a copy of the monitor payload."""
+def display_retired_windows(payload: dict[str, Any]) -> dict[str, Any]:
+    """Mark omitted or expired quota windows on a copy of the monitor payload."""
     groups = as_dict(payload.get("groups"))
     cap = as_dict(groups.get("capacity"))
     data = as_dict(cap.get("data"))
@@ -234,6 +235,15 @@ def display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
              if item.get("state") == "MEASURED" and item.get("plan") and not item.get("probe_error")}
     elapsed = finite_number(payload.get("display_elapsed_seconds")) or 0
     replacements = omitted_plan_windows(observations, plans, elapsed)
+    read_at = finite_number(payload.get("read_at"))
+    if read_at is not None:
+        for item in observations:
+            remaining = quota_window_remaining(item, read_at)
+            if remaining is not None and remaining < elapsed:
+                key = (str(item.get("peer_id")), str(item["pool_ref"]))
+                replacements.setdefault(key, {**item, "state": "ABSENT", "stored_state": "ABSENT",
+                    "reason": EXPIRED_WINDOW_REASON, "display_retired": True, "age_seconds": None, "ttl_seconds": None,
+                    "measurements": None, "last_measurements": None, "projection": {}, "resets_at": None, "reset_in_seconds": None})
     if not replacements:
         return payload
 
@@ -287,7 +297,9 @@ def with_retained_quota(payload: dict[str, Any]) -> dict[str, Any]:
         if ages:
             if not latest.get("pool_ref"):
                 replacements[id(latest)] = None
-            failure = "timeout" if quota_probe_timed_out(latest.get("reason")) else "error"
+            reason = latest.get("reason")
+            failure = (QUOTA_PROBE_LOAD_LABEL if reason == QUOTA_PROBE_LOAD_DELAY
+                       else "timeout" if quota_probe_timed_out(reason) else "error")
             notes.append(f"{clean_text(peer)} probe {failure} (value {int(min(ages) // 60)}m old)")
 
     if not notes:
@@ -341,7 +353,8 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
             state = clean_text(item.get("state") or "UNKNOWN")
             age = finite_number(item.get("age_seconds"))
             if not pool_ref or pool_ref == "quota" and state != "MEASURED":
-                code = f"PROBE:{compact_age(age + elapsed_seconds) if age is not None else 'unknown'}"
+                code = (f"probe {QUOTA_PROBE_LOAD_LABEL}" if item.get("reason") == QUOTA_PROBE_LOAD_DELAY
+                        else f"PROBE:{compact_age(age + elapsed_seconds) if age is not None else 'unknown'}")
                 probe_notes.setdefault(peer, set()).add(code)
                 continue
             row = pool_rows.get((peer, clean_text(pool_ref))) or compact_pool(item, read_at or 0, elapsed_seconds, {})

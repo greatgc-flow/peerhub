@@ -5,6 +5,7 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
+from peerhub._console import clean_text, finite_number
 from peerhub.cli.monitor_activity_view import ask_split, plain_activity, rich_activity, running_head
 from peerhub.cli.monitor_alert_view import group_error
 from peerhub.cli.monitor_compact import build_compact_frame, frame_line_ladder
@@ -14,9 +15,7 @@ from peerhub.cli.monitor_layout import (
     RICH_GLYPHS,
     as_dict,
     ascii_text,
-    clean_text,
     dict_items,
-    finite_number,
     fit_fields,
     fit_text,
     hidden_lines,

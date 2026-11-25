@@ -168,7 +168,7 @@ def test_resumed_budget_uses_selected_session_per_ask_prompt(recorded_usage):
 
 def test_profile_stats_text_is_a_compact_table(monkeypatch, capsys):
     from peerhub.cli import profile_stats
-    from peerhub.cli.view import visible_len
+    from peerhub._console import visible_len
 
     def profile(name, n, wall, cache, tokens_in, tokens_out, pool, bench, stale, coverage):
         return dict(profile=name, n=n, p50_wall_seconds=wall, cache_read_pct=cache,

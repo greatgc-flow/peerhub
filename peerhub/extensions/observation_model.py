@@ -132,6 +132,10 @@ QUOTA_MAX_AGE_SECONDS = 15 * 60
 QUOTA_NOTICE_AGE_SECONDS = 60 * 60
 
 
+QUOTA_PROBE_LOAD_DELAY = "quota_probe_delayed_by_load"
+QUOTA_PROBE_LOAD_LABEL = "delayed by load"
+
+
 def quota_probe_timed_out(reason: object) -> bool:
     return isinstance(reason, str) and (reason == "timeout" or reason.endswith("_timeout"))
 

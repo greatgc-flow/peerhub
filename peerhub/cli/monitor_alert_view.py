@@ -5,6 +5,7 @@ import re
 from collections.abc import Mapping
 from typing import Any, cast
 
+from peerhub._console import clean_text, finite_number
 from peerhub.cli.monitor_layout import (
     PILL_SGR,
     RICH_SGR,
@@ -12,10 +13,8 @@ from peerhub.cli.monitor_layout import (
     ascii_text,
     cell_text,
     cell_width,
-    clean_text,
     compact_age,
     dict_items,
-    finite_number,
     fit_text,
     format_count,
     heading_rule,

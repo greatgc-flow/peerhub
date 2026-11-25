@@ -9,6 +9,7 @@ from uuid import uuid4
 import pytest
 
 from peerhub.cli.app import build_parser, main
+from peerhub.core import load_limits
 from peerhub.core.store import CoreStore
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.api import API_TARGETS
@@ -32,6 +33,8 @@ def test_missing_selected_store_prints_resolved_ask(monkeypatch, capsys):
     parsed = build_parser().parse_args(options)
     runtime = CliRuntimeTarget(parsed.peer, Path.cwd(), profile=parsed.profile, writable=parsed.writable)
     _offline(monkeypatch)
+    sample = load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT)
+    monkeypatch.setattr(load_limits, "read_resources", lambda: sample)
 
     assert main([*options, "--dry-run", "--json"]) == 0
     captured = capsys.readouterr()
@@ -50,15 +53,17 @@ def test_missing_selected_store_prints_resolved_ask(monkeypatch, capsys):
         "session_handle": None,
         "request_id": parsed.request_id,
         "replay": False,
+        "load": load_limits.load_snapshot({}, sample),
+        "resource_warnings": load_limits.load_warnings(sample.facts()),
     }
     assert not db.parent.exists()
 
     assert main([*options, "--dry-run"]) == 0
     output = capsys.readouterr()
     lines = [line.split(": ", 1) for line in output.out.splitlines()]
-    assert {key for key, value in lines} == facts.keys()
+    assert {key for key, value in lines} == facts.keys() - {"resource_warnings"}
     assert dict(lines)["store_exists"] == "false"
-    assert not output.err
+    assert "at or above warning level" in output.err
     assert not db.parent.exists()
 
 

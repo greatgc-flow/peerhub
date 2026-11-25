@@ -28,11 +28,11 @@ from peerhub.extensions.observation_model import (
     account_text as _account_text,
     changed_account_plan,
     evaluate as evaluate_observation,
-    oldest_measured_quota_age,
     row_to_observation,
     valid_epoch_seconds,
 )
 from peerhub.extensions.quota_projection import project_exhaustion
+from peerhub.extensions.quota_windows import quota_window_remaining
 
 
 def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -201,8 +201,13 @@ def _quota_age_observations(conn: sqlite3.Connection, now: float) -> Iterator[di
         except ObservationCorruptError:
             continue
         freshness = evaluate_observation(observation, capture_seq, read_us, policy)
-        yield {"kind": observation.kind, "subject_ref": observation.subject_ref, "resource_pool_ref": observation.resource_pool_ref,
-               "state": freshness.state.value, "age_seconds": freshness.age_seconds, "payload": observation.payload}
+        item = {"kind": observation.kind, "subject_ref": observation.subject_ref, "resource_pool_ref": observation.resource_pool_ref,
+                "state": freshness.state.value, "stored_state": freshness.stored_state.value,
+                "age_seconds": freshness.age_seconds, "payload": observation.payload}
+        remaining = quota_window_remaining(item, now)
+        if remaining is None or remaining >= 0:
+            yield {**item, "payload": {"remaining_fraction": observation.payload.get("remaining_fraction")},
+                   "expires_in": remaining}
 
 
 def _incomplete_quota() -> dict[str, Any]:
@@ -433,16 +438,16 @@ def read_quota_groups(conn: sqlite3.Connection, groups: list[str], output: dict[
 
 
 def read_human_quota(conn: sqlite3.Connection, groups: list[str], observations: list[dict[str, Any]], now: float
-                     ) -> tuple[list[dict[str, Any]], dict[str, float | None]]:
+                     ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     """Read the display-only quota evidence in the same transaction as the public snapshot."""
     human_observations: list[dict[str, Any]] = []
-    quota_age: dict[str, float | None] = {}
+    quota_age: dict[str, list[dict[str, Any]]] = {}
     if not set(groups) & {"capacity", "peers"}:
         try:
-            quota_age["_quota_age_seconds"] = oldest_measured_quota_age(_quota_age_observations(conn, now))
+            quota_age["_quota_age_readings"] = list(_quota_age_observations(conn, now))
         except sqlite3.Error as exc:
             if no_observation_tables(conn, exc):
-                quota_age["_quota_age_seconds"] = None
+                quota_age["_quota_age_readings"] = []
     if observations:
         # One batch within this read snapshot; redraws reuse these immutable facts.
         ids = [item["observation_id"] for item in observations]

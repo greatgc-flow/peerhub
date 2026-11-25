@@ -119,7 +119,7 @@ def test_d4_snapshot_tty_is_bounded_pipe_is_unbounded(
         frame: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
         tty: bool, vt: bool) -> None:
     from peerhub.cli.monitor import _print_grouped_snapshot
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
     import sys
 
     monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
@@ -409,7 +409,7 @@ def test_r3_every_dropped_field_has_a_note(text: str, width: int) -> None:
 def test_r3_compact_snapshot_without_vt_keeps_append_behaviour(
         frame: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     from peerhub.cli.monitor import _print_grouped_snapshot
-    from peerhub.cli.view import FrameOutput
+    from peerhub._console import FrameOutput
     import sys
 
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
@@ -596,7 +596,7 @@ def test_painted_field_fitting_preserves_cell_bounds(sep: str, unicode_mode: boo
 @pytest.mark.parametrize("invalid", ["1794522316000000", "bad", None, True, float("nan"), float("inf")])
 @pytest.mark.parametrize("invalid_first", [False, True])
 def test_plan_omission_ignores_invalid_timestamps(frame: dict[str, Any], invalid: object, invalid_first: bool) -> None:
-    from peerhub.cli.monitor_quota_view import display_plan_omissions
+    from peerhub.cli.monitor_quota_view import display_retired_windows
 
     cap = frame["groups"]["capacity"]["data"]
     old, current = [deepcopy(item) for item in cap["observations"] if item["peer_id"] == "cx"][:2]
@@ -605,7 +605,7 @@ def test_plan_omission_ignores_invalid_timestamps(frame: dict[str, Any], invalid
     malformed = {**current, "effective_at_us": invalid, "state": "ERROR", "pool_ref": None}
     cap["observations"] = [malformed, old, current] if invalid_first else [old, current, malformed]
     cap["accounts"] = [{"peer_id": "cx", "plan": "pro", "state": "MEASURED"}]
-    result = display_plan_omissions(frame)
+    result = display_retired_windows(frame)
     rows = result["groups"]["capacity"]["data"]["observations"]
     assert next(row for row in rows if row["pool_ref"] == old["pool_ref"])["display_retired"] is True
     assert old["state"] == "STALE"

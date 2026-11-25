@@ -38,7 +38,7 @@ def compact_frame():
             pool("ag", "3P-7D", 0, state="STALE", age=540),
             pool("ag", "A-7D", .55, state="STALE", age=540),
             pool("ag", "G-5H", .80),
-            pool("ag", "G-7D", .55, state="STALE", age=540, reset=-1),
+            pool("ag", "G-7D", .55, state="STALE", age=540, reset=0),
             pool("cc", "F-7D", None),
             pool("cx", "X-5H", None, state="ABSENT", reset=-1),
             pool("cx", "X-7D", .89)]
@@ -127,7 +127,7 @@ def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unus
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row["projection"] = {"pace_pt": 46}
     if unusable == "?": row.update(state="UNKNOWN")
-    if unusable == "reset": row.update(resets_at=NOW - 1)
+    if unusable == "reset": row.update(resets_at=NOW)
     if unusable == "missing": row["projection"] = {}
     if unusable == "nan": row["projection"]["pace_pt"] = float("nan")
     if unusable == "inf": row["projection"]["pace_pt"] = float("inf")
@@ -219,7 +219,7 @@ def test_projection_fast_requires_two_samples(compact_frame, samples, expected):
     (.8, "threat", 1, 301, 3600, "aged"),
     (.8, "safe", 2, 60, 3600, "ok"),
     (0, "threat", 2, 301, 3600, "aged"),
-    (.05, "threat", 2, 301, -1, "reset"),
+    (.05, "threat", 2, 301, 0, "reset"),
     (None, "threat", 2, 60, -1, "?"),
 ])
 def test_low_fast_and_higher_priority_states(compact_frame, remaining, projection, samples, age, reset, expected):
@@ -444,7 +444,7 @@ def test_tick_advances_header_age_and_ttl_without_mutation(compact_frame):
 def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_frame):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     absent, reset = rows[6], rows[7]
-    reset.update(resets_at=NOW - 1, age_seconds=540, state="STALE")
+    reset.update(resets_at=NOW, age_seconds=540, state="STALE")
     compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
     assert "X-5H" not in screen

@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from peerhub._console import ANSI_ESCAPE
 from peerhub.cli import monitor_format, monitor_layout, monitor_links, monitor_view as mv
 from peerhub.cli.monitor import register_monitor_parser, validate_monitor_args
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
@@ -31,7 +32,7 @@ def pool_lines(screen: str) -> list[str]:
     """The pool lines of a frame; in an --expand frame the QUOTA details (below the compact POOLS block, #412)."""
     lines = screen.splitlines()
     start = next((i for i, line in enumerate(lines) if "QUOTA [" in line), 0)
-    return [line for line in lines[start:] if re.search(r"^\s*(?:\w+ +)?(?:[└├]─ |[`|]- )?(?:C|F|X)-\d+[HD] {2,}", monitor_layout.ANSI_ESCAPE.sub("", line))
+    return [line for line in lines[start:] if re.search(r"^\s*(?:\w+ +)?(?:[└├]─ |[`|]- )?(?:C|F|X)-\d+[HD] {2,}", ANSI_ESCAPE.sub("", line))
             and not line.lstrip().startswith(("Columns", "STATE", "cc STALE"))]
 
 
@@ -272,7 +273,7 @@ def test_na_root_is_counted_and_its_peer_gets_a_marker(expand: bool, monkeypatch
     hidden = mv.render_grouped_frame(frame, view="rich", width=180, expand=expand)
     assert "POOLS 0" in hidden and "C-5H" not in hidden
     screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
-    assert "POOLS 1" in monitor_layout.ANSI_ESCAPE.sub("", screen) and "(C-5H n/a)" in screen
+    assert "POOLS 1" in ANSI_ESCAPE.sub("", screen) and "(C-5H n/a)" in screen
     dim = monitor_layout.RICH_SGR["dim"]
     assert not any("○ n/a" in line for line in screen.splitlines())
     if expand:
@@ -359,7 +360,7 @@ def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool, monk
     quota_rows = [row for row in detail_lines(rich) if "C-7D" in row]
     assert len(quota_rows) == 2
     for row, state, left, colour in zip(quota_rows, ("▼ low", "● ok"), ("5%", "87%"), ("warn", "ok")):
-        assert re.search(rf"{state}.*{left}", monitor_layout.ANSI_ESCAPE.sub("", row))
+        assert re.search(rf"{state}.*{left}", ANSI_ESCAPE.sub("", row))
         assert f"\x1b[{monitor_layout.RICH_SGR[colour]}m{state}\x1b[0m" in row
     assert frame == before
 
@@ -381,7 +382,7 @@ def test_error_evidence_keeps_alarm_colour(expand: bool, monkeypatch: pytest.Mon
     cell = f"\x1b[{monitor_layout.RICH_SGR['bad']}m○ ?\x1b[0m"  # P21: the palette's bad, in POOLS and in the QUOTA details
     assert screen.count(cell) == (2 if expand else 1)
     if expand:  # the compact state word hides the evidence state: a note names it
-        assert "cc C-5H evidence ERROR; next: peerhub observation refresh --peers cc" in monitor_layout.ANSI_ESCAPE.sub("", screen)
+        assert "cc C-5H evidence ERROR; next: peerhub observation refresh --peers cc" in ANSI_ESCAPE.sub("", screen)
         plain = mv.render_grouped_frame(frame, view="plain", color=True, unicode=False, width=180, expand=True)
         assert "\x1b" not in plain
         assert "cc C-5H evidence ERROR" in plain  # C1 keeps the evidence in the QUOTA notes.

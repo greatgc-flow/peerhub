@@ -10,8 +10,13 @@ import psutil
 
 CLI_PEERS = ("cc", "cx", "ag")  # always shown; API peers appear only while active
 MIN_FREE_RAM_GB = 6
-CPU_BUSY_WARN_PCT = 90
+CPU_BUSY_WARN_PCT = 80
 CPU_SAMPLE_SECONDS = 0.25
+BUSY_PROBE_TIMEOUT_FACTOR = 2.0
+LOAD_WARNING_MESSAGES = {
+    "free_ram": "free RAM {free:.1f} GB is below minimum {minimum} GB",
+    "cpu_busy": "CPU load {busy:.1f}% is at or above warning level {warning}%",
+}
 PLAN_NA_POOLS_LABEL = "n/a pools"
 PLAN_NA_POOLS_LIMIT = 4
 MINE, OTHER, UNKNOWN = CALLER_RELATIONS = ("mine", "other", "unknown")
@@ -56,6 +61,21 @@ def read_resources() -> ResourceSample:
     except (OSError, psutil.Error):
         cores = None
     return ResourceSample(free_ram_bytes(), busy, cores or os.cpu_count())
+
+
+def probe_timeout_factor() -> float:
+    busy = read_resources().cpu_busy_pct
+    return BUSY_PROBE_TIMEOUT_FACTOR if busy is not None and busy >= CPU_BUSY_WARN_PCT else 1.0
+
+
+def load_warnings(load: Mapping[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    if load["ram_ok"] is False:
+        warnings.append(LOAD_WARNING_MESSAGES["free_ram"].format(free=load["ram_free_gb"], minimum=load["ram_min_gb"]))
+    busy = load["cpu_busy_pct"]
+    if busy is not None and busy >= load["cpu_busy_warn_pct"]:
+        warnings.append(LOAD_WARNING_MESSAGES["cpu_busy"].format(busy=busy, warning=load["cpu_busy_warn_pct"]))
+    return warnings
 
 
 def load_snapshot(active_by_peer: Mapping[str, int] | None, resources: ResourceSample,

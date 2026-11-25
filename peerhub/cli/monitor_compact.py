@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, cast
 
+from peerhub._console import clean_text, finite_number
 from peerhub.cli.monitor_activity_view import compact_activity, compact_leads, expanded_recent
 from peerhub.cli.monitor_alert_view import alert_section, decorate_verdict, verdict_line
 from peerhub.cli.monitor_format import na_pool_note, pool_gap
@@ -18,10 +19,8 @@ from peerhub.cli.monitor_layout import (
     as_dict,
     ascii_text,
     cell_width,
-    clean_text,
     compact_age,
     dict_items,
-    finite_number,
     fit_bytes,
     fit_fields,
     fit_live_quota_title,
@@ -44,7 +43,7 @@ from peerhub.cli.monitor_quota_view import (
     with_min_quota,
 )
 from peerhub.extensions.diag_quota import quota_stale_line
-from peerhub.extensions.observation_model import oldest_measured_quota_age
+from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, oldest_measured_quota_age
 
 
 COMPACT_WIDTH = 100
@@ -61,7 +60,7 @@ def _safe_refresh_warning_labels(value: object) -> list[str]:
     safe_reasons = {"probe_warning", "probe_timeout", "claude_usage_timeout", "gemini_usage_timeout",
                     "codex_usage_timeout", "provider_probe_error", "provider_probe_unavailable",
                     "auth_error", "quota_exhausted", "invalid_model", "usage_limit", "timeout",
-                    "unavailable", "error"}
+                    "unavailable", "error", QUOTA_PROBE_LOAD_DELAY}
     for item in warnings[:3]:
         if not isinstance(item, str):
             labels.append("probe_warning")
@@ -70,7 +69,8 @@ def _safe_refresh_warning_labels(value: object) -> list[str]:
         peer = parts[0].lower() if parts and parts[0].lower() in {"cc", "cx", "ag"} else ""
         reason = parts[1] if peer and len(parts) > 1 else (parts[0] if parts else "")
         code = reason.lower() if reason.lower() in safe_reasons else "probe_warning"
-        labels.append(f"{peer} {code}".strip())
+        label = f"probe {QUOTA_PROBE_LOAD_LABEL}" if code == QUOTA_PROBE_LOAD_DELAY else code
+        labels.append(f"{peer} {label}".strip())
     if len(warnings) > 3:
         labels.append(f"+{len(warnings) - 3} warnings")
     return labels
@@ -233,8 +233,11 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
         stamp = datetime.fromtimestamp(now + elapsed, timezone.utc).strftime("%Y-%m-%d %H:%MZ") if read_at is not None else "time unknown"
     except (ValueError, OverflowError, OSError):
         stamp = "time unknown"
-    oldest = (finite_number(payload.get("_quota_age_seconds")) if "_quota_age_seconds" in payload
-              else oldest_measured_quota_age(quota))
+    age_readings = quota
+    if "_quota_age_readings" in payload:
+        age_readings = [item for item in dict_items(payload["_quota_age_readings"])
+                        if (expires := finite_number(item.get("expires_in"))) is None or expires >= elapsed]
+    oldest = oldest_measured_quota_age(age_readings)
     age = oldest + elapsed if oldest is not None else None
     age_label = compact_age(age)
     guide_url = payload.get("_guide_url")
@@ -264,7 +267,7 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
             _, cut = fit_title(width)
     # Fields dropped from line 2 are disclosed on a line of their own, so a narrow terminal keeps the timestamp.
     header = [paint_text(title, RICH_SGR["dim"]) if paint else title]
-    if (selected_ids & {"capacity", "peers"} or "_quota_age_seconds" in payload) and (notice := quota_stale_line(age)):
+    if (selected_ids & {"capacity", "peers"} or "_quota_age_readings" in payload) and (notice := quota_stale_line(age)):
         header.extend(wrap_text(notice, width))
     header.extend(part for note in cast(list[str], payload.get("_quota_probe_notes", []))
                   for part in wrap_text(note, width))
@@ -289,7 +292,8 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
             if not latest.get("pool_ref") and (latest.get("state") in {"ERROR", "UNAVAILABLE", "UNKNOWN"}
                                                or latest.get("stored_state") in {"ERROR", "UNAVAILABLE", "UNKNOWN"}):
                 age = finite_number(latest.get("age_seconds"))
-                header.append(f"{clean_text(peer)} probe error ({compact_age(age + elapsed if age is not None else None)})")
+                failure = QUOTA_PROBE_LOAD_LABEL if latest.get("reason") == QUOTA_PROBE_LOAD_DELAY else "error"
+                header.append(f"{clean_text(peer)} probe {failure} ({compact_age(age + elapsed if age is not None else None)})")
     evidenced = {f"{row['peer']}:{row['pool']}" for row in rows}
     missing_pool = any(key not in evidenced for key in consumers)
     if (selected_ids & {"capacity", "peers"} and (missing_pool or any(row["needs_refresh"] for row in rows))

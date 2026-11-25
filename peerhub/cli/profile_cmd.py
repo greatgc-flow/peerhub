@@ -120,7 +120,7 @@ def run_profile(args: argparse.Namespace) -> int:
         return 0
     widths = [max(len(col), *(len(row[index]) for row in rows)) for index, col in enumerate(columns)]
     if args.action == "list":
-        from peerhub.cli.view import FrameOutput
+        from peerhub._console import FrameOutput
 
         terminal_width = FrameOutput.width()
         wrapper = textwrap.TextWrapper(width=terminal_width, subsequent_indent="  " if terminal_width > 2 else "",

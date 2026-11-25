@@ -186,9 +186,13 @@ the warning. Already running tasks continue. Unavailable readings show `?` and d
 | Resource | Warning condition |
 | --- | --- |
 | Free RAM | Below 6 GB |
-| CPU load | At or above 90% |
+| CPU load | At or above 80% |
 
 The JSON `cpu_busy_pct` reports system-wide CPU utilization sampled over a short interval.
+Read the load line before launching lanes, count other sessions' asks, and hold new work
+at 80% CPU or higher. A standalone ask waits up to 120 seconds if the store has other
+lease-active asks and either resource is under pressure. It starts with a warning
+when the wait expires or no other ask is active.
 
 If a provider throttles, reduce concurrency; do not reroute the same work to another peer.
 

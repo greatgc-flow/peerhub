@@ -5,14 +5,13 @@ from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
 from typing import Any, cast
 
+from peerhub._console import clean_text, finite_number
 from peerhub.cli.monitor_alert_view import alert_label, alert_rows
 from peerhub.cli.monitor_format import fraction_bar, pct
 from peerhub.cli.monitor_layout import (
     as_dict,
-    clean_text,
     compact_age,
     dict_items,
-    finite_number,
     fit_text,
     format_count,
     format_size,

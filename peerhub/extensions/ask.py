@@ -274,6 +274,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         fresh: bool = False, session: str | None = None,
         on_output: Callable[[str], None] | None = None,
         on_stream_budget: Callable[[], None] | None = None,
+        before_claim: Callable[[Path], None] | None = None,
         before_dispatch: Callable[[Path, str], None] | None = None,
         query_file: str | Path | None = None, notice_alias: bool = False,
         dry_run: bool = False) -> dict[str, Any]:
@@ -438,6 +439,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                         session_mode=None if settled is not None else ("resumed" if session_handle is not None else "fresh"),
                         session_handle=session_handle,
                         request_id=rid, replay=settled is not None)
+    if before_claim is not None:
+        before_claim(db)
     limits = None
     if on_stream_budget is not None and not fresh and not getattr(target, "stateless", False):
         from peerhub.extensions.adapters.profiles import DEFAULT_STREAM_BUDGET, stream_budget

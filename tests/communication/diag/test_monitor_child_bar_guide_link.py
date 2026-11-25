@@ -10,8 +10,7 @@ from typing import Any
 import pytest
 
 from peerhub.cli import monitor_format, monitor_layout, monitor_links, monitor_view as mv
-from peerhub.cli import view
-from peerhub.cli.view import FrameOutput
+from peerhub._console import ANSI_ESCAPE, FrameOutput, visible_len
 from tests.communication.diag.test_monitor_tree import frame_for
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -43,7 +42,7 @@ def row(screen: str, pool: str) -> str:
 
 
 def bars(line: str, full: str, empty: str) -> str:
-    match = re.search(rf"[{re.escape(full)}{re.escape(empty)}]{{{monitor_format.BAR_CELLS},}}", monitor_layout.ANSI_ESCAPE.sub("", line))
+    match = re.search(rf"[{re.escape(full)}{re.escape(empty)}]{{{monitor_format.BAR_CELLS},}}", ANSI_ESCAPE.sub("", line))
     assert match, line
     return match[0]
 
@@ -130,7 +129,7 @@ def test_child_and_parent_bars_yield_then_grow_one_cell_at_a_time(unicode: bool)
     for width in range(32, 145):
         screen = render(tree(), color=True, unicode=unicode, expand=True, width=width)
         top = screen.split("suggest:", 1)[0]
-        child, parent = monitor_layout.ANSI_ESCAPE.sub("", row(top, "C-5H")), monitor_layout.ANSI_ESCAPE.sub("", row(top, "C-7D"))
+        child, parent = ANSI_ESCAPE.sub("", row(top, "C-5H")), ANSI_ESCAPE.sub("", row(top, "C-7D"))
         child_bar = re.findall(f"[{re.escape(cfull)}{re.escape(cempty)}]{{4,}}", child)
         parent_bar = re.findall(f"[{re.escape(full)}{re.escape(empty)}]{{4,}}", parent)
         assert len(child_bar) == len(parent_bar) <= 1, (width, child, parent)
@@ -168,9 +167,9 @@ def test_guide_link_sits_at_the_right_end_of_the_title_line(monkeypatch: pytest.
     line = title_line(screen)
     assert line.count(OPEN) == 1 and line.count(CLOSE) == 1 and f"{OPEN}Guide{CLOSE}" in line
     assert line.endswith(CLOSE + "\x1b[0m" if color else CLOSE)  # always closed; the dim span (colour on) closes after it
-    visible = monitor_layout.ANSI_ESCAPE.sub("", line)
+    visible = ANSI_ESCAPE.sub("", line)
     assert visible.startswith("PeerHub Monitor") and visible.endswith(" Guide") and monitor_layout.cell_width(visible) == 99
-    assert view.visible_len(line) == monitor_layout.cell_width(line) == 99  # both width helpers ignore the link bytes
+    assert visible_len(line) == monitor_layout.cell_width(line) == 99  # both width helpers ignore the link bytes
 
 
 def test_no_link_without_the_links_flag_or_with_the_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -239,11 +238,11 @@ def test_the_released_version_builds_the_tag_url(monkeypatch: pytest.MonkeyPatch
 
 def test_visible_len_and_width_ignore_osc8() -> None:
     link = f"{OPEN}Guide{CLOSE}"
-    assert view.visible_len(link) == 5 == monitor_layout.cell_width(link)
-    assert view.visible_len(f"\x1b[2mTitle {link}\x1b[0m") == 11 == monitor_layout.cell_width(f"\x1b[2mTitle {link}\x1b[0m")
+    assert visible_len(link) == 5 == monitor_layout.cell_width(link)
+    assert visible_len(f"\x1b[2mTitle {link}\x1b[0m") == 11 == monitor_layout.cell_width(f"\x1b[2mTitle {link}\x1b[0m")
     bel = f"\x1b]8;;{URL}\x07Guide\x1b]8;;\x07"  # the BEL terminator
-    assert view.visible_len(bel) == 5 == monitor_layout.cell_width(bel)
-    assert monitor_layout.ANSI_ESCAPE.sub("", f"a{link}b") == "aGuideb" == view._ANSI.sub("", f"a{link}b")
+    assert visible_len(bel) == 5 == monitor_layout.cell_width(bel)
+    assert ANSI_ESCAPE.sub("", f"a{link}b") == "aGuideb"
 
 
 def test_truncation_never_cuts_inside_a_link() -> None:
@@ -291,8 +290,8 @@ def test_anchored_frame_output_rows_keep_alignment(monkeypatch: pytest.MonkeyPat
     assert [text for _, text in rows] == screen.splitlines()  # the frame goes out row for row
     link_rows = [text for _, text in rows if OPEN in text]
     assert len(link_rows) == 1 and link_rows[0].endswith(CLOSE + "\x1b[0m")
-    assert all(view.visible_len(text) <= 99 for _, text in rows)
-    assert view.visible_len(link_rows[0]) == 99
+    assert all(visible_len(text) <= 99 for _, text in rows)
+    assert visible_len(link_rows[0]) == 99
     assert written.count(OPEN) == 2
     assert written.count("\x1b]8;;") == 2 * written.count(CLOSE)
 

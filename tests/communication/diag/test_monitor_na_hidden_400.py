@@ -11,7 +11,6 @@ from peerhub.cli.monitor_format import (
     BAR_CELLS,
     BAR_MAX_CELLS,
     BAR_MIDDLE_CELLS,
-    FAMILIES,
 )
 from peerhub.cli.monitor_layout import (
     RICH_GLYPHS,
@@ -20,7 +19,8 @@ from peerhub.cli.monitor_layout import (
 from peerhub.cli.monitor_legend import POOL_LEGEND
 from peerhub.cli.monitor_quota_view import HIDDEN_QUOTA_WINDOWS
 from peerhub.cli.monitor_view import render_grouped_frame
-from tests.communication.diag.test_monitor_activity_view import pool
+from peerhub.extensions.quota_windows import FAMILIES
+from tests.communication.diag.test_monitor_activity_view import NOW, pool
 from tests.communication.diag.test_monitor_expand_rich import block, expand, strip
 from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload
 
@@ -39,6 +39,19 @@ def na_payload(**over: Any) -> dict[str, Any]:
     observations = [pool("cc", "C-7D", .63, pace=-20), absent("cc", "C-5H"),
                     pool("cx", "X-7D", .42, pace=3), absent("cx", "X-30D")]
     return _payload([], observations, configured_profiles=PROFILES, min_quota=None, **over)
+
+
+@pytest.mark.parametrize("age,reset", [(12 * 86400, -60), (31 * 86400, 86400)])
+@pytest.mark.parametrize("expanded", [False, True])
+def test_expired_reading_is_retired_and_does_not_age_header(age, reset, expanded):
+    expired = pool("cx", "X-30D", .42, reset=reset)
+    expired.update(state="STALE", age_seconds=age)
+    payload = _payload([], [expired, pool("ag", "G-7D", .64)], selected_groups=["capacity"], read_at=NOW)
+    hidden = render_grouped_frame(payload, view="plain", width=100, expand=expanded)
+    shown = render_grouped_frame(payload, view="plain", width=100, expand=expanded, show_quota_notes=True)
+    assert "X-30D" not in hidden
+    assert "cx X-30D n/a (quota window expired)" in shown
+    assert all("quota age 10s" in screen and "quota 12d old" not in screen for screen in [hidden, shown])
 
 
 def wide_notes_payload() -> dict[str, Any]:

@@ -43,7 +43,7 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. Plan load still comes from the selected store. See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing. A missing selected store exits 5.
 
-`peerhub observation refresh --peers cx cc ag` explicitly collects and writes quota evidence and may contact providers. It replaces `diag --fresh`. `--system-dir PATH` points to a portable provider installation. The probe timeout defaults to 15 seconds. See [what each probe consumes](implementation/OBSERVATION_PROBES.md).
+`peerhub observation refresh --peers cx cc ag` explicitly collects and writes quota evidence and may contact providers. It replaces `diag --fresh`. `--system-dir PATH` points to a portable provider installation. The probe timeout defaults to 15 seconds and doubles at 80% CPU load or higher. See [what each probe consumes](implementation/OBSERVATION_PROBES.md).
 
 ## Guide and explain
 

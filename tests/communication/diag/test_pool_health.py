@@ -5,7 +5,7 @@ from collections.abc import Mapping
 
 import pytest
 
-from peerhub.cli.view import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
+from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, QUOTA_TTL_SECONDS
 from peerhub.extensions.quota_projection import MIN_ELAPSED_LONG
 from tests.communication.diag.test_diag_plan_339 import DAY, HOUR, NOW, _item

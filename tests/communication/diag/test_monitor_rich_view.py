@@ -357,7 +357,7 @@ def test_m1_a_fast_state_and_its_pace_use_separate_colours():
 def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
     row = {"ok": pool("cc", "C-7D", .9), "fast": pool("cc", "C-7D", .5, fast=True, pace=12.5), "low": pool("cc", "C-7D", .05),
            "out": pool("cc", "C-7D", 0.0), "aged": pool("cc", "C-7D", .9), "?": pool("cc", "C-7D", None),
-           "reset": pool("cc", "C-7D", .9, reset=-1)}[state]
+           "reset": pool("cc", "C-7D", .9, reset=0)}[state]
     if state == "aged":
         row.update(state="STALE", age_seconds=999, measurements=None)
     if state == "?":
@@ -553,7 +553,7 @@ def test_a_redraw_after_the_reset_moves_min_quota_to_the_lowest_pool_that_still_
     payload = human_payload(pool("cc", "C-7D", .12, reset=30.0), pool("cx", "X-7D", .89),
                             min_quota={"pool": "cc C-7D", "left_pct": 12, "state": "ok", "aged": False})
     payload["display_elapsed_seconds"] = 60
-    assert " reset " in row_of(plain(payload), " cc C-7D") and "12%" not in plain(payload)
+    assert "C-7D" not in plain(payload) and "12%" not in plain(payload)
     assert verdict(payload).endswith("| min quota 89% cx X-7D ok")
     only = human_payload(pool("cc", "C-7D", .12, reset=30.0),
                          min_quota={"pool": "cc C-7D", "left_pct": 12, "state": "ok", "aged": False})

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.cli import app, core_cmd, profile_stats
+from peerhub.core import load_limits
 from peerhub.core.models import Peer
 
 
@@ -41,7 +42,8 @@ def test_profile_workspace_short_option(action, positional, monkeypatch, capsys)
     assert json.loads(output)["workspace"] == str(workspace)
 
 
-def test_ask_prompt_file_alias(capsys):
+def test_ask_prompt_file_alias(capsys, monkeypatch):
+    monkeypatch.setattr(load_limits, "read_resources", load_limits.ResourceSample)
     db = str(Path(__file__).with_suffix(".db"))
     request_id = "file-alias-preview"
     command = ["--db", db, "ask", "cx", "--dry-run", "--json", "--request-id", request_id]

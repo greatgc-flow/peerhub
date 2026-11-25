@@ -211,7 +211,8 @@ def test_guide_separates_batch_validation_from_quota_spend(capsys):
 def test_guide_uses_shared_resource_thresholds(capsys):
     line = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
     assert f"free RAM >= {MIN_FREE_RAM_GB} GB, CPU below {CPU_BUSY_WARN_PCT}%" in line
-    assert "PeerHub does not cap the count" in line
+    assert f"{CPU_BUSY_WARN_PCT}%+ CPU: hold." in line
+    assert "Other sessions' asks count. No cap." in line
 
 
 def test_no_fixed_parallelism_in_guide_docs_or_lessons(capsys):

@@ -4,11 +4,12 @@ from __future__ import annotations
 import json
 import math
 import re
+import sqlite3
 import textwrap
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from peerhub.core.load_limits import CALLER_RELATIONS, UNKNOWN, load_snapshot, read_resources
 from peerhub.extensions.caller import OWNER_ENV, caller_facts, caller_relation, detect_caller
@@ -80,7 +81,8 @@ def _row(raw: dict[str, Any], now: float, reader: Mapping[str, object]) -> dict[
 
 
 def running_report(db_path: str | Path, *, read_at: float | None = None, peer: str | None = None,
-                   limit: int | None = None, all_rows: bool = False) -> dict[str, Any]:
+                   limit: int | None = None, all_rows: bool = False,
+                   connection_factory: Callable[[str], sqlite3.Connection] | None = None) -> dict[str, Any]:
     now = time.time() if read_at is None else read_at
     limit = None if all_rows else MAX_ROWS if limit is None or limit < 1 else limit
     reader = detect_caller()
@@ -92,7 +94,8 @@ def running_report(db_path: str | Path, *, read_at: float | None = None, peer: s
     except OSError as exc:  # unreadable, or replaced by a restore mid-read: report it, never a traceback
         return {"schema_version": "1.0", "status": "FAILED", "basis": "lease", "read_at": now, "rows": [], "truncated": False,
                 "error": f"{type(exc).__name__}: workspace.generation unreadable", "reader_identified": identified}
-    snap = ReadonlyDiag(db_path).running(read_at=now, limit=limit, workspace_generation=generation, peer=peer)
+    snap = ReadonlyDiag(db_path, connection_factory=connection_factory).running(
+        read_at=now, limit=limit, workspace_generation=generation, peer=peer)
     return {"schema_version": "1.0", "status": snap["status"], "basis": "lease", "read_at": now,
             "rows": [_row(r, now, reader) for r in snap["rows"]],
             "truncated": snap["truncated"], "error": snap["error"], "limit": limit, "peer": peer,
@@ -100,9 +103,10 @@ def running_report(db_path: str | Path, *, read_at: float | None = None, peer: s
 
 
 def sample_load(db_path: str | Path, *, read_at: float | None = None,
-                pools_of_profile: Mapping[str, list[str]] | None = None) -> dict[str, Any]:
+                pools_of_profile: Mapping[str, list[str]] | None = None,
+                connection_factory: Callable[[str], sqlite3.Connection] | None = None) -> dict[str, Any]:
     """Sample lease-active asks per peer, pool and caller relation, and machine resources. Read-only."""
-    report = running_report(db_path, read_at=read_at, all_rows=True)
+    report = running_report(db_path, read_at=read_at, all_rows=True, connection_factory=connection_factory)
     resources = read_resources()
     if report["status"] != "OK" or report["truncated"]:  # a failed or cut-off read is not a count: show ?, never 0
         return load_snapshot(None, resources)

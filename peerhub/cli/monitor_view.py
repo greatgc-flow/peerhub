@@ -23,7 +23,7 @@ from peerhub.cli.monitor_links import (
     osc_link,
 )
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
-from peerhub.cli.monitor_quota_view import display_plan_omissions, with_retained_quota
+from peerhub.cli.monitor_quota_view import display_retired_windows, with_retained_quota
 
 
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
@@ -39,7 +39,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     enabled = view == "rich" and links and monitor_links_enabled(os.environ)
     guide_url = guide_link_url(os.environ) if enabled else None
     store = as_dict(payload.get("store_selection"))
-    payload = {**with_retained_quota(display_plan_omissions(payload)),
+    payload = {**with_retained_quota(display_retired_windows(payload)),
                "_show_quota_notes": show_quota_notes, "_guide_url": guide_url,
                "_state_doc_url": (guide_released(None) or GUIDE_MAIN_URL) if enabled else None,
                "_db_url": file_link_url(store.get("path")) if enabled else None,

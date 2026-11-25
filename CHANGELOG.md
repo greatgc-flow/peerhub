@@ -8,7 +8,15 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `peerhub ask` samples machine load before launch. On high CPU or low free RAM it waits up to 120 seconds while other asks hold active leases. Dry runs report the load without waiting.
+
 ### Changed
+
+- Lowered the CPU warning threshold for asks and batches to 80%. The guide and parallel quota lesson tell callers to check load before starting work and count other sessions' asks.
+- Quota and Antigravity transport probes get twice the timeout at high CPU load. Transport detection retries a timeout once and can reuse a successful result for the same installed binary when the machine is busy.
+- Packaged defaults record agy 1.5.17 in revision 2026-11-25.2. The model lists are unchanged and will be rechecked when the machine is idle.
 
 - CI runs the full deterministic suites and the publish verification suites in parallel, with the monitor latency limit checked serially. Publish runs the G7 invariant tests as part of G0, and the release recipe puts the version bump in the last feature PR.
 - An internal refactor shares the monitor group catalog and saved preference reader below the CLI, enforces the extensions-to-CLI import boundary, and centralizes the provider usage candidate factory and shared A2A journal types. Binary resolution and peer-kind imports use their canonical modules.
@@ -23,6 +31,12 @@ they do not claim new validation or publication evidence.
 - Split monitor terminal links, formatting and layout, and bounded SQLite queries into dedicated modules.
 - Split monitor frame rendering by section and separate alert, activity, quota, and session projections from snapshot assembly.
 - Move CLI parser registration and handlers into command-family modules.
+- Extract terminal output helpers, diagnostic dashboard and quota-plan read models, and explain command rendering into dedicated modules.
+
+### Fixed
+
+- Monitor hides expired quota windows in both layouts and excludes them from the header age. `--show-quota-notes` names the retired windows.
+- Monitor and diagnostics report quota probes that still time out under high CPU load as delayed by load.
 
 ### Documentation
 

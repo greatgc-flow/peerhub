@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
 from peerhub._console import format_shell_command
-from peerhub.core.load_limits import ResourceSample, read_resources
+from peerhub.core.load_limits import LOAD_WARNING_MESSAGES, ResourceSample, load_warnings as load_warnings, read_resources
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES
 from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
@@ -46,8 +46,7 @@ _TASK_FIELDS = {
 _KEYS = _TASK_FIELDS.keys()
 _PROMPT_CHOICE = f"exactly one of {_PROMPT_KEY} or {_PROMPT_FILE_KEY}"
 _WARNING_MESSAGES = {
-    "free_ram": "free RAM {free:.1f} GB is below minimum {minimum} GB",
-    "cpu_busy": "CPU load {busy:.1f}% is at or above warning level {warning}%",
+    **LOAD_WARNING_MESSAGES,
     "workspace_overlap": "writable tasks {first} and {second} have {relationship} workspaces",
 }
 DEFAULT_PROFILE_DISPLAY = "(peer default)"
@@ -218,16 +217,6 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
     if first_overlap is not None:
         raise ManifestError(first_overlap)
     return workspaces
-
-
-def load_warnings(load: Mapping[str, Any]) -> list[str]:
-    warnings: list[str] = []
-    if load["ram_ok"] is False:
-        warnings.append(_WARNING_MESSAGES["free_ram"].format(free=load["ram_free_gb"], minimum=load["ram_min_gb"]))
-    busy = load["cpu_busy_pct"]
-    if busy is not None and busy >= load["cpu_busy_warn_pct"]:
-        warnings.append(_WARNING_MESSAGES["cpu_busy"].format(busy=busy, warning=load["cpu_busy_warn_pct"]))
-    return warnings
 
 
 def _parse_result(stdout: str) -> dict[str, Any] | None:

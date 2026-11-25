@@ -11,10 +11,13 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
+from peerhub.core.load_limits import probe_timeout_factor
 from peerhub.core.peer_kinds import ALIASES, CLI_PEER_ALIASES, QUOTA_CAPABLE_PEERS
 from peerhub.extensions.observation import ObservationStore
-from peerhub.extensions.observation_model import (EvidenceState, Observation, ResourcePool, changed_account_plan,
-                                                  epoch_to_iso, quota_probe_timed_out)
+from peerhub.extensions.observation_model import (
+    QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, EvidenceState, Observation, ResourcePool, changed_account_plan,
+    epoch_to_iso, quota_probe_timed_out,
+)
 from peerhub.extensions.quota_types import ResetCreditObserved, UsageObserved
 from peerhub.core.models import utc_now_iso
 
@@ -193,6 +196,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             labels = ", ".join(f"{peer}/{CLI_PEER_ALIASES[peer]}" for peer in QUOTA_CAPABLE_PEERS)
             raise ValueError(f"quota providers: {labels}")
         kinds.append(kind)
+    timeout_factor = probe_timeout_factor()
+    busy = timeout_factor > 1
+    deadline_sec *= timeout_factor
     injected_pollers = pollers is not None
     if pollers is None:
         from peerhub.extensions.quota_probes import poll_agy_usage, poll_claude_usage, poll_codex_usage
@@ -220,10 +226,10 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     probed_versions: dict[str, str | None] = {}
 
     def _default_v_fn(k: str) -> str | None:
+        timeout = VERSION_PROBE_TIMEOUT_SECONDS * timeout_factor
         if cancellation is not None:
-            return _probe_cli_version(k, sys_dir, timeout=min(deadline_sec, VERSION_PROBE_TIMEOUT_SECONDS),
-                                      cancellation=cancellation)
-        return _probe_cli_version(k, sys_dir)
+            timeout = min(deadline_sec, timeout)
+        return _probe_cli_version(k, sys_dir, timeout=timeout, cancellation=cancellation)
 
     def check_cancelled() -> None:
         if cancellation is not None and cancellation.cancelled():
@@ -238,6 +244,10 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             probed_versions[kind] = None
     pending_obs: list[tuple[str, str | None, str, EvidenceState, dict[str, Any], str, str, str]] = []  # last item: observation kind
     warnings: list[str] = []
+
+    def report_load_delay(peer: str, payload: dict[str, Any]) -> None:
+        payload["reason"] = QUOTA_PROBE_LOAD_DELAY
+        warnings.append(f"{peer}: {QUOTA_PROBE_LOAD_DELAY}: {QUOTA_PROBE_LOAD_LABEL}")
 
     for peer, kind in zip(peers, kinds):
         check_cancelled()
@@ -266,7 +276,10 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         except Exception as exc:
             details = {"condition": "probe_failed", "error_type": type(exc).__name__}
             if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
-                details["reason"] = "quota_probe_timeout"
+                if busy:
+                    report_load_delay(peer, details)
+                else:
+                    details["reason"] = "quota_probe_timeout"
             pending_obs.append((
                 peer, None, f"quota_probe:{kind}", EvidenceState.ERROR, details,
                 utc_now_iso(), utc_now_iso(), "quota",
@@ -307,7 +320,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                 for key in ("reason", "consumed_tokens", "num_turns"):
                     if key in extra_data:
                         payload[key] = extra_data[key]
-                if extra_data.get("warning"):
+                if busy and quota_probe_timed_out(payload.get("reason")):
+                    report_load_delay(peer, payload)
+                elif extra_data.get("warning"):
                     warnings.append(f"{peer}: {extra_data.get('reason', 'probe_warning')}: {extra_data['warning']}")
             pending_obs.append((
                 peer, pool_ref, evidence.source_tag, state, payload,

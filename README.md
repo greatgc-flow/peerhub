@@ -53,7 +53,7 @@ peerhub --db .peerhub/core.db ask cc "Reply OK" --profile cc.standard --stream s
 
 The reply prints on stdout with a receipt line; use a new `--request-id` for every ask and a new `--stream` for every new task.
 
-- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, active asks, free RAM and CPU, about 350 tokens). `peerhub explain <topic or keywords>` finds a lesson.
+- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, active asks, free RAM and CPU, about 350 tokens). [Guide and explain](docs/commands.md#guide-and-explain) shows how to find a lesson.
 - Shared stores: follow `peerhub explain caller-ownership` to export a unique `PEERHUB_OWNER` per lead session, a readable `PEERHUB_LEAD` and batch lane identifiers.
 - People: `peerhub monitor` is the human screen (quota, running asks, recent asks).
 - Something wrong: `peerhub explain report-issues` lists what to include before filing an issue.
@@ -173,7 +173,7 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API pee
 
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed pre-spawn unless `--writable` is explicitly passed (`#140`). cx resume passes `-c sandbox_mode="workspace-write"` (default `read-only`) because resume does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
-Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
+Quota is collected separately from diagnostics. The default peers are shown in `peerhub observation refresh --peers cx cc ag`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 
 `peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
 prints an ask command and one reason line. Put the task and supporting material
@@ -461,7 +461,7 @@ peerhub diag --plan
 
 ### Upgrade
 
-To upgrade PeerHub safely:
+See [Store migrations](docs/migrations.md) for schema details.
 
 0. **Plan and back up**. `peerhub update --plan` lists blocking asks and processes and prints the backup, restore and upgrade commands. `peerhub explain store-and-upgrade` covers the hazards. Wait until `peerhub update --plan` exits 0 (it exits 1 while asks are running), then back up by running the printed backup command. It writes `.peerhub/core.db.pre-update-<UTC time>.bak` for the default store. Copy the exact path the plan prints. The command must exit 0 and the file must show a new modified time before step 2.
 1. **Stop `peerhub monitor`**: Stop any active monitor process before upgrading. A running monitor locks `peerhub.exe` on Windows and keeps old code running. Also wait for running `peerhub ask` calls to finish: they keep dependency files such as `pydantic_core` loaded, so an in-place upgrade can fail and leave a half-deleted install. If peerhub crashes with `ModuleNotFoundError` after an upgrade, reinstall it and check the result records before re-sending an ask.
@@ -553,4 +553,4 @@ python -m tools.live_gate --yes
 
 Real providers are opt-in: set `PEERHUB_LIVE=1` and select `live`, `slow`, `e2e` or `canary` under `tests/communication/live`; live fixtures refuse CI. `-m live` selects exactly the six M1 live-tier tests; slow/e2e release cases use their own markers. The gate partitions those stages. Optional `canary` tests are outside the release catalog and measure usage, native resume recall, writable sentinel creation and cancellation using standard profiles. Use `python -m tools.live_gate --yes --only canary --peer cx` for lower-cost measurements; these results are not release evidence. See the [local live gate guidance](CONTRIBUTING.md#local-live-gate) for call budgets and skip behavior. Soak is separately opt-in with `PEERHUB_SOAK=1`. Local checks do not promote a milestone or authorize a release; candidate-matched CI, live and package evidence still apply.
 
-Historical evidence is retained separately: the 2026-10-04 archived snapshot has [VERIFIED-LOCAL records](docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json), and the recorded CI head has [VERIFIED-CI records](docs/m1_impl/matrix_evidence/ci-run-37189754726.json). Those records preserve their original paths and apply only to the recorded snapshot/head, not this changed worktree.
+The 2026-10-04 archived snapshot has [VERIFIED-LOCAL records](docs/history/m1_impl/matrix_evidence/windows-py3.11-3.13.json). The recorded CI head has [VERIFIED-CI records](docs/history/m1_impl/matrix_evidence/ci-run-37189754726.json). Each record applies only to the snapshot or head it identifies.

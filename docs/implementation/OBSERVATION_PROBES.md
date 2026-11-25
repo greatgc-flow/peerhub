@@ -30,7 +30,7 @@ Subject `cx`, resource pool `credit:cx:reset` (kind ACCOUNT), written from the s
 
 The `reset_credit` kind extends the Observation kind list of the frozen M1 contract (docs/m1_spec is unchanged): owner decision pending.
 
-A Claude probe failure records `claude_usage_timeout`, `claude_usage_spawn_failed:<ExceptionType>` or `claude_usage_unparseable`. Try a longer `--timeout-seconds` on a busy machine. Unparseable output can indicate a CLI output change.
+A Claude probe failure records `claude_usage_timeout`, `claude_usage_spawn_failed:<ExceptionType>` or `claude_usage_unparseable`. At 80% CPU load or higher, PeerHub doubles the probe timeout and records `quota_probe_delayed_by_load` if it still times out. Unparseable output can indicate a CLI output change.
 
 ## Monitor implementation
 
@@ -45,5 +45,11 @@ adds the detail sections from `monitor_sections.py`. `monitor_activity_view.py`,
 `monitor_alert_view.py`, and `monitor_quota_view.py` render their respective frame
 sections. They use `monitor_format.py` for quota tables, `monitor_layout.py` for
 terminal text fitting, and `monitor_links.py` for OSC 8 hyperlinks.
+
+The dashboard and `diag --plan` use `peerhub/extensions/diag_read_model.py`
+to project stored snapshots and `peerhub/cli/view.py` to render text. The plan
+and grouped monitor share window and parent rules from
+`peerhub/extensions/quota_windows.py`. Terminal drawing and VT handling live in
+`peerhub/_console.py`.
 
 See the [monitor guide](../monitor.md) for refresh, redraw and quota display behavior.

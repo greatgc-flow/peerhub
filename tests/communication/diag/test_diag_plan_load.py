@@ -98,7 +98,7 @@ def test_sample_load_counts_every_active_ask_and_fails_to_unknown(monkeypatch):
 
     count = diag_running.MAX_ROWS ** 3
 
-    def fake(db, *, read_at=None, all_rows=False):
+    def fake(db, *, read_at=None, all_rows=False, connection_factory=None):
         seen["all_rows"] = all_rows
         return {"status": "OK", "rows": [{"peer_id": "cx"}] * count, "truncated": False}
 

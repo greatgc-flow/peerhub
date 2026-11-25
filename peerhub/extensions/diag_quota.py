@@ -19,6 +19,8 @@ from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     MEASUREMENT_KEYS,
     QUOTA_NOTICE_AGE_SECONDS,
+    QUOTA_PROBE_LOAD_DELAY,
+    QUOTA_PROBE_LOAD_LABEL,
     instant_us,
     oldest_measured_quota_age,
 )
@@ -172,7 +174,8 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
             "subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "kind": it["kind"], "state": it["state"],
             "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": der,
             "window": {k: it["payload"][k] for k in ("window_started_at", "resets_at") if k in it["payload"]},
-            "projection": proj})
+            "projection": proj,
+            **({"reason": QUOTA_PROBE_LOAD_DELAY} if it["payload"].get("reason") == QUOTA_PROBE_LOAD_DELAY else {})})
     if peer is None:  # a registered pool with no quota/rate_limit evidence is explicit UNKNOWN (never unlimited)
         for p in rep.sections["resource_pools"].data.get("pools", []):
             pid = p["resource_pool_id"]
@@ -257,7 +260,8 @@ def format_quota_table(rep: dict[str, Any], *, max_age_seconds: int | None = Non
             der = " ".join(f"{k}={v:.4g} (derived)" for k, v in i["derived"].items())
             eff = i.get("effective")
             limit = f" effective={eff['remaining_fraction']:.0%} (limited by {eff['limited_by']})" if eff else ""
-            lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {i['state']:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}{limit}".rstrip())
+            state = QUOTA_PROBE_LOAD_LABEL if i.get("reason") == QUOTA_PROBE_LOAD_DELAY else i["state"]
+            lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {state:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}{limit}".rstrip())
     lines.extend(_reset_credit_lines(rep["reset_credits"], "reset credits (read-only; hours computed at read time)", "  "))
     return "\n".join(lines)
 

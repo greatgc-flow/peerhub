@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor, monitor_activity_view, monitor_legend, monitor_links, monitor_view as mv, view
+from peerhub import _console
+from peerhub.cli import monitor, monitor_activity_view, monitor_legend, monitor_links, monitor_view as mv
 from peerhub.extensions.observation_model import DISABLED_REASON
 from peerhub.extensions import monitor_queries, monitor_read_model
 from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
@@ -122,9 +123,9 @@ def test_normal_screen_alone_needs_a_margin(height):
 @pytest.mark.parametrize("alternate", [False, True])
 def test_terminal_leaves_last_frame_on_normal_screen(monkeypatch, capsys, alternate):
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
-    output = view.FrameOutput(anchor_rows=True, alternate=alternate)
+    output = _console.FrameOutput(anchor_rows=True, alternate=alternate)
     output.write("first\n")
     output.write("last\n")
     output.close()
@@ -140,9 +141,9 @@ def test_terminal_leaves_last_frame_on_normal_screen(monkeypatch, capsys, altern
 @pytest.mark.parametrize("cycles", [0, 1])
 def test_watch_uses_the_selected_screen_budget_and_leaves_a_final_frame(monkeypatch, capsys, width, style, expand, cycles):
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
-    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (width, 24)))
+    monkeypatch.setattr(_console.FrameOutput, "geometry", staticmethod(lambda: (width, 24)))
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *args, **kwargs: False)
     monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *args, **kwargs: full_payload())
     monkeypatch.setattr(monitor, "_cached_profiles", lambda *args: [])
@@ -182,9 +183,9 @@ def test_watch_uses_the_selected_screen_budget_and_leaves_a_final_frame(monkeypa
 def test_live_frames_rewrite_only_changed_rows_with_periodic_full_repaints(monkeypatch, capsys):
     """A day of 1 s full repaints hung a VS Code terminal; later frames send only the rows that changed."""
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(_console, "enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
-    output = view.FrameOutput(anchor_rows=True, alternate=True)
+    output = _console.FrameOutput(anchor_rows=True, alternate=True)
     output.write("head\nrow a\n")
     capsys.readouterr()
     output.write("head\nrow a\n")
@@ -194,7 +195,7 @@ def test_live_frames_rewrite_only_changed_rows_with_periodic_full_repaints(monke
     full = "\x1b[H\x1b[1;1Hhead\x1b[K\x1b[2;1Hrow A\x1b[K\x1b[3;1Htail\x1b[K\x1b[J"
     output.write("head\nrow A\ntail\n")  # a changed row count (resize) repaints in full
     assert capsys.readouterr().out == full
-    for _ in range(view.FULL_REPAINT_FRAMES - output.frames % view.FULL_REPAINT_FRAMES - 1):
+    for _ in range(_console.FULL_REPAINT_FRAMES - output.frames % _console.FULL_REPAINT_FRAMES - 1):
         output.write("head\nrow A\ntail\n")
     assert capsys.readouterr().out == ""
     output.write("head\nrow A\ntail\n")

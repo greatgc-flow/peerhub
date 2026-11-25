@@ -7,11 +7,11 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-11-25.1"
+defaults_revision = "2026-11-25.2"
 observed_at = "2026-11-25"
 
 [observed_versions]
-ag = "1.5.16"
+ag = "1.5.17"
 cc = "2.1.332"
 cx = "0.172.0"
 
