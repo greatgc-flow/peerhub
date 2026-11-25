@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from http.client import HTTPException
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.request import Request, urlopen
 
 import psutil
@@ -26,11 +26,10 @@ from peerhub._version import __version__
 from peerhub.cli.support import error_line
 from peerhub.core.connection import create_connection
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
-from peerhub.extensions.adapters.process import run_bounded
-from peerhub.extensions.bridge_registry import eligible
-from peerhub.extensions.caller import host_id
-from peerhub.extensions.quota_probes import real_command
-from peerhub.extensions.session_receipts import json_object
+
+if TYPE_CHECKING:
+    from peerhub.cli.arguments import Subparsers
+
 
 _RELEASES = {
     "peerhub": "https://pypi.org/pypi/peerhub/json",
@@ -53,6 +52,8 @@ def _version(value: object) -> str | None:
 
 
 def _latest(tool: str) -> str | None:
+    from peerhub.extensions.session_receipts import json_object
+
     url = _RELEASES.get(tool)
     if url is None:
         return None
@@ -68,6 +69,8 @@ def _latest(tool: str) -> str | None:
 
 
 def _local_command(tool: str) -> list[str]:
+    from peerhub.extensions.quota_probes import real_command
+
     try:
         if tool == "ant":
             path = shutil.which(tool)
@@ -78,6 +81,8 @@ def _local_command(tool: str) -> list[str]:
 
 
 def _local_output(command: list[str], *flags: str) -> str:
+    from peerhub.extensions.adapters.process import run_bounded
+
     if not command:
         return ""
     try:
@@ -193,6 +198,8 @@ def _has_columns(conn: sqlite3.Connection, table: str, *columns: str) -> bool:
 
 
 def _caller(raw: str | None) -> dict[str, Any]:
+    from peerhub.extensions.session_receipts import json_object
+
     try:
         return json_object(raw)
     except RecursionError:
@@ -211,6 +218,9 @@ ORDER BY h.last_seen DESC, h.stream_id, h.peer_id
 
 
 def _resume_hints(conn: sqlite3.Connection, db: Path, generation: str | None, now: float) -> list[dict[str, str]]:
+    from peerhub.extensions.caller import host_id
+    from peerhub.extensions.bridge_registry import eligible
+
     if not _has_columns(conn, "bridge_evidence", "kind", "detail"):
         return []
     host = host_id()
@@ -369,3 +379,14 @@ def run_update(args: argparse.Namespace) -> int:
     elif code == 1:
         error_line("ask_claim_held", "An active ask lease or a potentially running local ask blocks the plan.", report["next"])
     return code
+
+
+def register_update_parser(subparsers: Subparsers) -> None:
+    update_parser = subparsers.add_parser(
+        "update", help="Check versions or print an upgrade plan (read-only)",
+        description="Check local versions, the bundled Codex catalog and public release metadata, or print a plan for the selected store. "
+                    "Exit 1 if asks are running, 4 or 5 if the store cannot be read, and 6 for an unsupported store schema.",
+    )
+    update_mode = update_parser.add_mutually_exclusive_group(required=True)
+    update_mode.add_argument("--check", dest="update_check", action="store_true", help="Check versions and packaged model defaults")
+    update_mode.add_argument("--plan", action="store_true", help="Show blocking processes, upgrade commands and resume hints")

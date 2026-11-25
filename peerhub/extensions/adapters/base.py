@@ -1055,7 +1055,7 @@ _AG_LIMIT_SUMMARY = {"quota_exhausted": "Individual quota reached", "usage_limit
 
 
 def _limit_evidence(text: str) -> tuple[str, str | None] | None:
-    """The two steps of `cli.app._provider_limit`: the first limit line gives the reason, the whole text the reset."""
+    """The two steps of `cli.ask_cmd._provider_limit`: the first limit line gives the reason, the whole text the reset."""
     for line in text.splitlines():
         r = classify_refusal_text(line.split(": ", 1)[1] if line.startswith(("ag exited", "cx exited", "cc exited")) else line)
         if r is not None and r["reason"] in ("quota_exhausted", "usage_limit"):

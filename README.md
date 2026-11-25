@@ -508,6 +508,8 @@ tools/           maintainer scripts
   release_notes.py        traceability.py
 ```
 
+`peerhub/cli/app.py` registers and dispatches commands. Each command family owns its parser and handler in `peerhub/cli/`, with shared store selection in `store_select.py`.
+
 Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/implementation/STRUCTURE_CLEANUP.md).
 
 ## Where model facts come from and how to refresh them

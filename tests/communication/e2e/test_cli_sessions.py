@@ -177,7 +177,7 @@ def test_session_inspection_validates_receipt_identity_usage_and_context(tmp_pat
 def test_session_context_projection_preserves_zero_and_unknown(provider, has_receipt):
     from contextlib import closing
 
-    from peerhub.cli.app import _session_public_row
+    from peerhub.cli.session_cmd import _session_public_row
     from peerhub.extensions.session_receipts import CONTEXT_SOURCE, context_estimate
 
     handle, generation = "sess_context", 1
@@ -231,7 +231,7 @@ def test_session_context_estimate_matches_monitor_in_list_and_show(tmp_path, cap
     age_seconds = age_minutes * 60
     ctx_text = f"ctx {cc_context['percent']}% ({age_minutes}m ago)"
 
-    with patch("peerhub.cli.app.time", return_value=cc_context["observed_at"] + age_seconds):
+    with patch("peerhub.cli.session_cmd.time", return_value=cc_context["observed_at"] + age_seconds):
         assert main(["--db", str(db), "session", "list", "--json"]) == 0
         listed = {row["peer_id"]: row for row in json.loads(capsys.readouterr().out)["items"]}
         assert set(listed) == set(peers)

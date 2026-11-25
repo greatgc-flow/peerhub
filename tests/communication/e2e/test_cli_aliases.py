@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.cli import app, profile_stats
+from peerhub.cli import app, core_cmd, profile_stats
 from peerhub.core.models import Peer
 
 
@@ -22,7 +22,7 @@ def _equivalent(capsys, canonical: list[str], alias: list[str]) -> str:
 
 def test_peer_show_alias(monkeypatch, capsys):
     peer = Peer(peer_id="reader", display_name="Demo reader")
-    monkeypatch.setattr(app, "CoreStore", lambda db, *, readonly: SimpleNamespace(
+    monkeypatch.setattr(core_cmd, "CoreStore", lambda db, *, readonly: SimpleNamespace(
         get_peer={peer.peer_id: peer}.get))
     db = ["--db", __file__]
     options = ["--peer", peer.peer_id, "--json"]

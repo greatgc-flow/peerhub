@@ -11,7 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from peerhub.cli.app import _provider_limit, main
+from peerhub.cli.app import main
+from peerhub.cli.ask_cmd import _provider_limit
 from peerhub.extensions import ask as ask_module
 from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, ag_stream, base, process
 from peerhub.extensions.adapters.ag_stream import encode_user_line, parse_ag_stream_json, terminal_quota, terminal_result

@@ -711,13 +711,13 @@ def test_blocking_display_callback_does_not_mask_later_error(tmp_path):
 
 
 def test_cli_app_ask_streaming_does_not_retain_chunks(tmp_path, monkeypatch, capsys):
-    """P1 cli/app.py:187: CLI ask streaming must not retain every streamed chunk in a list."""
+    """P1: CLI ask streaming must not retain every streamed chunk in a list."""
     import inspect
-    from peerhub.cli import app
+    from peerhub.cli import ask_cmd
     from tests.communication.fakes import FakeRuntimeTarget
 
     # Inspect source of _run_ask_cli to ensure no unbounded streamed list is used
-    src = inspect.getsource(app._run_ask_cli)
+    src = inspect.getsource(ask_cmd.run_ask)
     assert "streamed: list" not in src
     assert "streamed.append" not in src
 
@@ -887,7 +887,7 @@ def test_parser_exception_latched_makes_outcome_indeterminate_never_terminal(tmp
 
 
 def test_cli_app_ask_prints_final_response_when_display_truncated(tmp_path, monkeypatch, capsys):
-    """P2 cli/app.py:198: Final response suppressed whenever anything streamed: print final response when display was truncated."""
+    """P2: Final response suppressed whenever anything streamed: print final response when display was truncated."""
     from peerhub import cli
     from peerhub.extensions import ask as ask_mod
     from tests.communication.fakes import FakeRuntimeTarget
@@ -914,7 +914,7 @@ def test_cli_app_ask_prints_final_response_when_display_truncated(tmp_path, monk
 
 
 def test_ask_slow_display_queue_overflow_propagates_display_truncated(tmp_path):
-    """P2 cli/app.py:198: Real process with slow display queue overflow sets display_truncated on target.deliver."""
+    """P2: Real process with slow display queue overflow sets display_truncated on target.deliver."""
     ws = tmp_path / "ws_slow_disp_overflow"
     ws.mkdir()
     script = textwrap.dedent("""

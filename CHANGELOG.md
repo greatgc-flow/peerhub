@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed (internal)
+
+- Move CLI parser registration and handlers into command-family modules.
+
 ## [0.26.15] - 2026-11-25
 
 ### Fixed

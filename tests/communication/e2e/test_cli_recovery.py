@@ -181,7 +181,7 @@ def test_registry_well_formedness():
 
 
 def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
-    """Independently inventory emission boundaries across ask path and app.py error paths via AST."""
+    """Independently inventory emission boundaries across the ask and CLI error paths via AST."""
     import ast
     from pathlib import Path
 
@@ -190,7 +190,7 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
     claims_file = root / "peerhub" / "extensions" / "bridge_claims.py"
     adapter_base = root / "peerhub" / "extensions" / "adapters" / "base.py"
     ask_file = root / "peerhub" / "extensions" / "ask.py"
-    app_file = root / "peerhub" / "cli" / "app.py"
+    cli_path = root / "peerhub" / "cli"
 
     statuses: set[str] = set()
     exceptions: set[str] = set()
@@ -236,17 +236,17 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
                 if node.exc.func.id and node.exc.func.id[0].isupper():
                     exceptions.add(node.exc.func.id)
 
-    # 4. Exceptions handled in app.py error paths
-    with open(app_file, "r", encoding="utf-8") as f:
-        tree = ast.parse(f.read(), str(app_file))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ExceptHandler):
-            if isinstance(node.type, ast.Name):
-                exceptions.add(node.type.id)
-            elif isinstance(node.type, ast.Tuple):
-                for elt in node.type.elts:
-                    if isinstance(elt, ast.Name):
-                        exceptions.add(elt.id)
+    # 4. Exceptions handled by the CLI entry point and the extracted command families
+    for cli_file in (cli_path / "app.py", *sorted(cli_path.glob("*_cmd.py"))):
+        tree = ast.parse(cli_file.read_text(encoding="utf-8"), str(cli_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ExceptHandler):
+                if isinstance(node.type, ast.Name):
+                    exceptions.add(node.type.id)
+                elif isinstance(node.type, ast.Tuple):
+                    for elt in node.type.elts:
+                        if isinstance(elt, ast.Name):
+                            exceptions.add(elt.id)
 
     return statuses, exceptions
 
@@ -455,7 +455,7 @@ def _standalone_validation_error_codes() -> set[str]:
             (CasMismatchError("stale revision"), "cas_conflict"),
             (RuntimeError("dispatch failed"), "delivery_failed"),
         ):
-            with patch("peerhub.cli.app._run_core_cli", side_effect=exc):
+            with patch("peerhub.cli.core_cmd._run_core_cli", side_effect=exc):
                 check(["--db", db, "peer", "list"], expected)
     return codes
 
@@ -1495,7 +1495,7 @@ def test_bare_cli_exit_change_documented_under_breaking():
 
 
 def test_provider_limit_in_uncertain_error_is_surfaced():
-    from peerhub.cli.app import _provider_limit
+    from peerhub.cli.ask_cmd import _provider_limit
     got = _provider_limit("ag exited 3: error: Individual quota reached. Please upgrade. Resets in 1h22m56s.\nAGY_ERROR: {}")
     assert got == {"reason": "quota_exhausted", "reset_time": "1h22m56s"}
     assert _provider_limit("cx exited 1: You've hit your usage limit. try again at 3:05 PM") == {"reason": "usage_limit", "reset_time": "3:05 PM"}
@@ -1509,7 +1509,7 @@ def test_provider_limit_in_uncertain_error_is_surfaced():
     ("ag exited 3: Individual quota reached\nIndividual quota reached. Resets in 1h", "1h"),
 ])
 def test_provider_limit_finds_reset_on_any_line(message, reset):
-    from peerhub.cli.app import _provider_limit
+    from peerhub.cli.ask_cmd import _provider_limit
     assert _provider_limit(message) == {"reason": "usage_limit" if message.startswith("cc") else "quota_exhausted",
                                        "reset_time": reset}
 
