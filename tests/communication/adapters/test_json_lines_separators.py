@@ -1,9 +1,12 @@
-"""#373 item 1: `_json_lines` splits on LF only; Unicode line separators inside a JSON string never cut an event."""
+"""#373 item 1: `json_lines` splits on LF only; Unicode line separators inside a JSON string never cut an event."""
 import json
 
 import pytest
 
-from peerhub.extensions.adapters import base
+from peerhub.extensions.adapters.ag import denied_action_names
+from peerhub.extensions.adapters.cc import CcSpec
+from peerhub.extensions.adapters.common import json_lines
+from peerhub.extensions.adapters.cx import CxSpec
 
 pytestmark = pytest.mark.unit
 
@@ -29,7 +32,7 @@ def test_cc_result_text_with_a_raw_separator_stays_whole(sep, eol):
                        "usage": {"input_tokens": 10, "cache_read_input_tokens": 20, "cache_creation_input_tokens": 30,
                                  "output_tokens": 5}}) + eol)
     assert sep in stdout and len(stdout.splitlines()) > 2  # str.splitlines would cut the result line
-    spec = base.CcSpec()
+    spec = CcSpec()
     assert spec.parse(stdout) == text
     assert spec.parse_session_id(stdout) == "sess-1"
     assert spec.parse_usage(stdout) == {"input_tokens": 60, "cached_input_tokens": 20, "cache_write_tokens": 30,
@@ -43,7 +46,7 @@ def test_cx_agent_message_with_a_raw_separator_stays_whole(sep, eol):
     stdout = (_line({"type": "thread.started", "thread_id": "thr-1"}) + eol
               + _line({"type": "item.completed", "item": {"type": "agent_message", "text": text}}) + eol
               + _line({"type": "turn.completed", "usage": {"input_tokens": 7, "output_tokens": 3}}) + eol)
-    spec = base.CxSpec()
+    spec = CxSpec()
     assert spec.parse(stdout) == text
     assert spec.parse_session_id(stdout) == "thr-1"
     assert spec.parse_usage(stdout) == {"input_tokens": 7, "output_tokens": 3}
@@ -53,10 +56,10 @@ def test_cx_agent_message_with_a_raw_separator_stays_whole(sep, eol):
 def test_ag_flat_object_with_a_raw_separator_keeps_denied_names(sep):
     stdout = _line({"response": f"x{sep}y", "conversation_id": "conv-1",
                     "denied_actions": [{"action": "command", "display_name": f"Ba sh {sep}"}, {"action": "edit"}]})
-    assert base.denied_action_names(stdout) == ["command", "edit"]
+    assert denied_action_names(stdout) == ["command", "edit"]
 
 
 @pytest.mark.parametrize("sep", SEPARATORS)
 def test_json_lines_keeps_the_object_and_strips_a_trailing_cr(sep):
     obj = {"k": f"a{sep}b"}
-    assert base._json_lines(_line(obj) + "\r\n" + _line(obj) + "\r") == [obj, obj]  # pyright: ignore[reportPrivateUsage]
+    assert json_lines(_line(obj) + "\r\n" + _line(obj) + "\r") == [obj, obj]

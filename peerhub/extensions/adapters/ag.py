@@ -1,10 +1,214 @@
-"""Privacy-preserving parser for Antigravity's documented stream-json output."""
+"""Antigravity CLI arguments, transport detection, and output parsing."""
 from __future__ import annotations
 
 import json
 import math
+import os
 import re
-from typing import Any, NamedTuple, cast
+import sys
+import threading
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping, NamedTuple, cast
+
+from peerhub.extensions.adapters import common
+from peerhub.extensions.adapters.process import DEFAULT_MAX_BYTES, ProcessResult, SpawnFailure, decode_stderr
+from peerhub.extensions.adapters.sanitize import Sanitizer
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTargetError
+
+AG_REQUIRES_WRITABLE = (
+    "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
+    "--mode accept-edits is omitted"
+)
+
+
+class AgRequiresWritableError(PrespawnError):
+    """The ag CLI cannot enforce a read-only execution policy."""
+
+    def __init__(self, message: str = AG_REQUIRES_WRITABLE) -> None:
+        super().__init__(message)
+
+
+class AgSpec(common.ProviderSpec):
+    can_resume = True
+    kind, binary, resume_flag, stdin_prompt = "ag", "agy", "--conversation", False
+    max_prompt_bytes = 30_000 if sys.platform == "win32" else 120_000  # prompt travels in argv: CreateProcess ~32k chars / MAX_ARG_STRLEN
+
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
+             vendor_session_id: str | None = None) -> list[str]:
+        prompt = "\n" + prompt if prompt.startswith("-") else prompt
+        a = ["-p", prompt, "--output-format", "json"]
+        if model:
+            a += ["--model", model]
+        if effort:
+            a += ["--effort", effort]
+        if writable:
+            a += ["--mode", "accept-edits"]
+        if vendor_session_id is not None:
+            a += ["--conversation", vendor_session_id]
+        return a
+
+    @staticmethod
+    def stream_argv(model: str | None, effort: str | None, writable: bool = False,
+                    vendor_session_id: str | None = None) -> list[str]:
+        """The prompt travels on stdin as one stream-json user line; `-p` consumes the next argument, hence `-p=`."""
+        a = ["--input-format", "stream-json", "--output-format", "stream-json"]
+        if model:
+            a += ["--model", model]
+        if effort:
+            a += ["--effort", effort]
+        if writable:
+            a += ["--mode", "accept-edits"]
+        if vendor_session_id is not None:
+            a += ["--conversation", vendor_session_id]
+        return [*a, "-p="]
+
+    def parse(self, stdout: str) -> str:
+        try:
+            v: object = json.loads(stdout.strip())  # strict: the WHOLE stdout is exactly one flat JSON object (no scanning for fragments)
+        except ValueError:
+            raise ValueError("ag output is not a single JSON object") from None
+        if not isinstance(v, dict):
+            raise ValueError("no flat JSON response in ag output")
+        v = cast("dict[str, Any]", v)
+        if not isinstance(v.get("response"), str):
+            raise ValueError("no flat JSON response in ag output")
+        if v.get("is_error") not in (None, False) or v.get("error") not in (None, False, "", {}):
+            raise ValueError("ag reported an error")
+        return cast(str, v["response"])
+
+    def parse_session_id(self, stdout: str) -> str | None:
+        try:
+            result: object = json.loads(stdout.strip())
+        except ValueError:
+            return None
+        if not isinstance(result, dict):
+            return None
+        return common.session_id(cast("dict[str, Any]", result).get("conversation_id"))
+
+    def parse_usage(self, stdout: str) -> dict[str, int] | None:
+        try:
+            result: object = json.loads(stdout.strip())
+        except ValueError:
+            return None
+        if not isinstance(result, dict):
+            return None
+        # AG usage may be cumulative per conversation on resume; the benchmark will determine this.
+        return common.usage_fields(cast("dict[str, Any]", result).get("usage"),
+                                   {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_tokens",
+                                    "output_tokens": "output_tokens"})
+
+
+AG_TRANSPORT_ENV = "PEERHUB_AG_TRANSPORT"
+_AG_PROBE_TIMEOUT_S = 10.0
+_AG_TRANSPORT_CACHE: dict[tuple[str, int, int, str], str] = {}  # process-local; undetermined is never cached
+_AG_TRANSPORT_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class AgTransport:
+    transport: str  # stream | argv | undetermined | invalid_config
+    source: str  # env | help
+    version: str | None
+    error: str | None = None
+
+    def metadata(self) -> dict[str, Any]:
+        return {"ag_transport": self.transport, "ag_transport_source": self.source, "ag_cli_version": self.version}
+
+
+def _probe_failure(probe: str, r: ProcessResult) -> str | None:
+    # output_truncated covers stderr too: the help text is read from both streams.
+    for flag in ("timed_out", "silence_timed_out", "aborted", "stdout_truncated", "output_truncated", "drain_timed_out"):
+        if getattr(r, flag):
+            return f"{probe} {flag}"
+    return None if r.returncode == 0 else f"{probe} exit {r.returncode}"
+
+
+def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str) -> AgTransport:
+    """`stream` when `agy --help` documents stream-json input, `argv` when it lacks --input-format; else undetermined."""
+    def undetermined(why: str, version: str | None = None) -> AgTransport:
+        return AgTransport("undetermined", "help", version, f"cannot determine agy stdin support: {why}")
+
+    def probe(arg: str) -> ProcessResult | str:
+        try:
+            r = common.probe_cli(base, [arg], env=env, cwd=cwd, timeout_s=_AG_PROBE_TIMEOUT_S, max_bytes=DEFAULT_MAX_BYTES)
+        except SpawnFailure as e:
+            return f"{arg} could not start ({e})"
+        return _probe_failure(arg, r) or r
+
+    v = probe("--version")
+    if isinstance(v, str):
+        return undetermined(v)
+    first = decode_stderr(v.stdout or v.stderr).strip().splitlines()[:1]
+    m = common.VERSION_RE.search(first[0]) if first else None
+    if m is None:
+        return undetermined("--version printed no version")
+    version = m.group(0)
+    try:
+        real = os.path.normcase(os.path.realpath(base[0]))
+        st = os.stat(real)
+    except OSError:
+        return undetermined("cannot identify the agy executable", version)
+    key = (real, st.st_size, st.st_mtime_ns, version)
+    with _AG_TRANSPORT_LOCK:
+        cached = _AG_TRANSPORT_CACHE.get(key)
+    if cached is not None:
+        return AgTransport(cached, "help", version)
+    h = probe("--help")
+    if isinstance(h, str):
+        return undetermined(h, version)
+    text = (h.stdout + h.stderr).decode("utf-8", "replace")
+    if "--input-format" not in text:
+        transport = "argv"
+    elif "stream-json" in text:
+        transport = "stream"
+    else:
+        return undetermined("--help lists --input-format without stream-json", version)
+    with _AG_TRANSPORT_LOCK:
+        _AG_TRANSPORT_CACHE[key] = transport
+    return AgTransport(transport, "help", version)
+
+
+def select_transport(resolve_command: Callable[[], list[str] | None], env: Mapping[str, str], cwd: str,
+                     binary: str) -> AgTransport:
+    """PEERHUB_AG_TRANSPORT=argv forces argv; unset or empty detects; anything else is a configuration error."""
+    forced = env.get(AG_TRANSPORT_ENV)
+    if forced == "argv":
+        return AgTransport("argv", "env", None)
+    if forced:
+        return AgTransport("invalid_config", "env", None, f"{AG_TRANSPORT_ENV} must be unset, empty or 'argv'")
+    base = resolve_command()
+    if base is None:
+        return AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {common.executable_not_found(binary)}")
+    return _detect_ag_transport(base, env, cwd)
+
+
+def denied_action_names(stdout: str) -> list[str]:
+    """Names of tool actions agy auto-denied in headless mode (`denied_actions`), order-preserving and de-duplicated (#195).
+
+    Read only from the top level of an object without `event`: the argv transport's one flat object, or the flat
+    stdout the stream transport builds from its validated terminal's `result.denied_actions` (agy 1.5.9, #371).
+    No other key is searched, so events and mentions in text never count.
+    """
+    names: list[str] = []
+    for obj in common.json_lines(stdout):
+        denied: Any = obj.get("denied_actions") if "event" not in obj else None
+        items: list[Any] = cast("list[Any]", denied) if isinstance(denied, list) else []
+        for item in items:
+            name: Any = cast("dict[str, Any]", item).get("action") if isinstance(item, dict) else None
+            if isinstance(name, str) and name and name not in names:
+                names.append(name)
+    return names
+
+
+def read_only_refusal(res: ProcessResult, saw_stdout: bool, writable: bool) -> dict[str, Any] | None:
+    """Agy does not enforce a read-only sandbox when --mode accept-edits is omitted (#140).
+
+    Empty stdout and writable=False cannot prove zero tool effects once an agy
+    process has started; only pre-spawn failures are NOT_STARTED / NOT_EXECUTED.
+    """
+    del res, saw_stdout, writable
+    return None
+
 
 MAX_STREAM_BYTES = 1_048_576
 MAX_EVENT_BYTES = 262_144
@@ -310,16 +514,14 @@ def terminal_quota(terminal_line: str) -> QuotaMatch | None:
 
     Full lines are classified before anything is shortened; the reset and its phrase come from the same match.
     """
-    from peerhub.extensions.adapters.base import classify_refusal_text, reset_match
-
     stack: list[object] = [json.loads(terminal_line)]
     while stack:
         node = stack.pop()
         if isinstance(node, str):
             for line in node.splitlines():
-                refusal = classify_refusal_text(line)
+                refusal = common.classify_refusal_text(line)
                 if refusal is not None and refusal["reason"] in ("quota_exhausted", "usage_limit"):
-                    m = reset_match(line)
+                    m = common.reset_match(line)
                     return QuotaMatch(refusal["reason"], m.group(1).strip() if m else None, m.group(0) if m else None, line)
         elif isinstance(node, dict):
             for key, value in reversed(list(cast(dict[str, Any], node).items())):
@@ -328,3 +530,70 @@ def terminal_quota(terminal_line: str) -> QuotaMatch | None:
         elif isinstance(node, list):
             stack.extend(reversed(cast(list[Any], node)))
     return None
+
+
+AG_LIMIT_SUMMARY_CHARS = 100  # the first line of an ag stream quota error: "<prefix> (<reset phrase>)"
+_AG_LIMIT_SUMMARY = {"quota_exhausted": "Individual quota reached", "usage_limit": "usage limit reached"}
+
+
+def _limit_evidence(text: str) -> tuple[str, str | None] | None:
+    """The two steps of `cli.app._provider_limit`: the first limit line gives the reason, the whole text the reset."""
+    for line in text.splitlines():
+        r = common.classify_refusal_text(line.split(": ", 1)[1] if line.startswith(("ag exited", "cx exited", "cc exited")) else line)
+        if r is not None and r["reason"] in ("quota_exhausted", "usage_limit"):
+            return r["reason"], common.extract_reset_time(text)
+    return None
+
+
+def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san: Sanitizer) -> str:
+    """Summary (with the verbatim reset phrase), bounded excerpt of the matched line, status; re-parsed to prove it."""
+    prefix = _AG_LIMIT_SUMMARY[match.reason]
+    # " )" keeps a closing parenthesis out of a reset that ends in a run of non-space characters (the ISO pattern).
+    candidates = [san.clean(f"{prefix} ({match.reset_phrase}{end}") for end in (")", " )")] if match.reset_phrase else []
+    summary = next((c for c in candidates if len(c) <= AG_LIMIT_SUMMARY_CHARS
+                    and _limit_evidence(c) == (match.reason, match.reset_time)), san.clean(prefix))
+    excerpt = san.clean(match.line, common.EXCERPT_CHARS - len(summary) - 1 - len("...[truncated]"))
+    status_line = f"ag stream result {status} (exit {returncode})"
+    for lines in ((summary, excerpt, status_line), (summary, status_line)):
+        text = "\n".join(lines)
+        if _limit_evidence(text) == (match.reason, match.reset_time):
+            return text
+    return "\n".join((san.clean(prefix), status_line))
+
+
+def stream_stdout(res: ProcessResult, san: Sanitizer, payload_len: int) -> tuple[str, dict[str, Any] | None]:
+    """Decide an exited ag stream delivery (design v4 §3.5 rows 4-12, decision D of #369).
+
+    Returns the flat stdout of a delivered SUCCESS and the validator's telemetry verdict (None when complete).
+    Only a terminal event with no terminal observed (`absent`) and a non-zero exit reaches stderr classification.
+    Every other failure line starts with `ag stream` or `ag stdin` and carries stderr flattened to one line,
+    so no anchored limit pattern can match it. A non-string SUCCESS response is `invalid` (row 5).
+    """
+    rc = res.returncode
+    flat = " ".join(common.provider_excerpt(res.stderr, san).split())
+    tail = f" (exit {rc}); stderr: {flat}"
+
+    def fail(message: str) -> RuntimeTargetError:
+        return RuntimeTargetError(message, termination_confirmed=res.termination_confirmed)
+
+    if res.stdout_truncated:
+        raise fail("ag stream incomplete (stdout_truncated)" + tail)
+    term = terminal_result(res.stdout)
+    if term["observation"] == "invalid":
+        raise fail(f"ag stream invalid ({term['reason']})" + tail)
+    if term["observation"] == "absent":
+        if rc != 0:
+            raise fail(f"ag exited {rc}: " + common.provider_excerpt(res.stderr, san))
+        raise fail(f"ag stream incomplete ({term['reason']})" + tail)
+    status = term["status"]
+    if status != "SUCCESS":
+        match = terminal_quota(term["terminal_line"])
+        raise fail(f"ag stream result {status}" + tail if match is None else _ag_quota_error(match, status, rc, san))
+    if rc != 0:
+        raise fail(f"ag stream SUCCESS but exited {rc}; stderr: {flat}")
+    if res.stdin_state != "complete":
+        raise fail(f"ag stdin write incomplete ({res.stdin_state}, {res.stdin_bytes_written}/{payload_len})" + tail)
+    denied = json.loads(term["terminal_line"])["result"].get("denied_actions")  # the validated terminal event (#371)
+    flat_stdout = json.dumps({"response": term["response"], "conversation_id": term["conversation_id"], "usage": term["usage"],
+                              "denied_actions": denied})
+    return flat_stdout, term["validation"]

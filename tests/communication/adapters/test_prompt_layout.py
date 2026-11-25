@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.extensions.adapters import api
-from peerhub.extensions.adapters.base import MAX_PROMPT_BYTES, CliRuntimeTarget, CxSpec, PrespawnError, ProcessResult
+from peerhub.extensions.adapters.base import CliRuntimeTarget, PrespawnError, ProcessResult
+from peerhub.extensions.adapters.common import MAX_PROMPT_BYTES
+from peerhub.extensions.adapters.cx import CxSpec
 from peerhub.extensions.catchup import ProjectedRecords
 from peerhub.extensions.mcp import MCPServer
 

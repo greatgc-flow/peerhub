@@ -33,7 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 
-from peerhub.extensions.adapters.base import EXCERPT_CHARS, MAX_PROMPT_BYTES, SETUP_HINT, CliRuntimeTarget, executable_not_found
+from peerhub.extensions.adapters.base import CliRuntimeTarget
+from peerhub.extensions.adapters.common import EXCERPT_CHARS, MAX_PROMPT_BYTES, SETUP_HINT, executable_not_found
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, SpawnFailure,
                                                  decode_stderr)
 from peerhub.extensions.adapters.profiles import qualified_profile, resolve_profile

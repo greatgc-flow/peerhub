@@ -18,239 +18,28 @@ import sys
 import threading
 import uuid
 from collections import deque
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence, cast
 
-from peerhub.extensions.adapters.ag_stream import QuotaMatch, encode_user_line, terminal_quota, terminal_result
+from peerhub.extensions.adapters import ag, cc, common, cx
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, ProcessResult,
-                                                 SpawnFailure, check_argv, decode_stderr, run_bounded)
-if TYPE_CHECKING:
-    from peerhub.extensions.accounts import AccountRef, AccountSnapshot
-
+                                                 SpawnFailure, check_argv)
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets, path_secrets
 from peerhub.extensions.adapters.telemetry import CC_EVENT_TYPES
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
 
-MAX_PROMPT_BYTES = 1_000_000
-EXCERPT_CHARS = 300
-SETUP_HINT = "(peerhub explain setup)"  # the lesson `setup`: what each peer needs, the official page and the check (#385)
-AG_LIMIT_SUMMARY_CHARS = 100  # the first line of an ag stream quota error: "<prefix> (<reset phrase>)"
-AG_REQUIRES_WRITABLE = (
-    "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
-    "--mode accept-edits is omitted"
-)
+if TYPE_CHECKING:
+    from peerhub.extensions.accounts import AccountRef, AccountSnapshot
+
+
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-_SESSION_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,200}")
-_VERSION_RE = re.compile(r"\d+\.\d+\.\d+[0-9A-Za-z.+-]*")
 _WIN_EXT = {"claude": ["claude.cmd", "claude.exe"], "codex": ["codex.cmd", "codex.exe"], "agy": ["agy.exe", "agy.cmd"]}
-
-
-class AgRequiresWritableError(PrespawnError):
-    """The ag CLI cannot enforce a read-only execution policy."""
-
-    def __init__(self, message: str = AG_REQUIRES_WRITABLE) -> None:
-        super().__init__(message)
-
-
-def executable_not_found(binary: str) -> str:
-    """The message for a tool that is not on PATH. It names the next step and keeps the text `executable not found`:
-    `peerhub.cli.recovery` classifies a launch failure by it."""
-    return f"{binary} executable not found: install it and sign in {SETUP_HINT}"
+MAX_EVENT_BYTES = 262_144  # 256 KB
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-class ProviderSpec:
-    kind: str
-    binary: str
-    resume_flag: str  # token looked up in `--help` output to report CLI-level resume support
-    stdin_prompt: bool
-    can_resume: bool = False
-    max_prompt_bytes: int = MAX_PROMPT_BYTES  # provider-specific inline limit (argv-borne prompts are far smaller)
-
-    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
-             vendor_session_id: str | None = None) -> list[str]:
-        raise NotImplementedError
-
-    def parse(self, stdout: str) -> str:
-        """Return canonical response text or raise ValueError (garbage / vendor error)."""
-        raise NotImplementedError
-
-    def parse_session_id(self, stdout: str) -> str | None:
-        """Return a bounded, unambiguous vendor session candidate, when available."""
-        return None
-
-    def parse_usage(self, stdout: str) -> dict[str, int] | None:
-        """Return reported request usage; absent counters stay unknown, never synthesized as zero."""
-        return None
-
-
-def _session_id(value: object) -> str | None:
-    return value if isinstance(value, str) and _SESSION_ID_RE.fullmatch(value) else None
-
-
-def _consistent_session_id(events: list[dict[str, Any]], key: str, candidate: object) -> str | None:
-    selected = _session_id(candidate)
-    if selected is None:
-        return None
-    for event in events:
-        if key in event and _session_id(event[key]) != selected:
-            return None
-    return selected
-
-
-def _usage_fields(usage: object, fields: Mapping[str, str]) -> dict[str, int] | None:
-    if not isinstance(usage, dict):
-        return None
-    source = cast("dict[str, Any]", usage)
-    out: dict[str, int] = {}
-    for key, vendor_key in fields.items():
-        value = source.get(vendor_key)
-        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-            out[key] = value
-    return out or None
-
-
-def _json_lines(text: str) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    # LF only (#373): str.splitlines also cuts at U+0085, U+2028 and U+2029, which JSON allows raw inside a string.
-    for line in text.split("\n"):
-        line = line.removesuffix("\r").strip()
-        if line.startswith("{"):
-            try:
-                v: object = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(v, dict):
-                out.append(cast("dict[str, Any]", v))  # json.loads objects always have str keys
-    return out
-
-
-def denied_action_names(stdout: str) -> list[str]:
-    """Names of tool actions agy auto-denied in headless mode (`denied_actions`), order-preserving and de-duplicated (#195).
-
-    Read only from the top level of an object without `event`: the argv transport's one flat object, or the flat
-    stdout the stream transport builds from its validated terminal's `result.denied_actions` (agy 1.5.9, #371).
-    No other key is searched, so events and mentions in text never count.
-    """
-    names: list[str] = []
-    for obj in _json_lines(stdout):
-        denied: Any = obj.get("denied_actions") if "event" not in obj else None
-        items: list[Any] = cast("list[Any]", denied) if isinstance(denied, list) else []
-        for item in items:
-            name: Any = cast("dict[str, Any]", item).get("action") if isinstance(item, dict) else None
-            if isinstance(name, str) and name and name not in names:
-                names.append(name)
-    return names
-
-
-_CC_DENIAL_DETAIL_KEYS = ("command", "file_path", "path", "pattern", "url")
-MAX_CC_DENIALS = 20
-CC_DENIAL_CHARS = 120
-
-
-def cc_permission_denials(stdout: str) -> list[str]:
-    """`cc_result_denials` of the final result event in `stdout`."""
-    results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
-    return cc_result_denials(results[-1] if results else None)
-
-
-def cc_result_denials(result: dict[str, Any] | None) -> list[str]:
-    """`Tool: detail` strings for the tool calls cc auto-denied (`result.permission_denials`), order-preserving, de-duplicated (#303).
-
-    Strings are raw: the caller must redact (Sanitizer.clean) BEFORE truncating to CC_DENIAL_CHARS.
-    """
-    denials: Any = result.get("permission_denials") if result else None
-    out: list[str] = []
-    for item in cast("list[Any]", denials) if isinstance(denials, list) else []:
-        if not isinstance(item, dict):
-            continue
-        entry = cast("dict[str, Any]", item)
-        tool: Any = entry.get("tool_name")
-        if not isinstance(tool, str) or not tool:
-            continue
-        tool_input: Any = entry.get("tool_input")
-        detail = ""
-        if isinstance(tool_input, dict):
-            for key in _CC_DENIAL_DETAIL_KEYS:
-                value: Any = cast("dict[str, Any]", tool_input).get(key)
-                if isinstance(value, str) and value:
-                    detail = value
-                    break
-        text = f"{tool}: {detail}" if detail else tool
-        if text not in out:
-            out.append(text)
-        if len(out) >= MAX_CC_DENIALS:
-            break
-    return out
-
-
-MAX_EVENT_BYTES = 262_144  # 256 KB
-
-_RESET_IN_RE = re.compile(r"(?:resets?\s+in|try\s+again\s+in)\s+([0-9]+[hdwms][0-9hdwms]*)", re.IGNORECASE)
-_RESET_AT_TIME_RE = re.compile(r"(?:try\s+again\s+at|resets?(?:\s+at)?)\s+([0-9]{1,2}(?::[0-9]{2}(?::[0-9]{2})?\s*(?:AM|PM)?|\s*(?:AM|PM)))\b", re.IGNORECASE)
-_RESET_AT_ISO_RE = re.compile(r"(?:resets?\s+at|try\s+again\s+at)\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s,.]+)", re.IGNORECASE)
-
-
-def reset_match(text: str) -> re.Match[str] | None:
-    """The first reset match in priority order (in, at time, at ISO); group(1) is the reset, group(0) its phrase."""
-    return _RESET_IN_RE.search(text) or _RESET_AT_TIME_RE.search(text) or _RESET_AT_ISO_RE.search(text)
-
-
-def extract_reset_time(text: str) -> str | None:
-    """Return provider reset text verbatim, without timezone or rollover inference."""
-    m = reset_match(text)
-    return m.group(1).strip() if m else None
-
-
-def classify_refusal_text(text: str) -> dict[str, Any] | None:
-    """Classify an explicit provider error field, never response or arbitrary log text."""
-    text = re.sub(r"^error:\s*", "", text.strip(), flags=re.IGNORECASE)
-    # 1. Quota / resource exhausted
-    if re.match(r"(?:Individual\s+quota\s+reached|RESOURCE_EXHAUSTED)\b", text, re.IGNORECASE):
-        reset = extract_reset_time(text)
-        return {
-            "reason": "quota_exhausted",
-            "reset_time": reset,
-            "message": "Individual quota reached / resource exhausted",
-        }
-    # 2. Usage limit / rate limit (handles both ASCII and curly apostrophes)
-    if re.match(r"(?:You['\u2019]ve\s+hit\s+your\s+usage\s+limit|(?:claude(?:\s+ai)?\s+)?usage\s+limit\s+reached|you['’]ve\s+hit\s+your\s+(?:(?:\w+|\d+-hour)\s+)?limit|(?:\d+-hour|weekly|session)\s+limit\s+reached|rate_limit_error|rate\s+limit\s+exceeded|exceeded\s+your\s+current\s+quota)\b", text, re.IGNORECASE):
-        reset = extract_reset_time(text)
-        return {
-            "reason": "usage_limit",
-            "reset_time": reset,
-            "message": "usage limit reached",
-        }
-    # 3. Invalid model selection
-    if re.match(r"(?:invalid\s+model\s+selection|model\s+.*?\s+is\s+not\s+recognized|model_not_found|model\s+.*?\s+does\s+not\s+exist)\b", text, re.IGNORECASE):
-        return {
-            "reason": "invalid_model",
-            "reset_time": None,
-            "message": "invalid model selection",
-        }
-    # 4. Auth failure
-    if re.match(r"authentication_error\b|UNAUTHENTICATED\b|auth\s+failure\b|authentication\s+required\b|Please\s+run\s+`agy\s+login`|login\s+required\b|invalid\s+api\s+key\b|API\s+key\s+not\s+found\b", text, re.IGNORECASE):
-        return {
-            "reason": "auth_failure",
-            "reset_time": None,
-            "message": "authentication failure",
-        }
-    return None
-
-
-def _ag_read_only_refusal(res: ProcessResult, saw_stdout: bool, writable: bool) -> dict[str, Any] | None:
-    """Agy does not enforce a read-only sandbox when --mode accept-edits is omitted (#140).
-
-    Empty stdout and writable=False cannot prove zero tool effects once an agy
-    process has started; only pre-spawn failures are NOT_STARTED / NOT_EXECUTED.
-    """
-    del res, saw_stdout, writable
-    return None
 
 
 class IncrementalEventParser:
@@ -575,7 +364,7 @@ class IncrementalEventParser:
                 self.cc_results.append(event)
                 if event.get("is_error") is False and event.get("subtype", "success") == "success":
                     self.has_success = True
-                    self.cc_candidate_session_id = _session_id(event.get("session_id"))
+                    self.cc_candidate_session_id = common.session_id(event.get("session_id"))
             if event.get("type") in ("error", "result") and (event.get("is_error") is True or event.get("type") == "error"):
                 err_obj = cast("dict[str, Any]", event.get("error")) if isinstance(event.get("error"), dict) else {}
                 candidates: list[Any] = [f"{err_obj.get('type', '')} {err_obj.get('message', '')}",
@@ -589,11 +378,11 @@ class IncrementalEventParser:
                     if isinstance(candidate, str):
                         if candidate.strip():
                             self.terminal_error_summary = candidate.strip()
-                        r = classify_refusal_text(candidate)
+                        r = common.classify_refusal_text(candidate)
                         if r is not None and self.refusal_event is None:
                             self.refusal_event = r
             if "session_id" in event:
-                sid = _session_id(event.get("session_id"))
+                sid = common.session_id(event.get("session_id"))
                 if sid is not None:
                     if self._cc_observed_session_id is None:
                         self._cc_observed_session_id = sid
@@ -617,7 +406,7 @@ class IncrementalEventParser:
                     # Unknown future items cannot establish absence of execution.
                     self.has_tool_calls = True
             if "thread_id" in event:
-                tid = _session_id(event.get("thread_id"))
+                tid = common.session_id(event.get("thread_id"))
                 if tid is not None:
                     if self._cx_observed_thread_id is None:
                         self._cx_observed_thread_id = tid
@@ -626,7 +415,7 @@ class IncrementalEventParser:
                 else:
                     self._cx_thread_conflict = True
             if ev_type == "thread.started":
-                self.cx_candidate_thread_id = _session_id(event.get("thread_id"))
+                self.cx_candidate_thread_id = common.session_id(event.get("thread_id"))
             elif ev_type in ("turn.failed", "error"):
                 self.cx_errors.append(str(ev_type))
                 msg = event.get("message")
@@ -635,7 +424,7 @@ class IncrementalEventParser:
                 if isinstance(msg, str):
                     if msg.strip():
                         self.terminal_error_summary = msg.strip()
-                    r = classify_refusal_text(msg)
+                    r = common.classify_refusal_text(msg)
                     if r is not None and not self.has_tool_calls and not self.refusal_event:
                         self.refusal_event = r
             elif ev_type == "item.completed":
@@ -665,7 +454,7 @@ class IncrementalEventParser:
                 self._ag_observed_conv_id = None
                 return
             if "conversation_id" in event:
-                cid = _session_id(event.get("conversation_id"))
+                cid = common.session_id(event.get("conversation_id"))
                 if cid is not None:
                     if self._ag_observed_conv_id is None:
                         self._ag_observed_conv_id = cid
@@ -736,8 +525,9 @@ class IncrementalEventParser:
             return None
         if self.kind == "cc":
             usage = self.cc_results[-1].get("usage") if self.cc_results else None
-            counters = _usage_fields(usage, {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_input_tokens",
-                                             "cache_write_tokens": "cache_creation_input_tokens", "output_tokens": "output_tokens"})
+            counters = common.usage_fields(
+                usage, {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_input_tokens",
+                        "cache_write_tokens": "cache_creation_input_tokens", "output_tokens": "output_tokens"})
             if counters is not None:
                 if all(key in counters for key in ("input_tokens", "cached_input_tokens", "cache_write_tokens")):
                     counters["input_tokens"] += counters["cached_input_tokens"] + counters["cache_write_tokens"]
@@ -746,15 +536,15 @@ class IncrementalEventParser:
             return counters or None
         elif self.kind == "cx":
             usage = self.cx_turn_completed.get("usage") if self.cx_turn_completed else None
-            return _usage_fields(usage,
-                                 {"input_tokens": "input_tokens", "cached_input_tokens": "cached_input_tokens",
-                                  "cache_write_tokens": "cache_write_input_tokens", "output_tokens": "output_tokens"})
+            return common.usage_fields(usage,
+                                       {"input_tokens": "input_tokens", "cached_input_tokens": "cached_input_tokens",
+                                        "cache_write_tokens": "cache_write_input_tokens", "output_tokens": "output_tokens"})
         elif self.kind == "ag":
             if self._ag_invalid_top_level or not self.ag_results or len(self.ag_results) != 1:
                 return None
-            return _usage_fields(self.ag_results[0].get("usage"),
-                                 {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_tokens",
-                                  "output_tokens": "output_tokens"})
+            return common.usage_fields(self.ag_results[0].get("usage"),
+                                       {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_tokens",
+                                        "output_tokens": "output_tokens"})
         return None
 
     def parse_session_id(self) -> str | None:
@@ -775,193 +565,17 @@ class IncrementalEventParser:
         elif self.kind == "ag":
             if self._ag_invalid_top_level or self._ag_conv_conflict or not self.ag_results or len(self.ag_results) != 1:
                 return None
-            cand = _session_id(self.ag_results[0].get("conversation_id"))
+            cand = common.session_id(self.ag_results[0].get("conversation_id"))
             if cand is None or (self._ag_observed_conv_id is not None and cand != self._ag_observed_conv_id):
                 return None
             return cand
         return None
 
 
-class CcSpec(ProviderSpec):
-    kind, binary, resume_flag, stdin_prompt = "cc", "claude", "--resume", True
-    can_resume = True
-
-    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
-             vendor_session_id: str | None = None) -> list[str]:
-        a = ["-p", "-", "--output-format", "stream-json", "--verbose"]
-        if vendor_session_id is not None:
-            a += ["--resume", vendor_session_id]
-        if model:
-            a += ["--model", model]
-        if effort:
-            a += ["--effort", effort]
-        if writable:
-            a += ["--permission-mode", "acceptEdits"]
-        return a
-
-    def parse(self, stdout: str) -> str:
-        results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
-        if not results:
-            raise ValueError("no result record in cc output")
-        r = results[-1]
-        if r.get("is_error") is not False:  # explicit completion needs an explicit is_error=false (absent/true/other = not success)
-            raise ValueError("cc result is not explicitly is_error=false")
-        if r.get("subtype", "success") != "success":
-            raise ValueError(f"cc result subtype {r.get('subtype')!r} is not success")
-        if not isinstance(r.get("result"), str):
-            raise ValueError("cc result is not text")
-        return cast(str, r["result"])
-
-    def parse_session_id(self, stdout: str) -> str | None:
-        events = _json_lines(stdout)
-        results = [e for e in events if e.get("type") == "result"]
-        successful = [e for e in results if e.get("is_error") is False and e.get("subtype", "success") == "success"]
-        return _consistent_session_id(events, "session_id", successful[-1].get("session_id") if successful else None)
-
-    def parse_usage(self, stdout: str) -> dict[str, int] | None:
-        results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
-        usage = results[-1].get("usage") if results else None
-        counters = _usage_fields(usage, {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_input_tokens",
-                                         "cache_write_tokens": "cache_creation_input_tokens", "output_tokens": "output_tokens"})
-        if counters is not None:
-            # Claude reports uncached input separately; all three counters are needed for total input.
-            if all(key in counters for key in ("input_tokens", "cached_input_tokens", "cache_write_tokens")):
-                counters["input_tokens"] += counters["cached_input_tokens"] + counters["cache_write_tokens"]
-            else:
-                counters.pop("input_tokens", None)
-        return counters or None
+SPECS: dict[str, common.ProviderSpec] = {s.kind: s for s in (cc.CcSpec(), cx.CxSpec(), ag.AgSpec())}
 
 
-class CxSpec(ProviderSpec):
-    kind, binary, resume_flag, stdin_prompt = "cx", "codex", "resume", True
-    can_resume = True
-
-    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
-             vendor_session_id: str | None = None) -> list[str]:
-        if vendor_session_id is not None:
-            # exec resume does not accept -s; sandbox is configured via -c sandbox_mode=...
-            sandbox = "workspace-write" if writable else "read-only"
-            a = ["exec", "resume", vendor_session_id, "--skip-git-repo-check", "-c", f'sandbox_mode="{sandbox}"']
-        else:
-            a = ["exec", "--skip-git-repo-check", "-s", "workspace-write" if writable else "read-only"]
-        if model:
-            a += ["-m", model]
-        if effort:
-            a += ["-c", f"model_reasoning_effort={effort}"]
-        return a + ["--json", "-"]
-
-    def parse(self, stdout: str) -> str:
-        events = _json_lines(stdout)
-        for e in events:
-            if e.get("type") in ("turn.failed", "error"):
-                raise ValueError(f"cx reported {e.get('type')}")
-        activity_indices = [
-            i for i, e in enumerate(events)
-            if e.get("type") in ("turn.started", "item.started", "item.updated", "item.completed")
-        ]
-        if not activity_indices:
-            raise ValueError("no agent_message in cx output")
-        latest_activity = max(activity_indices)
-        if not any(e.get("type") == "turn.completed" for e in events[latest_activity + 1:]):
-            raise ValueError("cx output has no turn.completed after the latest activity (incomplete)")
-
-        msgs = [e["item"]["text"] for e in events if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
-                and e["item"].get("type") == "agent_message" and isinstance(e["item"].get("text"), str)]
-        if not msgs:
-            return ""
-        phase_msgs = [e["item"]["text"] for e in events if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
-                      and e["item"].get("type") == "agent_message" and e["item"].get("phase") == "final" and isinstance(e["item"].get("text"), str)]
-        if phase_msgs:
-            return "\n".join(phase_msgs)
-        return "\n".join(msgs)
-
-    def parse_session_id(self, stdout: str) -> str | None:
-        events = _json_lines(stdout)
-        started = [e for e in events if e.get("type") == "thread.started"]
-        return _consistent_session_id(events, "thread_id", started[-1].get("thread_id") if started else None)
-
-    def parse_usage(self, stdout: str) -> dict[str, int] | None:
-        # On resumed threads these are raw cumulative counters; the Bridge will store baselines.
-        results = [e for e in _json_lines(stdout) if e.get("type") == "turn.completed"]
-        return _usage_fields(results[-1].get("usage") if results else None,
-                             {"input_tokens": "input_tokens", "cached_input_tokens": "cached_input_tokens",
-                              "cache_write_tokens": "cache_write_input_tokens", "output_tokens": "output_tokens"})
-
-
-class AgSpec(ProviderSpec):
-    can_resume = True
-    kind, binary, resume_flag, stdin_prompt = "ag", "agy", "--conversation", False
-    max_prompt_bytes = 30_000 if sys.platform == "win32" else 120_000  # prompt travels in argv: CreateProcess ~32k chars / MAX_ARG_STRLEN
-
-    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
-             vendor_session_id: str | None = None) -> list[str]:
-        prompt = "\n" + prompt if prompt.startswith("-") else prompt
-        a = ["-p", prompt, "--output-format", "json"]
-        if model:
-            a += ["--model", model]
-        if effort:
-            a += ["--effort", effort]
-        if writable:
-            a += ["--mode", "accept-edits"]
-        if vendor_session_id is not None:
-            a += ["--conversation", vendor_session_id]
-        return a
-
-    @staticmethod
-    def stream_argv(model: str | None, effort: str | None, writable: bool = False,
-                    vendor_session_id: str | None = None) -> list[str]:
-        """The prompt travels on stdin as one stream-json user line; `-p` consumes the next argument, hence `-p=`."""
-        a = ["--input-format", "stream-json", "--output-format", "stream-json"]
-        if model:
-            a += ["--model", model]
-        if effort:
-            a += ["--effort", effort]
-        if writable:
-            a += ["--mode", "accept-edits"]
-        if vendor_session_id is not None:
-            a += ["--conversation", vendor_session_id]
-        return [*a, "-p="]
-
-    def parse(self, stdout: str) -> str:
-        try:
-            v: object = json.loads(stdout.strip())  # strict: the WHOLE stdout is exactly one flat JSON object (no scanning for fragments)
-        except ValueError:
-            raise ValueError("ag output is not a single JSON object") from None
-        if not isinstance(v, dict):
-            raise ValueError("no flat JSON response in ag output")
-        v = cast("dict[str, Any]", v)
-        if not isinstance(v.get("response"), str):
-            raise ValueError("no flat JSON response in ag output")
-        if v.get("is_error") not in (None, False) or v.get("error") not in (None, False, "", {}):
-            raise ValueError("ag reported an error")
-        return cast(str, v["response"])
-
-    def parse_session_id(self, stdout: str) -> str | None:
-        try:
-            result: object = json.loads(stdout.strip())
-        except ValueError:
-            return None
-        if not isinstance(result, dict):
-            return None
-        return _session_id(cast("dict[str, Any]", result).get("conversation_id"))
-
-    def parse_usage(self, stdout: str) -> dict[str, int] | None:
-        try:
-            result: object = json.loads(stdout.strip())
-        except ValueError:
-            return None
-        if not isinstance(result, dict):
-            return None
-        # AG usage may be cumulative per conversation on resume; the benchmark will determine this.
-        return _usage_fields(cast("dict[str, Any]", result).get("usage"),
-                             {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_tokens",
-                              "output_tokens": "output_tokens"})
-
-
-SPECS: dict[str, ProviderSpec] = {s.kind: s for s in (CcSpec(), CxSpec(), AgSpec())}
-
-
-def resolve_binary(spec: ProviderSpec) -> list[str] | None:
+def resolve_binary(spec: common.ProviderSpec) -> list[str] | None:
     names = _WIN_EXT[spec.binary] if sys.platform == "win32" else [spec.binary]
     for n in names:
         p = shutil.which(n)
@@ -973,110 +587,6 @@ def resolve_binary(spec: ProviderSpec) -> list[str] | None:
                     return direct
             return [p]
     return None
-
-
-AG_TRANSPORT_ENV = "PEERHUB_AG_TRANSPORT"
-_AG_PROBE_TIMEOUT_S = 10.0
-_AG_TRANSPORT_CACHE: dict[tuple[str, int, int, str], str] = {}  # process-local; undetermined is never cached
-_AG_TRANSPORT_LOCK = threading.Lock()
-
-
-@dataclass(frozen=True)
-class AgTransport:
-    transport: str  # stream | argv | undetermined | invalid_config
-    source: str  # env | help
-    version: str | None
-    error: str | None = None
-
-    def metadata(self) -> dict[str, Any]:
-        return {"ag_transport": self.transport, "ag_transport_source": self.source, "ag_cli_version": self.version}
-
-
-def _probe_cli(base: list[str], args: list[str], *, env: Mapping[str, str], cwd: str, timeout_s: float,
-               max_bytes: int) -> ProcessResult:
-    """A 0-token CLI probe (`--version`, `--help`), shared by discover() and ag transport detection."""
-    return run_bounded([*base, *args], stdin=None, cwd=cwd, env=env, timeout_s=timeout_s, max_bytes=max_bytes)
-
-
-def _probe_failure(probe: str, r: ProcessResult) -> str | None:
-    # output_truncated covers stderr too: the help text is read from both streams.
-    for flag in ("timed_out", "silence_timed_out", "aborted", "stdout_truncated", "output_truncated", "drain_timed_out"):
-        if getattr(r, flag):
-            return f"{probe} {flag}"
-    return None if r.returncode == 0 else f"{probe} exit {r.returncode}"
-
-
-def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str) -> AgTransport:
-    """`stream` when `agy --help` documents stream-json input, `argv` when it lacks --input-format; else undetermined."""
-    def undetermined(why: str, version: str | None = None) -> AgTransport:
-        return AgTransport("undetermined", "help", version, f"cannot determine agy stdin support: {why}")
-
-    def probe(arg: str) -> ProcessResult | str:
-        try:
-            r = _probe_cli(base, [arg], env=env, cwd=cwd, timeout_s=_AG_PROBE_TIMEOUT_S, max_bytes=DEFAULT_MAX_BYTES)
-        except SpawnFailure as e:
-            return f"{arg} could not start ({e})"
-        return _probe_failure(arg, r) or r
-
-    v = probe("--version")
-    if isinstance(v, str):
-        return undetermined(v)
-    first = decode_stderr(v.stdout or v.stderr).strip().splitlines()[:1]
-    m = _VERSION_RE.search(first[0]) if first else None
-    if m is None:
-        return undetermined("--version printed no version")
-    version = m.group(0)
-    try:
-        real = os.path.normcase(os.path.realpath(base[0]))
-        st = os.stat(real)
-    except OSError:
-        return undetermined("cannot identify the agy executable", version)
-    key = (real, st.st_size, st.st_mtime_ns, version)
-    with _AG_TRANSPORT_LOCK:
-        cached = _AG_TRANSPORT_CACHE.get(key)
-    if cached is not None:
-        return AgTransport(cached, "help", version)
-    h = probe("--help")
-    if isinstance(h, str):
-        return undetermined(h, version)
-    text = (h.stdout + h.stderr).decode("utf-8", "replace")
-    if "--input-format" not in text:
-        transport = "argv"
-    elif "stream-json" in text:
-        transport = "stream"
-    else:
-        return undetermined("--help lists --input-format without stream-json", version)
-    with _AG_TRANSPORT_LOCK:
-        _AG_TRANSPORT_CACHE[key] = transport
-    return AgTransport(transport, "help", version)
-
-
-_AG_LIMIT_SUMMARY = {"quota_exhausted": "Individual quota reached", "usage_limit": "usage limit reached"}
-
-
-def _limit_evidence(text: str) -> tuple[str, str | None] | None:
-    """The two steps of `cli.app._provider_limit`: the first limit line gives the reason, the whole text the reset."""
-    for line in text.splitlines():
-        r = classify_refusal_text(line.split(": ", 1)[1] if line.startswith(("ag exited", "cx exited", "cc exited")) else line)
-        if r is not None and r["reason"] in ("quota_exhausted", "usage_limit"):
-            return r["reason"], extract_reset_time(text)
-    return None
-
-
-def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san: Sanitizer) -> str:
-    """Summary (with the verbatim reset phrase), bounded excerpt of the matched line, status; re-parsed to prove it."""
-    prefix = _AG_LIMIT_SUMMARY[match.reason]
-    # " )" keeps a closing parenthesis out of a reset that ends in a run of non-space characters (the ISO pattern).
-    candidates = [san.clean(f"{prefix} ({match.reset_phrase}{end}") for end in (")", " )")] if match.reset_phrase else []
-    summary = next((c for c in candidates if len(c) <= AG_LIMIT_SUMMARY_CHARS
-                    and _limit_evidence(c) == (match.reason, match.reset_time)), san.clean(prefix))
-    excerpt = san.clean(match.line, EXCERPT_CHARS - len(summary) - 1 - len("...[truncated]"))
-    status_line = f"ag stream result {status} (exit {returncode})"
-    for lines in ((summary, excerpt, status_line), (summary, status_line)):
-        text = "\n".join(lines)
-        if _limit_evidence(text) == (match.reason, match.reset_time):
-            return text
-    return "\n".join((san.clean(prefix), status_line))
 
 
 class CliRuntimeTarget:
@@ -1140,7 +650,7 @@ class CliRuntimeTarget:
         self.env_scrubbed: list[str] = []
         self._san = Sanitizer(secrets=[*env_secrets(merged), *self._extra_secrets])
         self.evidence: deque[dict[str, Any]] = deque(maxlen=100)  # sanitized and bounded
-        self._ag_transport: AgTransport | None = None  # decided before submission, consumed by the next delivery
+        self._ag_transport: ag.AgTransport | None = None  # decided before submission, consumed by the next delivery
 
     @property
     def _env(self) -> dict[str, str]:
@@ -1170,22 +680,13 @@ class CliRuntimeTarget:
             try:
                 decision = self._ag_transport_decision()
             except Exception as e:  # evidence must never fail the delivery; the decision fails it closed instead
-                decision = AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {type(e).__name__}")
+                decision = ag.AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {type(e).__name__}")
             self._ag_transport = decision
             metadata.update(decision.metadata())
         return metadata
 
-    def _ag_transport_decision(self) -> AgTransport:
-        """PEERHUB_AG_TRANSPORT=argv forces argv; unset or empty detects; anything else is a configuration error."""
-        forced = self._env.get(AG_TRANSPORT_ENV)
-        if forced == "argv":
-            return AgTransport("argv", "env", None)
-        if forced:
-            return AgTransport("invalid_config", "env", None, f"{AG_TRANSPORT_ENV} must be unset, empty or 'argv'")
-        base = self._base()
-        if base is None:
-            return AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {executable_not_found(self._spec.binary)}")
-        return _detect_ag_transport(base, self._env, self._workspace)
+    def _ag_transport_decision(self) -> ag.AgTransport:
+        return ag.select_transport(self._base, self._env, self._workspace, self._spec.binary)
 
     @property
     def can_resume(self) -> bool:
@@ -1206,54 +707,13 @@ class CliRuntimeTarget:
     def _run(self, args: list[str], timeout_s: float) -> ProcessResult:
         base = self._base()
         if base is None:
-            raise SpawnFailure(executable_not_found(self._spec.binary))
-        return _probe_cli(base, args, env=self._env, cwd=self._workspace, timeout_s=timeout_s, max_bytes=self._max_bytes)
-
-    @staticmethod
-    def _text(b: bytes, san: Sanitizer, limit: int = EXCERPT_CHARS) -> str:
-        return san.clean(decode_stderr(b), limit)
-
-    def _ag_stream_stdout(self, res: ProcessResult, san: Sanitizer, payload_len: int) -> tuple[str, dict[str, Any] | None]:
-        """Decide an exited ag stream delivery (design v4 §3.5 rows 4-12, decision D of #369).
-
-        Returns the flat stdout of a delivered SUCCESS and the validator's telemetry verdict (None when complete).
-        Only a terminal event with no terminal observed (`absent`) and a non-zero exit reaches stderr classification.
-        Every other failure line starts with `ag stream` or `ag stdin` and carries stderr flattened to one line,
-        so no anchored limit pattern can match it. A non-string SUCCESS response is `invalid` (row 5).
-        """
-        rc = res.returncode
-        flat = " ".join(self._text(res.stderr, san).split())
-        tail = f" (exit {rc}); stderr: {flat}"
-
-        def fail(message: str) -> RuntimeTargetError:
-            return RuntimeTargetError(message, termination_confirmed=res.termination_confirmed)
-
-        if res.stdout_truncated:
-            raise fail("ag stream incomplete (stdout_truncated)" + tail)
-        term = terminal_result(res.stdout)
-        if term["observation"] == "invalid":
-            raise fail(f"ag stream invalid ({term['reason']})" + tail)
-        if term["observation"] == "absent":
-            if rc != 0:
-                raise fail(f"ag exited {rc}: " + self._text(res.stderr, san))
-            raise fail(f"ag stream incomplete ({term['reason']})" + tail)
-        status = term["status"]
-        if status != "SUCCESS":
-            match = terminal_quota(term["terminal_line"])
-            raise fail(f"ag stream result {status}" + tail if match is None else _ag_quota_error(match, status, rc, san))
-        if rc != 0:
-            raise fail(f"ag stream SUCCESS but exited {rc}; stderr: {flat}")
-        if res.stdin_state != "complete":
-            raise fail(f"ag stdin write incomplete ({res.stdin_state}, {res.stdin_bytes_written}/{payload_len})" + tail)
-        denied = json.loads(term["terminal_line"])["result"].get("denied_actions")  # the validated terminal event (#371)
-        flat_stdout = json.dumps({"response": term["response"], "conversation_id": term["conversation_id"], "usage": term["usage"],
-                                  "denied_actions": denied})
-        return flat_stdout, term["validation"]
+            raise SpawnFailure(common.executable_not_found(self._spec.binary))
+        return common.probe_cli(base, args, env=self._env, cwd=self._workspace, timeout_s=timeout_s, max_bytes=self._max_bytes)
 
     def validate_execution_policy(self) -> None:
         """Fail closed before execution when the provider CLI cannot enforce the requested write policy (#140)."""
         if self.runtime_kind == "ag" and not self._writable:
-            raise AgRequiresWritableError()
+            raise ag.AgRequiresWritableError()
 
     # ---- discovery (LIVE-004/005): never spends model tokens
     def discover(self, timeout_s: float = 20.0) -> dict[str, Any]:
@@ -1267,14 +727,14 @@ class CliRuntimeTarget:
         try:
             r = self._run(["--version"], timeout_s)
         except SpawnFailure as e:
-            info["reason"] = self._san.clean(f"cannot spawn: {e}", EXCERPT_CHARS)
+            info["reason"] = self._san.clean(f"cannot spawn: {e}", common.EXCERPT_CHARS)
             info["capabilities"] = {c: {"status": "unavailable", "source": "discovery", "reason": "provider CLI not available"}
                                     for c in ("resume", *caps)}
             self._note("discover", available=False)
             return info
-        first = self._text(r.stdout or r.stderr, self._san, 120).strip().splitlines()[:1]
+        first = common.provider_excerpt(r.stdout or r.stderr, self._san, 120).strip().splitlines()[:1]
         line = first[0] if first else ""
-        m = _VERSION_RE.search(line)
+        m = common.VERSION_RE.search(line)
         ok = r.returncode == 0 and not r.timed_out
         info.update(available=ok, version=m.group(0) if m else None, version_line=line or None)
         if not ok:
@@ -1343,7 +803,7 @@ class CliRuntimeTarget:
             return "unsupported"
         if vendor_session_id is None:
             return "missing"
-        if _session_id(vendor_session_id) is None:
+        if common.session_id(vendor_session_id) is None:
             return "rejected"
         with self._active_lock:
             if external_session_id in self._active:
@@ -1402,10 +862,10 @@ class CliRuntimeTarget:
                 raise PrespawnError(f"prompt contains a lone surrogate at index {surrogate}")
             decision, self._ag_transport = self._ag_transport or self._ag_transport_decision(), None
             if decision.transport not in ("stream", "argv"):
-                raise PrespawnError(self._san.with_prompt(prompt).clean(decision.error or "cannot determine agy stdin support", EXCERPT_CHARS))
+                raise PrespawnError(self._san.with_prompt(prompt).clean(decision.error or "cannot determine agy stdin support", common.EXCERPT_CHARS))
             stream = decision.transport == "stream"
         n_bytes = len(prompt.encode("utf-8"))
-        limit = MAX_PROMPT_BYTES if stream else min(MAX_PROMPT_BYTES, self._spec.max_prompt_bytes)
+        limit = common.MAX_PROMPT_BYTES if stream else min(common.MAX_PROMPT_BYTES, self._spec.max_prompt_bytes)
         if n_bytes > limit:
             prompt = self._prompt(record, catch_up, limit=limit)
             n_bytes = len(prompt.encode("utf-8"))
@@ -1417,19 +877,19 @@ class CliRuntimeTarget:
             raise PrespawnError("workspace is not a directory")
         base = self._base()
         if base is None:
-            raise PrespawnError(executable_not_found(self._spec.binary))
+            raise PrespawnError(common.executable_not_found(self._spec.binary))
         with self._active_lock:
             vendor_session_id = self._resume_sessions.get(external_session_id)
         if stream:
-            argv = [*base, *AgSpec.stream_argv(self._model, self._effort, self._writable, vendor_session_id)]
-            stdin_payload: bytes | None = encode_user_line(prompt)
+            argv = [*base, *ag.AgSpec.stream_argv(self._model, self._effort, self._writable, vendor_session_id)]
+            stdin_payload: bytes | None = ag.encode_user_line(prompt)
         else:
             argv = [*base, *self._spec.argv(self._model, self._effort, prompt, self._writable, vendor_session_id)]
             stdin_payload = prompt.encode("utf-8") if self._spec.stdin_prompt else None
         try:
             check_argv(argv)
         except ValueError as e:
-            raise PrespawnError(san.clean(str(e), EXCERPT_CHARS)) from e
+            raise PrespawnError(san.clean(str(e), common.EXCERPT_CHARS)) from e
         pending = bytearray()
         emitted = False
         stream_oversized = False
@@ -1462,7 +922,7 @@ class CliRuntimeTarget:
                     pending.extend(part)
                     line = bytes(pending)
                     pending.clear()
-                    events = _json_lines(line.decode("utf-8", "replace"))
+                    events = common.json_lines(line.decode("utf-8", "replace"))
                     if not events:
                         continue
                     event = events[0]
@@ -1533,7 +993,6 @@ class CliRuntimeTarget:
                 if proc is not None:
                     proc.mark_display_truncated()
 
-
         proc = BoundedProcess(argv, stdin=stdin_payload, cwd=self._workspace,
                               env=self._env, timeout_s=self._timeout_s, max_bytes=self._max_bytes,
                               silence_timeout_s=self._silence_timeout_s,
@@ -1548,7 +1007,7 @@ class CliRuntimeTarget:
                 self._active[external_session_id] = proc
         except SpawnFailure as e:
             self._note("prespawn_failure")
-            raise PrespawnError(san.clean(f"cannot spawn {self._spec.binary}: {e}", EXCERPT_CHARS)) from e
+            raise PrespawnError(san.clean(f"cannot spawn {self._spec.binary}: {e}", common.EXCERPT_CHARS)) from e
         # ---- a process exists from here on: every failure is uncertain, never pre-spawn
         finished = False
         try:
@@ -1593,14 +1052,14 @@ class CliRuntimeTarget:
             raise RuntimeTargetError(f"{self.runtime_kind} parser failed during output drain; outcome indeterminate",
                                      termination_confirmed=res.termination_confirmed)
         raw_text = res.stdout.decode("utf-8", "replace")
-        stdout_text, stream_validation = (self._ag_stream_stdout(res, san, len(stdin_payload or b"")) if stream
-                                          else (raw_text, None))
+        stdout_text, stream_validation = (
+            ag.stream_stdout(res, san, len(stdin_payload or b"")) if stream else (raw_text, None))
         refusal: dict[str, Any] | None = None
         if (not parser.has_tool_calls and not parser.has_success
                 and not parser.refusal_evidence_incomplete and parser.oversized_count == 0):
             refusal = parser.refusal_event
             if self.runtime_kind == "ag":
-                refusal = _ag_read_only_refusal(res, parser.saw_stdout, self._writable)
+                refusal = ag.read_only_refusal(res, parser.saw_stdout, self._writable)
 
         if refusal is not None:
             refusal_payload: dict[str, Any] = {
@@ -1617,11 +1076,11 @@ class CliRuntimeTarget:
             return
 
         if res.returncode != 0:
-            excerpt = self._text(res.stderr or res.stdout, san)
+            excerpt = common.provider_excerpt(res.stderr or res.stdout, san)
             if parser.terminal_error_summary:
                 term_err = san.clean(parser.terminal_error_summary, 200)
                 if term_err and term_err not in excerpt:
-                    excerpt = san.clean(f"{term_err} | {excerpt}" if excerpt else term_err, EXCERPT_CHARS)
+                    excerpt = san.clean(f"{term_err} | {excerpt}" if excerpt else term_err, common.EXCERPT_CHARS)
             raise RuntimeTargetError(f"{self.runtime_kind} exited {res.returncode}: " + excerpt,
                                      termination_confirmed=res.termination_confirmed)
         try:
@@ -1639,7 +1098,7 @@ class CliRuntimeTarget:
                 term_err = san.clean(parser.terminal_error_summary, 200)
                 if term_err and term_err not in err_msg:
                     err_msg = f"{err_msg} ({term_err})"
-            raise RuntimeTargetError(san.clean(f"unparseable {self.runtime_kind} output: {err_msg}", EXCERPT_CHARS)) from e
+            raise RuntimeTargetError(san.clean(f"unparseable {self.runtime_kind} output: {err_msg}", common.EXCERPT_CHARS)) from e
         cleaned_response = self._san.clean(text)
         payload: dict[str, Any] = {"response": cleaned_response}  # secrets redacted; the prompt may legitimately be quoted
         if self._account is not None:
@@ -1647,13 +1106,13 @@ class CliRuntimeTarget:
         if not cleaned_response.strip():
             payload["empty_response"] = True
             payload["task_effects"] = "unverified"
-            denied = denied_action_names(stdout_text) if self.runtime_kind == "ag" else []
+            denied = ag.denied_action_names(stdout_text) if self.runtime_kind == "ag" else []
             if denied:
                 payload["denied_actions"] = denied
         if self.runtime_kind == "cc":
             # Redact first, then cut to 120 chars; surfaced even with reply text so allow-rule mismatches are never silent (#303).
             # The incrementally parsed final result survives stdout truncation (the retained window may have evicted it).
-            cc_denied = [san.clean(d, CC_DENIAL_CHARS) for d in cc_result_denials(parser.cc_results[-1] if parser.cc_results else None)]
+            cc_denied = [san.clean(d, cc.CC_DENIAL_CHARS) for d in cc.cc_result_denials(parser.cc_results[-1] if parser.cc_results else None)]
             if cc_denied:
                 payload["denied_actions"] = cc_denied
         if res.output_truncated or parser.truncated:

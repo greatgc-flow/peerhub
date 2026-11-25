@@ -6,6 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.extensions.adapters import base
+from peerhub.extensions.adapters.ag import AgSpec
+from peerhub.extensions.adapters.cc import CcSpec
+from peerhub.extensions.adapters.cx import CxSpec
 from peerhub.extensions.bridge import RuntimeTargetError
 
 pytestmark = [pytest.mark.unit, pytest.mark.platform_sensitive]
@@ -72,7 +75,7 @@ def test_session_id_at_length_limit_and_missing_output(kind, sample):
 
 @pytest.mark.parametrize("writable", [False, True])
 def test_cc_fresh_and_resume_argv(writable):
-    spec = base.CcSpec()
+    spec = CcSpec()
     common = ["--model", "m-test", "--effort", "high"]
     if writable:
         common += ["--permission-mode", "acceptEdits"]
@@ -86,7 +89,7 @@ def test_cc_fresh_and_resume_argv(writable):
 @pytest.mark.parametrize("writable", [False, True])
 @pytest.mark.parametrize("model,effort", [(None, None), ("m-test", "high")])
 def test_cx_fresh_and_resume_argv(writable, model, effort):
-    spec = base.CxSpec()
+    spec = CxSpec()
     common = ["-m", model, "-c", f"model_reasoning_effort={effort}"] if model else []
     common += ["--json", "-"]
     fresh = ["exec", "--skip-git-repo-check", "-s", "workspace-write" if writable else "read-only"]
@@ -100,7 +103,7 @@ def test_cx_fresh_and_resume_argv(writable, model, effort):
 @pytest.mark.parametrize("writable", [False, True])
 @pytest.mark.parametrize("model,effort", [(None, None), ("m-test", "high")])
 def test_ag_fresh_and_resume_argv(writable, model, effort):
-    spec = base.AgSpec()
+    spec = AgSpec()
     fresh = ["-p", "question", "--output-format", "json"]
     if model:
         fresh += ["--model", model, "--effort", effort]

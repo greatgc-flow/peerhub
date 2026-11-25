@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.extensions.adapters.ag_stream import parse_ag_stream_json
+from peerhub.extensions.adapters.ag import parse_ag_stream_json
 
 pytestmark = pytest.mark.unit
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "telemetry" / "agy-stream-json-v1.ndjson"

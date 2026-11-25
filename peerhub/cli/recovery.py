@@ -712,7 +712,7 @@ def render_guidance_hint(entry: GuidanceEntry) -> str:
 
 def render_exception_guidance_hint(code: str, exception: BaseException | None) -> str:
     """Keep exception recovery specific to the pre-spawn policy that rejected execution."""
-    from peerhub.extensions.adapters.base import AgRequiresWritableError
+    from peerhub.extensions.adapters.ag import AgRequiresWritableError
 
     if code == "ask_delivery_failed" and isinstance(exception, AgRequiresWritableError):
         return (

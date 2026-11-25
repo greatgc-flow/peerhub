@@ -1,9 +1,11 @@
 # Peer CLI compatibility reference
 
 This is the current cross-peer operator reference. The authoritative runtime
-sources are the [adapter implementation](../../peerhub/extensions/adapters/base.py)
-and the [packaged model defaults](../../peerhub/config_data/model-defaults.toml); historical snapshots under
-`checkpoints/` are provenance only.
+sources are the [shared CLI runtime](../../peerhub/extensions/adapters/base.py),
+the provider implementations for [ag](../../peerhub/extensions/adapters/ag.py),
+[cc](../../peerhub/extensions/adapters/cc.py), and [cx](../../peerhub/extensions/adapters/cx.py),
+and the [packaged model defaults](../../peerhub/config_data/model-defaults.toml).
+Historical snapshots under `checkpoints/` record earlier observations.
 
 ## Supported surface
 
