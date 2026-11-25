@@ -49,6 +49,7 @@ FRAME_HEADS = tuple(FRAME_SECTION_HEADS.values())
 _FRAME_DETAIL_ORDER = _FRAME_SECTION_KEYS[len(FRAME_SECTION_ORDER):]
 
 QUOTA_NA = "n/a"
+_HIDDEN_QUOTA_WINDOWS = "Unavailable quota windows hidden (use --show-quota-notes)"
 BAR_CELLS = 8  # minimum when shown
 BAR_MIDDLE_CELLS = 16
 BAR_MAX_CELLS = 40
@@ -940,16 +941,20 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             table_rows = list(pool_rows.values()) or available
             if not show_notes:
                 table_rows = [row for row in table_rows if row["state"] != QUOTA_NA]
-            header, rendered, omitted = _pool_table(entries, table_rows, width - 1,
-                                                    unicode, keep, rich=rich, paint=color, details=True,
-                                                    guide_url=guide_url, profile_urls=profile_urls)
-            rows.extend(header)
-            previous_peer = ""
-            for row, rendered_entry in zip(layout, rendered):
-                if previous_peer and previous_peer != row["peer"] and not rich:
-                    rows.append("")
-                previous_peer = row["peer"]
-                rows.extend(rendered_entry)
+            omitted: list[str] = []
+            if table_rows or entries or not available:
+                header, rendered, omitted = _pool_table(entries, table_rows, width - 1,
+                                                        unicode, keep, rich=rich, paint=color, details=True,
+                                                        guide_url=guide_url, profile_urls=profile_urls)
+                rows.extend(header)
+                previous_peer = ""
+                for row, rendered_entry in zip(layout, rendered):
+                    if previous_peer and previous_peer != row["peer"] and not rich:
+                        rows.append("")
+                    previous_peer = row["peer"]
+                    rows.extend(rendered_entry)
+            else:
+                rows.append(_HIDDEN_QUOTA_WINDOWS)
             table_size = len(rows)
             notes = [*retired_notes, *na_notes, *evidence_notes,
                      *(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}"
@@ -2868,9 +2873,9 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         profile_urls = _obj(payload.get("_profile_urls"))
         if profile_urls:
             frame.suggest = [_link_profiles(line, profile_urls) for line in frame.suggest]
-        if rows:
-            show_notes = bool(payload.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
-            visible_rows = rows if show_notes else [row for row in rows if row["state"] != QUOTA_NA]
+        show_notes = bool(payload.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
+        visible_rows = rows if show_notes else [row for row in rows if row["state"] != QUOTA_NA]
+        if visible_rows:
             frame.pool_gap = _pool_gap(rows, width, unicode, show_quota_notes=show_notes)
             frame.pool_legend = _compact_wrap(POOL_LEGEND, width)
             frame.pools, frame.pools_total, frame.pools_header_lines = _pool_section(
@@ -2883,8 +2888,11 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
                     for line in _compact_wrap(note, max(1, pool_width or width))
                 ]
         else:
-            notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
-                     else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
+            if rows:
+                notes = [] if expand else _compact_wrap(_HIDDEN_QUOTA_WINDOWS, width)
+            else:
+                notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
+                         else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
             head = f"{FRAME_SECTIONS['pools']} 0"
             frame.pools = [_head_rule(head, width, unicode, paint) if rich else head, *notes]
     return frame

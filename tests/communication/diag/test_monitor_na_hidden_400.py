@@ -7,7 +7,10 @@ from typing import Any
 import pytest
 
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
-from peerhub.cli.monitor_view import BAR_CELLS, BAR_MAX_CELLS, BAR_MIDDLE_CELLS, FAMILIES, RICH_GLYPHS, _width, render_grouped_frame
+from peerhub.cli.monitor_view import (
+    BAR_CELLS, BAR_MAX_CELLS, BAR_MIDDLE_CELLS, FAMILIES, POOL_LEGEND, RICH_GLYPHS,
+    _HIDDEN_QUOTA_WINDOWS, _width, render_grouped_frame,
+)
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_expand_rich import block, expand, strip
 from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload
@@ -119,6 +122,23 @@ def test_default_pool_visibility_and_opt_in(view, unicode, expand_mode, height):
     assert "ag A-7D n/a not reported (plan prolite)" in shown
     assert "A-7D" in next(line for line in shown.splitlines() if line.startswith("gap vs "))
     assert all(pool in hidden and pool in shown for pool in ("C-7D", "X-7D"))
+
+
+@pytest.mark.parametrize("view", ["plain", "rich"])
+@pytest.mark.parametrize("expanded", [False, True])
+def test_all_unavailable_pools_have_no_empty_tables_or_legend(view, expanded):
+    payload = _payload([], [absent("ag", "A-7D")], selected_groups=["capacity"])
+    options = dict(view=view, width=150, expand=expanded)
+    hidden = render_grouped_frame(payload, show_quota_notes=SHOW_QUOTA_NOTES_DEFAULT, **options)
+    assert re.search(r"POOLS 0\b[^\n]*$", hidden, re.MULTILINE)
+    assert _HIDDEN_QUOTA_WINDOWS in hidden
+    assert all(text not in hidden for text in ("A-7D", "PACE(pp)", "PEER POOL", "gap vs ", "no quota evidence"))
+
+    shown = render_grouped_frame(payload, show_quota_notes=True, **options)
+    assert re.search(r"POOLS 1\b", shown)
+    assert "(A-7D n/a)" in shown
+    assert "ag A-7D n/a not reported (plan prolite)" in shown
+    assert POOL_LEGEND in " ".join(shown.split())
 
 
 @pytest.mark.parametrize("view,unicode", [("rich", True), ("plain", False)])
