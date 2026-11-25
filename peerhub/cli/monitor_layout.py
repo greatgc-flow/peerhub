@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 from peerhub._console import ANSI_ESCAPE
+from peerhub.cli.quota_format import BAR_GLYPHS, format_duration as format_duration
 from peerhub.core.text import clean_text
 from peerhub.core.scalars import finite_converted_number as finite_number
 
@@ -206,16 +207,6 @@ def paint_text(text: str, code: str | None) -> str:
     return f"\x1b[{code}m{text}\x1b[0m" if code else text
 
 
-def format_duration(seconds: float, *, extra_unit: bool = False) -> str:
-    total_minutes, secs = divmod(math.floor(seconds), 60)
-    hours, minutes = divmod(total_minutes, 60)
-    if hours >= 24:
-        days, hours = divmod(hours, 24)
-        return f"{days}d{hours:02d}h" + (f"{minutes:02d}m" if extra_unit else "")
-    text = f"{hours}h{minutes:02d}m" if hours > 0 else f"{total_minutes}m"
-    return text + (f"{secs:02d}s" if extra_unit else "")
-
-
 def title_rule(title: str, rest: str, width: int, unicode: bool, paint: bool) -> str:
     """A section head drawn as a rule (P21): `── POOLS 9 ── STATE ──────── LEFT  RESET ───`. The head's content
     stays: the title, then `rest` as it is, with the line drawn through the gap after the title (three cells or
@@ -329,10 +320,10 @@ PILL_SGR = {"OK": "1;38;5;16;48;5;78", "OK?": "1;38;5;16;48;5;221", "ATTN": "1;3
 # Every glyph is one cell wide (as `cell_width` counts it) and has an ASCII form for a stream that cannot show it; a
 # terminal that draws these as two cells uses the plain view. `none` is a bar or meter without a value.
 RICH_GLYPHS = {
-    True: {"rule": "─", "sep": "·", "full": "█", "empty": "░", "cfull": "▬", "cempty": "╌", "none": "─", "on": "■",
+    True: {"rule": "─", "sep": "·", **BAR_GLYPHS[True], "on": "■",
            "off": "□", "ok": "●", "fast": "▲", "low": "▼", "out": "×", "blocked": "×", "aged": "○", "run": "►",
            "gone": "×", "dot": "●", "up": "▲", "down": "▼"},
-    False: {"rule": "-", "sep": "|", "full": "#", "empty": ".", "cfull": "=", "cempty": "-", "none": "-", "on": "#",
+    False: {"rule": "-", "sep": "|", **BAR_GLYPHS[False], "on": "#",
             "off": ".", "ok": "*", "fast": "^", "low": "v", "out": "x", "blocked": "x", "aged": "o", "run": ">",
             "gone": "x", "dot": "*", "up": "^", "down": "v"},
 }

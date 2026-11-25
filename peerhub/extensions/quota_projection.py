@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Literal, TypeGuard, TypedDict
+from collections.abc import Mapping
+from typing import Literal, TypeGuard, TypedDict, cast
 
 ProjectionState = Literal["unknown", "stale", "expired", "exhausted", "insufficient", "on_pace", "threat"]
 LONG_WINDOW_SECONDS = 86400.0
@@ -50,6 +51,34 @@ def _is_finite_num(val: object) -> TypeGuard[int | float]:
         return math.isfinite(val)
     except OverflowError:
         return False
+
+
+def quota_used_fraction(remaining: object) -> int | float | None:
+    return 1 - remaining if isinstance(remaining, (int, float)) and not isinstance(remaining, bool) else None
+
+
+def project_quota_payload(payload: Mapping[str, object], used_fraction: float | int | None, measured_at: float | None,
+                          read_at: float, *, evidence_state: object) -> ExhaustionProjection:
+    """Project a window from its raw anchors and evaluated evidence."""
+    return project_exhaustion(
+        used_fraction, payload.get("window_started_at"), measured_at, payload.get("resets_at"), read_at,
+        evidence_state=evidence_state, anchor_basis=payload.get("anchor_basis"),
+    )
+
+
+def observation_projection(item: Mapping[str, object], now: float) -> ExhaustionProjection:
+    """Project a reading that carries its measurement timestamp and raw payload."""
+    from peerhub.extensions.observation_model import instant_us
+
+    payload = cast("Mapping[str, object]", item["payload"])
+    measured_at = None
+    if item.get("observed_at"):
+        try:
+            measured_at = instant_us(str(item["observed_at"])) / 1_000_000
+        except (ValueError, OverflowError):
+            pass
+    return project_quota_payload(payload, quota_used_fraction(payload.get("remaining_fraction")),
+                                 measured_at, now, evidence_state=item["state"])
 
 
 def project_exhaustion(

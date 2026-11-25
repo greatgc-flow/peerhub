@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import time
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, cast
 
 from peerhub.core.models import iso_timestamp
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
@@ -21,10 +21,15 @@ from peerhub.extensions.observation_model import (
     QUOTA_NOTICE_AGE_SECONDS,
     QUOTA_PROBE_LOAD_DELAY,
     QUOTA_PROBE_LOAD_LABEL,
-    instant_us,
     oldest_measured_quota_age,
 )
-from peerhub.extensions.quota_projection import ExhaustionProjection, limit_by_parent, project_exhaustion, scoped_parent_ref
+from peerhub.extensions.quota_projection import (
+    limit_by_parent,
+    observation_projection as projection,
+    project_exhaustion,
+    quota_used_fraction,
+    scoped_parent_ref,
+)
 
 SCHEMA_VERSION = "1.0"
 QUOTA_KINDS = ("quota", "rate_limit")
@@ -54,30 +59,8 @@ def _measurements(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _derived(meas: dict[str, Any]) -> dict[str, Any]:
-    rf = meas.get("remaining_fraction")
-    if isinstance(rf, (int, float)) and not isinstance(rf, bool):
-        return {"used_fraction": 1 - rf}  # derived: 1 - remaining_fraction
-    return {}
-
-
-def projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
-    """Pass evaluated freshness and measurement time to the shared engine."""
-    payload = item["payload"]
-    measured_at = None
-    if item.get("observed_at"):
-        try:
-            measured_at = instant_us(str(item["observed_at"])) / 1_000_000
-        except (ValueError, OverflowError):
-            pass
-    return project_exhaustion(
-        _derived(_measurements(payload)).get("used_fraction"),
-        payload.get("window_started_at"), measured_at, payload.get("resets_at"), now,
-        evidence_state=item["state"], anchor_basis=payload.get("anchor_basis"),
-    )
-
-
-
-
+    used = quota_used_fraction(meas.get("remaining_fraction"))
+    return {"used_fraction": used} if used is not None else {}
 
 def _ts(v: object) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 253402300800 else None

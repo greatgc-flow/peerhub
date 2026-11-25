@@ -8,7 +8,6 @@ from typing import Any, cast
 from peerhub.core.text import clean_text
 from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_alert_view import alert_label, alert_rows
-from peerhub.cli.monitor_format import fraction_bar, pct
 from peerhub.cli.monitor_layout import (
     as_dict,
     compact_age,
@@ -23,6 +22,7 @@ from peerhub.cli.monitor_layout import (
 )
 from peerhub.cli.monitor_legend import CONTEXT_ESTIMATE_LABEL, FRAME_DETAIL_ORDER, FRAME_SECTIONS
 from peerhub.cli.monitor_quota_view import quota_label, quota_rows
+from peerhub.cli.quota_format import format_percent, fraction_bar
 from peerhub.core.monitor_groups import GROUPS
 from peerhub.extensions.monitor_sessions import context_estimate_age
 
@@ -158,8 +158,8 @@ def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bo
                         pool_label = q_pool
                     pool_str = f" ({pool_label})" if pool_label else ""
                     plan_note = clean_text(as_dict(data.get("plan_notes")).get(pid) or "") if data.get("_show_quota_notes") else ""
-                    q_wide = f"{pct(q_rem)}{pool_str}{age_str}" + (f" [{plan_note}]" if plan_note else "")
-                    q_narr = f"{pct(q_rem)}{pool_str}"
+                    q_wide = f"{format_percent(q_rem)}{pool_str}{age_str}" + (f" [{plan_note}]" if plan_note else "")
+                    q_narr = f"{format_percent(q_rem)}{pool_str}"
 
             if p_obj is None:
                 p_wide = "unknown [unknown]"

@@ -9,13 +9,11 @@ from peerhub.core.text import clean_text
 from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_format import (
     PoolEntry,
-    compact_pool,
     display_min_quota,
     fold_pool_markers,
     na_pool_note,
     na_reason,
     ordered_pools,
-    pct,
     pool_order,
     pool_table,
     quota_layout,
@@ -30,7 +28,6 @@ from peerhub.cli.monitor_layout import (
     compact_age,
     dict_items,
     format_count,
-    format_duration,
     heading_rule,
     omitted_rows,
     pack_fields,
@@ -41,6 +38,7 @@ from peerhub.cli.monitor_layout import (
 )
 from peerhub.cli.monitor_legend import FRAME_SECTIONS, QUOTA_NA
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
+from peerhub.cli.quota_format import format_duration, format_percent
 from peerhub.core.peer_kinds import ALIASES
 from peerhub.extensions.monitor_alerts import pool_out_alerts
 from peerhub.extensions.monitor_quota import peer_quota
@@ -52,7 +50,8 @@ from peerhub.extensions.observation_model import (
     quota_probe_timed_out,
 )
 from peerhub.extensions.pool_health import PoolHealth
-from peerhub.extensions.quota_windows import EXPIRED_WINDOW_REASON, omitted_plan_windows, quota_window_remaining, scoped_weekly_parents
+from peerhub.extensions.quota_read_model import PoolReading, PoolRow, monitor_reading, project_pool_rows
+from peerhub.extensions.quota_windows import EXPIRED_WINDOW_REASON, FAMILIES, omitted_plan_windows, pool_family, quota_window_remaining
 
 
 HIDDEN_QUOTA_WINDOWS = "Unavailable quota windows hidden (use --show-quota-notes)"
@@ -202,6 +201,32 @@ def frame_consumers(payload: dict[str, Any]) -> dict[str, list[str]]:
     return consumers
 
 
+def _pool_source(item: dict[str, Any], now: float, elapsed: float, consumers: dict[str, list[str]]) -> PoolReading:
+    peer = peer_label(item)
+    ref = clean_text(item.get("pool_ref") or item.get("pool_kind") or "?")
+    pool = ref.split(":")[-1]
+    return PoolReading(peer=peer, pool=pool, pool_ref=ref, reading=monitor_reading(item, now, elapsed),
+                       profiles=tuple(sorted(set(consumers.get(f"{peer}:{pool}", [])))),
+                       retired=bool(item.get("display_retired")))
+
+
+def _compact_pool(row: PoolRow) -> dict[str, Any]:
+    source, facts = row.source, row.health
+    reading = source["reading"]
+    age = reading["age_seconds"]
+    state, left, stale = facts["state"], facts["left_pct"], facts["stale"]
+    family = pool_family(source["pool"])
+    return {"peer": source["peer"], "pool": source["pool"], "pool_ref": source["pool_ref"],
+            "reading": reading, "health": facts, "family": family, "meaning": FAMILIES.get(family, "?"),
+            "remaining": None if left is None else left / 100,
+            "pace_pt": facts["pace_pt"], "reset_seconds": facts["reset_in_seconds"],
+            "state": state, "age_seconds": age, "aged": stale,
+            "needs_refresh": state != QUOTA_NA and (stale or age is None or state in {"?", "reset"}),
+            "reason": clean_text(reading.get("reason") or ""), "display_plan": reading.get("display_plan"),
+            "retired": source["retired"], "profiles": source["profiles"],
+            **({"depends_on": row.parent["pool"]} if row.parent is not None else {})}
+
+
 def frame_pools(payload: dict[str, Any], consumers: dict[str, list[str]]
                  ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """(the frame's observations, its quota pools, their rows): each pool as it is at the time of this redraw (the read
@@ -212,12 +237,8 @@ def frame_pools(payload: dict[str, Any], consumers: dict[str, list[str]]
                     dict_items(as_dict(as_dict(as_dict(payload.get("groups")).get("capacity")).get("data")).get("observations")))
     quota = [item for item in observations if item.get("kind", "quota") == "quota" and item.get("pool_ref")]
     now = read_at if read_at is not None else 0
-    rows = [compact_pool(item, now, elapsed, consumers) for item in quota]
-    parents = scoped_weekly_parents(rows)
-    for index, row in enumerate(rows):
-        if (parent := parents.get(id(row))) is not None:
-            rows[index] = {**compact_pool(quota[index], now, elapsed, consumers, parent["reading"]),
-                           "depends_on": parent["pool"]}
+    readings = [_pool_source(item, now, elapsed, consumers) for item in quota]
+    rows = [_compact_pool(row) for row in project_pool_rows(readings, now + elapsed, exclude_unavailable=True)]
     rows.sort(key=lambda row: pool_order(str(row["peer"]), str(row["pool"])))
     return observations, quota, rows
 
@@ -378,7 +399,7 @@ def quota_label(status: str, group: dict[str, Any]) -> str:
             when = "past forecast" if exhaust <= 0 else f"in {format_duration(exhaust)}"
         else:
             continue
-        candidates.append((exhaust or 0, f"{row['peer']} {row['pool']} {pct(left / 100)} {when}"))
+        candidates.append((exhaust or 0, f"{row['peer']} {row['pool']} {format_percent(left / 100)} {when}"))
     return f"{label} | soonest exhaust: {min(candidates)[1]}" if candidates else label
 
 
@@ -406,7 +427,11 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
                         else f"PROBE:{compact_age(age + elapsed_seconds) if age is not None else 'unknown'}")
                 probe_notes.setdefault(peer, set()).add(code)
                 continue
-            row = pool_rows.get((peer, clean_text(pool_ref))) or compact_pool(item, read_at or 0, elapsed_seconds, {})
+            row = pool_rows.get((peer, clean_text(pool_ref)))
+            if row is None:
+                now = read_at or 0
+                source = _pool_source(item, now, elapsed_seconds, {})
+                row = _compact_pool(project_pool_rows([source], now + elapsed_seconds)[0])
             pool, reason = row["pool"], row["reason"]
             if reason.startswith(ABSENT_FACT_REASONS) and state in {"ABSENT", "STALE"} and not row["retired"]:
                 if row["state"] == QUOTA_NA and show_notes:

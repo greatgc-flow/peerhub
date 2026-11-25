@@ -49,8 +49,10 @@ terminal text fitting, and `monitor_links.py` for OSC 8 hyperlinks.
 
 The dashboard and `diag --plan` use `peerhub/extensions/diag_read_model.py`
 to project stored snapshots and `peerhub/cli/view.py` to render text. The plan
-and grouped monitor share window and parent rules from
-`peerhub/extensions/quota_windows.py`. Terminal drawing and VT handling live in
+and grouped monitor use `peerhub/extensions/quota_read_model.py` for quota rows
+and scoped parent health. Window identity and parent rules live in
+`peerhub/extensions/quota_windows.py`. Both views use `peerhub/cli/quota_format.py`
+for bars, durations, and percentages. Terminal drawing and VT handling live in
 `peerhub/_console.py`.
 
 See the [monitor guide](../monitor.md) for refresh, redraw and quota display behavior.
