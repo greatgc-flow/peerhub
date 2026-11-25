@@ -9,11 +9,11 @@ python -c "from pathlib import Path; from peerhub.cli.lessons import render_less
 Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.
 Guidance codes and result labels take priority, followed by exact profile IDs (for example `cc.effort`), the index (bare `peerhub explain`, `lessons` or `list`), exact lesson IDs, and keyword lookup. Keyword matches list recipes first, then sort by ID. A single match prints in full. Open one of several matches with `peerhub explain <id>`.
 
-## ag profile choice for bulk work (observed 2026-11-01) (`ag-bulk-profile-heuristics`)
+## ag profile choice for bulk work (`ag-bulk-profile-heuristics`)
 
 - Keywords: ag, agy, profile, effort, flash, argon, bulk, image, WinError, 206, prompt, size
 - Symptom: A low-effort ag profile returns an empty reply on a long list of file or shell items; very long inline prompts fail on Windows.
-- Fix: Observation from one small test (Windows, one run per cell, no ground truth for images): flash-low broke down somewhere between 25 and 150 items, flash-medium finished them, high only cost time. Treat these as heuristics, not thresholds. ag prompts, including catch-up history, go over stdin up to 1,000,000 bytes; only an agy without stream-json input or PEERHUB_AG_TRANSPORT=argv uses argv, limited to 30,000 bytes (30 KB) on Windows and 120,000 bytes (120 KB) on POSIX. For ask_prompt_too_large, split into parts under the limit (one ask each), or for an ag argv limit use cc/cx on a separate stream (stdin, 1,000,000-byte maximum); if the prompt alone is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id. File paths do not bypass the limit and ag file reads may be denied; inline small excerpts. Dense numeric image tables stay unreliable for every model: cross-read before trusting.
+- Fix: Try flash-medium if flash-low returns an empty reply on bulk work. ag prompts, including catch-up history, go over stdin up to 1,000,000 bytes; only an agy without stream-json input or PEERHUB_AG_TRANSPORT=argv uses argv, limited to 30,000 bytes (30 KB) on Windows and 120,000 bytes (120 KB) on POSIX. For ask_prompt_too_large, split into parts under the limit (one ask each), or for an ag argv limit use cc/cx on a separate stream (stdin, 1,000,000-byte maximum); if the prompt alone is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id. File paths do not bypass the limit and ag file reads may be denied; inline small excerpts. Dense numeric image tables stay unreliable for every model: cross-read before trusting.
 - Issue: #290, #309
 
 ## ag recipe (empty replies, permissions, trusted -w) (`ag-recipe`)
@@ -110,7 +110,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 ## Concurrent cc lanes and parent shell lifetime (`concurrent-cc-lanes`)
 
 - Keywords: cc, concurrent, lanes, memory, reaper, supervisor, parent, shell
-- Symptom: On a 32 GB Windows host, memory pressure reaped parent shells and killed long cc asks when about six lanes ran and one loaded a large index (PeerHub 0.24.8; checked 2026-11-12, #352).
+- Symptom: On Windows, memory pressure can reap parent shells and kill long cc asks when concurrent lanes load large indexes.
 - Fix: Keep 2-3 concurrent cc lanes on a 32 GB host when a lane may load large indexes. Long asks die with their parent shell: run them from one supervisor, wait for completion, and do not restart reaped work blindly. Check peerhub diag running, then inspect results and effects before deciding how to continue. This is an operational lesson, not an enforced concurrency or free-memory guard.
 - Issue: #352
 
@@ -139,7 +139,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: peer, vote, votes, author, independent, unanimity, review, self-vote, batch, responses, verdict, fresh, consequential
 - Symptom: A document author votes AGREE on their own work and the result is treated as unanimous approval, votes are collected one ask at a time, or a routine check is sent to three peers or to a named stream.
-- Fix: Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Routine checks and all three consequential votes always run FRESH, even when a stream name is given: a named stream is for review rounds on one diff only. Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. There is no `vote` command: votes and reviews run in one command, peerhub batch run votes.json --batch-id ID --max-parallel n --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Verdict template for every voter, one reply of <= 300 tokens: VERDICT / BLOCKERS / NITS (VERDICT: AGREE or DISAGREE; BLOCKERS: each with file:line and the exact fix, or none; NITS: optional, one line each). Measured 2026-11-14: three peers answered in 11 s.
+- Fix: Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Routine checks and all three consequential votes always run FRESH, even when a stream name is given: a named stream is for review rounds on one diff only. Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. There is no `vote` command: votes and reviews run in one command, peerhub batch run votes.json --batch-id ID --max-parallel n --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Verdict template for every voter, one reply of <= 300 tokens: VERDICT / BLOCKERS / NITS (VERDICT: AGREE or DISAGREE; BLOCKERS: each with file:line and the exact fix, or none; NITS: optional, one line each).
 - Issue: #297, #366, 0.25.0 plan D6
 
 ## Installed vs checkout mismatch (`installed-vs-checkout`)
@@ -230,8 +230,8 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: subagent, subagents, sub-agent, sub-agents, Agent, spawn_agent, invoke_subagent, multi_agent, fan-out, loop
 - Symptom: A large task could run as parallel helpers inside one peer ask, or a prompt expects /loop-style persistence inside an ask.
-- Fix: Every peer can fan out sub-agents inside one ask: cc through its Agent tool; cx through spawn_agent only when the prompt names that tool explicitly (codex 0.167.2, features.multi_agent on); ag through invoke_subagent. There is no /loop-style persistence inside an ask: the ask ends with the peer's reply. Sub-agents spend the same peer quota: give each a disjoint task and ask for one merged final report.
-- Issue: #361 (checked 2026-11-13)
+- Fix: Every peer can fan out sub-agents inside one ask: cc through its Agent tool; cx through spawn_agent only when the prompt names that tool explicitly (with features.multi_agent enabled); ag through invoke_subagent. There is no /loop-style persistence inside an ask: the ask ends with the peer's reply. Sub-agents spend the same peer quota: give each a disjoint task and ask for one merged final report.
+- Issue: #361
 
 ## Quota windows depend on the peer plan (`plan-windows`)
 
@@ -286,8 +286,8 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: stream, reuse, resume, session, context, tokens, quota, cost, vote
 - Symptom: Quota drains fast although prompts are short: a long-lived --stream is reused across many tasks, so every ask re-sends the whole earlier conversation (on every model turn).
-- Fix: Reuse only within one task. Move a new task to a new stream and send votes fresh with facts inline. A 19-ask cx stream used 23.6M input tokens in one 2026-11-10 measurement. See [docs/commands.md#ask](commands.md#ask).
-- Issue: 2026-11-10 quota diet
+- Fix: Reuse only within one task. Move a new task to a new stream and send votes fresh with facts inline. See [docs/commands.md#ask](commands.md#ask).
+- Issue: #340
 
 ## Recommend a profile and ask command (`suggest`)
 

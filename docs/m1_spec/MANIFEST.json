@@ -176,16 +176,6 @@
       "sha256": "47b9845e8d024db5398a342e4ba09497f8c33b181e437579f94c22c1e5821fc3"
     },
     {
-      "path": "05_SKILLS/refresh-model-catalog/SKILL.md",
-      "bytes": 991,
-      "sha256": "dea23e99411a16e1671906153fe8deffba60b8c4107697362900d398752cd8af"
-    },
-    {
-      "path": "05_SKILLS/token-efficient-collaboration/SKILL.md",
-      "bytes": 753,
-      "sha256": "ccdd24f4fd68eb5879372c11aebe0ed3c62154e54cf944174dcc29349ffd62d9"
-    },
-    {
       "path": "06_GUIDES/DEVELOPER_IMPLEMENTATION_GUIDE.md",
       "bytes": 826,
       "sha256": "5d5d7abf8425fc2b23ef840e0828f5ca9343eb783dda0af35986c619f1555ab9"
@@ -642,8 +632,8 @@
     },
     {
       "path": "START_HERE.md",
-      "bytes": 2736,
-      "sha256": "64c00b796526670f9fa98d13cddc8926310f9695707db333955de680adc1f409"
+      "bytes": 3000,
+      "sha256": "f615593e1518a7b638355982119b285838d0e8e96886a7f58408063d8ce6e98f"
     },
     {
       "path": "USAGE_GUIDE.md",

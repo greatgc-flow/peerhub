@@ -43,9 +43,8 @@ Readonly Diag
 6. `09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md`
 7. `09_ROADMAP/M3_FEDERATED_INTELLIGENT_COLLABORATION.md`
 8. `09_ROADMAP/OPTIONAL_CAPABILITY_TRACKS.md`
-10. `06_GUIDES/TEST_SET/README.md`
-11. `08_LIFECYCLE/README.md`
-12. `07_AUDIT/FINAL_RECURSIVE_AUDIT.md`
+9. `06_GUIDES/TEST_SET/README.md`
+10. `08_LIFECYCLE/README.md`
 
 ## Baseline
 
@@ -66,5 +65,11 @@ This package includes a product conformance map for the general-purpose `VS-UNIF
 ## Conformance and Maturity
 Standard compliance (`COMPLY/ADAPT/...`) indicates target structural alignment, not current implementation completion. Based on design depth, M1 is TDD_READY, and the actual implementation maturity is VERIFIED. The formal maturity of M2·M3 is PLANNED, and the roadmap direction is frozen. The actual state SSOT is `10_STANDARDS_CONFORMANCE/product-maturity.json`.
 
-- Current implementation snapshot: `07_AUDIT/CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json`
 - Public cutover gate: `09_ROADMAP/M1_PUBLIC_CLI_CUTOVER_GATE.md`
+
+## Historical evidence retained in the package
+
+`07_AUDIT/` records the frozen M1 audit and implementation baseline. The package validator checks `final_audit.csv`, and the conformance records cite the implementation snapshot.
+
+- [Final recursive audit](07_AUDIT/FINAL_RECURSIVE_AUDIT.md)
+- [Implementation snapshot at the frozen baseline](07_AUDIT/CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json)

@@ -180,7 +180,7 @@ def test_new_and_moved_lesson_content():
     for needle in ("raise a line-1 alert", "display_plan", "plan_changed: true", "at least five minutes old"):
         assert needle in monitor, needle
     votes = by_id["independent-peer-votes"]["fix"]
-    for needle in ("--max-parallel n --responses", "not writable", "private empty directory", "inline", "11 s",
+    for needle in ("--max-parallel n --responses", "not writable", "private empty directory", "inline",
                    "routine check = ONE reviewer, FRESH", "3 independent peers, unanimity", "VERDICT / BLOCKERS / NITS"):
         assert needle in votes, needle
     timeouts = by_id["ask-timeouts"]["fix"]
