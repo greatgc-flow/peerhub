@@ -175,6 +175,7 @@ def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
 @pytest.mark.platform_sensitive
 def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkeypatch):
     import io
+    from peerhub.cli import view
     from peerhub.cli.view import FrameOutput
 
     class Output(io.StringIO):
@@ -192,7 +193,8 @@ def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkey
         sink.write("ATTN 4\n" + "\n".join(["─" * 79] * 5) + "\nDB:env\n")
         first = output.getvalue()
         # The alternate screen: no command line above the frame, so a pinned command cannot cover ATTN.
-        assert first.startswith("\x1b[?1049h\x1b[?25l\x1b[H\x1b[2J\x1b[1;1HATTN 4")
+        # Auto-wrap is off while the frame is live: a too-wide row is clipped, never spilled onto the next row.
+        assert first.startswith("\x1b[?1049h\x1b[?25l" + view.NO_AUTOWRAP + "\x1b[H\x1b[2J\x1b[1;1HATTN 4")
         assert "\x1b[7;1HDB:env\x1b[K\x1b[J" in first
         assert "\r" not in first and "\n" not in first
         for row in range(2, 7):
@@ -204,7 +206,7 @@ def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkey
         assert output.getvalue() == "\x1b[H\x1b[1;1HATTN 1\x1b[K\x1b[2;1Hshort\x1b[K\x1b[J"
     finally:
         sink.close()
-    assert output.getvalue().endswith("\x1b[0m\x1b[?25hATTN 1\nshort\n")
+    assert output.getvalue().endswith("\x1b[?1049l" + view.AUTOWRAP + "\x1b[0m\x1b[?25hATTN 1\nshort\n")
 
 
 @pytest.mark.platform_sensitive

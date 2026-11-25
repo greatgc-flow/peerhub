@@ -319,7 +319,9 @@ def assert_vt_view_effect(e, db, command):
                 assert e.run(db, command, "--view", style, *args)[0] in (0, 4)
             text = output.getvalue()
             if vt:
-                assert "\x1b[?25l\x1b[H\x1b[2J" in text
+                from peerhub.cli.view import NO_AUTOWRAP
+                wrap = NO_AUTOWRAP if command == "monitor" else ""  # row-anchored monitor frames clip, never wrap
+                assert "\x1b[?25l" + wrap + "\x1b[H\x1b[2J" in text
                 trailer = "\x1b[0m\x1b[?25h"
                 if command == "monitor":
                     trailer += "\r\n"

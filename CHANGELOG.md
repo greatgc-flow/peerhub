@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.15] - 2026-11-25
+
 ### Fixed
 
 - Filter lease-active asks by peer before applying the `diag running` limit.
@@ -21,6 +23,12 @@ they do not claim new validation or publication evidence.
 - Correct quota refresh and unavailable-window descriptions, the monitor snapshot example and redraw behavior, and guide help and size measurements.
 - Clarify batch resource throttling, per-task quota refusals, and Argon's shared Gemini pools.
 - Fix the profile smoke recipe and add API peers and links to packaged CLI version observations.
+
+## [0.26.14] - 2026-11-25
+
+### Fixed
+
+- The live monitor turns terminal auto-wrap off while it draws. A row wider than the terminal (symbols drawn double-width on CJK consoles) is now clipped at the edge. Since 0.26.12 rewrote only changed rows, such a row spilled onto the next row and left stale fragments there until the next full repaint.
 
 ## [0.26.13] - 2026-11-25
 
