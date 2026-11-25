@@ -1,6 +1,6 @@
 """Pure renderer and CLI tests for monitor compact 'peers' dependency view.
 
-Failing RED phase suite for PR1 (docs/design/monitor-peers-view-2026-10-16.md).
+Failing RED phase suite for PR1 (docs/history/design/monitor-peers-view-2026-10-16.md).
 Tests pure renderer fixtures and preference catalog contracts without provider calls.
 """
 from __future__ import annotations

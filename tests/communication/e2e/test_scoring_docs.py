@@ -1,4 +1,4 @@
-"""The scoring record (docs/design/scoring-2026-11-22): rubric, protocol, history and the replies it rests on stay together."""
+"""The archived scoring record keeps its rubric, protocol, history, and replies together."""
 from __future__ import annotations
 
 import re
@@ -8,7 +8,7 @@ import pytest
 
 pytestmark = [pytest.mark.unit]
 
-DIR = Path(__file__).resolve().parents[3] / "docs" / "design" / "scoring-2026-11-22"
+DIR = Path(__file__).resolve().parents[3] / "docs" / "history" / "design" / "scoring-2026-11-22"
 README = (DIR / "README.md").read_text(encoding="utf-8")
 
 

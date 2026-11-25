@@ -16,7 +16,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [CONTRIBUTING.md](../CONTRIBUTING.md): Developer environment setup, deterministic testing, release gates, and incident lessons.
 
 ## Architecture & Specifications
-- [M1 Very Simple Spec](m1_spec/USAGE_GUIDE.md): Architectural boundaries, frozen catalog requirements, and SQLite storage invariants.
+- The [frozen M1 spec](m1_spec/USAGE_GUIDE.md) records Core and Bridge invariants, the M1 test catalog, and release-gate inputs. The M2 and M3 contracts below cover extension requirements and tests.
 - [M2 Extension Contracts](m2/README.md): Specifications for work tracking, skill catalog, artifact store, and runtime adapters.
 - [M3 Extension Contracts](m3/): Specifications and test catalogs for federated intelligent collaboration (Search, Memory, A2A, Routing).
 - [MCP Surface Contract](m2/M2_4_MCP_CONTRACT.md): Integration protocols, JSON-RPC stdio boundary, and session lifecycle.
@@ -36,7 +36,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 ## Active Design & Plans
 - [Design Documents Index](design/README.md): Overview of active design specifications, deferred proposals, shipped designs, and history pointers.
 - [Retained Session Contract](implementation/RETAINED_SESSIONS.md): Registry migration, retention, immutable replay, receipts and current ask output (current contract).
-- [Blocked Streams Plan](design/plan-stuck-streams-2026-10-12.md): PRs 4-6 and automated timeout settlement are deferred; see [STATUS](STATUS.md#deferred-backlog-start-triggers).
+- [Blocked Streams Plan](history/design/plan-stuck-streams-2026-10-12.md): PRs 4-6 and automated timeout settlement are deferred; see [STATUS](STATUS.md#deferred-backlog-start-triggers).
 
 ## Archives & Evidence
 - [Work log 2026-11-12/13](history/work-log-2026-11-13.md): 0.24.7-0.24.11 requirements, unanimous decisions, ConPTY and benchmark measurements, releases and lessons.

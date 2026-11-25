@@ -23,7 +23,7 @@ See [ask](../commands.md#ask) for Stream and session selection and [the retained
 Exact invocation and decoder details are in [ag.md](ag.md), [cc.md](cc.md), and
 [cx.md](cx.md).
 
-See the [Peer CLI option audit](../design/peer-cli-option-audit-2026-10-15.md)
+See the [Peer CLI option audit](../history/design/peer-cli-option-audit-2026-10-15.md)
 for locally checked optional flags, legacy findings, and options that need
 canaries before changing the production invocation.
 

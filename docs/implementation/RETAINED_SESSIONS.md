@@ -4,8 +4,8 @@ PR1, PR2, and PR3 fresh/exact selection are committed (`12129517`), along
 with health check fixes (`cfb28aba`). Recorded deterministic validation: 2,329 passed,
 pyright 0 errors. Historical validation is recorded in the [PR2 scope review](../history/PR2_SESSION_REUSE_VALIDATION.md)
 and [PR3 gate-to-test matrix](../history/PR3_SESSION_REUSE_VALIDATION.md).
-The [Pre-TDD Renewal](../design/peerhub-pre-tdd-renewal-2026-10-14.md) and
-[Debate Ledger](../design/peerhub-deepthink-debate-2026-10-14.md) define the proposed
+The [Pre-TDD Renewal](../history/design/peerhub-pre-tdd-renewal-2026-10-14.md) and
+[Debate Ledger](../history/design/peerhub-deepthink-debate-2026-10-14.md) define the proposed
 bounded inspection, attributable telemetry, and recovery architecture.
 
 Ordinary asks search retained compatible history at `(store, stream, peer)`.

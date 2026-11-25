@@ -7,7 +7,7 @@ dated, machine-specific observations and not guaranteed performance claims.
 ## Evidence and current commands
 
 The authoritative current command builder is
-[`peerhub/extensions/adapters/base.py`](../../peerhub/extensions/adapters/base.py).
+[`peerhub/extensions/adapters/base.py`](../../../peerhub/extensions/adapters/base.py).
 On 2026-10-15, local executable probes reported Claude Code `2.1.299`, Codex
 CLI `0.162.1`, and `agy` `1.3.5`. `--help` confirmed the flags listed below.
 These versions identify this machine's observation only; they are not
@@ -208,7 +208,7 @@ Provider flags must not create competing owners for those policies.
 Legacy branch examined: `origin/legacy/v0-main-final` at
 `57a137cd6a0cc7e89124ea2b87b72995087627a5`. Relevant prior evidence includes
 `overnight-hardening-2026-07-03.md` (archived; see
-[ledger](../history/ledger-2026-10-17.md) section 1a)
+[ledger](../ledger-2026-10-17.md) section 1a)
 (CC allowlist proposal, Codex `--ignore-rules` removal, and AG sandbox
 limitation) and
 `docs/design/HUB-REPLACEMENT-GAP7-DIAGNOSTICS-2026-08-24.md` (diagnostic
