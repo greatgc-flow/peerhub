@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.12] - 2026-11-25
+
 ### Fixed
 
 - The live monitor rewrites only the rows that changed each second and repaints the whole frame when its row count changes (a resize) and once a minute. Repainting the full frame (colour and hyperlinks included) every second for a day filled a VS Code terminal until its window hung.
