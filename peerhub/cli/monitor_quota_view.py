@@ -40,6 +40,9 @@ from peerhub.cli.monitor_layout import (
 )
 from peerhub.cli.monitor_legend import FRAME_SECTIONS, QUOTA_NA
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
+from peerhub.core.peer_kinds import ALIASES
+from peerhub.extensions.monitor_alerts import pool_out_alerts
+from peerhub.extensions.monitor_quota import peer_quota
 from peerhub.extensions.observation_model import (
     ABSENT_FACT_REASONS,
     QUOTA_MAX_AGE_SECONDS,
@@ -218,11 +221,47 @@ def frame_pools(payload: dict[str, Any], consumers: dict[str, list[str]]
     return observations, quota, rows
 
 
-def with_min_quota(payload: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """P9, the one rule of both frames: the read model's `min_quota` is as of the read, and a redraw ages the pools,
-    so line 1 takes its pool from the aged rows. A payload without the human observations cannot age a stale pool
-    (its last value is not public): it keeps the read model's `min_quota`."""
-    return {**payload, "min_quota": display_min_quota(rows)} if "_human_observations" in payload else payload
+def with_quota_verdict(payload: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Use the current POOLS facts for the human minimum and fresh exhaustion alerts."""
+    if "_human_observations" not in payload:
+        return payload
+    alerts = [alert for alert in dict_items(payload.get("alerts")) if alert.get("kind") != "pool_out"]
+    out = pool_out_alerts(f"{row['peer']} {row['pool']}" for row in rows if row["state"] == "out")
+    at = next((i for i, alert in enumerate(alerts) if alert.get("severity") != "high"), len(alerts))
+    return {**payload, "min_quota": display_min_quota(rows), "alerts": [*alerts[:at], *out, *alerts[at:]]}
+
+
+def selected_quota_readings(readings: list[dict[str, Any]],
+                            selected: Mapping[str, set[str]]) -> list[dict[str, Any]]:
+    """Scope the live title to the peers and pools selected for watch."""
+    by_peer: dict[str, list[dict[str, Any]]] = {}
+    for item in readings:
+        by_peer.setdefault(str(item.get("peer_id")), []).append(item)
+    return [item for peer, pools in selected.items()
+            for item in by_peer.get(peer, by_peer.get(ALIASES.get(peer, peer), []))
+            if not pools or item.get("pool_ref") in pools]
+
+
+def display_peer_quotas(payload: dict[str, Any], peers: list[dict[str, Any]],
+                        observations: list[dict[str, Any]],
+                        pool_rows: dict[tuple[str, str], dict[str, Any]]) -> list[dict[str, Any]]:
+    """Summarize each peer from the quota windows still usable at this redraw."""
+    if "_human_observations" not in payload:
+        return peers
+    by_peer: dict[str, list[dict[str, Any]]] = {}
+    for item in observations:
+        if item.get("kind", "quota") != "quota":
+            continue
+        peer = str(item.get("peer_id"))
+        row = pool_rows.get((peer_label(item), clean_text(item.get("pool_ref") or "")))
+        if item.get("reason") == EXPIRED_WINDOW_REASON or (row and row["state"] == "reset"):
+            continue
+        if row and row["aged"] and item.get("state") == "MEASURED":
+            item = {**item, "state": "STALE"}
+        by_peer.setdefault(peer, []).append(item)
+    mapped_pools = as_dict(payload.get("_human_peer_pools"))
+    return [{**peer, "quota": peer_quota(by_peer.get(str(peer["peer_id"]), []), mapped_pools.get(str(peer["peer_id"])),
+                                        has_session=peer.get("session") is not None)} for peer in peers]
 
 
 def display_retired_windows(payload: dict[str, Any]) -> dict[str, Any]:
@@ -230,8 +269,11 @@ def display_retired_windows(payload: dict[str, Any]) -> dict[str, Any]:
     groups = as_dict(payload.get("groups"))
     cap = as_dict(groups.get("capacity"))
     data = as_dict(cap.get("data"))
-    observations = dict_items(payload.get("_human_observations")) if "_human_observations" in payload else dict_items(data.get("observations"))
-    plans = {str(item.get("peer_id")): clean_text(item["plan"]) for item in dict_items(data.get("accounts"))
+    age_only = "_quota_age_readings" in payload
+    observations = dict_items(payload.get("_quota_age_readings") if age_only else
+                              payload.get("_human_observations", data.get("observations")))
+    accounts = dict_items(payload.get("_human_quota_accounts", data.get("accounts")))
+    plans = {str(item.get("peer_id")): clean_text(item["plan"]) for item in accounts
              if item.get("state") == "MEASURED" and item.get("plan") and not item.get("probe_error")}
     elapsed = finite_number(payload.get("display_elapsed_seconds")) or 0
     replacements = omitted_plan_windows(observations, plans, elapsed)
@@ -250,9 +292,15 @@ def display_retired_windows(payload: dict[str, Any]) -> dict[str, Any]:
     def replace(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [replacements.get((str(item.get("peer_id")), str(item.get("pool_ref"))), item) for item in rows]
 
-    return {**payload, "groups": {**groups, "capacity": {**cap, "data": {
-        **data, "observations": replace(dict_items(data.get("observations")))}}},
-        **({"_human_observations": replace(observations)} if "_human_observations" in payload else {})}
+    if age_only:
+        return {**payload, "_quota_age_readings": replace(observations)}
+    display = dict(payload)
+    if "capacity" in groups:
+        display["groups"] = {**groups, "capacity": {**cap, "data": {
+            **data, "observations": replace(dict_items(data.get("observations")))}}}
+    if "_human_observations" in payload:
+        display["_human_observations"] = replace(observations)
+    return display
 
 
 def with_retained_quota(payload: dict[str, Any]) -> dict[str, Any]:
@@ -280,20 +328,20 @@ def with_retained_quota(payload: dict[str, Any]) -> dict[str, Any]:
         if latest.get("pool_ref") and prior_age is not None and (prior := as_dict(latest.get("_prior_measurement"))):
             candidates.append((latest, {**latest, "age_seconds": prior_age, "last_measurements": prior,
                                          "resets_at": prior.get("resets_at"), "projection_samples": 0,
-                                         "observed_at": utc_text(now - prior_age, "%Y-%m-%dT%H:%M:%S.%fZ"),
+                                         "observed_at": latest.get("_prior_observed_at"),
                                          "reason": None}))
         ages: list[float] = []
         for original, item in candidates:
             age = finite_number(item.get("age_seconds"))
             raw = as_dict(item.get("last_measurements")) or as_dict(item.get("measurements"))
-            remaining = finite_number(raw.get("remaining_fraction"))
-            reset = finite_number(item.get("resets_at"))
-            if (age is not None and 0 <= age + elapsed < QUOTA_MAX_AGE_SECONDS and remaining is not None and 0 <= remaining <= 1
-                    and (reset is None or reset > now + elapsed)):
+            fraction = finite_number(raw.get("remaining_fraction"))
+            retained = {**item, "state": "MEASURED", "stored_state": "MEASURED",
+                        "measurements": raw, "_retained_quota": True}
+            remaining = quota_window_remaining(retained, now)
+            if (age is not None and 0 <= age + elapsed < QUOTA_MAX_AGE_SECONDS and fraction is not None and 0 <= fraction <= 1
+                    and (remaining is None or remaining > elapsed)):
                 ages.append(age + elapsed)
-                replacements[id(original)] = {**item, "state": "MEASURED", "stored_state": "MEASURED",
-                                               "measurements": raw, "_retained_quota": True,
-                                               "reset_in_seconds": reset - now if reset is not None else item.get("reset_in_seconds")}
+                replacements[id(original)] = retained
         if ages:
             if not latest.get("pool_ref"):
                 replacements[id(latest)] = None
@@ -371,8 +419,9 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
                 evidence_notes.append(f"{peer} {pool} evidence {state}; "
                                       f"next: peerhub observation refresh --peers {peer}")
             available.append(row)
+        visible = [row for row in available if row["state"] != QUOTA_NA]
         position = {(str(row["peer"]), str(row["pool"])): index
-                    for index, (row, _) in enumerate(ordered_pools(available, every=True, for_quota=True))}
+                    for index, (row, _) in enumerate(ordered_pools(visible, every=True, for_quota=True))}
         layout, retired_notes = quota_layout(available, unicode, show_quota_notes=show_notes, order=position)
         entries = [
             (f"{row['display_peer'] or ' ' * cell_width(row['peer'])} {row['display_pool']}",

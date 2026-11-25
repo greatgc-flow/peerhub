@@ -60,8 +60,11 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
     def rank(peer: str, name: str) -> int:
         return order.get((peer, name), len(order))
 
-    for peer in sorted({str(row["peer"]) for row in rows},
-                       key=lambda p: (min(rank(p, str(row["pool"])) for row in rows if row["peer"] == p), p)):
+    visible = [row for row in rows if not row.get("retired") and row["state"] != QUOTA_NA]
+    peer_order = {peer: min(rank(peer, str(row["pool"])) for row in visible if row["peer"] == peer)
+                  for peer in {str(row["peer"]) for row in visible}}
+    for peer in sorted({str(row["peer"]) for row in (rows if show_quota_notes else visible)},
+                       key=lambda p: (peer_order.get(p, len(order)), p)):
         peer_rows = [dict(row) for row in rows if row["peer"] == peer]
         retired = [row for row in peer_rows if row.get("retired")]
         if retired and show_quota_notes:
@@ -74,7 +77,8 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
                 plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in omitted}))
                 notes.append(_retired_pool_note(peer, ",".join(str(row["pool"]) for row in omitted), plans))
             noted.add(peer)
-        active = [row for row in peer_rows if not row.get("retired")]
+        active = [dict(row) for row in visible if row["peer"] == peer]
+        unavailable = [row for row in peer_rows if row["state"] == QUOTA_NA and not row.get("retired")]
         first_peer_row = True
 
         def append_row(row: dict[str, Any], display_pool: str) -> None:
@@ -87,36 +91,46 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
         # in the flat fallback, including duplicate names with different values.
         if len({row["pool"] for row in active}) != len(active):
             for row in active:
-                if row["state"].lower() == QUOTA_NA:
-                    hidden.setdefault(peer, []).append(str(row["pool"]))
-                else:
-                    append_row(row, str(row["pool"]))
+                append_row(row, str(row["pool"]))
+            if show_quota_notes:
+                hidden.setdefault(peer, []).extend(str(row["pool"]) for row in unavailable)
             continue
         by_name = {str(row["pool"]): row for row in active}
         windows = {name: parse_window(name)[0] for name in by_name}
         members = {name: set(row["profiles"]) for name, row in by_name.items()}
         parents: dict[str, str | None] = dict.fromkeys(by_name)
         flat = any(a & b and not (a <= b or b <= a) for a in members.values() for b in members.values())
-        for child in by_name:
-            if flat or not members[child]:
-                continue
-            window = windows[child]
-            eligible = [name for name in by_name if name != child and members[child] <= members[name]
+        def parent_candidates(child: str, profiles: set[str], window: int) -> list[str]:
+            if not profiles:
+                return []
+            eligible = [name for name in by_name if name != child and profiles <= members[name]
                         and window <= windows[name] < UNKNOWN_WINDOW_SECONDS
-                        and (members[child] < members[name] or window < windows[name])]
+                        and (profiles < members[name] or window < windows[name])]
             minimal = [name for name in eligible if not any(members[other] < members[name] for other in eligible)]
-            if minimal:
-                shortest = min(windows[name] for name in minimal)
-                candidates = [name for name in minimal if windows[name] == shortest]
-                if len(candidates) != 1:
-                    flat = True
-                    break
+            if not minimal:
+                return []
+            shortest = min(windows[name] for name in minimal)
+            return [name for name in minimal if windows[name] == shortest]
+
+        for child in by_name:
+            if flat:
+                break
+            candidates = parent_candidates(child, members[child], windows[child])
+            if len(candidates) > 1:
+                flat = True
+                break
+            if candidates:
                 parents[child] = candidates[0]
         if flat:
             parents = dict.fromkeys(by_name)
-        for name, row in by_name.items():  # #400: an n/a pool is never a row; its children go to its own parent
-            if row["state"].lower() == QUOTA_NA:
-                parents.update({child: parents[name] for child, parent in parents.items() if parent == name})
+        if show_quota_notes:
+            for row in unavailable:
+                name = str(row["pool"])
+                candidates = [] if flat else parent_candidates(name, set(row["profiles"]), parse_window(name)[0])
+                if len(candidates) == 1:
+                    by_name[candidates[0]].setdefault("folded", []).append(name)
+                else:
+                    hidden.setdefault(peer, []).append(name)
         children: dict[str, list[str]] = {name: [] for name in by_name}
         for child, parent in parents.items():
             if parent is not None:
@@ -127,25 +141,20 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
         def visit(name: str, prefix: str, continuation: str) -> None:
             row = by_name[name]
             append_row(row, prefix + name)
-            folded = [child for child in children[name] if by_name[child]["state"].lower() == QUOTA_NA]
-            row["folded"] = folded
-            visible = [child for child in children[name] if child not in folded]
-            for i, child in enumerate(visible):
-                last = i == len(visible) - 1
+            for i, child in enumerate(children[name]):
+                last = i == len(children[name]) - 1
                 branch = ("└─ " if last else "├─ ") if unicode else ("`- " if last else "|- ")
                 stem = "   " if last else "│  " if unicode else "|  "
                 visit(child, continuation + branch, continuation + stem)
 
         for name in sorted((name for name in by_name if parents[name] is None),
                            key=lambda name: (pool_family(name), windows[name], name)):
-            if by_name[name]["state"].lower() == QUOTA_NA:
-                hidden.setdefault(peer, []).append(name)
-            else:
-                visit(name, "", "")
+            visit(name, "", "")
     if not show_quota_notes:
         return result, notes
     for row in result:  # an n/a pool with no parent row is named after its peer's first row
-        names = [*row.pop("folded", []), *(hidden.pop(row["peer"], []) if row["display_peer"] else [])]
+        folded = sorted(row.pop("folded", []), key=lambda name: (-parse_window(name)[0], name))
+        names = [*folded, *(hidden.pop(row["peer"], []) if row["display_peer"] else [])]
         if names:
             row["suffix"] = _na_suffix(names)
     notes.extend(f"{peer} {','.join(names)} {QUOTA_NA}" for peer, names in hidden.items() if peer not in noted)  # no row left
@@ -192,14 +201,11 @@ def pct(rem: float) -> str:
 
 def _pool_reading(item: dict[str, Any], read_at: float, elapsed: float) -> dict[str, Any]:
     """Adapt monitor evidence to the diagnostic quota reading format."""
-    measurements = as_dict(item.get("last_measurements")) or as_dict(item.get("measurements"))
-    resets_at = finite_number(item.get("resets_at"))
-    if resets_at is None:
-        resets_at = finite_number(measurements.get("resets_at"))
+    measurements = as_dict(item.get("last_measurements")) or as_dict(item.get("measurements")) or as_dict(item.get("payload"))
     age = finite_number(item.get("age_seconds"))
     return {**item, "resource_pool_ref": item.get("pool_ref"), "read_at": read_at,
             "age_seconds": None if age is None else max(0, age + elapsed),
-            "payload": {**measurements, "resets_at": resets_at, "reason": item.get("reason", measurements.get("reason"))}}
+            "payload": {**measurements, "reason": item.get("reason", measurements.get("reason"))}}
 
 
 def compact_pool(item: dict[str, Any], now: float, elapsed: float,
@@ -602,14 +608,14 @@ def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: 
 
 
 def pool_gap(rows: list[dict[str, Any]], width: int, unicode: bool, *, show_quota_notes: bool) -> list[str]:
+    visible = [row for row in rows if not row["retired"] and row["state"] != QUOTA_NA]
     healths: dict[str, PoolHealth | None] = {}
-    for row in rows:
-        if not row["retired"]:
-            pool = str(row["pool"])
-            healths[pool] = None if pool in healths else row["health"]
+    for row in visible:
+        pool = str(row["pool"])
+        healths[pool] = None if pool in healths else row["health"]
     gaps = pace_gaps({pool: facts for pool, facts in healths.items() if facts is not None})["pools"]
     if not show_quota_notes:
-        measured = {str(row["pool"]) for row in rows if row["health"]["measured"] and not row["retired"]}
+        measured = {str(row["pool"]) for row in visible if row["health"]["measured"]}
         gaps = {name: pace for name, pace in gaps.items() if name in measured}
     if not gaps:
         return []

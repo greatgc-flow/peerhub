@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from peerhub.cli.monitor_layout import (
 from peerhub.cli.monitor_legend import POOL_LEGEND
 from peerhub.cli.monitor_quota_view import HIDDEN_QUOTA_WINDOWS
 from peerhub.cli.monitor_view import render_grouped_frame
+from peerhub.extensions.observation_model import epoch_to_iso
 from peerhub.extensions.quota_windows import FAMILIES
 from tests.communication.diag.test_monitor_activity_view import NOW, pool
 from tests.communication.diag.test_monitor_expand_rich import block, expand, strip
@@ -52,6 +54,68 @@ def test_expired_reading_is_retired_and_does_not_age_header(age, reset, expanded
     assert "X-30D" not in hidden
     assert "cx X-30D n/a (quota window expired)" in shown
     assert all("quota age 10s" in screen and "quota 12d old" not in screen for screen in [hidden, shown])
+
+
+@pytest.mark.parametrize("expanded", [False, True])
+@pytest.mark.parametrize("mapped", [False, True])
+def test_redraw_retires_exhaustion_alert_and_peer_summary(expanded, mapped):
+    expired = pool("cx", "X-7D", 0, reset=20)
+    observations = [expired, pool("cx", "X-30D", .64), pool("cc", "C-7D", 0)]
+    payload = _payload([], observations, _human_observations=observations,
+                       _human_peer_pools={"cx": ["X-7D", "X-30D"]} if mapped else {},
+                       alerts=[{"code": "a3", "kind": "pool_out", "subject": f"{peer} {name}",
+                                "age_s": None, "severity": "high"}
+                               for peer, name in (("cc", "C-7D"), ("cx", "X-7D"))])
+    cx = next(peer for peer in payload["groups"]["peers"]["data"]["peers"] if peer["peer_id"] == "cx")
+    cx["quota"] = {"pool_ref": expired["pool_ref"], "state": "MEASURED", "remaining_fraction": 0}
+    original = deepcopy(payload)
+
+    def render(frame):
+        return render_grouped_frame(frame, view="plain", width=120, expand=expanded)
+
+    before = render(payload)
+    assert "pool_out: cx X-7D" in before and "pool_out: cc C-7D" in before
+    if expanded:
+        assert "cx  quota: 0% (X-7D)" in before
+    for frame in ({**payload, "display_elapsed_seconds": 21}, {**payload, "read_at": NOW + 21}):
+        screen = render(frame)
+        assert "pool_out: cc C-7D" in screen
+        assert "cx X-7D" not in screen
+        if expanded:
+            assert ("cx  quota: incomplete" if mapped else "cx  quota: 64% (X-30D)") in screen
+    assert payload == original
+
+
+@pytest.mark.parametrize("expanded", [False, True])
+def test_stored_relative_reset_expires_from_observation_time(expanded):
+    relative = pool("cx", "X-30D", .42)
+    relative.pop("resets_at")
+    relative.update(age_seconds=60, observed_at=epoch_to_iso(NOW - 100), captured_at=epoch_to_iso(NOW - 60),
+                    last_measurements={"remaining_fraction": .42, "reset_in_seconds": 105})
+    payload = _payload([], [relative, pool("ag", "G-7D", .64)], selected_groups=["capacity"])
+    options = dict(view="plain", width=120, expand=expanded)
+    before = render_grouped_frame(payload, **options)
+    assert "X-30D" in before and "quota age 1m" in before
+    payload["display_elapsed_seconds"] = 6
+    hidden = render_grouped_frame(payload, **options)
+    shown = render_grouped_frame(payload, show_quota_notes=True, **options)
+    assert "X-30D" not in hidden
+    assert "cx X-30D n/a (quota window expired)" in shown
+    assert all("quota age 16s" in screen for screen in (hidden, shown))
+
+
+@pytest.mark.parametrize("show_notes", [False, True])
+@pytest.mark.parametrize("expanded", [False, True])
+def test_hidden_duplicate_does_not_change_gap_or_parentage(show_notes, expanded):
+    duplicate = absent("cc", "C-7D")
+    duplicate.update(pool_ref="quota:other-account:C-7D", observation_id="other-account-C-7D")
+    observations = [duplicate, pool("cc", "C-5H", .30), pool("cc", "C-7D", .63, pace=-20),
+                    pool("cx", "X-7D", .42, pace=3)]
+    payload = _payload([], observations, selected_groups=["capacity"], configured_profiles=PROFILES)
+    screen = render_grouped_frame(payload, view="plain", width=150, expand=expanded, show_quota_notes=show_notes)
+    assert "gap vs X-7D (pp): C-7D -23.0" in screen
+    assert len(re.findall(r"(?m)^\s+└─ C-5H\s", screen)) == (2 if expanded else 1)
+    assert ("C-7D n/a" in screen) == show_notes
 
 
 def wide_notes_payload() -> dict[str, Any]:

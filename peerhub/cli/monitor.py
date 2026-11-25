@@ -378,9 +378,9 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                     if report_missing_store(args.db, json_output=False, selected=is_explicit, source=db_source):
                         return 5
                     payload = read_frame()
-                    readings = read_quota_readings(args.db)
-                    now = monotonic()
-                    schedule.update(readings, now)
+                    if collect:
+                        readings = read_quota_readings(args.db)
+                        schedule.update(readings, monotonic())
                     if next_activity != math.inf:
                         next_activity = tick + activity_interval
                     if tick >= next_read:
@@ -413,7 +413,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 if last_payload is not None:
                     last_payload["refresh_warnings"] = warnings
                 redraw("STOPPED · AGY TOKEN USE" if stop else None, live_refresh={
-                    "heartbeat": heartbeat, "age": schedule.oldest_age(now),
+                    "heartbeat": heartbeat, "selected_pools": required,
                     "next_in": schedule.next_in(now) if collect else None,
                     "peers": job.peers if job is not None else (), "elapsed": now - job_started,
                     "failed_ago": schedule.failed_ago(now), "retry_in": schedule.retry_in(now),

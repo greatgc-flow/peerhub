@@ -40,7 +40,8 @@ from peerhub.cli.monitor_quota_view import (
     frame_consumers,
     frame_pools,
     pool_section,
-    with_min_quota,
+    with_quota_verdict,
+    selected_quota_readings,
 )
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, oldest_measured_quota_age
@@ -226,17 +227,17 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
     configured_profiles = dict_items(payload.get("configured_profiles"))
     consumers = frame_consumers(payload)
     observations, quota, rows = frame_pools(payload, consumers)
-    payload = with_min_quota(payload, rows)
+    payload = with_quota_verdict(payload, rows)
     store = as_dict(payload.get("store_selection"))
     source = clean_text(store.get("source") or "unknown")
     try:
         stamp = datetime.fromtimestamp(now + elapsed, timezone.utc).strftime("%Y-%m-%d %H:%MZ") if read_at is not None else "time unknown"
     except (ValueError, OverflowError, OSError):
         stamp = "time unknown"
-    age_readings = quota
-    if "_quota_age_readings" in payload:
-        age_readings = [item for item in dict_items(payload["_quota_age_readings"])
-                        if (expires := finite_number(item.get("expires_in"))) is None or expires >= elapsed]
+    live_refresh = as_dict(payload.get("_live_refresh"))
+    age_readings = dict_items(payload.get("_quota_age_readings", quota))
+    if "selected_pools" in live_refresh:
+        age_readings = selected_quota_readings(age_readings, live_refresh["selected_pools"])
     oldest = oldest_measured_quota_age(age_readings)
     age = oldest + elapsed if oldest is not None else None
     age_label = compact_age(age)
@@ -245,11 +246,10 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
     title_width = width - guide_room if guide_url and width > guide_room else width
     refresh_state = clean_text(payload.get("refresh_state") or "")
     next_refresh = finite_number(payload.get("next_refresh_in"))
-    live_refresh = as_dict(payload.get("_live_refresh"))
 
     def fit_title(room: int) -> tuple[str, bool]:
         if live_refresh:
-            return fit_live_quota_title(live_refresh, refresh_state, stamp, source, room, unicode)
+            return fit_live_quota_title({"age": age, **live_refresh}, refresh_state, stamp, source, room, unicode)
         details = [f"DB:{source}", f"quota age {age_label}"]
         if refresh_state or next_refresh is not None:
             return fit_live_title(refresh_state, next_refresh, stamp, details, room, unicode, inline_note=False)

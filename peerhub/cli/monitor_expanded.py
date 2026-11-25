@@ -27,7 +27,7 @@ from peerhub.cli.monitor_layout import (
 from peerhub.cli.monitor_legend import FRAME_DETAIL_ORDER, MONITOR_LEGEND
 from peerhub.cli.monitor_links import link_profiles, location_lines
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
-from peerhub.cli.monitor_quota_view import frame_consumers, frame_pools
+from peerhub.cli.monitor_quota_view import display_peer_quotas, frame_consumers, frame_pools
 from peerhub.cli.monitor_sections import group_label, group_lines
 from peerhub.extensions.observation_model import NOT_REPORTED_REASON
 
@@ -72,8 +72,8 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
     db_line = f"DB:{clean_text(store.get('source'))} ({clean_text(store.get('path'))})" if store.get("path") else ""
     cap = as_dict(groups.get("capacity"))
     data = as_dict(cap.get("data"))
-    pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row
-                 for row in frame_pools(payload, frame_consumers(payload))[2]}
+    observations, _, rows = frame_pools(payload, frame_consumers(payload))
+    pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row for row in rows}
     show_notes = bool(payload.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
     display_groups = {**groups,
         "capacity": {**cap, "data": {**data, "_show_quota_notes": show_notes,
@@ -86,7 +86,7 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
         display_groups["execution"] = {**execution, "data": {**as_dict(execution.get("data")), "_running_asks": running_asks}}
     # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
     plan_windows: dict[str, tuple[str, list[str]]] = {}
-    for obs in dict_items(data.get("observations")) if show_notes else []:
+    for obs in observations if show_notes else []:
         reason = clean_text(obs.get("reason") or "")
         if obs.get("state") == "ABSENT" and reason.startswith(NOT_REPORTED_REASON):
             pool = clean_text(obs.get("pool_ref") or "").split(":")[-1]
@@ -95,8 +95,9 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
             plan_windows.setdefault(clean_text(obs.get("peer_id") or "?"), (plan, []))[1].append(window)
     peers_group = as_dict(groups.get("peers"))
     if isinstance(peers_group.get("data"), Mapping):
-        display_groups["peers"] = {**peers_group, "data": {**as_dict(peers_group.get("data")),
-                                                          "_show_quota_notes": show_notes}}
+        peers_data = as_dict(peers_group.get("data"))
+        display_groups["peers"] = {**peers_group, "data": {**peers_data, "_show_quota_notes": show_notes,
+            "peers": display_peer_quotas(payload, dict_items(peers_data.get("peers")), observations, pool_rows)}}
         if plan_windows:
             display_groups["peers"]["data"]["plan_notes"] = {
                 peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}

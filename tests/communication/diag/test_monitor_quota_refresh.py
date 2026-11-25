@@ -65,32 +65,14 @@ def test_diag_quota_uses_the_same_notice():
 
 
 @pytest.fixture
-def quota_age_store(monkeypatch, weekly_age):
+def quota_age_connection(monkeypatch):
     from peerhub.extensions import observation
-    from peerhub.extensions.observation_model import NOT_REPORTED_REASON, epoch_to_iso
 
-    now = 1_800_000_000
     connect = sqlite3.connect
     with closing(connect(":memory:", isolation_level=None)) as store:
         store.executescript(observation._DDL)
         for trigger in observation._TRIGGERS:
             store.execute(trigger)
-        for peer, family, offset, short_state in [
-            ("cc", "C", 0, "ABSENT"), ("cx", "X", 30, "ERROR"), ("ag", "A", 60, None),
-        ]:
-            for window, age, state, payload in [
-                ("7D", (weekly_age or 0) - offset, "MEASURED" if weekly_age is not None else None,
-                 {"remaining_fraction": .72, "resets_at": now + 86400}),
-                ("5H", 8 * 86400 + 3600, short_state,
-                 {"reason": NOT_REPORTED_REASON} if short_state == "ABSENT" else {"condition": "provider_probe_error"}),
-            ]:
-                pool = f"quota:{peer}:{family}-{window}"
-                store.execute("INSERT INTO resource_pools(resource_pool_id,provider,kind) VALUES (?, ?, 'QUOTA')", (pool, peer))
-                if state is not None:
-                    stamp = epoch_to_iso(now - age)
-                    store.execute("INSERT INTO observations(observation_id,subject_ref,kind,resource_pool_ref,source,state,"
-                                  "payload_json,observed_at,captured_at,effective_at_us) VALUES (?, ?, 'quota', ?, ?, ?, ?, ?, ?, ?)",
-                                  (pool, peer, pool, peer, state, json.dumps(payload), stamp, stamp, (now - age) * 1_000_000))
 
         def open_snapshot(*args, **kwargs):
             conn = connect(":memory:", isolation_level=None)
@@ -98,7 +80,74 @@ def quota_age_store(monkeypatch, weekly_age):
             return conn
 
         monkeypatch.setattr(sqlite3, "connect", open_snapshot)
-        yield now
+        yield store
+
+
+def _store_quota(store, now, peer, name, age, state, payload, *, skew=0):
+    from peerhub.extensions.observation_model import epoch_to_iso
+
+    pool = f"quota:{peer}:{name}"
+    store.execute("INSERT INTO resource_pools(resource_pool_id,provider,kind) VALUES (?, ?, 'QUOTA')", (pool, peer))
+    if state is not None:
+        captured = now - age
+        store.execute("INSERT INTO observations(observation_id,subject_ref,kind,resource_pool_ref,source,state,"
+                      "payload_json,observed_at,captured_at,effective_at_us) VALUES (?, ?, 'quota', ?, ?, ?, ?, ?, ?, ?)",
+                      (pool, peer, pool, peer, state, json.dumps(payload), epoch_to_iso(captured + skew),
+                       epoch_to_iso(captured), captured * 1_000_000))
+
+
+@pytest.fixture
+def quota_age_store(quota_age_connection, weekly_age):
+    from peerhub.extensions.observation_model import NOT_REPORTED_REASON
+
+    now = 1_800_000_000
+    for peer, family, offset, short_state in [
+        ("cc", "C", 0, "ABSENT"), ("cx", "X", 30, "ERROR"), ("ag", "A", 60, None),
+    ]:
+        _store_quota(quota_age_connection, now, peer, f"{family}-7D", (weekly_age or 0) - offset,
+                     "MEASURED" if weekly_age is not None else None, {"remaining_fraction": .72, "resets_at": now + 86400})
+        reason = {"reason": NOT_REPORTED_REASON} if short_state == "ABSENT" else {"condition": "provider_probe_error"}
+        _store_quota(quota_age_connection, now, peer, f"{family}-5H", 8 * 86400 + 3600, short_state, reason)
+    return now
+
+
+@pytest.mark.parametrize("groups", [["capacity"], ["coverage"]])
+def test_stored_relative_reset_stops_aging_the_title(quota_age_connection, groups):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    now = 1_800_000_000
+    _store_quota(quota_age_connection, now, "cx", "X-7D", 10, "MEASURED", {"remaining_fraction": .58})
+    _store_quota(quota_age_connection, now, "cc", "C-7D", 60, "MEASURED",
+                 {"remaining_fraction": .72, "reset_in_seconds": 95}, skew=-30)
+    snapshot = render_monitor_frame(__file__, groups, human=True, read_at=now)
+    assert "quota age 1m" in monitor_view.render_grouped_frame(snapshot).splitlines()[1]
+    for frame in ({**snapshot, "display_elapsed_seconds": 6},
+                  render_monitor_frame(__file__, groups, human=True, read_at=now + 6)):
+        screen = monitor_view.render_grouped_frame(frame, show_quota_notes=True, width=120, expand=True)
+        assert "quota age 16s" in screen.splitlines()[1]
+        if groups == ["capacity"]:
+            assert "cc C-7D n/a (quota window expired)" in screen
+
+
+def test_newer_probe_failure_cannot_retain_a_relative_reading_past_its_reset(quota_age_connection):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.extensions.observation_model import epoch_to_iso
+
+    now = 1_800_000_000
+    _store_quota(quota_age_connection, now, "cc", "C-7D", 60, "MEASURED",
+                 {"remaining_fraction": .72, "reset_in_seconds": 95}, skew=-30)
+    stamp = epoch_to_iso(now - 10)
+    quota_age_connection.execute(
+        "INSERT INTO observations(observation_id,subject_ref,kind,resource_pool_ref,source,state,"
+        "payload_json,observed_at,captured_at,effective_at_us) VALUES "
+        "('failed','cc','quota','quota:cc:C-7D','cc','ERROR',?,?,?,?)",
+        (json.dumps({"condition": "provider_probe_error", "reason": "claude_usage_timeout"}),
+         stamp, stamp, (now - 10) * 1_000_000),
+    )
+    snapshot = render_monitor_frame(__file__, ["capacity"], human=True, read_at=now)
+    assert "72%" in monitor_view.render_grouped_frame(snapshot, view="plain")
+    redraw = {**snapshot, "display_elapsed_seconds": 6}
+    assert "72%" not in monitor_view.render_grouped_frame(redraw, view="plain")
 
 
 @pytest.mark.parametrize("weekly_age, expected_age, expected_notice", [

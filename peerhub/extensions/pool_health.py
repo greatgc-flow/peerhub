@@ -8,8 +8,9 @@ from typing import Literal, TypedDict, cast
 
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PACE_BAND_ROUNDING_DIGITS, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
 from peerhub.extensions.diag_quota import projection
-from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, instant_us
+from peerhub.extensions.observation_model import ABSENT_FACT_REASONS
 from peerhub.extensions.quota_projection import ProjectionState, limit_by_parent
+from peerhub.extensions.quota_windows import quota_reset_at
 
 PoolState = Literal["n/a", "?", "reset", "out", "blocked", "low", "fast", "aged", "ok"]
 PaceBand = Literal["spend", "ok", "rest"]
@@ -69,30 +70,6 @@ def _exhaust_margin(exhaust: float | None, reset: float | None) -> float | None:
     return None if exhaust is None or reset is None else exhaust - reset
 
 
-def _reset_at(reading: Reading, payload: Reading, frame_time: float) -> float | None:
-    absolute = _num(payload.get("resets_at"))
-    if absolute is not None:
-        return absolute
-    # Stored durations are relative to their observation. The monitor can also
-    # supply a countdown already evaluated at its snapshot time.
-    duration = _num(payload.get("reset_in_seconds"))
-    snapshot_at = _num(reading.get("read_at"))
-    if duration is None:
-        duration = _num(reading.get("reset_in_seconds"))
-        if snapshot_at is not None and duration is not None:
-            return snapshot_at + duration
-    if duration is None:
-        return None
-    observed_at = reading.get("observed_at")
-    if isinstance(observed_at, str):
-        try:
-            return instant_us(observed_at) / 1_000_000 + duration
-        except (ValueError, OverflowError):
-            pass
-    anchor = snapshot_at if snapshot_at is not None else frame_time - (_num(reading.get("age_seconds")) or 0)
-    return anchor + duration
-
-
 def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
     raw_payload = reading.get("payload")
     payload: Reading = cast(Reading, raw_payload) if isinstance(raw_payload, Mapping) else {}
@@ -104,7 +81,7 @@ def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
     if not measured:
         remaining = None
     left = None if remaining is None else remaining * 100
-    resets_at = _reset_at(reading, payload, frame_time)
+    resets_at = quota_reset_at(reading, payload, frame_time)
     reset = None if resets_at is None else resets_at - frame_time
     projection_state = ("STALE" if stale else "MEASURED") if measured else evidence
     proj = projection({**reading, "payload": {**payload, "resets_at": resets_at}, "state": projection_state}, frame_time)

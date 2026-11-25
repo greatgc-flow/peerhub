@@ -46,6 +46,10 @@ they do not claim new validation or publication evidence.
 ### Fixed
 
 - Monitor hides expired quota windows in both layouts and excludes them from the header age. `--show-quota-notes` names the retired windows.
+- Monitor updates exhaustion alerts and PEERS quota summaries when windows expire between reads.
+- Monitor retires stored relative quota resets using the observation timestamp and reports the expiry in quota notes.
+- The live monitor calculates title age from the same retirement-filtered quota evidence as snapshots, scoped to the watched peers.
+- Hidden quota windows can no longer distort pace gaps or flatten the expanded QUOTA tree when they share a visible window's name.
 - Monitor and diagnostics report quota probes that still time out under high CPU load as delayed by load.
 
 ### Documentation

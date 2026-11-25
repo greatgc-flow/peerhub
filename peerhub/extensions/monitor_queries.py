@@ -243,8 +243,7 @@ def latest_account_quota_row(conn: sqlite3.Connection, peer_id: str) -> sqlite3.
 
 def quota_age_rows(conn: sqlite3.Connection, read_us: int) -> sqlite3.Cursor:
     return conn.execute("SELECT " + _ROW_COLUMNS + _ROW_JOINS +
-                        "WHERE r.kind='quota' AND o.resource_pool_ref IS NOT NULL "
-                        "AND o.state='MEASURED' AND o.effective_at_us<=?", (read_us,))
+                        "WHERE r.kind IN ('quota','account') AND o.effective_at_us<=?", (read_us,))
 
 
 def peer_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -329,7 +328,7 @@ def activity_rows(conn: sqlite3.Connection, now: float, generation: str | None, 
 def quota_evidence_rows(conn: sqlite3.Connection, ids: list[str], now: float) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT o.observation_id, o.capture_seq, o.payload_json, m.payload_json AS prior_payload, "
-        "m.effective_at_us AS prior_at_us, " + QUOTA_PROJECTION_SAMPLE_COUNT_SQL + " AS samples "
+        "m.effective_at_us AS prior_at_us, m.observed_at AS prior_observed_at, " + QUOTA_PROJECTION_SAMPLE_COUNT_SQL + " AS samples "
         "FROM observations o LEFT JOIN observations m ON m.capture_seq=(SELECT s.capture_seq FROM observations s "
         "WHERE o.state='ERROR' AND o.kind='quota' AND o.resource_pool_ref IS NOT NULL "
         "AND s.subject_ref=o.subject_ref AND s.resource_pool_ref=o.resource_pool_ref AND s.kind='quota' "
