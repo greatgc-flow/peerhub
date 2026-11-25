@@ -1,7 +1,6 @@
-"""Pool rows, notes, and table formatting shared by monitor and diagnostics."""
+"""Pool table layout and notes for the grouped monitor."""
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -16,22 +15,28 @@ from peerhub.cli.monitor_layout import (
     compact_age,
     wrap_text,
     fit_text,
-    format_duration,
-    as_dict,
     paint_text,
-    peer_label,
     cell_width,
 )
 from peerhub.cli.monitor_legend import POOLS_HEADING, POOL_MARGIN_COLUMN, QUOTA_NA
 from peerhub.cli.monitor_links import link_profiles, link_pool_state
+from peerhub.cli.quota_format import (
+    BAR_CELLS,
+    format_exhaust_reset,
+    format_percent,
+    format_pool_left,
+    format_pool_pace,
+    missing_pool_fact,
+    pool_duration,
+    quota_bar as _bar_quota,
+)
 from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, DISABLED_REASON
-from peerhub.extensions.pool_health import PACE_GAP_BASELINE, PoolHealth, pace_gaps, pool_health
+from peerhub.extensions.pool_health import PACE_GAP_BASELINE, PoolHealth, pace_gaps
 from peerhub.extensions.quota_windows import (
-    EXPIRED_WINDOW_REASON, FAMILIES, UNKNOWN_WINDOW_SECONDS, WEEK_SECONDS, parse_window, pool_family, scoped_weekly_parents,
+    EXPIRED_WINDOW_REASON, UNKNOWN_WINDOW_SECONDS, WEEK_SECONDS, parse_window, pool_family, scoped_weekly_parents,
 )
 
 
-BAR_CELLS = 8  # minimum when shown
 BAR_MIDDLE_CELLS = 16
 BAR_MAX_CELLS = 40
 
@@ -172,65 +177,6 @@ def _quota_suffix(line: str, suffix: str, width: int, unicode: bool, code: str |
     return [line, *[paint_text(part, code) for part in wrap_text(suffix, width)]]
 
 
-def fraction_bar(used: float, cells: int, unicode: bool) -> str:
-    used = min(1.0, max(0.0, used))
-    filled = int(used * cells + 0.5)
-    full, empty = ("█", "░") if unicode else ("#", ".")
-    return full * filled + empty * (cells - filled)
-
-
-def _bar_quota(remaining: float | None, cells: int = BAR_CELLS, unicode: bool = True,
-               even_burn: float | None = None, *, child: bool = False) -> str:
-    """Draw remaining quota with an even-burn tick, including on the filled edge."""
-    glyphs = RICH_GLYPHS[unicode]
-    if remaining is None or not 0 <= remaining <= 1:
-        return f"[{glyphs['none'] * cells}]"
-    filled = int(remaining * cells + 0.5)
-    full, empty = (glyphs["cfull"], glyphs["cempty"]) if child else (glyphs["full"], glyphs["empty"])
-    body = [full] * filled + [empty] * (cells - filled)
-    if remaining > 0 and filled == 0 and cells > 0:
-        body[0] = full if child else ("▏" if unicode else ":")
-    if even_burn is not None and cells > 0:
-        tick = min(cells - 1, max(0, int(even_burn * cells)))
-        body[tick] = "|"
-    return f"[{''.join(body)}]"
-
-
-def pct(rem: float) -> str:
-    """Whole percent; a tiny non-zero remainder is never shown as 0% (0% means exhausted)."""
-    return "<1%" if 0.0 < rem <= 0.005 else f"{rem * 100:.0f}%"
-
-
-def _pool_reading(item: dict[str, Any], read_at: float, elapsed: float) -> dict[str, Any]:
-    """Adapt monitor evidence to the diagnostic quota reading format."""
-    measurements = as_dict(item.get("last_measurements")) or as_dict(item.get("measurements")) or as_dict(item.get("payload"))
-    age = finite_number(item.get("age_seconds"))
-    return {**item, "resource_pool_ref": item.get("pool_ref"), "read_at": read_at,
-            "age_seconds": None if age is None else max(0, age + elapsed),
-            "payload": {**measurements, "reason": item.get("reason", measurements.get("reason"))}}
-
-
-def compact_pool(item: dict[str, Any], now: float, elapsed: float,
-                  consumers: dict[str, list[str]], parent: dict[str, Any] | None = None) -> dict[str, Any]:
-    peer = peer_label(item)
-    pool_ref = clean_text(item.get("pool_ref") or item.get("pool_kind") or "?")
-    pool = pool_ref.split(":")[-1]
-    family = pool_family(pool)
-    reading = _pool_reading(item, now, elapsed)
-    facts = pool_health(reading, parent, now + elapsed)
-    age = reading["age_seconds"]
-    state, left, stale = facts["state"], facts["left_pct"], facts["stale"]
-    return {"peer": peer, "pool": pool, "pool_ref": pool_ref, "reading": reading, "health": facts,
-            "family": family, "meaning": FAMILIES.get(family, "?"),
-            "remaining": None if left is None else left / 100,
-            "pace_pt": facts["pace_pt"], "reset_seconds": facts["reset_in_seconds"],
-            "state": state, "age_seconds": age, "aged": stale,
-            "needs_refresh": state != QUOTA_NA and (stale or age is None or state in {"?", "reset"}),
-            "reason": clean_text(item.get("reason") or ""), "display_plan": item.get("display_plan"),
-            "retired": bool(item.get("display_retired")),
-            "profiles": tuple(sorted(set(consumers.get(f"{peer}:{pool}", []))))}
-
-
 def na_plan(item: dict[str, Any], reason: str) -> str:
     """The plan named in a not-applicable pool note: the account-supplied `display_plan` when present, else the stored reason's `plan=`."""
     shown = item.get("display_plan")
@@ -351,35 +297,8 @@ def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
 _POOL_COLUMNS = ("STATE", "BAR", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY", "AGE")
 _POOL_MARGIN_WIDTH = 8
 _POOL_COLUMN_GAP = "  "
-_MISSING_POOL_FACT_UNICODE = "—"
-_MISSING_POOL_FACT_ASCII = "?"
 _STATE_COLOURS = {"ok": "ok", "low": "warn", "fast": "warn", "out": "out", "blocked": "out"}
 _PACE_COLOURS = {"spend": "spend", "ok": "ok", "rest": "warn"}
-
-
-def missing_pool_fact(unicode: bool = True) -> str:
-    return _MISSING_POOL_FACT_UNICODE if unicode else _MISSING_POOL_FACT_ASCII
-
-
-def format_pool_pace(pace: float | None, *, unicode: bool = True) -> str:
-    if pace is None:
-        return missing_pool_fact(unicode)
-    return f"{pace:+.1f}" if round(pace, 1) else "0.0"
-
-
-def format_pool_left(facts: PoolHealth, age: float | None, *, unicode: bool = True) -> str:
-    left = facts["left_pct"]
-    if left is None or facts["state"] == "reset":
-        text = missing_pool_fact(unicode)
-    else:
-        text = pct(left / 100) + ("!" if facts["reserve"] == "low" else "")
-    if facts["stale"] and age is not None:
-        text += f" ~{int(age // 60)}m"
-    return text
-
-
-def _pool_duration(seconds: float) -> str:
-    return format_duration(seconds).removesuffix("00m")
 
 
 def format_exhaust_margin(margin: float | None, *, unicode: bool = True) -> str:
@@ -388,29 +307,7 @@ def format_exhaust_margin(margin: float | None, *, unicode: bool = True) -> str:
     if margin == 0:
         return "0"
     sign = "-" if margin < 0 else "+"
-    return fit_text(sign + _pool_duration(abs(margin)), _POOL_MARGIN_WIDTH, unicode)
-
-
-def format_exhaust_reset(facts: PoolHealth, *, unicode: bool = True) -> str:
-
-    reset, exhaust = facts["reset_in_seconds"], facts["exhaust_in_seconds"]
-    missing = missing_pool_fact(unicode)
-    reset_text = missing if reset is None else "passed" if reset <= 0 else _pool_duration(reset)
-    if facts["reserve"] == "out":
-        exhaust_text = "OUT"
-    elif exhaust is None:
-        exhaust_text = missing
-    else:
-        exhaust_text = "past est." if exhaust < 0 else _pool_duration(exhaust)
-        if exhaust_text == reset_text and reset is not None and exhaust != reset:
-            exhaust_text = format_duration(exhaust, extra_unit=True)
-            reset_text = format_duration(reset, extra_unit=True)
-    alert = "!" if facts["exhaust_before_reset"] else ""
-    margin = facts["exhaust_margin_seconds"]
-    if alert and exhaust_text == reset_text and margin is not None:
-        early_seconds = math.floor(-margin)
-        alert += f"{early_seconds}s" if early_seconds else "<1s"
-    return f"{exhaust_text}/{reset_text}{alert}"
+    return fit_text(sign + pool_duration(abs(margin)), _POOL_MARGIN_WIDTH, unicode)
 
 
 def _pool_bar(row: dict[str, Any], cells: int, unicode: bool, child: bool = False) -> str:
@@ -441,7 +338,7 @@ def _pool_dependency(row: dict[str, Any]) -> str:
         return f"needs {parent}"
     note = f"{parent} out" if row["state"] == "blocked" else f"limited by {parent}"
     own = facts["own_left_pct"]
-    return note if own is None else f"{note} (own {pct(own / 100)})"
+    return note if own is None else f"{note} (own {format_percent(own / 100)})"
 
 
 def _pool_notes(row: dict[str, Any], marker: str) -> list[tuple[str, str]]:

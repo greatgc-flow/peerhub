@@ -8,6 +8,15 @@ from datetime import datetime, tzinfo
 from typing import TYPE_CHECKING, Any, cast
 
 from peerhub._console import ellipsize, pad_cell, visible_len
+from peerhub.cli.quota_format import (
+    forecast_duration as _forecast_duration,
+    format_exhaust_reset,
+    format_percent,
+    format_pool_left,
+    format_pool_pace,
+    fraction_bar as bar,
+    human_duration as human_duration,
+)
 from peerhub.core.text import strip_controls
 from peerhub.extensions.diag_read_model import (
     PLAN_GATE_TAG,
@@ -35,38 +44,6 @@ RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
 
 def _paint(text: str, code: str, on: bool) -> str:
     return f"{code}{text}{RESET}" if on and code else text
-
-
-def human_duration(seconds: float | None) -> str:
-    """Round to minutes from two minutes onward; missing values stay explicit."""
-    if seconds is None or seconds < 0:
-        return "?"
-    s = int(seconds) if seconds < 120 else int(seconds / 60 + 0.5) * 60
-    d, rem = divmod(s, 86400)
-    h, rem = divmod(rem, 3600)
-    m, sec = divmod(rem, 60)
-    if d:
-        return f"{d}d{h:02d}h"
-    if h:
-        return f"{h}h{m:02d}m"
-    return (f"{m}m{sec:02d}s" if sec else f"{m}m") if m else f"{sec}s"
-
-
-def _forecast_duration(seconds: float) -> str:
-    # Forecasts never claim seconds, even when exhaustion is imminent.
-    return human_duration(seconds) if seconds >= 120 else f"{int(seconds / 60 + 0.5)}m"
-
-
-def bar(used: float, cells: int, unicode: bool) -> str:
-    used = min(1.0, max(0.0, used))
-    filled = int(used * cells + 0.5)
-    if unicode:
-        return "█" * filled + "░" * (cells - filled)
-    return "#" * filled + "." * (cells - filled)
-
-
-def _unknown_bar(cells: int) -> str:
-    return "?" * cells
 
 
 def _local(at: float, tz: tzinfo | None) -> datetime:
@@ -124,8 +101,8 @@ def _quota_table(rows: list[QuotaRow], width: int, color: bool, unicode: bool, *
     head = head_lead + pad_cell(ellipsize("FORECAST", forecast_w, unicode), forecast_w) + " FRESH"
     out = [head]
     for row in rows:
-        body = bar(row.used, cells, unicode) if row.used is not None else _unknown_bar(cells)
-        used = "?" if row.used is None else f"{row.used * 100:.0f}%"
+        body = bar(row.used, cells, unicode)
+        used = "?" if row.used is None else format_percent(row.used, show_tiny=False)
         pace = "?" if row.diff is None else f"{row.diff:+.1f}"
         lead = prefix(row.peer, row.pool, f"[{body}]", used, pace, human_duration(row.left))
         forecast = ellipsize(_forecast(row, now, tz, unicode, width < 100), forecast_w, unicode)
@@ -143,8 +120,6 @@ PLAN_EARLY_TAG = "!early"
 
 
 def _plan_cells(row: Obj, health: PoolHealth, *, unicode: bool) -> list[str]:
-    from peerhub.cli.monitor_format import format_exhaust_reset, format_pool_left, format_pool_pace
-
     peer_pool = [str(row["peer"]), str(row["pool"])]
     if row["action"] == "n/a":
         return [*peer_pool, "-", "-", "-", "-", "-"]
@@ -160,7 +135,6 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
                 store_source: str = "", store_note: str = "", load: Mapping[str, Any] | None = None,
                 profiles_by_pool: Mapping[str, list[str]] | None = None, peers: frozenset[str] = frozenset(),
                 separate_observation_store: bool = False, unicode: bool = True) -> str:
-    from peerhub.cli.monitor_format import format_pool_pace
     from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 
     width = max(1, width)

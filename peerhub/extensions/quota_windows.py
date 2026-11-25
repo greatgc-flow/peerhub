@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
-from typing import Any, cast
+from collections.abc import Mapping, Sequence
+from typing import Any, TypeVar, cast
 
 from peerhub.core.scalars import finite_number
 from peerhub.core.text import clean_text
@@ -86,14 +86,17 @@ def quota_window_remaining(item: Mapping[str, Any], read_at: float) -> float | N
     return min(limits, default=None)
 
 
-def scoped_weekly_parents(rows: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+_Pool = TypeVar("_Pool", bound=Mapping[str, Any])
+
+
+def scoped_weekly_parents(rows: Sequence[_Pool]) -> dict[int, _Pool]:
     """Fable's scoped weekly window depends on the all-models window when configured consumers confirm it.
 
     As in the detailed quota tree, require a strict consumer-set inclusion. Equal sets, duplicate display names
     and different account identities cannot establish a parent. This is presentation only, never a quota rewrite.
     """
     rows = [row for row in rows if not row["retired"] and row.get("state") != "n/a"]
-    parents: dict[int, dict[str, Any]] = {}
+    parents: dict[int, _Pool] = {}
     for child in rows:
         parent_ref = scoped_parent_ref(str(child["pool_ref"]))
         if parent_ref is None:

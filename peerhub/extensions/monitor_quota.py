@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
-from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 from peerhub.extensions.monitor_queries import (
     ACCOUNT_ROW_CAP,
     capacity_rows,
@@ -31,7 +30,8 @@ from peerhub.extensions.observation_model import (
     row_to_observation,
     valid_epoch_seconds,
 )
-from peerhub.extensions.quota_projection import project_exhaustion
+from peerhub.extensions.quota_projection import project_quota_payload, quota_used_fraction
+from peerhub.extensions.quota_read_model import LastKnown, pool_states as pool_states
 
 
 def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -290,63 +290,6 @@ def _incomplete_quota() -> dict[str, Any]:
     }
 
 
-LastKnown = dict[str, tuple[float, float | None]]  # observation_id -> (validated fraction, resets_at) of a STALE row
-
-
-def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None = None,
-                now: float | None = None, samples: dict[str, int] | None = None) -> list[dict[str, Any]]:
-    """Display state of every quota pool row and its rounded percent left. A fresh (MEASURED) row is out, low, fast, ok or
-    reset; a STALE row with a last-known fraction is `aged` (never out, low or fast, so a3 stays fresh-only), or `reset` once
-    its resets_at passed; anything else is `?`. `fresh` marks a MEASURED row with a valid fraction; `na` marks a window the
-    provider says it does not have or has disabled (ABSENT with one of ABSENT_FACT_REASONS, also when aged).
-
-    `shown` is what the POOLS table shows (precedence n/a ? reset out low fast aged ok): `state` for a fresh row; for a STALE
-    row aged at 0, low above 0 through `LOW_QUOTA_FRACTION`, fast on a threat projection, else aged. `fast` needs two projection
-    samples, as in the view (monitor_format.compact_pool): the item's `projection_samples`, else `samples[observation_id]`, else 0."""
-    pools: list[dict[str, Any]] = []
-    for item in observations:
-        if item.get("kind") != "quota" or item.get("pool_ref") is None:
-            continue
-        pool = str(item.get("pool_ref")).split(":")[-1]
-        evidence = item.get("state")
-        if evidence == "STALE" and item.get("stored_state", "MEASURED") != "MEASURED":
-            evidence = item.get("stored_state")  # an aged ABSENT or failed reading is not a stale measurement
-        raw_m: object = item.get("measurements")
-        measured = cast(dict[str, Any], raw_m) if isinstance(raw_m, dict) else {}
-        remaining = finite_number(measured.get("remaining_fraction"), overflow_is_missing=True) if evidence == "MEASURED" else None
-        if remaining is not None and not 0 <= remaining <= 1:
-            remaining = None
-        fresh = remaining is not None
-        raw_p: object = item.get("projection")
-        projection = cast(dict[str, Any], raw_p) if isinstance(raw_p, dict) else {}
-        reset_in = finite_number(item.get("reset_in_seconds"), overflow_is_missing=True)
-        count = finite_number(item.get("projection_samples"), overflow_is_missing=True)
-        if count is None:
-            count = finite_number((samples or {}).get(str(item.get("observation_id"))), overflow_is_missing=True)
-        threat = projection.get("state") == "threat" and (count or 0) >= 2
-
-        def graded(fraction: float, otherwise: str) -> str:
-            return "out" if fraction == 0 else "low" if fraction <= LOW_QUOTA_FRACTION else "fast" if threat else otherwise
-        known = (last_known or {}).get(str(item.get("observation_id"))) if evidence == "STALE" else None
-        if known is not None:
-            remaining, resets_at = known
-            passed = resets_at is not None and now is not None and resets_at <= now
-            state, remaining = ("reset", None) if passed else ("aged", remaining)
-            shown = state if remaining is None or remaining == 0 else graded(remaining, "aged")
-        elif remaining is None:
-            state = shown = "?"
-        elif reset_in is not None and reset_in <= 0:
-            state, remaining = "reset", None
-            shown = state
-        else:
-            state = shown = graded(remaining, "ok")
-        pools.append({"pool": f"{item.get('peer_id')} {pool}", "left_pct": None if remaining is None else round(remaining * 100),
-                      "state": state, "shown": shown, "window": pool.rpartition("-")[2] if "-" in pool else "?",
-                      "evidence": evidence, "fresh": fresh,
-                      "na": evidence == "ABSENT" and str(item.get("reason") or "").startswith(ABSENT_FACT_REASONS)})
-    return pools
-
-
 def capacity_source(pools: list[dict[str, Any]]) -> str:
     """The 7-day rows, without the windows a provider says it does not have (`na`): `read` when there is none or one is fresh
     (MEASURED with a valid fraction); else `stale` when at least one is STALE; else `unknown` (every one is unknown or in
@@ -423,19 +366,15 @@ def read_quota_groups(conn: sqlite3.Connection, groups: list[str], output: dict[
                     measured_at = datetime.fromisoformat(observed_at.replace("Z", "+00:00")).timestamp()
                 except (ValueError, OverflowError):
                     measured_at = None
-                remaining = observation.payload.get("remaining_fraction")
-                used_fraction = (1 - float(remaining)
-                                 if isinstance(remaining, (int, float)) and not isinstance(remaining, bool)
-                                 and math.isfinite(float(remaining)) and 0 <= remaining <= 1 else None)
-                projection = project_exhaustion(
-                    used_fraction, observation.payload.get("window_started_at"), measured_at,
-                    observation.payload.get("resets_at"), now,
+                checked_remaining = finite_number(observation.payload.get("remaining_fraction"))
+                if checked_remaining is not None and not 0 <= checked_remaining <= 1:
+                    checked_remaining = None
+                projection = project_quota_payload(
+                    observation.payload, quota_used_fraction(checked_remaining), measured_at, now,
                     evidence_state=freshness.state.value,
-                    anchor_basis=observation.payload.get("anchor_basis"),
                 )
                 measurements = None
                 reset_in_seconds = None
-                checked_remaining = finite_number(remaining, overflow_is_missing=True) if used_fraction is not None else None  # the value validated above
                 if freshness.state.value == "STALE" and checked_remaining is not None:  # alerts only: public value stays None
                     stale_resets: object = observation.payload.get("resets_at")
                     last_known[observation.observation_id] = (checked_remaining, finite_number(stale_resets, overflow_is_missing=True))

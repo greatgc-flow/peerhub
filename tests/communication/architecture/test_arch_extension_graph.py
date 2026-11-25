@@ -29,12 +29,12 @@ ALLOWED: dict[str, set[str]] = {
     "bridge_control": {"bridge_claims", "bridge_errors", "bridge_registry", "runtime_contract"},
     "session_receipts": {"usage_normalization"},
     "monitor_read_model": {"adapters", "monitor_activity", "monitor_alerts", "monitor_queries", "monitor_quota",
-                           "monitor_sessions"},
+                           "monitor_sessions", "quota_read_model"},
     "monitor_activity": {"adapters", "caller", "diag_running", "liveness", "monitor_queries", "monitor_sessions",
                          "monitor_values"},
     "monitor_alerts": {"liveness", "monitor_activity", "monitor_preferences", "monitor_queries", "monitor_quota", "monitor_values"},
     "monitor_queries": {"delivery_reads", "observation_model"},
-    "monitor_quota": {"monitor_queries", "observation_model", "quota_projection"},
+    "monitor_quota": {"monitor_queries", "observation_model", "quota_projection", "quota_read_model"},
     "monitor_sessions": {"adapters", "monitor_queries", "monitor_values", "session_receipts", "usage_normalization"},
     "monitor_values": {"adapters"},
     "caller": {"process_tree"},
@@ -55,9 +55,11 @@ ALLOWED: dict[str, set[str]] = {
     "diag_running": {"caller", "diag", "liveness"},
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
-    "diag_read_model": {"diag", "diag_quota", "observation_model", "pool_health", "quota_windows"},
+    "diag_read_model": {"diag", "observation_model", "pool_health", "quota_projection", "quota_read_model", "quota_windows"},
+    "quota_projection": {"observation_model"},
+    "quota_read_model": {"observation_model", "pool_health", "quota_windows"},
     "quota_windows": {"observation_model", "quota_projection"},
-    "pool_health": {"diag_quota", "observation_model", "quota_projection", "quota_windows"},
+    "pool_health": {"observation_model", "quota_projection", "quota_windows"},
     # M2
     "batch": {"process_tree"},
     "host": {"manifest", "sqlite_tx"},
@@ -144,7 +146,7 @@ def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
           "ask_budgets", "delivery_projections", "delivery_reads", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",
-          "diag_read_model", "quota_windows", "recovery_classification", "profile_stats"}
+          "diag_read_model", "quota_read_model", "quota_windows", "recovery_classification", "profile_stats"}
     helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "manifest", "a2a"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:

@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 from peerhub.core.text import strip_controls
 from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
+from peerhub.extensions.quota_projection import observation_projection
+from peerhub.extensions.quota_read_model import PoolReading, PoolRow, project_pool_rows
 from peerhub.extensions.quota_windows import (
     FAMILIES,
     WEEK_SECONDS,
     omitted_plan_windows,
     parse_window,
     pool_family,
-    scoped_weekly_parents,
 )
 
 if TYPE_CHECKING:
@@ -53,8 +54,6 @@ def section_data(rep: DiagnosticReport, name: str) -> Obj:
 
 class QuotaRow:
     def __init__(self, item: Obj, read_at: float) -> None:
-        from peerhub.extensions.diag_quota import projection
-
         self.item = item
         payload = as_object(item.get("payload"))
         subject = item.get("subject_ref")
@@ -76,7 +75,7 @@ class QuotaRow:
         if self.span == float("inf") and suffix and int(suffix[1]) > 0:
             self.span = float(int(suffix[1]) * (3600 if suffix[2] == "H" else 86400))
         self.left = None if reset is None else reset - read_at
-        self.projection = projection({**item, "state": self.state, "payload": dict(payload)}, read_at)
+        self.projection = observation_projection({**item, "state": self.state, "payload": dict(payload)}, read_at)
         self.diff = self.projection["pace_pt"]
 
 
@@ -180,9 +179,7 @@ def _serialize_obs_item(item: object, read_at: float) -> dict[str, object]:
     }
     obs["payload"] = _scrub_payload(kind, it.get("payload"))
     if kind in ("quota", "rate_limit"):
-        from peerhub.extensions.diag_quota import projection
-
-        obs["projection"] = projection(obs, read_at)
+        obs["projection"] = observation_projection(obs, read_at)
     return obs
 
 
@@ -298,35 +295,22 @@ def _plan_family(row: QuotaRow) -> tuple[str | None, str, str]:
 
 
 def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]],
-                     consumers: Mapping[str, list[str]]) -> dict[str, QuotaRow]:
+                     projected: list[PoolRow]) -> None:
     families: dict[tuple[str | None, str, str], list[_PlanWindow]] = {}
-    descriptors: list[dict[str, Any]] = []
-    rows_by_ref: dict[str, QuotaRow] = {}
     for entry in own:
-        r = entry[0]
-        families.setdefault(_plan_family(r), []).append(entry)
-        rows_by_ref[r.ref] = r
-        descriptors.append({"peer": r.peer, "pool": r.pool, "pool_ref": r.ref,
-                            "profiles": tuple(consumers[r.ref]),
-                            "retired": bool(r.item.get("display_retired"))})
-
-    scoped_parents = scoped_weekly_parents(descriptors)
-    parents: dict[str, QuotaRow] = {}
-    for (r, _, _, _), row, descriptor in zip(own, out, descriptors):
+        families.setdefault(_plan_family(entry[0]), []).append(entry)
+    for (r, _, _, _), row, pool in zip(own, out, projected):
         siblings = families[_plan_family(r)]
         family = pool_family(r.pool)
         window = parse_window(r.pool)[0]
-        scoped = scoped_parents.get(id(descriptor))
         parent = None
-        if scoped is not None:
-            parents[r.ref] = rows_by_ref[scoped["pool_ref"]]
-            parent = scoped["pool"]
+        if pool.parent is not None:
+            parent = pool.parent["pool"]
         elif window < WEEK_SECONDS and family != "?":
             parent = next((s.pool for s, _, action, _ in siblings
                            if action != "n/a" and parse_window(s.pool)[0] == WEEK_SECONDS), None)
         row.update(age_seconds=r.age, ttl_seconds=r.ttl if r.ttl is not None else QUOTA_TTL_SECONDS,
                    family=FAMILIES.get(family, "?"), parent=parent)
-    return parents
 
 
 def _plan_observations(report: DiagnosticReport) -> list[Obj]:
@@ -429,9 +413,15 @@ def plan_pools(report: DiagnosticReport, *,
     items = _plan_observations(report)
     pools = [p for p in object_items(section_data(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
     rows = quota_rows(items, pools, report.read_at)
-    healths = {r.ref: pool_health(r.item, None, report.read_at) for r in rows}
     consumers = {r.ref: [profile for profile in (profiles_by_pool or {}).get(r.pool, [])
                          if profile.partition(".")[0] == r.subject_ref] for r in rows}
+    readings = [PoolReading(peer=r.peer, pool=r.pool, pool_ref=r.ref, reading=r.item,
+                            profiles=tuple(consumers[r.ref]), retired=bool(r.item.get("display_retired")))
+                for r in rows]
+    projected = project_pool_rows(readings, report.read_at)
+    healths = {r.ref: row.own_health for r, row in zip(rows, projected)}
+    rows_by_ref = {r.ref: r for r in rows}
+    parents = {r.ref: rows_by_ref[row.parent["pool_ref"]] for r, row in zip(rows, projected) if row.parent is not None}
     use_family = profiles_by_pool is None  # library callers without profile metadata
     own: list[_PlanWindow] = []
     for r in rows:
@@ -459,14 +449,17 @@ def plan_pools(report: DiagnosticReport, *,
             facts = pool_health(item, None, report.read_at)
             if facts["state"] == "out":
                 exhausted[ref] = (QuotaRow(item, report.read_at), facts["left_pct"], "blocked", _PLAN_ZERO_REASONS["out"])
-    parents = _plan_pool_facts(own, out, consumers)
+    _plan_pool_facts(own, out, projected)
     gates = _plan_gate_windows(own, consumers, exhausted, profiles_by_pool)
     result: list[_PlanPool] = []
-    for window, row in zip(own, out):
+    for window, row, pool in zip(own, out, projected):
         r = window[0]
         own_health = healths[r.ref]
         parent = parents.get(r.ref)
-        facts = own_health if parent is None else pool_health(r.item, parent.item, report.read_at)
+        facts = own_health if parent is None else pool.health
+        if parent is not None and (pool.parent is None or pool.parent["reading"] is not parent.item):
+            # Stored refs that differ only in stripped controls can collide in the plan's display index.
+            facts = pool_health(r.item, parent.item, report.read_at)
         row.update(_plan_advice(window, parent, facts, own_health, gates.get(r.ref, []), exhausted,
                                 use_family=use_family))
         row.update(

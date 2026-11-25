@@ -227,7 +227,7 @@ def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1
           "monitor_read_model", "delivery_reads", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "monitor_preferences", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",
-          "diag_read_model", "quota_windows", "recovery_classification", "profile_stats"}
+          "diag_read_model", "quota_read_model", "quota_windows", "recovery_classification", "profile_stats"}
     assert not (m1 & set(M2_M3_MODULES))
     # every extension module is classified: nothing can quietly sit outside both the M1 set and the gated sets
     classified = m1 | set(M2_M3_MODULES) | {"direction"}

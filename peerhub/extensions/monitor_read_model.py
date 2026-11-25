@@ -12,6 +12,7 @@ from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionE
 from peerhub.extensions import monitor_activity, monitor_alerts, monitor_quota
 from peerhub.extensions.monitor_queries import PEER_CAP, delivery_scope_rows, peer_rows, recent_quota_payloads
 from peerhub.extensions.monitor_sessions import current_profile, monitor_workspace, read_session_groups
+from peerhub.extensions.quota_read_model import pool_states
 
 
 def _decode_text(raw: bytes) -> str:
@@ -319,7 +320,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             monitor_activity.merge_activity_leads(activity_data, lead_reader, now=now, text_on=text_on,
                                                   process_probe=process_probe)
         capacity_ok = bool(set(groups) & {"capacity", "peers"}) and "capacity" not in errors
-        pools = (monitor_quota.pool_states(quota.observations, quota.last_known, now, quota.sample_counts)
+        pools = (pool_states(quota.observations, quota.last_known, now, quota.sample_counts)
                  if capacity_ok else None)
         alert_sources = monitor_alerts.alert_source_status(groups, errors, activity_data, quota, pools, preference_source)
         alerts = monitor_alerts.build_alerts(asks=activity_data["asks"] if activity_data else None, pools=pools,
