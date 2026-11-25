@@ -19,7 +19,6 @@ from peerhub.core.models import Record, iso_timestamp, json_digest
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 from peerhub.core.store import CasMismatchError
 from peerhub.extensions import ask_budgets, bridge_registry, delivery_projections, session_receipts
-from peerhub.extensions.billing import record_delivery
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimToken, StaleClaimError
 from peerhub.extensions.bridge_control import BUILTIN_PEER_MARKS, MAY_HAVE_STARTED, NOT_STARTED, STARTED, TERMINAL, BridgeControl
 from peerhub.extensions.bridge_errors import (
@@ -132,7 +131,6 @@ class BridgeLedger(BridgeControl):
         if to == STARTED:
             session_receipts.call(conn, row, observed_at)
         if to == MAY_HAVE_STARTED:
-            record_delivery(conn, delivery_id, observed_at, uncertain=True)
             mapping = bridge_registry.generation(conn, row["stream_id"], row["peer_id"], row["session_generation"])
             won = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
                                "AND session_generation=? AND external_session_id=? AND state NOT IN ('LOST','TOMBSTONED') "
@@ -315,8 +313,6 @@ class BridgeLedger(BridgeControl):
                 cls._evidence(conn, row["stream_id"], row["peer_id"], "processes_dead", did, certainty,
                               reason="processes_dead", outcome="UNCERTAIN", observed_at_s=now,
                               invocation_no=row["invocation_no"])
-                if certainty == STARTED:
-                    record_delivery(conn, did, now, uncertain=True)
             elif row["expires_at"] <= now or claim_wrapper_alive(row["claim_detail"]) is not False:
                 continue
             conn.execute("UPDATE bridge_claims SET expires_at=MIN(expires_at,?) WHERE stream_id=? AND peer_id=? "
@@ -378,13 +374,9 @@ class BridgeLedger(BridgeControl):
 
     def _note(self, token: ClaimToken, delivery_id: str | None, kind: str, certainty: str | None = None, **detail: Any) -> None:
         with self.claims.fenced(token) as conn:
-            self._evidence(conn, token.stream_id, token.peer_id, kind, delivery_id, certainty, **detail)
             if delivery_id is not None and certainty == STARTED and kind in ("runtime_error", "no_terminal"):
-                record_delivery(conn, delivery_id, self.claims.now(), uncertain=True)
-
-    def _record_uncertain_billing(self, token: ClaimToken, delivery_id: str) -> None:
-        with self.claims.fenced(token) as conn:
-            record_delivery(conn, delivery_id, self.claims.now(), uncertain=True)
+                detail["observed_at_s"] = self.claims.now()
+            self._evidence(conn, token.stream_id, token.peer_id, kind, delivery_id, certainty, **detail)
 
     def _late(self, token: ClaimToken, did: str | None, kind: str, **detail: Any) -> None:
         """Unfenced evidence-only write for stale/late callbacks (TD-25): never touches delivery state."""
@@ -538,7 +530,7 @@ class BridgeLedger(BridgeControl):
                         term_detail["display_truncated"] = True
                     self._transition_in(conn, did, TERMINAL, "terminal", token=token, **term_detail)  # illegal source state rolls the tx back
                     completed = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
-                    session_receipts.telemetry(conn, completed, self.claims.now(), provider_candidate, billable=True)
+                    session_receipts.telemetry(conn, completed, self.claims.now(), provider_candidate)
                     delivery_projections.record_usage_coverage(conn, completed, self.claims.now())
                     ask_budgets.record_ask_pool_delta(conn, completed, stopped)
                     mapping = bridge_registry.generation(conn, token.stream_id, token.peer_id, row["session_generation"])

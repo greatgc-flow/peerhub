@@ -24,6 +24,8 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- API billing uses private per-store HMAC scopes, preserves validated usage on uncertain replies, and omits unexpected response bodies from diagnostics. Custom API peers show provider monetary facts, offline monetary storage is capped with replay protection, and the Bridge and diagnostics work with the billing extension disabled (#472).
+- Claude Code `/usage` recognizes ASCII progress bars and rejects inline readings whose reset belongs to an unfamiliar section (#472).
 - Claude Code `/usage` preserves recognized measurements from partial reports and leaves configured windows unknown when unfamiliar sections may account for them (closes #472).
 - Deterministic tests use a quiet CPU and RAM sample and isolate the Antigravity transport cache. The ask gate and probe tests supply their own resource readings.
 - Linux ask liveness uses the boot ID and process start ticks, so wall-clock corrections do not revoke live leases. Legacy timestamp mismatches and unverified leaderless sessions remain unknown.

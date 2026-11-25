@@ -123,8 +123,9 @@ def _claude_usage_emit(section: str, used_pct: str | float, reset_text: str, now
 
 # The line grammar matters: a percentage or reset after an unfamiliar heading
 # must never complete the previous known section.
-_INLINE_USAGE = re.compile(r"([^:]+):\s*([^\s%]+)%\s+used\b.*?\bresets?\s+(.+)", re.I)
-_PERCENT_USED = re.compile(r"[\s\[\]█▉▊▋▌▍▎▏░▒▓━─■□]*([^\s%]+)%\s+used", re.I)
+_INLINE_USAGE = re.compile(r"([^:]+):\s*([^\s%]+)%\s+used(?:\s*[,·|]\s*|\s+)resets?\s+(.+)", re.I)
+_USAGE_BAR = re.compile(r"^(?:\[[=#. █▉▊▋▌▍▎▏░▒▓━─■□\-]+\]|[█▉▊▋▌▍▎▏░▒▓━─■□]+)\s*")
+_PERCENT_USED = re.compile(r"([^\s%]+)%\s+used", re.I)
 _RESET_LINE = re.compile(r"resets?\s+(.+)", re.I)
 _USAGE_CHROME = re.compile(r"usage|settings:\s+status\s+config\s+usage|esc to (?:cancel|close)", re.I)
 
@@ -155,7 +156,7 @@ def _parse_claude_usage(
             continue
         heading = line.removesuffix(":").strip().casefold()
         inline = _INLINE_USAGE.fullmatch(line)
-        percent = _PERCENT_USED.fullmatch(line)
+        percent = _PERCENT_USED.fullmatch(_USAGE_BAR.sub("", line, count=1))
         reset = _RESET_LINE.fullmatch(line)
         if section is not None and pct is None and percent:
             pct = percent[1]

@@ -23,7 +23,9 @@ from peerhub.extensions.work import WorkProjection
 
 REPO = Path(__file__).resolve().parents[2]
 M3_MODULES = ("search", "memory", "a2a", "a2a_http", "a2a_journal", "routing", "orchestration", "approval", "runtime_port")
-M2_MODULES = ("accounts", "batch", "work", "artifact", "skills", "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary", "authoritative")
+# sqlite_tx also backs M1 Bridge's dead-ask recovery, so it is shared infrastructure.
+M2_MODULES = ("accounts", "batch", "work", "artifact", "skills", "mcp", "backup", "eval", "host", "manifest",
+              "boundary", "authoritative", "billing", "billing_secret")
 M2_M3_MODULES = M2_MODULES + M3_MODULES
 
 PRELUDE = textwrap.dedent("""
@@ -63,13 +65,28 @@ M1_SCRIPT = PRELUDE + textwrap.dedent("""
     runtime.script_deliver(("started", "exec-1"), ("terminal", {"response": "answer"}))
     first = ask(db, "cx", "question", request_id="req", runtime=runtime)
     replay = ask(db, "cx", "question", request_id="req", runtime=FakeRuntimeTarget())
+    from pathlib import Path
+    from peerhub.extensions.adapters.api import OaRuntimeTarget
+    class OfflineAPI(OaRuntimeTarget):
+        def _call(self, prompt):
+            return self._reply("api answer", {"input_tokens": 1}, complete=True, truncated=False, why="")
+        def _call_with_key(self, prompt, key):
+            return self._call(prompt)
+    api = ask(db, "oa", "question", request_id="api", runtime=OfflineAPI(Path(db).parent, model="gpt-test"))
     # Diag reads it all back (the dashboard shows the per-peer ask history built from Observation evidence)
     import io, contextlib
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         codes.append(main(["--db", db, "diag", "--view", "rich"]))
         codes.append(main(["--db", db, "diag", "health"]))
-    print("RESULT" + json.dumps({"control": control("peerhub.extensions.work"), "codes": codes, "loaded": loaded(),
+    api_views = io.StringIO()
+    with contextlib.redirect_stdout(api_views):
+        codes.append(main(["--db", db, "diag", "--json"]))
+        codes.append(main(["--db", db, "monitor", "--snapshot", "--json", "--group", "peers"]))
+    print("RESULT" + json.dumps({"control": control("peerhub.extensions.work"),
+                                 "billing_control": control("peerhub.extensions.billing"),
+                                 "codes": codes, "loaded": loaded(), "api": [api["status"], api["response"]],
+                                 "billing_panel": '"billing":' in api_views.getvalue(),
                                  "ask": [first["status"], first["response"], replay["status"], replay["response"]],
                                  "dashboard_has_asks": "Asks cx delivered " in out.getvalue()}))
 """)
@@ -128,8 +145,10 @@ def run_script(script: str, blocked: tuple[str, ...], arg: Path) -> dict:
 def test_m1_works_with_every_m2_and_m3_extension_disabled(tmp_path):
     result = run_script(M1_SCRIPT, M2_M3_MODULES, tmp_path / "core.db")
     assert result["control"] == "blocked"  # the blocker really blocks (control for the assertions below)
-    assert result["codes"] == [0, 0, 0, 0, 0, 0, 0] and result["loaded"] == []  # Core CRUD, the dashboard and health all succeed
+    assert result["billing_control"] == "blocked" and not result["billing_panel"]
+    assert result["codes"] == [0] * 9 and result["loaded"] == []  # Core CRUD, the dashboards and health all succeed
     assert result["ask"] == ["delivered", "answer", "recovered_terminal", "answer"]  # Bridge + Observation work, the retry is idempotent
+    assert result["api"] == ["delivered", "api answer"]
     assert result["dashboard_has_asks"] is True  # Diag shows what Observation recorded
 
 

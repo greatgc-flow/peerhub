@@ -272,11 +272,11 @@ class ObservationStore:
             (obs.observation_id, obs.subject_ref, obs.resource_pool_ref, obs.kind, obs.source, obs.state.value,
              _canon(obs.payload), obs.observed_at, obs.captured_at, effective_us(obs)))
 
-    def persist_replayable(self, obs: Observation) -> None:
-        """Persist an immutable fact with a stable observation ID."""
-        obs = Observation.model_validate(obs.model_dump())
+    @contextmanager
+    def write_tx(self):
+        """Serialize a consumer's validation and append in one transaction."""
         with self._tx("observation.persist") as conn:
-            self.append(conn, obs, replayable=True)
+            yield conn
 
     def persist(self, obs: Observation) -> Observation:
         """Append a fully formed Observation (wire/import path). The capture ordinal is assigned by the store."""

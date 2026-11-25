@@ -45,30 +45,43 @@ original evidence intact.
   observation. The delivery reference is a digest of the Bridge delivery ID.
   Any reported counters are retained. A proven pre-inference failure produces
   no billing usage fact.
-- `oa` and `ga` fingerprint the exact key used for the call. A different key
-  gets a different scope even when both keys draw on the same ledger. A replay
-  keeps the original scope and observation. The managed `ca` login exposes no
-  verified identity to PeerHub, so its call evidence has a null account scope.
-  Asks recorded before scope capture have no billing observations.
+- `oa` and `ga` fingerprint the exact key used for the call with HMAC-SHA256.
+  Each database uses a random key in the private file `.<db-name>.billing/key`
+  beside it. Keep that directory private and preserve it with the database
+  when moving or restoring the store. The key stays outside database dumps and
+  CLI output. Credential rotation creates a new scope, and a replay keeps the
+  original invocation's scope. The managed `ca` login yields a null scope.
+  A failed read of the private key also leaves the call's scope unknown.
+  Existing SHA-256 scopes appear unknown until the first scoped write migrates
+  them. Copies made before migration can still contain the old digests.
 - Trusted offline collectors can import a balance, estimate or charge with
   `peerhub.extensions.billing.record_amount`. The collector supplies the
   source (`provider_console` or `provider_statement` for a balance,
   `collector_estimate` for an estimate, `provider_statement` for a charge),
   a stable source evidence ID, source time as Unix seconds, and an integer
   amount in millionths of the stated three-letter currency. Build a
-  `BillingScope` with `from_verified_identity` from the account or key identity
-  of the reported fact. A credential that merely grants access to a report
-  does not establish the identity of the reported account.
+  `BillingScope` with `from_verified_identity(db_path, provider, identity,
+  identity_kind=...)` using the verified account or key identity of the fact.
+  Use the same database for the import. A collector credential that grants
+  access to the source stays in process memory.
 - Balance, estimate and charge observations remain separate from each other
   and from token usage. The consumer does no automatic reconciliation or
   pricing. An import of the same evidence is a no-op. A replay that changes
   the scope or contents is rejected. Keep the source evidence ID stable
   across credential changes.
 
-The existing `core.db` observation tables retain one row per distinct fact
-for the life of the store, allowing later replay and inspection of unresolved
-evidence. The collector keeps credentials in process memory. PeerHub retains
-fingerprints and normalized facts, without raw reports or credential material.
+Delivery billing views derive usage, including validated counters from
+unrecognized replies, from the existing Bridge journal. The journal keeps
+unresolved evidence even after newer rows fill the display sample.
+Named API peers show delivery usage for their own peer ID and monetary facts
+for their adapter provider. Each fact carries its own scope.
+
+Each database accepts up to 1,024 distinct monetary facts. Reaching capacity
+rejects new IDs and still accepts identical replays. Conflicting replays still
+fail. The existing observation table preserves any older monetary facts above
+the cap and usage rows written before the change. That inherited storage
+cannot grow through the consumer. Bridge and diagnostics can operate with
+the billing extension disabled.
 
 ## Answers that mean "no inference ran because of the account"
 

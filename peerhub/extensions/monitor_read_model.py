@@ -11,7 +11,7 @@ from typing import Any, Callable, cast
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.core.peer_kinds import API_PEER_KINDS, peer_kind
 from peerhub.extensions import monitor_activity, monitor_alerts, monitor_quota
-from peerhub.extensions.billing import peer_billing
+from peerhub.extensions.billing_port import billing_consumer
 from peerhub.extensions.monitor_queries import PEER_CAP, delivery_scope_rows, peer_rows, recent_quota_payloads
 from peerhub.extensions.monitor_sessions import current_profile, monitor_workspace, read_session_groups
 
@@ -199,8 +199,8 @@ def _assemble_peers(conn: sqlite3.Connection, db_path: str, workspace: str | Pat
             "context": ctx_data,
         }
         kind = peer_kind(p["adapter_ref"], pid)
-        if kind in API_PEER_KINDS:
-            peer_record["billing"] = peer_billing(conn, pid, kind, read_at)
+        if kind in API_PEER_KINDS and (billing := billing_consumer()) is not None:
+            peer_record["billing"] = billing.peer_billing(conn, pid, kind, read_at)
         peer_records.append(peer_record)
     from peerhub.extensions.adapters.profiles import packaged_defaults_meta
     defaults_meta = packaged_defaults_meta()

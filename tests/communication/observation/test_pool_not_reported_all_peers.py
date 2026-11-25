@@ -109,6 +109,20 @@ def test_cc_usual_ui_chrome_is_not_drift(monkeypatch):
     assert [s for _, s in states(res)] == [EvidenceState.MEASURED] * 3
 
 
+def test_cc_inline_usage_cannot_borrow_an_unfamiliar_sections_reset(monkeypatch):
+    text = "Current session: 50% used Renamed weekly allowance: 77% used resets 1:00pm\n" + WEEK
+    rows = run_cc(monkeypatch, text, real_reset=True)
+    assert states(rows) == [("C-7D", EvidenceState.MEASURED), ("C-5H", EvidenceState.UNKNOWN),
+                            ("F-7D", EvidenceState.UNKNOWN)]
+
+
+def test_cc_ascii_usage_bar_keeps_the_reading(monkeypatch):
+    rows = run_cc(monkeypatch, "Current session\n[====] 50% used\nResets 12:00pm")
+    assert states(rows) == [("C-5H", EvidenceState.MEASURED), ("C-7D", EvidenceState.ABSENT),
+                            ("F-7D", EvidenceState.ABSENT)]
+    assert rows[0].evidence.value.used_fraction == 0.5
+
+
 @pytest.mark.parametrize("returncode", [1, 2, None])
 def test_cc_failed_or_unfinished_run_records_no_absent(monkeypatch, returncode):
     """Partial output of a failed /usage run must not turn the missing session line into 'not reported'."""

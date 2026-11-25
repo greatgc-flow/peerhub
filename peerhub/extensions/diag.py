@@ -18,7 +18,7 @@ from typing import cast, Any, Callable
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.core.read_only_probe import probe_table_roots
 from peerhub.core.peer_kinds import API_PEER_KINDS, peer_kind
-from peerhub.extensions.billing import peer_billing
+from peerhub.extensions.billing_port import billing_consumer
 from peerhub.extensions.delivery_reads import running_delivery_rows
 from peerhub.extensions.observation_model import (
     FreshnessPolicy,
@@ -167,8 +167,8 @@ class ReadonlyDiag:
         peers: list[dict[str, Any]] = [dict(zip(keys, r)) for r in rows]
         for peer in peers:
             kind = peer_kind(peer["adapter_ref"], peer["peer_id"])
-            if kind in API_PEER_KINDS:
-                peer["billing"] = peer_billing(conn, peer["peer_id"], kind, read_us / 1_000_000, policy=self.policy)
+            if kind in API_PEER_KINDS and (billing := billing_consumer()) is not None:
+                peer["billing"] = billing.peer_billing(conn, peer["peer_id"], kind, read_us / 1_000_000, policy=self.policy)
         return Section("peers", "OK", {"peers": peers})
 
     @staticmethod

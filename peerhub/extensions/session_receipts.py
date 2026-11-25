@@ -12,8 +12,7 @@ import time
 import uuid
 from typing import Any, Mapping, TypeGuard, cast
 
-from peerhub.core.peer_kinds import API_PEER_KINDS, BUILTIN_PEER_KINDS
-from peerhub.extensions.billing import record_delivery
+from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 from peerhub.extensions.usage_normalization import PROVIDER_USAGE_CONTRACT, validate_provider_usage
 
 
@@ -246,7 +245,7 @@ def call(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row, no
 
 
 def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row, now: float,
-              provider_candidate: object = None, *, billable: bool = False) -> None:
+              provider_candidate: object = None) -> None:
     accepted = snapshot(delivery)
     if accepted is None or conn.execute("SELECT 1 FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry'", (delivery["delivery_id"],)).fetchone():
         return
@@ -278,8 +277,6 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
                   steps=[], step_coverage={"state": "UNKNOWN", "measured": 0, "dropped": 0})
     seq = conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,'session_telemetry',?,?)",
                        (delivery["delivery_id"], delivery["stream_id"], delivery["peer_id"], delivery["certainty"], dumps(detail))).lastrowid
-    if billable and provider_kind in API_PEER_KINDS:
-        record_delivery(conn, delivery["delivery_id"], now, usage=usage)
     current = conn.execute("SELECT latest_telemetry_seq FROM bridge_session_monitor_stats WHERE session_handle=?",
                            (accepted["handle"],)).fetchone()
     if current is None:

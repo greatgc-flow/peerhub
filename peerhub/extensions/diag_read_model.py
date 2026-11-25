@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from peerhub.core.text import strip_controls
 from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
-from peerhub.extensions.billing import billing_payload
+from peerhub.extensions.billing_port import billing_consumer
 from peerhub.extensions.observation_model import BILLING_KINDS
 from peerhub.extensions.quota_windows import (
     FAMILIES,
@@ -129,7 +129,8 @@ def _scrub_payload(kind: object, payload: object) -> dict[str, object]:
         return {}
     p = cast(Mapping[str, object], payload)
     if isinstance(kind, str) and kind in BILLING_KINDS:
-        return billing_payload(kind, p)
+        billing = billing_consumer()
+        return billing.billing_payload(kind, p) if billing is not None else {}
     if kind == "reset_credit":
         out = _payload_fields(p, ("available_count", "nearest_expires_at", "condition", "reason", "evidence_ref"))
         raw_credits = p.get("credits")
