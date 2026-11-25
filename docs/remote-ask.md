@@ -26,7 +26,7 @@ environment. Keep readable files, CLI credentials, tools and network access as
 limited as the job permits; a remote prompt can read what that OS account can
 read. Read-only does not provide confidentiality.
 
-The default omits `--writable`. Codex enforces a read-only sandbox (`-s read-only`), and Claude headless mode withholds `acceptEdits`. Because `agy` does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed pre-spawn unless `--writable` is explicitly passed (`peerhub/extensions/adapters/base.py`; issue `#140`). `--writable` selects Codex `workspace-write`, Claude `acceptEdits`, or agy `accept-edits`. The process inherits environment variables (`peerhub/extensions/adapters/base.py`), with known secret patterns redacted from stored excerpts.
+The default omits `--writable`. Codex enforces a read-only sandbox (`-s read-only`), and Claude headless mode withholds `acceptEdits`. Because `agy` does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed pre-spawn unless `--writable` is explicitly passed (`peerhub/extensions/adapters/cli_runtime.py`; issue `#140`). `--writable` selects Codex `workspace-write`, Claude `acceptEdits`, or agy `accept-edits`. The process inherits environment variables (`peerhub/extensions/adapters/cli_runtime.py`), with known secret patterns redacted from stored excerpts.
 Review finding (cx): these code references support the execution-boundary concerns.
 
 Keep one local database per server; never share a SQLite file across machines.
@@ -36,7 +36,7 @@ Explicit database selection takes precedence over workspace store selection
 
 Use the remote venv's absolute Python path with `-m peerhub`; do not assume an
 interactive shell's venv is active. Ensure the provider executable is on that
-account's noninteractive PATH (discovery: `peerhub/extensions/adapters/base.py`).
+account's noninteractive PATH (discovery: `peerhub/extensions/adapters/registry.py`).
 Install/authenticate the required provider under that restricted account.
 
 ## Run and retry

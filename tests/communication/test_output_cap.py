@@ -27,7 +27,7 @@ import pytest
 pytestmark = pytest.mark.platform_sensitive
 
 from peerhub.extensions.adapters import CliRuntimeTarget
-from peerhub.extensions.adapters.base import IncrementalEventParser
+from peerhub.extensions.adapters.event_parser import IncrementalEventParser
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult, run_bounded
 from peerhub.extensions.runtime_contract import RuntimeTargetError
 from tests.communication.bridge_helpers import bseed, records, responses

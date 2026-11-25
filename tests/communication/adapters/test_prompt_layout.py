@@ -6,8 +6,10 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.extensions.adapters import api
-from peerhub.extensions.adapters.base import CliRuntimeTarget, PrespawnError, ProcessResult
-from peerhub.extensions.adapters.common import MAX_PROMPT_BYTES
+from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
+from peerhub.extensions.adapters.process import ProcessResult
+from peerhub.extensions.runtime_contract import PrespawnError
+from peerhub.extensions.adapters.common import MAX_PROMPT_BYTES, render_prompt
 from peerhub.extensions.adapters.cx import CxSpec
 from peerhub.extensions.catchup import ProjectedRecords
 from peerhub.extensions.mcp import MCPServer
@@ -28,7 +30,7 @@ def test_catch_up_prompt_preamble(history, truncated):
         ] if history else [])
         records.boundary = {"truncated": truncated, "omitted_count": position - 1,
                             "omitted_through_position": position - 1} if truncated else {}
-        return CliRuntimeTarget._prompt(SimpleNamespace(body=current), records)
+        return render_prompt(SimpleNamespace(body=current), records)
 
     assert_preamble(
         render,

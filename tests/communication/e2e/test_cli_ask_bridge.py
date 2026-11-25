@@ -66,7 +66,7 @@ def test_response_retry_is_idempotent_and_claim_is_released(tmp_path, usage):
 
 
 def test_settled_ask_replays_after_packaged_cx_binding_changes(tmp_path, monkeypatch):
-    from peerhub.extensions.adapters.base import CliRuntimeTarget
+    from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
     from peerhub.extensions.adapters import profiles
 
     db = tmp_path / "core.db"

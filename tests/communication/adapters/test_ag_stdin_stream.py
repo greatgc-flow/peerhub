@@ -14,7 +14,7 @@ import pytest
 from peerhub.cli.app import main
 from peerhub.cli.ask_cmd import _provider_limit
 from peerhub.extensions import ask as ask_module
-from peerhub.extensions.adapters import CliRuntimeTarget, SPECS, Sanitizer, ag, common, process
+from peerhub.extensions.adapters import CliRuntimeTarget, SPECS, Sanitizer, ag, ag_transport, common, process
 from peerhub.extensions.adapters.ag import AgSpec, encode_user_line, parse_ag_stream_json, terminal_quota, terminal_result
 from peerhub.extensions.adapters.common import EXCERPT_CHARS
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
@@ -31,17 +31,17 @@ RECORDED = FIXTURE.read_text(encoding="utf-8")
 CID = "vendor-session-sentinel-DO-NOT-PERSIST"
 QUOTA_LINE = Q_STDERR.splitlines()[0]  # error: Individual quota reached. ... Resets in 20h9m47s.
 QUOTA = {"reason": "quota_exhausted", "reset_time": "20h9m47s"}
-REAL_DETECT = ag._detect_ag_transport  # captured before the communication conftest forces argv
+REAL_DETECT = ag_transport._detect_ag_transport  # captured before the communication conftest forces argv
 UNICODE = "漢字 😀 שלום é  |  a\r\nb\rc\x00 end"
 
 
 @pytest.fixture(autouse=True)
 def _real_detection(monkeypatch):
-    monkeypatch.setattr(ag, "_detect_ag_transport", REAL_DETECT)
-    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: 1.0)
-    ag._AG_TRANSPORT_CACHE.clear()
+    monkeypatch.setattr(ag_transport, "_detect_ag_transport", REAL_DETECT)
+    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: 1.0)
+    ag_transport._AG_TRANSPORT_CACHE.clear()
     yield
-    ag._AG_TRANSPORT_CACHE.clear()
+    ag_transport._AG_TRANSPORT_CACHE.clear()
 
 
 def _lines(path: Path) -> list[dict]:
@@ -259,7 +259,7 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
     monkeypatch.setattr(common, "probe_cli", probes)
 
     def detect():
-        return ag._detect_ag_transport([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path)).transport
+        return ag_transport._detect_ag_transport([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path)).transport
 
     assert detect() == detect() == "stream"
     assert probes.calls == ["--version", "--help", "--version"]
@@ -275,7 +275,7 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
 def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch):
     from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR
 
-    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
     deadlines = []
 
     def probe(base, args, *, timeout_s, **options):
@@ -285,9 +285,9 @@ def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch)
         return _probe_result(b"agy 1.5.17" if args[0] == "--version" else b"--input-format stream-json")
 
     monkeypatch.setattr(common, "probe_cli", probe)
-    result = ag._detect_ag_transport([PY, FAKE], {}, str(Path.cwd()))
+    result = ag_transport._detect_ag_transport([PY, FAKE], {}, str(Path.cwd()))
     assert result.transport == "stream"
-    assert deadlines == [(arg, ag._AG_PROBE_TIMEOUT_S * BUSY_PROBE_TIMEOUT_FACTOR)
+    assert deadlines == [(arg, ag_transport._AG_PROBE_TIMEOUT_S * BUSY_PROBE_TIMEOUT_FACTOR)
                          for arg in ("--version", "--version", "--help")]
 
 
@@ -299,14 +299,14 @@ def test_06a_busy_detection_reuses_disk_cache_and_invalidates_it_on_replacement(
     probes = Probes()
     monkeypatch.setattr(common, "probe_cli", probes)
     args = ([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path))
-    assert ag._detect_ag_transport(*args).transport == "stream"
-    ag._AG_TRANSPORT_CACHE.clear()
-    monkeypatch.setattr(ag, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
-    assert ag._detect_ag_transport(*args).version == "1.5.9"
+    assert ag_transport._detect_ag_transport(*args).transport == "stream"
+    ag_transport._AG_TRANSPORT_CACHE.clear()
+    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: BUSY_PROBE_TIMEOUT_FACTOR)
+    assert ag_transport._detect_ag_transport(*args).version == "1.5.9"
     assert probes.calls == ["--version", "--help"]
     binary.write_bytes(b"a different build")
     probes.help = b"usage: agy -p PROMPT"
-    assert ag._detect_ag_transport(*args).transport == "argv"
+    assert ag_transport._detect_ag_transport(*args).transport == "argv"
     assert probes.calls == ["--version", "--help", "--version", "--help"]
 
 

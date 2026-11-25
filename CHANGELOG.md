@@ -23,6 +23,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed (internal)
 
+- Split provider lookup, CLI subprocess lifecycle, output parsing and display, and Antigravity transport detection into dedicated adapter modules.
 - Split quota and account probes into provider modules with shared probe helpers.
 - Split the Claude Code, Codex, and Antigravity CLI adapters into provider modules. Antigravity owns stream parsing and transport detection.
 - Split session receipts, delivery projections, and ask budgets into separate modules and moved provider usage validation alongside normalization.

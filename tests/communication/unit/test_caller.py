@@ -202,10 +202,10 @@ def _provider_env_case(monkeypatch):
 
 def test_the_provider_does_not_inherit_the_batch_ids(tmp_path, monkeypatch):
     """A nested `peerhub ask` made by the provider must not be recorded as a task of the outer batch."""
-    from peerhub.extensions.adapters import base
+    from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
 
     _provider_env_case(monkeypatch)
-    env = base.CliRuntimeTarget("cc", tmp_path, command=["fake.exe"])._env  # pyright: ignore[reportPrivateUsage]
+    env = CliRuntimeTarget("cc", tmp_path, command=["fake.exe"])._env  # pyright: ignore[reportPrivateUsage]
     assert "PEERHUB_BATCH_ID" not in env and "PEERHUB_BATCH_TASK" not in env
     assert env["PEERHUB_LEAD"] == "lead-x"
 
@@ -214,10 +214,10 @@ def test_an_account_bound_provider_does_not_inherit_the_batch_ids(tmp_path, monk
     from types import SimpleNamespace
 
     from peerhub.extensions.accounts import AccountRef
-    from peerhub.extensions.adapters import base
+    from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
 
     _provider_env_case(monkeypatch)
-    target = base.CliRuntimeTarget("cc", tmp_path, command=["fake.exe"], account=AccountRef("slot-1"))
+    target = CliRuntimeTarget("cc", tmp_path, command=["fake.exe"], account=AccountRef("slot-1"))
     target.bind_account_env(SimpleNamespace(slot_id="slot-1", provider="cc", root_realpath=tmp_path))  # type: ignore[arg-type]
     env = target._env  # pyright: ignore[reportPrivateUsage]
     assert "PEERHUB_BATCH_ID" not in env and "PEERHUB_BATCH_TASK" not in env
@@ -250,13 +250,13 @@ def test_owner_and_session_share_validation():
 
 
 def test_provider_environment_makes_a_nested_ask_mine(monkeypatch):
-    from peerhub.extensions.adapters import base
+    from peerhub.extensions.adapters.cli_runtime import CliRuntimeTarget
 
     _provider_env_case(monkeypatch)
     monkeypatch.setenv("PEERHUB_OWNER", "this-lead")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "this-session")
     reader = caller.detect_caller()
-    env = base.CliRuntimeTarget("cc", Path.cwd(), command=["fake.exe"])._env  # pyright: ignore[reportPrivateUsage]
+    env = CliRuntimeTarget("cc", Path.cwd(), command=["fake.exe"])._env  # pyright: ignore[reportPrivateUsage]
     nested = caller.detect_caller(env)
     assert nested["owner"] == reader["owner"] and nested["session"] == reader["session"]
     assert nested["batch"] is None and nested["task"] is None

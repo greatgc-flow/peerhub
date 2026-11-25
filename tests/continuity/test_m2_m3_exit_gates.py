@@ -217,8 +217,10 @@ def test_deleting_every_derived_projection_and_rebuilding_from_records_is_logica
 
 def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1_modules():
     ext = REPO / "peerhub" / "extensions"
-    assert all((ext / f"{name}.py").is_file() for name in M2_M3_MODULES)  # a renamed module must not silently escape the gate
-    m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
+    modules = {p.stem for p in ext.glob("*.py") if p.stem != "__init__"}
+    modules.update(p.parent.name for p in ext.glob("*/__init__.py"))
+    assert set(M2_M3_MODULES) <= modules  # a renamed module must not silently escape the gate
+    m1 = {"adapters", "ask", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
           "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "pool_health", "peer_kinds", "schema_guard",
           "quota_projection", "bridge_registry", "session_receipts", "ask_budgets", "delivery_projections",
@@ -229,5 +231,5 @@ def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1
     assert not (m1 & set(M2_M3_MODULES))
     # every extension module is classified: nothing can quietly sit outside both the M1 set and the gated sets
     classified = m1 | set(M2_M3_MODULES) | {"direction"}
-    unclassified = {p.stem for p in ext.glob("*.py") if p.stem != "__init__"} - classified
+    unclassified = modules - classified
     assert unclassified == set(), f"classify new extension modules as M1, M2 or M3 in this gate: {sorted(unclassified)}"

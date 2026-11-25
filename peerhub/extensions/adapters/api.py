@@ -33,8 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 
-from peerhub.extensions.adapters.base import CliRuntimeTarget
-from peerhub.extensions.adapters.common import EXCERPT_CHARS, MAX_PROMPT_BYTES, SETUP_HINT, executable_not_found
+from peerhub.extensions.adapters.common import EXCERPT_CHARS, MAX_PROMPT_BYTES, SETUP_HINT, executable_not_found, render_prompt
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, SpawnFailure,
                                                  decode_stderr)
 from peerhub.extensions.adapters.profiles import qualified_profile, resolve_profile
@@ -220,7 +219,7 @@ class ApiRuntimeTarget:
 
     def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]:
         kind = self.runtime_kind
-        prompt = CliRuntimeTarget._prompt(record, catch_up)  # pyright: ignore[reportPrivateUsage]
+        prompt = render_prompt(record, catch_up)
         n_bytes = len(prompt.encode("utf-8", "replace"))
         if n_bytes > MAX_PROMPT_BYTES:
             raise PrespawnError(f"prompt is {n_bytes} bytes, exceeding the {kind} inline limit of {MAX_PROMPT_BYTES} bytes "

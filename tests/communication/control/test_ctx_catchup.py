@@ -304,7 +304,7 @@ def test_ctx_002_pinned_projection_never_exceeds_budget_and_stays_ordered(sizes,
 @pytest.mark.integration
 def test_bridge_default_budget_fits_windows_inline_history_and_explicit_budget_wins(tmp_path):
     from types import SimpleNamespace
-    from peerhub.extensions.adapters.base import CliRuntimeTarget
+    from peerhub.extensions.adapters.common import render_prompt
     from peerhub.extensions.catchup import ProjectedRecords
 
     h = BridgeHarness(tmp_path / "ws")
@@ -315,7 +315,7 @@ def test_bridge_default_budget_fits_windows_inline_history_and_explicit_budget_w
     assert projection.truncated and projection.used_bytes <= 24_000
     history = ProjectedRecords(projection.records)
     history.boundary = projection.boundary()
-    prompt = CliRuntimeTarget._prompt(SimpleNamespace(body="current question"), history)
+    prompt = render_prompt(SimpleNamespace(body="current question"), history)
     assert len(prompt.encode("utf-8")) < 30_000
     assert "[context truncated:" in prompt and prompt.endswith("current question")
     assert h.new_bridge("limit", catch_up_limit=7).catch_up_budget == CatchUpBudget(max_records=7, max_bytes=24_000)
