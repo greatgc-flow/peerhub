@@ -171,3 +171,26 @@ def test_watch_uses_the_selected_screen_budget_and_leaves_a_final_frame(monkeypa
         final = rendered[-1].splitlines()
         assert rows[-len(final):] == final
         assert written.endswith("\x1b[?25h\r\n")
+
+
+def test_live_frames_rewrite_only_changed_rows_with_periodic_full_repaints(monkeypatch, capsys):
+    """A day of 1 s full repaints hung a VS Code terminal; later frames send only the rows that changed."""
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
+    output = view.FrameOutput(anchor_rows=True, alternate=True)
+    output.write("head\nrow a\n")
+    capsys.readouterr()
+    output.write("head\nrow a\n")
+    assert capsys.readouterr().out == ""
+    output.write("head\nrow A\n")
+    assert capsys.readouterr().out == "\x1b[2;1Hrow A\x1b[K"
+    full = "\x1b[H\x1b[1;1Hhead\x1b[K\x1b[2;1Hrow A\x1b[K\x1b[3;1Htail\x1b[K\x1b[J"
+    output.write("head\nrow A\ntail\n")  # a changed row count (resize) repaints in full
+    assert capsys.readouterr().out == full
+    for _ in range(view.FULL_REPAINT_FRAMES - output.frames % view.FULL_REPAINT_FRAMES - 1):
+        output.write("head\nrow A\ntail\n")
+    assert capsys.readouterr().out == ""
+    output.write("head\nrow A\ntail\n")
+    assert capsys.readouterr().out == full
+    output.close()

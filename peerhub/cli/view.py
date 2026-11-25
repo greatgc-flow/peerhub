@@ -83,6 +83,9 @@ def _restore_console_mode(mode: int | None) -> None:
         pass
 
 
+FULL_REPAINT_FRAMES = 60  # live frames between full repaints; the others rewrite only changed rows
+
+
 class FrameOutput:
     """Overwrite VT terminals and append elsewhere, with exception-safe cleanup."""
 
@@ -98,6 +101,8 @@ class FrameOutput:
         self.alt_screen = anchor_rows if alternate is None else alternate
         self.started = False
         self.last_frame = ""
+        self.painted_rows: list[str] = []
+        self.frames = 0
 
     def write(self, frame: str) -> None:
         if self.live:
@@ -111,8 +116,24 @@ class FrameOutput:
                 # For height-bounded frames only: a wider rich glyph must not push
                 # later rows down and scroll ATTN away. Unbounded diag frames keep
                 # CRLF below, since terminal row addresses clamp at the bottom.
+                # Only changed rows are rewritten: a full repaint every second (colour
+                # and hyperlinks included) piled up in the VS Code terminal until the
+                # window hung after a day of watching.
+                # A changed row count (resize) or every FULL_REPAINT_FRAMES-th frame repaints in full,
+                # which also repairs anything a resize reflowed.
+                lines = frame.splitlines()
+                self.frames += 1
+                full = (prefix != "\x1b[H" or len(lines) != len(self.painted_rows)
+                        or self.frames % FULL_REPAINT_FRAMES == 0)
+                old = self.painted_rows
+                self.painted_rows = lines
                 body = "".join(f"\x1b[{row};1H{line}\x1b[K"
-                               for row, line in enumerate(frame.splitlines(), 1)) + "\x1b[J"
+                               for row, line in enumerate(lines, 1) if full or old[row - 1] != line)
+                if not full:
+                    if not body:
+                        return
+                    prefix = ""
+                body += "\x1b[J" if full else ""
             else:
                 body = "\x1b[K\r\n".join(frame.splitlines()) + "\x1b[K\x1b[J"
             # Buffer one complete frame and erase shorter rows and old tail rows.
