@@ -1,4 +1,6 @@
 """The package fixture must test supplied release bytes without rebuilding them."""
+from types import SimpleNamespace
+
 import pytest
 
 from tests.communication.harness import pkg_env
@@ -41,15 +43,22 @@ def test_dist_fixture_rejects_incomplete_or_ambiguous_directory(monkeypatch, tmp
 def test_dist_fixture_builds_locally_when_directory_is_unset(monkeypatch, tmp_path, tmp_path_factory):
     monkeypatch.delenv("PEERHUB_DIST_DIR", raising=False)
     calls = []
-    source = tmp_path / "checkout"
-    wheel, sdist = tmp_path / "local.whl", tmp_path / "local.tar.gz"
-    monkeypatch.setattr(pkg_env, "copy_checkout", lambda path: source)
+    # The checkout lives at <session root>/pkg-build/checkout so every xdist worker finds the same source.
+    source = tmp_path / "pkg-build" / "checkout"
+    monkeypatch.setattr(pkg_env, "copy_checkout", lambda path: path)
 
     def build(src, out):
         calls.append((src, out))
+        out.mkdir(parents=True, exist_ok=True)
+        wheel, sdist = out / "local.whl", out / "local.tar.gz"
+        wheel.touch()
+        sdist.touch()
         return wheel, sdist
 
     monkeypatch.setattr(pkg_env, "build_dist", build)
-    local = dist.__wrapped__(tmp_path_factory)
-    assert (local.src, local.wheel, local.sdist) == (source, wheel, sdist)
+    # The fixture builds once per pytest session root (shared by xdist workers) and reads the built files back.
+    request = SimpleNamespace(getfixturevalue=lambda name: {"package_session_root": tmp_path}[name])
+    local = dist.__wrapped__(request)
+    out = calls[0][1]
+    assert (local.src, local.wheel, local.sdist) == (source, out / "local.whl", out / "local.tar.gz")
     assert len(calls) == 1 and calls[0][0] == source
