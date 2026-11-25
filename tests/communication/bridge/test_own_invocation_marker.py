@@ -6,7 +6,7 @@ from contextlib import closing
 
 import pytest
 
-from peerhub.extensions.bridge import IllegalCertaintyTransition, InvocationMarkerError
+from peerhub.extensions.bridge_errors import IllegalCertaintyTransition, InvocationMarkerError
 from peerhub.extensions.bridge_claims import ClaimScopeError, StaleClaimError
 from tests.communication.bridge_helpers import bseed, delivery_rows, kinds, more_stream, offset_row, responses, sql
 from tests.communication.control_helpers import ctl

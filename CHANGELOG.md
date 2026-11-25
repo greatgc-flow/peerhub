@@ -17,6 +17,7 @@ they do not claim new validation or publication evidence.
 - Split quota and account probes into provider modules with shared probe helpers.
 - Split the Claude Code, Codex, and Antigravity CLI adapters into provider modules. Antigravity owns stream parsing and transport detection.
 - Split session receipts, delivery projections, and ask budgets into separate modules and moved provider usage validation alongside normalization.
+- Split bridge exceptions and durable control handling into dedicated modules.
 
 ## [0.26.14] - 2026-11-25
 

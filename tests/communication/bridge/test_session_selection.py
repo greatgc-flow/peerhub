@@ -6,7 +6,7 @@ import pytest
 
 from peerhub.core.store import IdempotencyConflictError
 from peerhub.extensions.ask import ask
-from peerhub.extensions import bridge as errors
+from peerhub.extensions import bridge_errors as errors
 from tests.communication.bridge_helpers import bseed, sql
 from tests.communication.bridge.test_retained_sessions import add
 from tests.communication.fakes.runtime import NativeRuntimeTarget, FakeRuntimeTarget

@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from peerhub.extensions.bridge import TerminalConflictError
+from peerhub.extensions.bridge_errors import TerminalConflictError
 from peerhub.extensions.bridge_claims import StaleClaimError
 from tests.communication.bridge_helpers import (bseed, delivery_rows, evidence, kinds, more_stream, offset_row, records, responses, sql)
 from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget

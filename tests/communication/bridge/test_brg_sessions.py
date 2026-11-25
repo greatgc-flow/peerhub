@@ -1,7 +1,7 @@
 """Wave 3 BRG-002/003/004/005/010/016/017/018: session mapping and generations against FakeRuntimeTarget (no real CLI)."""
 import pytest
 
-from peerhub.extensions.bridge import SessionError
+from peerhub.extensions.bridge_errors import SessionError
 from tests.communication.bridge_helpers import bseed, delivery_rows, more_stream, offset_row, records, responses, sql
 from tests.communication.fakes import FakeRuntimeTarget
 from tests.communication.harness.bridge import BridgeHarness

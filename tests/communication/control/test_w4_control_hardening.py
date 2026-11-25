@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from peerhub.extensions.bridge import ControlRejectedError
+from peerhub.extensions.bridge_errors import ControlRejectedError
 from tests.communication.control_helpers import (all_record_rows, bseed, control_evidence, control_rows, ctl, delivery_rows, evidence, kinds, msg,
                                       offset_row, records, responses, running, sql)
 from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget

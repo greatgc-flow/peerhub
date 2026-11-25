@@ -11,13 +11,14 @@ ROOT = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
 ALLOWED: dict[str, set[str]] = {
     # M1 Session Bridge entry
     "ask": {"accounts", "bridge", "bridge_claims", "observation", "observation_model", "adapters",
-            "caller"},  # caller: who started an ask (neutral; stdlib and psutil only)
+            "bridge_control", "runtime_contract", "caller"},  # caller: who started an ask (neutral; stdlib and psutil only)
     "adapters": {"accounts", "runtime_contract", "binary_resolution", "process_tree", "usage_normalization"},  # adapters depend on neutral RuntimeTarget, not the Bridge implementation
-    "bridge": {"bridge_claims", "catchup", "schema_guard", "bridge_registry", "session_receipts",
+    "bridge": {"bridge_claims", "bridge_control", "bridge_errors", "catchup", "schema_guard", "bridge_registry", "session_receipts",
                "ask_budgets", "delivery_projections", "runtime_contract"},
     "bridge_registry": {"delivery_projections", "session_receipts"},
     "ask_budgets": {"session_receipts"},
     "delivery_projections": {"session_receipts", "usage_normalization"},
+    "bridge_control": {"bridge_claims", "bridge_errors", "bridge_registry", "runtime_contract"},
     "session_receipts": {"usage_normalization"},
     "monitor_read_model": {"adapters", "observation_model", "quota_projection", "session_receipts", "usage_normalization",
                            "caller",  # who started an ask (neutral)
@@ -107,7 +108,7 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 
 
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
-    m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
+    m1 = {"ask", "bridge", "bridge_claims", "bridge_control", "bridge_errors", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
           "ask_budgets", "delivery_projections", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "pool_health"}

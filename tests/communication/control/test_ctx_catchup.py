@@ -5,8 +5,11 @@ from typing import Any, Mapping
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from peerhub.extensions.bridge import Bridge, ContextLostError, NOT_STARTED, PrespawnError, SessionDeltaOverflowError, _PersistedRecord
+from peerhub.extensions.bridge import Bridge, _PersistedRecord
+from peerhub.extensions.bridge_control import NOT_STARTED
+from peerhub.extensions.bridge_errors import SessionDeltaOverflowError
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, build_catch_up, project_catch_up
+from peerhub.extensions.runtime_contract import ContextLostError, PrespawnError
 from tests.communication.control_helpers import bseed, ctl, delivery_rows, item_json, mem_records, msg, offset_row, payload_bytes, records, responses, sql
 from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget
 from tests.communication.harness.bridge import BridgeHarness

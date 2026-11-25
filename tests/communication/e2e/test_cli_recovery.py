@@ -23,10 +23,9 @@ from typing import Any
 from peerhub.extensions.bridge_claims import ClaimHeldError
 from peerhub.extensions.adapters.api import RequestRejected
 from peerhub.extensions.adapters.ag import AgRequiresWritableError
-from peerhub.extensions.bridge import (
+from peerhub.extensions.bridge_errors import (
     ConflictingSessionFlagsError,
     InvalidSessionHandleSyntaxError,
-    PrespawnError,
     SessionBindingMismatchError,
     SessionDeltaOverflowError,
     SessionFingerprintMismatchError,
@@ -38,6 +37,7 @@ from peerhub.extensions.bridge import (
     SessionUnavailableError,
     SessionWorkspaceMismatchError,
 )
+from peerhub.extensions.runtime_contract import PrespawnError
 from peerhub.extensions.ask import LegacySelectorUnsupported, PeerNotFoundError, StreamPeerMismatchError
 from peerhub.core.store import (
     CasMismatchError,
@@ -187,6 +187,7 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
 
     root = Path(__file__).resolve().parents[3]
     bridge_file = root / "peerhub" / "extensions" / "bridge.py"
+    control_file = bridge_file.with_name("bridge_control.py")
     claims_file = root / "peerhub" / "extensions" / "bridge_claims.py"
     adapters = root / "peerhub" / "extensions" / "adapters"
     ask_file = root / "peerhub" / "extensions" / "ask.py"
@@ -219,7 +220,8 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
                 if node.exc.func.id and node.exc.func.id[0].isupper():
                     exceptions.add(node.exc.func.id)
 
-    # 2. Raises from bridge_claims.py and the CLI provider adapters
+    # 2. Raises from bridge_control.py, bridge_claims.py and the CLI provider adapters
+    _extract_raises(control_file)
     _extract_raises(claims_file)
     for module in ("base", "common", "cc", "cx", "ag"):
         _extract_raises(adapters / f"{module}.py")

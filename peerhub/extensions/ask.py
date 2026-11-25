@@ -17,7 +17,9 @@ if TYPE_CHECKING:
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.api import API_TARGETS, ApiRuntimeTarget, RequestRejected
 from peerhub.core.peer_kinds import ALIASES as ALIASES, BUILTIN_PEER_CHOICES, peer_kind  # ALIASES: re-exported
-from peerhub.extensions.bridge import MAY_HAVE_STARTED, NOT_STARTED, STARTED, PrespawnError, Bridge, CycleResult, RuntimeTarget, normalize_session_selector
+from peerhub.extensions.bridge import Bridge, CycleResult, normalize_session_selector
+from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTarget
 from peerhub.extensions.caller import detect_caller
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
 from peerhub.core.models import Peer, Stream, utc_now_iso

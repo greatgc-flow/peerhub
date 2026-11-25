@@ -9,7 +9,7 @@ from peerhub.extensions.adapters import base
 from peerhub.extensions.adapters.ag import AgSpec
 from peerhub.extensions.adapters.cc import CcSpec
 from peerhub.extensions.adapters.cx import CxSpec
-from peerhub.extensions.bridge import RuntimeTargetError
+from peerhub.extensions.runtime_contract import RuntimeTargetError
 
 pytestmark = [pytest.mark.unit, pytest.mark.platform_sensitive]
 

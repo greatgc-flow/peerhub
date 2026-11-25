@@ -9,7 +9,7 @@ from contextlib import closing
 
 import pytest
 
-from peerhub.extensions.bridge import RuntimeTargetError
+from peerhub.extensions.runtime_contract import RuntimeTargetError
 from peerhub.extensions.bridge_claims import ClaimHeldError, ClaimToken, StaleClaimError
 from tests.communication.bridge_helpers import bseed, delivery_rows, offset_row, records, responses, sql
 from tests.communication.control_helpers import control_rows, ctl, running
