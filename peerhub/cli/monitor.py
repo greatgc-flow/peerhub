@@ -574,7 +574,7 @@ def run_monitor_repair(args: argparse.Namespace) -> int:
     is_explicit = db_source in ("explicit", "env")
     if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5
-    from peerhub.extensions.session_receipts import rebuild_delivery_projections
+    from peerhub.extensions.delivery_projections import rebuild_delivery_projections
     try:
         result = rebuild_delivery_projections(args.db, chunk_size=args.chunk_size)
     except (OSError, ValueError, sqlite3.Error) as exc:

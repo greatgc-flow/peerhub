@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.extensions import bridge_registry, session_receipts
+from peerhub.extensions import bridge_registry, delivery_projections
 from peerhub.extensions import monitor_read_model as mrm
 from peerhub.extensions.session_receipts import CONTEXT_SOURCE
 from tests.communication.diag.test_monitor_activity import (  # noqa: F401
@@ -21,7 +21,7 @@ USAGE = {"input_tokens": 41_000, "cached_input_tokens": 38_000, "cache_write_tok
 
 def sessions_schema(db) -> None:
     with closing(sqlite3.connect(db)) as c:
-        for stmt in (*bridge_registry.DDL, *session_receipts.DDL):
+        for stmt in (*bridge_registry.DDL, *delivery_projections.DDL):
             c.execute(stmt)
         c.commit()
 

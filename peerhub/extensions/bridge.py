@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterator, Mapping, cast
 
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
-from peerhub.extensions import bridge_registry, session_receipts
+from peerhub.extensions import ask_budgets, bridge_registry, delivery_projections, session_receipts
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, ProjectedRecords, build_catch_up, project_catch_up
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 from peerhub.extensions.runtime_contract import (
@@ -415,7 +415,7 @@ class Bridge:
             for stmt in _DDL:
                 conn.execute(stmt)
             bridge_registry.initialize(conn, self._upgrade_session_context, self._fire)
-            session_receipts.install_ask_metrics(conn)
+            ask_budgets.install_ask_metrics(conn)
             for stmt in _POST_REGISTRY_DDL:
                 conn.execute(stmt)
 
@@ -538,9 +538,9 @@ class Bridge:
             current_row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
             assert current_row is not None
         if old_certainty != to:
-            session_receipts.record_delivery_transition(conn, current_row, old_certainty, to, observed_at=self.claims.now())
+            delivery_projections.record_delivery_transition(conn, current_row, old_certainty, to, observed_at=self.claims.now())
         if to == TERMINAL and kind == "terminal" and old_certainty != to:
-            session_receipts.record_latency(conn, current_row, self.claims.now(), detail["peerhub_timing"])
+            delivery_projections.record_latency(conn, current_row, self.claims.now(), detail["peerhub_timing"])
         if to == STARTED:
             session_receipts.call(conn, row, self.claims.now())
         if to == MAY_HAVE_STARTED:
@@ -693,7 +693,7 @@ class Bridge:
                 (did, seq, s, p, record.record_id, record.position, attempt, NOT_STARTED, token.generation, rec_rec))
             inserted = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
             assert inserted is not None
-            session_receipts.record_delivery_created(conn, inserted)
+            delivery_projections.record_delivery_created(conn, inserted)
             self._evidence(conn, s, p, "attempt_created", did, NOT_STARTED, attempt=attempt, reconcile_record_id=rec_rec,
                            claim_generation=token.generation)
             return did
@@ -1471,7 +1471,7 @@ class Bridge:
             return gated
         try:
             with self.claims.fenced(token) as conn:  # D-OWN-A4: the claim must still be current/unexpired at invocation
-                warn_budget = self._stream_budget is not None and session_receipts.resumed_ask_budget(conn, did, self._stream_budget)
+                warn_budget = self._stream_budget is not None and ask_budgets.resumed_ask_budget(conn, did, self._stream_budget)
         except StaleClaimError as e:  # lost: nothing was invoked; the unresolved marker is promoted conservatively by the new owner
             self._late(token, did, "fenced_before_invoke", error=str(e))
             return CycleResult("fenced", rec.record_id, did, NOT_STARTED, session_generation=gen)
@@ -1674,8 +1674,8 @@ class Bridge:
                     self._transition_in(conn, did, TERMINAL, "terminal", token=token, **term_detail)  # illegal source state rolls the tx back
                     completed = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
                     session_receipts.telemetry(conn, completed, self.claims.now(), provider_candidate)
-                    session_receipts.record_usage_coverage(conn, completed, self.claims.now())
-                    session_receipts.record_ask_pool_delta(conn, completed, stopped)
+                    delivery_projections.record_usage_coverage(conn, completed, self.claims.now())
+                    ask_budgets.record_ask_pool_delta(conn, completed, stopped)
                     mapping = bridge_registry.generation(conn, token.stream_id, token.peer_id, row["session_generation"])
                     if mapping is not None and mapping["state"] not in ("LOST", "TOMBSTONED") and mapping["external_session_id"] == row["external_session_id"]:
                         conn.execute("UPDATE bridge_session_history SET last_seen=? WHERE session_handle=?", (self.claims.now(), mapping["session_handle"]))

@@ -215,7 +215,7 @@ def test_session_latency_reads_only_named_scope_and_thirty_utc_days():
 
 def test_monitor_telemetry_projection_is_schema_bound_and_allowlisted():
     from peerhub.extensions.monitor_read_model import public_telemetry
-    from peerhub.extensions.session_receipts import validate_provider_usage
+    from peerhub.extensions.usage_normalization import validate_provider_usage
 
     usage = validate_provider_usage({
         "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage",

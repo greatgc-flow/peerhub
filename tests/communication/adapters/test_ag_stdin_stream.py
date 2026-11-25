@@ -17,7 +17,7 @@ from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, ag_stream, 
 from peerhub.extensions.adapters.ag_stream import encode_user_line, parse_ag_stream_json, terminal_quota, terminal_result
 from peerhub.extensions.adapters.base import EXCERPT_CHARS, AgSpec
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
-from peerhub.extensions.adapters.telemetry import unknown_usage
+from peerhub.extensions.usage_normalization import unknown_usage
 from peerhub.extensions.ask import ask
 from peerhub.extensions.bridge import PrespawnError
 from tests.communication.bridge_helpers import bseed, sql

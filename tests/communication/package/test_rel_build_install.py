@@ -83,7 +83,8 @@ def test_rel_002_installed_ask_emits_final_session_contract(installed, outside):
         from contextlib import redirect_stdout
         from unittest.mock import patch
         from peerhub.cli.app import main
-        import peerhub.extensions.bridge_registry, peerhub.extensions.session_receipts
+        import peerhub.extensions.ask_budgets, peerhub.extensions.bridge_registry, peerhub.extensions.delivery_projections
+        import peerhub.extensions.session_receipts
         class Runtime:
             runtime_kind = 'custom'
             resumable = True

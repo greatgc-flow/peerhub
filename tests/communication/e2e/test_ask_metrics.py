@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.extensions import session_receipts
+from peerhub.extensions import ask_budgets
 from peerhub.extensions.ask import ask
 from tests.communication.fakes import FakeRuntimeTarget
 
@@ -16,11 +16,11 @@ from tests.communication.fakes import FakeRuntimeTarget
 def test_reported_zero_is_different_from_absent_usage():
     args = {"provider_kind": "cc", "usage": {"scope": "delivery", "coverage": {"state": "MEASURED"}, "normalized": {
         "uncached_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0}}}
-    assert session_receipts.ask_tokens(args) == {
+    assert ask_budgets.ask_tokens(args) == {
         "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
         "cache_write_tokens": None, "prompt_tokens": None,
     }
-    assert all(value is None for value in session_receipts.ask_tokens({}).values())
+    assert all(value is None for value in ask_budgets.ask_tokens({}).values())
 
 
 @pytest.mark.parametrize(("second_start", "second_reset", "last_left", "expected"), [
@@ -30,10 +30,10 @@ def test_reported_zero_is_different_from_absent_usage():
     (None, 200, 0.6, None),
 ])
 def test_pool_delta_requires_exclusive_same_window_readings(second_start, second_reset, last_left, expected):
-    before = session_receipts.QuotaReading("first", "quota:cx:X-7D", "cx", "source", 20, 20, 0.8, 1, 100)
-    after = session_receipts.QuotaReading("second", "quota:cx:X-7D", "cx", "source", 30, 30, last_left, 1, second_reset)
+    before = ask_budgets.QuotaReading("first", "quota:cx:X-7D", "cx", "source", 20, 20, 0.8, 1, 100)
+    after = ask_budgets.QuotaReading("second", "quota:cx:X-7D", "cx", "source", 30, 30, last_left, 1, second_reset)
     competitors = [] if second_start is None else [(second_start, 25)]
-    delta = session_receipts.comparable_pool_delta(before, after, competitors)
+    delta = ask_budgets.comparable_pool_delta(before, after, competitors)
     assert delta == (None if expected is None else pytest.approx(expected))
 
 
@@ -159,11 +159,11 @@ def test_resumed_budget_uses_selected_session_per_ask_prompt(recorded_usage):
     for delivery, expected in (("d2", False), ("d4", False), ("d5", False), ("d6", False),
                                ("d7", True), ("d10", False), ("d11", True)):
         limit = {"d2": 90_000, "d11": 4000}.get(delivery, 128_000)
-        assert session_receipts.resumed_ask_budget(recorded_usage, delivery, (limit, 12)) is expected, delivery
+        assert ask_budgets.resumed_ask_budget(recorded_usage, delivery, (limit, 12)) is expected, delivery
     recorded_usage.execute("INSERT INTO bridge_session_monitor_stats(session_handle,reuse_count,counts_complete,binding_json) "
                            "VALUES ('original',12,1,'{}')")
-    assert session_receipts.resumed_ask_budget(recorded_usage, "d2", (128_000, 12))
-    assert not session_receipts.resumed_ask_budget(recorded_usage, "d5", (128_000, 12))
+    assert ask_budgets.resumed_ask_budget(recorded_usage, "d2", (128_000, 12))
+    assert not ask_budgets.resumed_ask_budget(recorded_usage, "d5", (128_000, 12))
 
 
 def test_profile_stats_text_is_a_compact_table(monkeypatch, capsys):
@@ -209,7 +209,7 @@ def test_old_bridge_read_and_additive_outcome_migration(old_bridge):
     before = conn.execute("SELECT * FROM records").fetchone()
     assert next(iter(_ask_rows(conn, None)))["outcome"] == "unknown"
     for outcome in ("accepted", "retried", "rejected"):
-        session_receipts.install_ask_metrics(conn)  # initialization is safe to repeat
+        ask_budgets.install_ask_metrics(conn)  # initialization is safe to repeat
         conn.execute("INSERT INTO bridge_ask_outcomes(record_id,outcome,marked_at) VALUES ('ask-id',?,'today')", (outcome,))
         assert next(iter(_ask_rows(conn, None)))["outcome"] == outcome
     assert conn.execute("SELECT * FROM records").fetchone() == before
@@ -221,7 +221,7 @@ def test_old_bridge_read_and_additive_outcome_migration(old_bridge):
 @pytest.mark.parametrize(("overlap", "reset", "expected"), [(False, 100, 20), (True, 100, None), (False, 200, None)])
 def test_quota_writer_checks_other_invocations_and_reset_evidence(old_bridge, overlap, reset, expected):
     conn = old_bridge
-    session_receipts.install_ask_metrics(conn)
+    ask_budgets.install_ask_metrics(conn)
     conn.execute("INSERT INTO bridge_session_history(session_handle,stream_id,peer_id,runtime_kind,external_session_id,"
                  "session_generation,adapter_fingerprint,binding,resumable,state,last_seen,created_at) "
                  "VALUES ('session','s','cx','cx','ext',1,'adapter:cx:v1','binding',1,'ACTIVE',10,10)")
@@ -249,7 +249,7 @@ def test_quota_writer_checks_other_invocations_and_reset_evidence(old_bridge, ov
                      "observed_at,captured_at,effective_at_us) VALUES (?,'cx',?,'quota','test','MEASURED',?,?,?,?)",
                      (str(observed), pool, json.dumps(dict(remaining_fraction=left, window_started_at=1, resets_at=window)),
                       iso, iso, observed * 1_000_000))
-    session_receipts.record_ask_pool_delta(conn, conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id='d'").fetchone(), 35)
+    ask_budgets.record_ask_pool_delta(conn, conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id='d'").fetchone(), 35)
     result = conn.execute("SELECT delta_pp,before_id,after_id FROM bridge_ask_pool_deltas").fetchone()
     if expected is None:
         assert result is None
@@ -440,4 +440,4 @@ def test_ask_alias_notice_uses_receipt_policy(monkeypatch, capsys, tty, json_mod
     (None, 11, False), (None, 12, True),
 ])
 def test_stream_budget_uses_reported_prompt_or_resumed_turns(prompt_tokens, turns, warn):
-    assert session_receipts.stream_budget_exceeded(prompt_tokens, turns, (128_000, 12)) is warn
+    assert ask_budgets.stream_budget_exceeded(prompt_tokens, turns, (128_000, 12)) is warn
