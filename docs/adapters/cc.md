@@ -1,7 +1,7 @@
 # Claude Code (`cc`) adapter
 
 This page documents the current production contract. Historical migration notes live under
-[`checkpoints/`](checkpoints/) and are not operational guidance.
+[`checkpoints/`](../history/adapter-checkpoints/) and are not operational guidance.
 
 ## Current contract
 
@@ -97,6 +97,8 @@ allow rule is denied and the review reports NOT RUN. For a project, add
 The `guide`, `explain` and `profile` rules, `git blame|rev-parse|merge-base|rev-list|ls-tree` and `gh pr diff|checks` are offline or read-only reads; add the same entries as `PowerShell(...)` for PowerShell.
 In reviewer prompts tell the cc reviewer "one plain command per call; no cd, &&, pipes": a compound command does not match an allow rule and is denied.
 
+Inspect `denied_actions` for the rejected command (redacted to 120 characters). An exact rule such as `Bash(peerhub --version)` also rejects a command that adds `cd`, redirects output or uses a pipe. Prefer a narrow prefix such as `Bash(peerhub:*)`. In #303 the observed difference may have been command shape. Use a new stream after `denied_empty`.
+
 Prefix rules do not match a command that starts with an environment assignment
 (`PYTHONPATH=src python -m pytest ...`), and a PowerShell `$env:` edit is refused.
 Use a tiny repo-local launcher instead, for example `pt.py`, which sets the
@@ -105,16 +107,4 @@ environment itself and forwards its arguments to pytest
 `"Bash(python pt.py:*)"`. Keep the list to read/test commands; never allow writes
 or network-changing commands for headless peers.
 
-## Upgrading peerhub on Windows
-
-`pip install -U peerhub` fails with WinError 32 while a running `peerhub.exe` locks
-the target venv. Upgrade only when:
-
-1. `peerhub diag running` lists no lease-active asks.
-2. No `peerhub.exe` from the SAME venv is running. Filter by executable path, not by
-   name; a long `monitor` from another venv does not lock this venv's exe. In
-   PowerShell, for example:
-   `Get-CimInstance Win32_Process -Filter "Name='peerhub.exe'" | Where-Object { $_.ExecutablePath -like '<venv>\Scripts\*' }`
-
-Never rename, delete or replace a running exe; wait for it to exit, then upgrade
-(`--no-cache-dir` avoids a stale wheel cache).
+See [the Windows upgrade notes](../windows.md#upgrades-and-executable-locks) for WinError 32.

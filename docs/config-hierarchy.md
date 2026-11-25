@@ -2,16 +2,20 @@
 
 This page describes the current public CLI. The legacy `config`, `node
 bind-profile`, and `backup` CLI commands were retired; historical designs are
-retained in [the design index](design/README.md). See the
-[README](../README.md#store-selection-and-existing-data) for store discovery.
+retained in [the design index](design/README.md).
 
 ## Store
 
-The workspace store is `.peerhub/core.db`. Select a path with global `--db PATH`
-before the subcommand. Precedence: `--db` > `PEERHUB_DB` > nearest upward `.peerhub/core.db` > default path. An explicit missing path is never
-redirected to another store. `ask --workspace DIR` selects that workspace's
-store unless a database was explicitly selected. Read-only commands do not
-create a missing store. `peerhub diag health` reports the selection and path.
+The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, then parents); `--db PATH` takes precedence over `PEERHUB_DB`, then discovery (nearest wins). If discovery misses inside a Git worktree, PeerHub asks Git for the common directory and searches the main checkout and its parents. This fallback requires Git >=2.36. A local store still wins. `peerhub diag health` reports `store_selection` (the path and how it was chosen: `explicit`, `env`, `discovered`, `default`).
+
+Put the global `--db PATH` before the subcommand. An explicit missing path is never redirected to another store. `ask --workspace DIR` searches only that directory, then Git's main checkout root on a miss (never its parents), unless a database was explicitly selected. A main root already searched is skipped. Without an explicit selection, a discovery miss exits 5 with `[store_missing]` and a `next:` hint before creating files or contacting providers. To bootstrap a new store, including with `peer register` in a fresh directory, pass `--db .peerhub/core.db` or set `PEERHUB_DB`. Read-only commands do not create a missing store even when explicitly selected.
+
+See [store recovery and upgrades](../README.md#upgrade) before restoring a backup. Stop clients before restoring a store and reopen them afterward. Snapshot and
+bundle restores fence old CoreStore instances from reads and writes using
+`workspace.generation`; changes to the bundle rollback marker `restore.epoch`
+also fence old instances. A stale instance raises `StoreReplacedError`.
+
+`observation refresh` also needs an explicit `--db` or `PEERHUB_DB` to bootstrap a missing store.
 
 ## Model profiles
 
@@ -53,8 +57,7 @@ so setting them does not drop the card.
 An alias resolves effort in layer order across its `effort_override`, its `reasoning_effort`, and the
 target profile's `reasoning_effort`. Within one layer, those keys win in that order.
 
-See the [model profile manifest](model-profiles/model-profiles.json) for
-profile IDs, models, efforts, and the refresh procedure, and
+See [model profiles](model-profiles/README.md) for packaged values and the refresh procedure, and
 [profiles.py](../peerhub/extensions/adapters/profiles.py) for the loader.
 Keep credentials with the vendor CLI's authentication mechanism.
 

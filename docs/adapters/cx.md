@@ -1,7 +1,7 @@
 # Codex (`cx`) adapter
 
 This page documents the current production contract. Historical migration notes live under
-[`checkpoints/`](checkpoints/) and are not operational guidance.
+[`checkpoints/`](../history/adapter-checkpoints/) and are not operational guidance.
 
 ## Current contract
 
@@ -49,13 +49,15 @@ vendor-owned.
 
 In restricted unelevated Windows environments, `ask cx --writable` can block
 writes to `.git` (including branch creation and commits), venv creation, and
-pip installs. Tests that use `tmp_path` cannot run in this sandbox: pytest
+pip installs. Observed restrictions also include a refused sandbox proxy, unavailable GitHub credentials and about 30 seconds per shell command. Use a writable session for edits and a supervised background job for long tasks. Tests that use `tmp_path` cannot run in this sandbox: pytest
 creates every temporary directory, also the one named by `--basetemp`, with an
 owner-only ACL that the restricted token cannot enter (measured 2026-11-14 on
 Python 3.15). cx runs the other targeted tests and reports `tmp_path` tests as
 NOT RUN; the moderator runs those tests outside the restricted session. Never
 add shims or temporary folders to the repository.
 
-Tell cx these constraints in the task prompt: cx edits files and runs focused
+Run process and scheduled-task checks in the lead's shell when the sandbox cannot enumerate them. If a cx lane cannot open the store, launch reader asks from the lead. For long asks, request checkpoint receipts and check the working tree for partial edits after a runtime error.
+
+Start a query file with the actual task. Tell an implementer to do the work directly, without forwarding the prompt, running PeerHub or checking quota. Tell cx these constraints in the task prompt: cx edits files and runs focused
 tests using an existing development venv; the moderator creates branches,
 commits, pushes, and runs the full suite. Keep the sandbox restrictions in place.

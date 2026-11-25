@@ -1,12 +1,9 @@
 # Model profiles: one source, one recipe
 
 `peerhub/config_data/model-defaults.toml` is the only store of packaged profiles, `exact_model_pools`,
-`observed_at`, `observed_versions` and `defaults_revision`. Workspace and global `models.toml` files
-override it per field (precedence in `peerhub/extensions/adapters/profiles.py`). `peerhub profile
-list/show` displays the effective values and each field's source. Configured models do not prove
-current provider availability.
+`observed_at`, `observed_versions` and `defaults_revision`. See [profile configuration](../config-hierarchy.md#model-profiles) for overrides, effective profiles and cards.
 
-`model-profiles.json` (schema `model-profiles.schema.json`, `schema_version` 2) is only the refresh
+[`model-profiles.json`](model-profiles.json) (schema [`model-profiles.schema.json`](model-profiles.schema.json), `schema_version` 2) is only the refresh
 recipe: CLI `sources`, `tier_rules`, `update_targets` and `instructions`. It holds no profile values.
 
 ## Add, change or delete a profile
@@ -49,6 +46,6 @@ Personal opt-in profile (not packaged), in `~/.peerhub/config/models.toml`:
 measured pool evidence. This is registry completeness only; arbitrary-model monitor/readiness
 integration remains out of scope (#194).
 
-Any AI CLI can use the recipe with one sentence: "read docs/model-profiles/model-profiles.json and
-refresh the profiles". Claude Code also has the skill `.claude/skills/refresh-model-profiles`.
-`python -m tools.model_ping` checks which model really answers (effective profiles, opt-ins included).
+## Refresh from installed CLIs
+
+Follow the recipe's `instructions` in order. Review the proposed diff before editing. Use `python -m tools.model_ping [PROFILE ...]` only with approval because it spends quota. For one exact model without changing overlays, use `python -m tools.model_ping --peer cc --model MODEL [--effort EFFORT]`. Record dated observations in CHANGELOG.md.

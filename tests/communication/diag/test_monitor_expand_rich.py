@@ -603,10 +603,9 @@ def test_the_lesson_and_docs_describe_priority_and_the_full_db_path():
 
     root = Path(__file__).resolve().parents[3]
     lesson = lesson_by_id("monitor-view")[0]["fix"]
-    assert "ALERTS and RUNNING get space before RECENT" in lesson and "full DB path" in lesson
+    assert "docs/monitor.md" in lesson and "full DB path" in lesson
     assert (root / "docs" / "lessons.md").read_text(encoding="utf-8") == render_lessons_reference()
-    assert "ALERTS and RUNNING get space before RECENT" in (
-        root / "docs/implementation/OBSERVATION_PROBES.md").read_text(encoding="utf-8")
+    assert "ALERTS and RUNNING take priority over RECENT" in (root / "docs/monitor.md").read_text(encoding="utf-8")
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     newer, release = changelog.split("## [0.24.21] - 2026-11-17", 1)
     assert "ALERTS, RUNNING, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT" in release.split("\n## [", 1)[0]

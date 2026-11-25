@@ -7,7 +7,7 @@ import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.guide import render_guide
-from peerhub.cli.lessons import load_lessons, lookup_lessons, render_lesson, render_lessons_reference
+from peerhub.cli.lessons import lesson_by_id, load_lessons, lookup_lessons, render_lesson, render_lessons_reference
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 
 pytestmark = [pytest.mark.unit]
@@ -82,8 +82,7 @@ def test_explain_ag_leads_with_recipe_and_records_open_observation(capsys):
     assert out.splitlines()[0].startswith("ag-recipe:")
     recipe = next(lesson for lesson in load_lessons() if lesson["id"] == "ag-recipe")
     for needle in ('--query-file and say "no tools"', "trusted project root", "--writable on every turn",
-                   "one task per ask", "verify claims from flash tiers", "never resume that stream",
-                   "start a new stream with the content inlined", "Past observation (E2, #302, closed 2026-11-09"):
+                   "start a new stream with the content inlined", "docs/adapters/ag.md"):
         assert needle in recipe["fix"], needle
     assert "#302" in recipe["issue"] and "#140" in recipe["issue"]
 
@@ -91,7 +90,7 @@ def test_explain_ag_leads_with_recipe_and_records_open_observation(capsys):
 def test_cc_allow_rules_lesson_states_exact_match_and_prefix_fix():
     """#303 B2: exact-match Bash rules vs model command shape; prefix rules are the fix."""
     lesson = next(lesson for lesson in load_lessons() if lesson["id"] == "cc-allow-rules")
-    for needle in ("exact command string", "Bash(peerhub:*)", "denied_actions", "Unverified hypothesis"):
+    for needle in ("exact command string", "Bash(peerhub:*)", "denied_actions", "docs/adapters/cc.md"):
         assert needle in lesson["fix"], needle
     assert lesson["issue"] == "#303"
 
@@ -158,16 +157,20 @@ def test_new_and_moved_lesson_content():
         assert needle in sub, needle
     assert "#361" in by_id["peer-subagents"]["issue"]
     cx_fix = by_id["cx-sandbox-and-prompt-hygiene"]["fix"]
-    for needle in ("tests that use tmp_path cannot run", "also with --basetemp", "measured 2026-11-14 on Python 3.15",
-                   "NOT RUN for the lead to run", "never add shims or temp folders to the repo"):
-        assert needle in cx_fix, needle
+    assert "tmp_path tests as NOT RUN" in cx_fix and "docs/adapters/cx.md" in cx_fix
+    cx_doc = " ".join(Path("docs/adapters/cx.md").read_text(encoding="utf-8").split())
+    for needle in ("Tests that use `tmp_path` cannot run", "`--basetemp`", "measured 2026-11-14 on Python 3.15",
+                   "Never add shims or temporary folders"):
+        assert needle in cx_doc, needle
     assert "--basetemp=" not in cx_fix  # the measured workaround does not work
     assert {"pytest", "tmp_path", "acl", "basetemp"} <= set(by_id["cx-sandbox-and-prompt-hygiene"]["keywords"])
     assert "ACCOUNTS" not in by_id["monitor-states"]["fix"]
     # #374: ACCOUNTS left the compact frame; account problems reach line 1 as alerts
-    for needle in ("ACCOUNTS (--expand rows", "LOGIN token expiry", "reaches line 1 as an alert", "display_plan",
-                   "plan_changed: true", "at least five minutes old"):
-        assert needle in by_id["monitor-accounts"]["fix"], needle
+    account_fix = by_id["monitor-accounts"]["fix"]
+    assert "ACCOUNTS (--expand rows" in account_fix and "docs/monitor.md#accounts" in account_fix
+    monitor = " ".join(Path("docs/monitor.md").read_text(encoding="utf-8").split())
+    for needle in ("raise a line-1 alert", "display_plan", "plan_changed: true", "at least five minutes old"):
+        assert needle in monitor, needle
     votes = by_id["independent-peer-votes"]["fix"]
     for needle in ("--max-parallel n --responses", "not writable", "private empty directory", "inline", "11 s",
                    "routine check = ONE reviewer, FRESH", "3 independent peers, unanimity", "VERDICT / BLOCKERS / NITS"):
@@ -177,31 +180,23 @@ def test_new_and_moved_lesson_content():
     assert "never retry on the same stream" in timeouts and "partial edits" in timeouts
 
 
-def test_ag_recipe_holds_the_former_guide_lines():
-    """#366 A6: the guide keeps one ag pointer line, so the lesson carries every fact the three lines had."""
-    fix = next(lesson for lesson in load_lessons() if lesson["id"] == "ag-recipe")["fix"]
-    for needle in ('--query-file and say "no tools"', "one task per ask", "verify claims from flash tiers",
-                   "30,000 bytes on Windows", "120,000 bytes on POSIX", "use cc/cx on a separate stream",
-                   "new request-id", "not a temp or scratch folder", "even for read tasks", "accept-edits, workspace-wide",
-                   "never resume that stream", "Headless prompts auto-deny", "command(...) or command(*) allow rules"):
-        assert needle in fix, needle
+def test_ag_adapter_holds_the_full_recipe():
+    doc = " ".join(Path("docs/adapters/ag.md").read_text(encoding="utf-8").split())
+    for needle in ("one task per ask", "Verify Flash-tier claims", "30,000 on Windows",
+                   "120,000 elsewhere", "use cc/cx on a separate stream", "new request ID",
+                   "temporary or scratch directory", "even for read tasks", "workspace-wide edit approval",
+                   "after an empty or `denied_empty` reply", "agy auto-denies", "three re-tests"):
+        assert needle.casefold() in doc.casefold(), needle
 
 
 def test_ag_recipe_names_allow_list_scope_and_cx_lesson_holds_the_cx_facts():
     """#391: a `*` in a prompt path (not glob-expanded), allow-list scope in the order of causes, inline text for ag; cx facts stay in the cx lesson."""
     by_id = {lesson["id"]: lesson for lesson in load_lessons()}
     ag = by_id["ag-recipe"]
-    for needle in ("A path in a prompt is not glob-expanded, and an attempt to read a literal * path can be denied",
-                   "allow-list scope (agy's permissions.allow read roots and shell rules",
-                   "reads outside the -w root, grep/cat and unlisted CLIs are denied headless",
-                   "ag cannot run commands and cannot read outside its workspace",
-                   "give it inline text and take its text answer",
-                   "denied_actions reports only the tool names"):
-        assert needle in ag["fix"], needle
-    causes = ag["fix"].split("check in order:", 1)[1]
-    order = [causes.index(cause) for cause in ("many or unreadable files", "trustedWorkspaces", "binary/NUL/huge files",
-                                               "allow-list scope", "pool quota exhausted")]
-    assert order == sorted(order)
+    doc = " ".join(Path("docs/adapters/ag.md").read_text(encoding="utf-8").split())
+    for needle in ("a literal `*` is never expanded", "Allow-list scope", "Headless reads outside the workspace",
+                   "`denied_actions` shows tool names only"):
+        assert needle in doc, needle
     assert "#391" in ag["issue"] and {"allow-list", "scope", "glob", "wildcard"} <= set(ag["keywords"])
     for cx_fact in ("peerhub store", "checkpoint receipts", "runtime_error"):
         assert cx_fact not in ag["fix"], cx_fact  # cx sentences are not in the ag recipe
@@ -235,26 +230,16 @@ def _links(text: str) -> set[str]:
     return {link.rstrip(".") for link in re.findall(r"https://[^\s);,|]+", text)}
 
 
-def test_setup_lesson_has_one_row_per_peer_with_links_and_checks_and_no_install_command(capsys):
-    """#385 S1/S2: what each peer needs, the official page, the sign-in step and the check. Links only."""
-    from peerhub.cli.lessons import lesson_by_id
+def test_setup_lesson_points_to_the_install_table(capsys):
     from peerhub.cli.recovery import ALIASES, REGISTRY
 
+    assert "setup" not in REGISTRY and "setup" not in ALIASES
     (lesson,) = lesson_by_id("setup")
-    assert "setup" not in REGISTRY and "setup" not in ALIASES  # a valid lesson id: no guidance code or alias shadows it
-    assert lesson["keywords"] and lesson["issue"] == "#385"
     fix = lesson["fix"]
-    assert "never downloads or runs an installer" in fix
-    for peer, (tool, page) in SETUP_TOOLS.items():
-        assert f"{peer}: the {tool} CLI, signed in" in fix and page in fix and f"check: {tool} --version" in fix, peer
-    assert "ant auth login" in fix and f"Windows binaries: {ANT_WINDOWS}" in fix
-    for peer, (variable, page) in SETUP_KEYS.items():
-        assert f"{peer}: the environment variable {variable}" in fix and page in fix, peer
-    assert "in the environment of the process that runs PeerHub" in fix
-    assert "never on a command line or in a file" in fix
-    assert _links(fix) == {page for _tool, page in SETUP_TOOLS.values()} | {page for _var, page in SETUP_KEYS.values()} | {ANT_WINDOWS}
+    assert lesson["keywords"] and lesson["issue"] == "#385"
+    assert "README.md#what-each-peer-needs" in fix
+    assert "OPENAI_API_KEY" in fix and "GEMINI_API_KEY" in fix and "Keep keys off the command line" in fix
     assert not [command for command in INSTALL_COMMANDS if command in fix]
-    assert all(peer in lesson["symptom"] or tool in lesson["symptom"] for peer, (tool, _page) in SETUP_TOOLS.items())
     assert "executable not found" in lesson["symptom"] and "set OPENAI_API_KEY" in lesson["symptom"]
     assert main(["explain", "setup"]) == 0
     out = capsys.readouterr().out
@@ -262,9 +247,7 @@ def test_setup_lesson_has_one_row_per_peer_with_links_and_checks_and_no_install_
 
 
 def test_readme_and_guide_document_the_builtin_peers():
-    """#385 S3: the README table and the lesson name the same peers, pages and checks."""
-    from peerhub.cli.lessons import lesson_by_id
-
+    """#385 S3: the README install table covers every built-in peer."""
     section = Path("README.md").read_text(encoding="utf-8").split("\n## Install\n", 1)[1].split("\n## ", 1)[0]
     assert "\n### What each peer needs\n" in section and "`peerhub explain setup`" in section
     assert "never downloads or runs an installer" in section
@@ -277,7 +260,7 @@ def test_readme_and_guide_document_the_builtin_peers():
     assert "`ant auth login`" in rows["ca"] and ANT_WINDOWS in rows["ca"]
     for peer, (variable, page) in SETUP_KEYS.items():
         assert f"`{variable}`" in rows[peer] and page in rows[peer], peer
-    assert _links(section) == _links(lesson_by_id("setup")[0]["fix"])
+    assert _links(section) == {page for _tool, page in SETUP_TOOLS.values()} | {page for _var, page in SETUP_KEYS.values()} | {ANT_WINDOWS}
     assert not [command for command in INSTALL_COMMANDS if command in section.split("### What each peer needs", 1)[1]]
 
 

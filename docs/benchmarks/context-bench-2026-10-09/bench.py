@@ -1,6 +1,6 @@
 """Compare fresh context injection with native resume (direct CLI calls).
 
-One-off benchmark behind docs/implementation/CONTEXT_EFFICIENCY.md (2026-10-09). Moved from
+One-off benchmark behind docs/history/implementation/CONTEXT_EFFICIENCY.md (2026-10-09). Moved from
 tools/context_bench.py on 2026-11-10; its offline tests stay in tests/communication/package/.
 
 Usage: PYTHONPATH=. python docs/benchmarks/context-bench-2026-10-09/bench.py --peer cc|cx|ag --turns N

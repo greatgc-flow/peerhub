@@ -200,7 +200,7 @@ def _add_case(path, tid, tag, message):
 
 @pytest.mark.parametrize("reason,ready", [
     ("CI-ONLY[python=3.12;os=ubuntu-latest]: VERIFIED-CI (https://example/run/1); not runnable here", False),
-    ("CI-ONLY[python=3.12;os=windows-latest]: VERIFIED-LOCAL (evidence docs/m1_impl/matrix_evidence/x.json)", False),
+    ("CI-ONLY[python=3.12;os=windows-latest]: VERIFIED-LOCAL (evidence docs/history/m1_impl/matrix_evidence/x.json)", False),
     ("CI-ONLY[python=3.12;os=ubuntu-latest]: UNVERIFIED here (TD-18); not runnable here", False),
     ("CI-ONLY[python=3.12;os=ubuntu-latest]", False),
 ])

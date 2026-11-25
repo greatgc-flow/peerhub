@@ -1,17 +1,17 @@
 # peer CLI observations
 
 Historical evidence: entries retain retired module paths and references to the
-removed `peer-cli-contracts.toml`. Use the [adapter guide](../adapters/README.md)
+removed `peer-cli-contracts.toml`. Use the [adapter guide](../../adapters/README.md)
 for current runtime contracts.
 
 Durable home for empirically-discovered facts about the external peer CLIs,
 so they stop being rediscovered by hand every session
 (`FACT-REFRESH-PROCEDURE-R1.md`, "Where the expected facts live"; archived, see the
-[ledger](../history/ledger-2026-10-17.md) section 1a).
+[ledger](../ledger-2026-10-17.md) section 1a).
 
 One entry per discovery. Trace units follow
 `TRACEABILITY-CONVENTION-R1.md` (`PH-<WORKSTREAM>-<UNIT>`; archived, see the
-[ledger](../history/ledger-2026-10-17.md) section 1a).
+[ledger](../ledger-2026-10-17.md) section 1a).
 Entries are `ACTIVE` until something replaces them, then `SUPERSEDED` with a
 pointer — never deleted, because the reason a fact stopped being true is
 itself a fact worth keeping.

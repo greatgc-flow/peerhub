@@ -1,6 +1,6 @@
 # Observation probes: what each peer probe consumes
 
-`peerhub observation refresh` is the only writer of quota evidence; `peerhub diag quota` / `peerhub diag` only read it (never probe, never refresh).
+Explicit collection uses `peerhub observation refresh`. Automatic collection uses the same probe layer. See [diagnostics](../commands.md#diagnostics-and-observation) and the [monitor guide](../monitor.md) for when each command calls it.
 
 | Peer | Probe | Consumes model quota? |
 |------|-------|-----------------------|
@@ -30,30 +30,4 @@ Subject `cx`, resource pool `credit:cx:reset` (kind ACCOUNT), written from the s
 
 The `reset_credit` kind extends the Observation kind list of the frozen M1 contract (docs/m1_spec is unchanged): owner decision pending.
 
-## `peerhub monitor`
-
-A convenience command that restores the old `diag --live` experience in ONE process: each cycle collects quota evidence (the same collector as `observation refresh`) and then renders ONE read-only dashboard frame (the same renderer as `diag --live`), then sleeps. The composition lives in the CLI layer (`peerhub/cli/monitor.py`): Diag stays strictly read-only and never refreshes, Observation stays the only writer, and extension imports are limited to the allowlist enforced by `tests/communication/architecture/test_arch_extension_graph.py`.
-
-```
-peerhub monitor [--interval-seconds SECONDS=60] [--cycles N] [--peers cx cc ag] [--timeout-seconds SECONDS=15]
-                [--collect-every K=1] [--view auto|rich|plain] [--json] [--allow-agy-token-use]
-```
-
-- Omitted `--cycles` defaults to one cycle off-TTY and runs until interrupted on a TTY. `--cycles 0` watches until Ctrl-C everywhere (clean exit 0). `--collect-every K` collects every Kth cycle but redraws every cycle.
-- `--json` prints NDJSON (schema 2.0): `{"schema_version": "2.0", "cycle": n, "phase": "initial"|"complete", "refresh": {...} | {"skipped": true}, "snapshot": <grouped monitor object>}`; one `initial` frame, then one `complete` frame per cycle (so the default off-TTY run prints two lines). `--schema-version 1.1` keeps the legacy diag snapshot.
-  The human renderer receives a `configured_profiles` list with a boolean `suggest` per entry (default `true`).
-  Schemas 1.1 and 2.0 serialize snapshots directly from their read models.
-- Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when the cycle limit ended the run (including the implicit single cycle off-TTY); 2 usage error (nothing is collected, no database is created).
-- Every cycle costs one `/usage` read per peer (no model turn; see the probe table above). Do not set intervals of a few seconds.
-
-### `peerhub monitor --view {auto,rich,plain}`
-
-The compact and expanded renderers share the same activity order. ALERTS and RUNNING get space before RECENT. The expanded header includes the DB path. Redirected expanded output includes finished and sampled superseded asks. See [the monitor guide](../monitor.md) for layout and width and height budgets.
-
-#### Reading the expanded view
-- **PACE** = `used% - window elapsed%`, in percentage points at measurement time. A 5-hour window that is 40% elapsed with 60% used reads `+20.0`: usage is 20 points ahead of an even burn. Pace has no independent risk colour; the compact view turns a supported threat into `fast`.
-POOLS counts and names unavailable windows inline. Expanded QUOTA explains them by default. `--show-quota-notes` also enables the other quota notes. Configured weekly dependencies (such as F-7D under C-7D) are grouped in POOLS. A fresh exhausted parent blocks a usable child without changing its measured remainder; the rich QUOTA table uses the same derived state. Live output anchors each logical line to a screen row to prevent cumulative wrapping from scrolling the verdict away.
-
-- Plain view: **STATE** `THREAT` means the projection exhausts the pool before reset; `INSUFF` means too little projection data; `STALE:*` marks aged evidence. Rich view: **STATE** is the state of the POOLS row (`ok`, `low`, `fast`, `out`, `blocked`, `aged`, `reset`, `n/a`, `?`), and **FORECAST** carries the projection in lower case (`threat`, `insuff`, `on_pace`, `safe`); a `STALE:window` or `evidence <STATE>` note below the table names what the state word does not.
-- During a continuous VT watch the screen redraws every second between cycles (clock, evidence ages, reset countdowns and "next in" move; nothing is re-read until the next cycle). Piped human output prints one completed frame per cycle (no initial frame); `--json` keeps the initial frame.
-- A claude `/usage` probe that fails now stores a reason in the ERROR evidence (`claude_usage_timeout`, `claude_usage_spawn_failed:<ExceptionType>`, `claude_usage_unparseable`), and the dashboard shows it next to `ERROR`. Timeouts usually mean the machine was busy (raise `--timeout-seconds`), unparseable output means the CLI output format changed.
+A Claude probe failure records `claude_usage_timeout`, `claude_usage_spawn_failed:<ExceptionType>` or `claude_usage_unparseable`. Try a longer `--timeout-seconds` on a busy machine. Unparseable output can indicate a CLI output change.

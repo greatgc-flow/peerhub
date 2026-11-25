@@ -167,6 +167,12 @@ Argon uses the shared Gemini quota shown in `peerhub diag --plan`.
 
 For an AI planning a parallel wave, `peerhub explain parallel-quota` is the recipe (order by 7D PACE, size n by quota and load); this section is the manual reference.
 
+## Suggest an ask
+
+`peerhub suggest --tier standard|effort|deepthink [--task review|code|read]` prints an ask and a reason. Put the prompt in `prompt.txt` or in `review.txt`, `code.txt` or `read.txt` with `--task`. The generated command selects the store, profile and a fresh session, and adds `--writable` for ag and for CLI peers chosen for code. `--json` returns the command as an `argv` array.
+
+`--candidates` shows the quota evidence behind eligibility. Among enabled profiles, a measured 5-hour window must be under 90% used. A fresh provider-reported absence skips that gate. An exhausted 7-day pool excludes the profile. The lowest 7-day PACE wins among profiles with usable evidence, with ties in ag, cx, cc order. Missing or over-15-minute evidence can trigger one refresh attempt and spend quota. Candidates without usable evidence remain fallback choices marked `quota unknown`.
+
 **I. Concurrency**
 
 Run n at once as quota and machine resources allow (free RAM >= 6 GB, CPU below 90%).
@@ -185,7 +191,7 @@ If a provider throttles, reduce concurrency; do not reroute the same work to ano
 
 **J. Parallel work over the least quota** (rule H picks the peer for a single ask; J sizes and orders a wave; advice only; PeerHub gives the facts and the AI decides; `peerhub explain parallel-quota` has the same default plan)
 
-1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. For old or `(stale)` evidence, run `peerhub observation refresh` (no model tokens), then read again.
+1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. For old or `(stale)` evidence, run `peerhub observation refresh` (see [probe costs](implementation/OBSERVATION_PROBES.md)), then read again.
    A parent-limited child uses effective quota and time to reset for its displayed `BUDGET%/h`. Advice ranks the pool's own action, its effective parent action, and applicable gates for the same profile on the same account in order of `spend`, `hold`, `rest`, and `blocked`. The most restrictive action wins. A fresh zero for a shared pool can gate other configured pools on the same account even when another reporter supplied the displayed reading. When a gate wins, the reason and JSON `binding` name its pool, and an exhausted gate reports `gate: <pool> out`. A stale zero keeps its refresh reason. In JSON, `target_pct_per_hour`, `left_pct`, `pace_pt` and `resets_in_seconds` describe the child's own window, and `health` carries its effective state, pace and reset.
 2. Order usable pools by 7D PACE, lowest first; rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. See the lesson for the other JSON row fields.
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.

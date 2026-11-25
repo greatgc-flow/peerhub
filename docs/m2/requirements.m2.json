@@ -687,7 +687,7 @@
       "id": "REQ-EXT-009",
       "area": "ExtensionHost",
       "statement": "Boot isolates manifest discovery failures and repeatedly fails closed over ENABLED dependency chains; dependencies accept unpinned IDs or identical registered-version pins, missing entrypoints reject enablement, and changed registered versions are not silently adopted.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "lifecycle",
@@ -702,7 +702,7 @@
       "id": "REQ-ART-011",
       "area": "ArtifactStore",
       "statement": "Artifact staging supports an optional byte bound; duplicate verification streams existing blobs; GC grace uses commit time and renews on deduplication; verified export publishes only after digest verification; new shard publication attempts POSIX shard and root directory fsync.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "bounds",
@@ -717,7 +717,7 @@
       "id": "REQ-WRK-006",
       "area": "WorkProjection",
       "statement": "Work CAS uses ordered authoritative Records and confirms acceptance of the caller's mutation Record; stale or missing projections recover after append/save crashes, creation retries obey the implemented identity/revision conditions, and rebuild replacement is atomic.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "concurrency",
@@ -732,7 +732,7 @@
       "id": "REQ-SKL-007",
       "area": "SkillCatalog",
       "statement": "Skill and capability CAS uses ordered authoritative Records and confirms the caller's mutation acceptance; missing registration projections recover from Records, and rebuild atomically replaces both projections without skill_roots or disk digest adoption.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "concurrency",
@@ -747,7 +747,7 @@
       "id": "REQ-SKL-008",
       "area": "SkillCatalog",
       "statement": "Skill tree digests frame sorted path bytes and streamed file content with 8-byte big-endian lengths and reject streamed-size changes; the standard-library frontmatter fallback parses the tested inline-list forms consistently with PyYAML.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "integrity",
@@ -761,7 +761,7 @@
       "id": "REQ-BCK-007",
       "area": "BackupRecovery",
       "statement": "Offline restore replaces the whole managed workspace after checking every top-level database, discards prior derived databases from the restored workspace, retains the previous directory, recovers it when a crash leaves the target absent, and never reverts a present restored target solely because an intent marker remains.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "recovery",
@@ -775,7 +775,7 @@
       "id": "REQ-BCK-008",
       "area": "BackupRecovery",
       "statement": "Derived rebuild delegates to a caller-supplied rebuild_projection port and streams all authoritative record pages; Backup does not construct WorkProjection from a database path.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "rebuild"
@@ -788,7 +788,7 @@
       "id": "REQ-EVL-007",
       "area": "EvalTelemetry",
       "statement": "Evaluation recomputes trace/dataset digests and dataset count, optionally verifies the dataset artifact, binds reports to target_digest, and exposes verification of report integrity and supplied source identity.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "integrity",
@@ -802,7 +802,7 @@
       "id": "REQ-EVL-008",
       "area": "EvalTelemetry",
       "statement": "Evaluators receive deep private source snapshots; post-execution source verification rejects the tested content mutations without changing the caller's nested trace or dataset objects.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
+      "source": "docs/history/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "required_dimensions": [
         "integrity",

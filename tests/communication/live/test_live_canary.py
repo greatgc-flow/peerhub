@@ -96,7 +96,7 @@ def test_live_006_isolated_workspace_and_no_project_mutation():
         assert c["project_tree_changed"] == [], (kind, c["project_tree_changed"])
         assert c["provider_ws_files_after"] == [], (kind, c["provider_ws_files_after"])
     # control: the snapshot oracle does detect a change inside the project tree (not vacuous)
-    probe = ls.ROOT / "docs" / "m1_impl" / "live_evidence" / ".nonexistent"
+    probe = ls.ROOT / "docs" / "history" / "m1_impl" / ".nonexistent"
     before = ls.tree_snapshot()
     marker = ls.ROOT / "tests" / "communication" / "live" / "_probe.tmp"
     try:

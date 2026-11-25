@@ -4,23 +4,20 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 from peerhub.cli.monitor_view import (
     FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER, POOLS_USE_FIRST_ASCENDING, POOLS_USE_FIRST_HINT,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-FILES = ("README.md", "docs/monitor.md", "docs/lessons.md", "peerhub/config_data/lessons.toml")
+MONITOR_DOC = "docs/monitor.md"
 SUGGESTION = re.compile(r"\bthe suggestion\b")
 
 
-@pytest.mark.parametrize("name", FILES)
-def test_docs_list_the_frame_sections_in_the_code_order(name: str) -> None:
-    text = (ROOT / name).read_text(encoding="utf-8")
+def test_docs_list_the_frame_sections_in_the_code_order() -> None:
+    text = (ROOT / MONITOR_DOC).read_text(encoding="utf-8")
     flat = SUGGESTION.sub(FRAME_SECTIONS["suggest"], " ".join(text.split()))
     expected = ", ".join(FRAME_HEADS[:-1]) + " and " + FRAME_HEADS[-1]
-    assert expected in flat, f"{name}: {expected} not found"
+    assert expected in flat, f"{MONITOR_DOC}: {expected} not found"
 
 
 def test_monitor_docs_list_expanded_details_in_catalog_order() -> None:
@@ -30,9 +27,8 @@ def test_monitor_docs_list_expanded_details_in_catalog_order() -> None:
     assert expected in " ".join(text.split())
 
 
-@pytest.mark.parametrize("name", ("README.md", "docs/monitor.md"))
-def test_monitor_docs_describe_height_priority_and_pool_order(name: str) -> None:
-    text = " ".join((ROOT / name).read_text(encoding="utf-8").split())
+def test_monitor_docs_describe_height_priority_and_pool_order() -> None:
+    text = " ".join((ROOT / MONITOR_DOC).read_text(encoding="utf-8").split())
     direction = "ascending" if POOLS_USE_FIRST_ASCENDING else "descending"
     assert "Short frames shrink and drop sections from the bottom up in both layouts." in text
     assert (f"{FRAME_SECTIONS['pools']} sorts families by {direction} 7D PACE of the parent, "

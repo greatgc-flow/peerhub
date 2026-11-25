@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "docs/m1_spec/06_GUIDES/TEST_SET/test-catalog.json"
-WAVES = ROOT / "docs/m1_impl/waves.json"
+WAVES = ROOT / "docs/history/m1_impl/waves.json"
 TESTS = ROOT / "tests"
 _DEF = re.compile(r"^\s*(?:async\s+)?def\s+(test_\w+)", re.M)
 _MARK = re.compile(r"""catalog_id\(\s*["']([A-Z0-9][A-Z0-9-]*)["']""")

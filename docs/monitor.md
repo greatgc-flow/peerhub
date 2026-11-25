@@ -5,8 +5,7 @@
 `peerhub diag --plan --json` reports the same difference as `exhaust_margin_seconds`, using the effective reset for a parent-limited pool. The plan text marks early exhaustion with `!early`.
 
 This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
-`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. It describes what the screen shows. The same facts are
-in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
+`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. For quick offline help, use `peerhub explain monitor-view` or `peerhub explain monitor-states`.
 
 Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
 required quota reading reaches 210 seconds (90 seconds before expiry) or is missing. Failed or partial peers retry after 60 seconds.
@@ -28,6 +27,14 @@ Continuous watch, automatic collection in scripted watch, suggest, and ask dispa
 evidence. Automatic collection rechecks quota under the lock before probing.
 For a command you can run, use `peerhub suggest --tier standard` and see
 `peerhub explain suggest` for its quota rules.
+
+## Commands and output
+
+- `monitor groups` lists all eleven group IDs and whether the effective defaults select them. The defaults select nine groups. Use `--group GROUP` (repeatable), `--group all`, or `monitor defaults show|set|reset` to inspect or change the selection.
+- `monitor --snapshot` renders one read-only frame. `monitor --no-probe --interval-seconds 60` watches committed evidence. Pass the global `--db PATH` before `monitor` to choose another store.
+- Without `--cycles`, a terminal watches until interrupted and redirected output runs one cycle. Explicit `--cycles 0` watches everywhere until interrupted. Positive values bound the watch.
+- `--json` emits schema 2.0: one object for a snapshot, or one `initial` frame plus a `complete` frame per watch cycle (NDJSON). Older scripts can select `--json --schema-version 1.1`.
+- `--view plain` uses an ASCII frame. `--view rich` uses terminal glyphs and colour when available. See [CLI help](commands.md#guide-and-explain) and the [probe contract](implementation/OBSERVATION_PROBES.md).
 
 ## The top lines
 
@@ -200,6 +207,8 @@ for an ended or overdue ask is 30 minutes.
 After the alerts, `--expand` lists every source that was not read completely (`source quota: stale`, then a `hint:`).
 `OK?` / `ATTN n?` on line 1 means such a source exists.
 
+A peer-level probe failure clears when a newer measured pool row from the same peer and probe source arrives.
+
 ## LEADS
 
 A lead is the session that launched asks: a Claude Code session read from the local session files of the registered
@@ -224,6 +233,12 @@ unknown; `!` after the percentage means 80% or more (a mark, not an alert). The 
 The sampled sections (EXECUTION, SESSIONS, USAGE, CONTEXT) say `sample N/M` when the read was capped. The last line
 is `Coverage: complete|partial; peerhub explain <code>`.
 
+### Accounts
+
+`--expand` and JSON `capacity.accounts` report the plan, login state and login-token expiry. Logged-out, expired and within-48-hour tokens raise a line-1 alert. The observation is aged after six hours. `?` means unknown and `n/a` means unavailable for that login type. Agy reports access to `/credits` with plan `n/a`. An expiry omitted by the provider leaves login state separate. The refresh stores no account names, IDs or tokens.
+
+A fresh account plan can fill in a quota note via `display_plan` and `plan_source: "account"` without replacing the stored reason. A newer ABSENT quota observation for the same login can report a changed plan via `plan_changed: true` and `plan_source: "quota"`. Account re-probes wait until the reading is at least five minutes old.
+
 ## Compact and expand
 
 - **Compact** (the default) uses `COMPACT_MAX_LINES` and `COMPACT_MAX_BYTES`. The header is followed by POOLS,
@@ -235,6 +250,8 @@ is `Coverage: complete|partial; peerhub explain <code>`.
   `--snapshot` draws one frame and exits.
 
 ## Narrow and small terminals
+
+ALERTS and RUNNING take priority over RECENT when space is limited.
 
 - **Width.** POOLS and QUOTA use the same width budget for their shared columns. The bar gives way before
   FAMILY, EXH/RESET and MARGIN. AGE is optional in QUOTA. Line 2 drops status fields from the right and reserves room
