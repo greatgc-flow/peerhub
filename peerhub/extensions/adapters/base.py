@@ -27,6 +27,7 @@ from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIME
                                                  SpawnFailure, check_argv)
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets, path_secrets
 from peerhub.extensions.adapters.telemetry import CC_EVENT_TYPES
+from peerhub.extensions.process_tree import process_created
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
 
 if TYPE_CHECKING:
@@ -1011,7 +1012,12 @@ class CliRuntimeTarget:
         # ---- a process exists from here on: every failure is uncertain, never pre-spawn
         finished = False
         try:
-            yield ("started", f"{self.runtime_kind}:{proc.pid}:{uuid.uuid4().hex[:8]}")
+            try:
+                created = process_created(proc.pid)
+            except Exception:  # process identity is best-effort evidence after spawn
+                created = None
+            yield ("started", f"{self.runtime_kind}:{proc.pid}:{uuid.uuid4().hex[:8]}",
+                   {"provider_pid": proc.pid, "provider_created": created})
             res = proc.wait()
             parser.close()
             finished = True

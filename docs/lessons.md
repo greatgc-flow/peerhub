@@ -200,10 +200,10 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 ## Monitor states, PACE, suggestions and cycles (`monitor-states`)
 
-- Keywords: monitor, pace, low, fast, aged, suggest, alternative, cycles, tty, legend, quota, unknown, est, estimated
-- Symptom: Monitor states, PACE, stale evidence, alternative profiles or redirected watch behavior need explanation.
-- Fix: Check quota age before acting on LEFT or PACE. Both human layouts omit n/a windows and skip pools without readings in the weekly pace gap. Use --show-quota-notes to restore the count, names, reasons and gap placeholders. Use peerhub diag --plan when planning parallel work. See docs/monitor.md#pools for states, parent limits and forecast fields.
-- Issue: #310, #311, 0.24.4, #376, #378
+- Keywords: monitor, pace, low, fast, aged, suggest, alternative, cycles, tty, legend, quota, unknown, est, estimated, gone, overdue, orphan
+- Symptom: Monitor states, including gone and overdue asks, quota pace, or redirected watch behavior need explanation.
+- Fix: On this host, an ask with dead caller, wrapper and provider processes appears as gone, processes dead. Its a2 alert clears immediately and the result may be lost. A live provider orphan keeps a2 for human review. Overdue still follows the lease window when liveness is unknown. The next ask start, batch run or monitor repair releases dead leases and records uncertain abandonment. Follow the usual replay and reconciliation guidance. Check quota age before acting on LEFT or PACE. Use --show-quota-notes to expose unavailable windows and their reasons. Use peerhub diag --plan for parallel work. See docs/monitor.md.
+- Issue: #310, #311, 0.24.4, #376, #378, 2026-11-25 gone ask follow-up
 
 ## Monitor view: frame order and the rich look (`monitor-view`)
 

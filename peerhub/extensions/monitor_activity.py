@@ -12,6 +12,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, cast
 
+from peerhub.extensions.liveness import ORPHAN_RUNNING, PROCESSES_DEAD, ask_alive, ask_process_state
 from peerhub.extensions.monitor_queries import (
     ACTIVITY_SCOPE_CAP,
     ALERT_WINDOW_S,
@@ -130,9 +131,11 @@ def _binding_fields(binding: object) -> tuple[str | None, str | None, str | None
 def _liveness_of(caller: dict[str, Any], liveness: Callable[..., object] | None,
                  probe: Callable[[int], object]) -> tuple[bool | None, str | None]:
     alive: object = None
+    pid = caller.get("caller_pid", caller["ask_pid"])
+    created = caller.get("caller_created", caller.get("ask_created"))
     if liveness is not None:
         try:
-            alive = liveness(caller["host"], caller.get("ns"), caller["ask_pid"], caller.get("ask_created"))
+            alive = liveness(caller["host"], caller.get("ns"), pid, created)
         except Exception:  # noqa: BLE001 - liveness is a best-effort source: any failure is "unknown", never a group error
             alive = None
     if isinstance(alive, bool):
@@ -142,10 +145,10 @@ def _liveness_of(caller: dict[str, Any], liveness: Callable[..., object] | None,
     here = _this_ns()
     if caller.get("ns") is None or here is None or caller.get("ns") != here:
         return None, "other namespace"
-    if liveness is None or caller.get("ask_created") is None:
+    if liveness is None or created is None:
         return None, "not accessible"
     try:
-        found = probe(int(caller["ask_pid"]))
+        found = probe(int(pid))
     except Exception:  # noqa: BLE001 - see above
         found = "denied"
     return None, "pid reused or clock stepped" if finite_number(found) is not None else "not accessible"
@@ -161,8 +164,13 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
     gen_match = r["claim_generation"] == r["c_generation"]
     last = r["last_kind"] if isinstance(r["last_kind"], str) else None
     note: str | None = None
+    caller, caller_bad = _caller(r["caller_detail"])
+    if caller_bad:
+        reasons.append("caller unreadable")
     if superseded:
         state, note = "unsure", "superseded"
+    elif r["abandonment"] is not None and r["result_ok"] is None:
+        state, note = PROCESSES_DEAD, "result may be lost"
     elif r["certainty"] == "MAY_HAVE_STARTED":
         state = "unsure"
         note = last if last is not None and (last in _UNSURE_KINDS or last.startswith("runtime_")) else "may have started"
@@ -211,12 +219,32 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
     if r["start_detail"] is not None and started_at is None:
         reasons.append("start time unreadable")
     terminal_at = iso_seconds(r["terminal_at"])
+    lease_based = state in ("run", "overdue")
+    may_have_orphan = state == "unsure" and not superseded and r["result_ok"] is None and r["provider_detail"] is not None
+    if ((lease_based or may_have_orphan) and gen_match and r["wsgen_match"] and gen_reason is None
+            and (liveness is None or (caller is not None and "caller_pid" in caller))):
+        process_state = ask_process_state(r["caller_detail"], r["provider_detail"])
+        if process_state == PROCESSES_DEAD and lease_based:
+            state, note = PROCESSES_DEAD, "result may be lost"
+        elif process_state == ORPHAN_RUNNING:
+            state, note = ORPHAN_RUNNING, "provider process still alive"
     # An overdue row is in the running set only for ALERT_WINDOW_S after its lease expired; then it is an ended (bad) row.
-    open_row = state == "run" or (state == "overdue" and expires_at >= now - ALERT_WINDOW_S)  # the SQL `is_open` expression
+    open_row = state in ("run", ORPHAN_RUNNING) or (state == "overdue" and expires_at >= now - ALERT_WINDOW_S)
     ended_at: float | None = None
     ended_exact: bool | None = None
     if not open_row:
-        if terminal_at is not None:
+        if state == PROCESSES_DEAD:
+            ended_at, ended_exact = now, False  # observed dead by this time; exact exit time is unknown
+            if isinstance(r["abandonment"], str):
+                try:
+                    end_detail: object = json.loads(r["abandonment"])
+                    if isinstance(end_detail, dict):
+                        observed = finite_number(cast(dict[str, object], end_detail).get("observed_at_s"))
+                        if observed is not None:
+                            ended_at = observed
+                except (ValueError, RecursionError):
+                    pass
+        elif terminal_at is not None:
             ended_at, ended_exact = terminal_at, True
         elif not live:  # the release time of the claim: exact for the claim that ran it, else the latest possible end
             ended_at, ended_exact = expires_at, gen_match
@@ -226,13 +254,12 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
     else:
         elapsed_s = (round(max(0.0, ended_at - started_at), 3)
                      if started_at is not None and ended_at is not None and ended_exact else None)
-    caller, caller_bad = _caller(r["caller_detail"])
-    if caller_bad:
-        reasons.append("caller unreadable")
     alive: bool | None = None
     alive_reason: str | None = None
-    if open_row:
-        alive, alive_reason = (None, "no caller row") if caller is None else _liveness_of(caller, liveness, probe)
+    if state == ORPHAN_RUNNING:
+        alive, alive_reason = False, "caller and wrapper gone"
+    elif open_row:
+        alive, alive_reason = (None, "no caller row") if caller is None else _liveness_of(caller, liveness or ask_alive, probe)
     profile, model, effort = _binding_fields(r["binding"])
     stream = display_text(r["stream_id"], 120, secrets) or "?"
     batch, task = (caller.get("batch"), caller.get("task")) if caller is not None else (None, None)
@@ -266,6 +293,8 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
         "ask_line_long": lines["ask_line_long"], "reply_line_long": lines["reply_line_long"],
         "note": note, "reasons": reasons, "session": _ask_session(r),
     }
+    if state == PROCESSES_DEAD:
+        row.update(certainty="UNKNOWN")
     if human:
         if text_on and r["want_text"] and caller is not None and isinstance(caller.get("query_file"), str):
             row["_caller_file"] = {key: caller.get(key) for key in ("query_file", "workspace", "host")}
@@ -309,8 +338,10 @@ def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | Non
     built = [_ask_row(r, now, gen_reason=gen_reason, human=human, text_on=text_on, secrets=secrets,
                       liveness=liveness, probe=probe) for r in rows]
     main = [a for a in built if not a["superseded"]]
-    running = [a for a in main if a["state"] == "run" or (a["state"] == "overdue" and a["ended_at"] is None)]
-    ended = [a for a in main if not (a["state"] == "run" or (a["state"] == "overdue" and a["ended_at"] is None))]
+    running: list[dict[str, Any]] = []
+    ended: list[dict[str, Any]] = []
+    for a in main:
+        (running if a["ended_at"] is None and a["state"] in ("run", "overdue", ORPHAN_RUNNING) else ended).append(a)
     running.sort(key=lambda a: (0 if a["state"] == "overdue" or a["alive"] is False else 1,
                                 -(a["elapsed_s"] if a["elapsed_s"] is not None else -1.0)))
     window_start = now - ALERT_WINDOW_S
@@ -407,12 +438,6 @@ def read_activity_group(conn: sqlite3.Connection, db_path: str, now: float, *, h
     generation, generation_reason = _workspace_generation(db_path)
     try:
         rows = activity_rows(conn, now, generation, text_on)
-        if liveness is None:
-            try:
-                from peerhub.extensions.liveness import ask_alive
-                liveness = ask_alive
-            except ImportError:
-                liveness = None
         activity_data = _activity_data(rows, now, gen_reason=generation_reason, human=human, text_on=text_on,
                                        liveness=liveness, probe=process_probe or _process_created)
         output["activity"] = {"status": "OK", "data": activity_data}

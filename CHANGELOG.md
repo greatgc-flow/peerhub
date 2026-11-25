@@ -10,6 +10,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- Monitor and `diag running` identify local asks whose caller, wrapper and provider processes have exited. The `a2` alert clears immediately for dead asks and remains visible for live orphans. The next ask start, batch run or monitor repair releases dead leases and records uncertain abandonment.
 - CI runs the full deterministic suites and the publish verification suites in parallel, with the monitor latency limit checked serially. Publish runs the G7 invariant tests as part of G0, and the release recipe puts the version bump in the last feature PR.
 - An internal refactor shares the monitor group catalog and saved preference reader below the CLI, enforces the extensions-to-CLI import boundary, and centralizes the provider usage candidate factory and shared A2A journal types. Binary resolution and peer-kind imports use their canonical modules.
 
