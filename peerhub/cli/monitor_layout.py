@@ -463,3 +463,33 @@ def column_painter(column: int, colours: Sequence[str | None]) -> Callable[[int,
         colour = colours[index] if col == column else None
         return paint_text(text, RICH_SGR[colour]) if colour else text
     return paint
+
+
+FRAME_TRAILING_ROWS = 1  # render_grouped_frame's height includes the line after its final newline
+
+
+def is_section_rule(line: str) -> bool:
+    """A section head of the rich frame (a rule), colour or not."""
+    return ANSI_ESCAPE.sub("", line).startswith(("── ", "-- "))
+
+
+def rich_section(label: str, rows: Sequence[str], width: int, unicode: bool, paint: bool) -> list[str]:
+    """One section of the rich --expand frame (P23): its head as a rule, like a head of the compact frame, then its
+    rows from the second cell. A head keeps the leading fields that fit on its line; the others are the section's first
+    row, so a narrow terminal loses none. A row wider than the line wraps, with its next lines further in (colour
+    never decides that: a painted row that has to wrap is wrapped as text)."""
+    sep = f" {RICH_GLYPHS[unicode]['sep']} "
+    fields = label.split(" | ")
+    shown = len(fields)
+    while shown > 1 and cell_width(" | ".join(fields[:shown])) > width - 3:
+        shown -= 1
+    lines = [heading_rule(" | ".join(fields[:shown]), width, unicode, paint)]
+    for row in [*pack_fields(fields[shown:], max(1, width - 1), sep), *rows]:
+        if cell_width(row) <= width - 1:
+            lines.append(" " + row)
+            continue
+        text = ANSI_ESCAPE.sub("", row)
+        indent = len(text) - len(text.lstrip(" "))
+        parts = wrap_text(text, max(1, width - 3 - indent))
+        lines.extend(" " * (indent + (1 if index == 0 else 3)) + part for index, part in enumerate(parts))
+    return lines

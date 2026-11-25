@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.cli.monitor_view import _group_lines
+from peerhub.cli.monitor_sections import group_lines
 from peerhub.extensions.adapters import CliRuntimeTarget, base, telemetry
 from peerhub.extensions.adapters.base import IncrementalEventParser
 from peerhub.extensions.adapters.telemetry import parse_provider_usage
@@ -36,7 +36,7 @@ CC_STREAM = "\n".join(json.dumps(event) for event in (
 
 
 def _usage_row(telemetry: dict[str, object]) -> str:
-    rows, _ = _group_lines("usage", {"data": {"sessions": [{"peer_id": "cc", "telemetry": telemetry}]}},
+    rows, _ = group_lines("usage", {"data": {"sessions": [{"peer_id": "cc", "telemetry": telemetry}]}},
                            width=120, unicode=False, expand=True)
     return rows[0]
 

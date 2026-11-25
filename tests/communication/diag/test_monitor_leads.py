@@ -9,6 +9,7 @@ from typing import Any, Callable
 import pytest
 
 from peerhub.extensions import monitor_read_model as mrm
+from peerhub.extensions import monitor_activity, monitor_queries
 from tests.communication.diag.test_monitor_activity import (  # noqa: F401  (db is a fixture)
     NOW, caller, claim, db, delivery, iso, ok_result)
 
@@ -202,7 +203,7 @@ def test_the_reader_gets_text_off_and_the_default_probe(db, monkeypatch):
     monkeypatch.setenv("PEERHUB_MONITOR_TEXT", "off")
     calls: list[dict[str, Any]] = []
     activity(db, lead_reader=reader([], calls=calls))
-    assert calls[0]["text_on"] is False and calls[0]["created"] is mrm._process_created  # pyright: ignore[reportPrivateUsage]
+    assert calls[0]["text_on"] is False and calls[0]["created"] is monitor_activity._process_created  # pyright: ignore[reportPrivateUsage]
 
 
 def test_a_reader_that_raises_gives_no_sessions_and_state_error(db):
@@ -249,7 +250,7 @@ def test_the_reader_is_not_called_when_activity_is_not_selected(db):
 
 
 def test_the_reader_is_not_called_after_an_activity_sql_error(db, monkeypatch):
-    monkeypatch.setattr(mrm, "_ACTIVITY_SQL", "SELECT * FROM no_such_table_376")
+    monkeypatch.setattr(monitor_queries, "_ACTIVITY_SQL", "SELECT * FROM no_such_table_376")
     calls: list[dict[str, Any]] = []
     out = frame(db, lead_reader=reader([session()], calls=calls))
     assert calls == [] and out["groups"]["activity"]["status"] == "ERROR" and out["groups"]["activity"]["data"] is None

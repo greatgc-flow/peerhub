@@ -115,7 +115,7 @@ def test_session_cursor_rejects_changed_filter(tmp_path, capsys):
 
 def test_hidden_store_uses_database_directory_for_lineage(tmp_path, capsys):
     from peerhub.core.workspace import Workspace
-    from peerhub.extensions.monitor_read_model import _monitor_workspace
+    from peerhub.extensions.monitor_sessions import monitor_workspace
 
     root = tmp_path / ".peerhub"
     db = root / "core.db"
@@ -126,7 +126,7 @@ def test_hidden_store_uses_database_directory_for_lineage(tmp_path, capsys):
         metadata = json.loads(conn.execute("SELECT metadata_json FROM records WHERE kind='prompt' LIMIT 1").fetchone()[0])
         assert metadata["workspace_generation"] == lineage
         assert conn.execute("SELECT DISTINCT workspace_generation FROM bridge_session_history").fetchall() == [(lineage,)]
-    assert _monitor_workspace(str(db), None) == tmp_path
+    assert monitor_workspace(str(db), None) == tmp_path
     assert main(["--db", str(db), "session", "list", "--limit", "1", "--json"]) == 0
     cursor = json.loads(capsys.readouterr().out)["next_cursor"]
     Workspace(root).replace_generation()

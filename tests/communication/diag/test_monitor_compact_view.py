@@ -17,11 +17,9 @@ from peerhub.cli.monitor_legend import (
     POOL_LEGEND,
     POOL_MARGIN_COLUMN,
 )
-from peerhub.cli.monitor_view import (
-    FRAME_SECTIONS,
-    POOLS_USE_FIRST_HINT,
-    render_grouped_frame,
-)
+from peerhub.cli.monitor_legend import FRAME_SECTIONS
+from peerhub.cli.monitor_quota_view import POOLS_USE_FIRST_HINT
+from peerhub.cli.monitor_view import render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import anchor_pool
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 
@@ -163,12 +161,12 @@ def test_exact_reset_expires_state_pace_and_suggestion(compact_frame, width, ela
 
 
 def test_suggestions_reject_zero_reset_seconds():
-    from peerhub.cli.monitor_view import _compact_suggestions
+    from peerhub.cli.monitor_quota_view import compact_suggestions
 
     profiles = [{"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
     rows = [{"peer": "ag", "pool": "G-5H", "remaining": .8, "reset_seconds": 0,
              "aged": False, "state": "ok"}]
-    assert _compact_suggestions(profiles, rows) == "suggest: no eligible profiles; next: peerhub observation refresh"
+    assert compact_suggestions(profiles, rows) == "suggest: no eligible profiles; next: peerhub observation refresh"
 
 
 @pytest.mark.parametrize("width", [60, 70])
@@ -592,20 +590,20 @@ def test_suggestions_keep_low_pools_at_or_above_five_percent(compact_frame, rema
 @pytest.mark.parametrize("tier,suffix", [("eco", "standard"), ("normal", "effort"),
                                         ("quality", "deepthink"), ("top", "custom")])
 def test_suggestions_alternative_uses_same_ranking_with_name_ties(tier, suffix):
-    from peerhub.cli.monitor_view import _compact_suggestions
+    from peerhub.cli.monitor_quota_view import compact_suggestions
 
     profiles = [{"profile": f"{peer}.{suffix}", "fields": {"pools": {"value": ["P-7D"]}}}
                 for peer in ("cx", "cc", "ag")]
     rows = [{"peer": peer, "pool": "P-7D", "remaining": remaining, "reset_seconds": 86400,
              "aged": False, "state": "ok"} for peer, remaining in (("cx", .5), ("cc", .8), ("ag", .5))]
-    result = _compact_suggestions(profiles, rows)
+    result = compact_suggestions(profiles, rows)
     assert f"{tier}=cc.{suffix}|ag.{suffix}" in result
-    assert result == _compact_suggestions(list(reversed(profiles)), list(reversed(rows)))
+    assert result == compact_suggestions(list(reversed(profiles)), list(reversed(rows)))
 
 
 @pytest.mark.parametrize("alternative", ["eligible", "absent", "same-peer", "ineligible"])
 def test_suggestions_only_append_eligible_different_peer(alternative):
-    from peerhub.cli.monitor_view import _compact_suggestions
+    from peerhub.cli.monitor_quota_view import compact_suggestions
 
     profiles = [{"profile": "cc.fable", "fields": {"pools": {"value": ["F-7D"]}}},
                 {"profile": "cc.other", "fields": {"pools": {"value": ["F-7D"]}}}]
@@ -619,7 +617,7 @@ def test_suggestions_only_append_eligible_different_peer(alternative):
     expected = "suggest: eco=- normal=- quality=- top=cc.fable"
     if alternative == "eligible":
         expected += "|ag.probe"
-    assert _compact_suggestions(profiles, rows) == expected
+    assert compact_suggestions(profiles, rows) == expected
 
 
 def test_peers_only_uses_snapshot_capacity_support(compact_frame):

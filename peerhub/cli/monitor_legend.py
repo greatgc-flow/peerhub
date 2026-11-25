@@ -5,6 +5,7 @@ from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLA
 
 POOLS_HEADING = "POOLS"
 QUOTA_NA = "n/a"
+CONTEXT_ESTIMATE_LABEL = "est"
 POOL_MARGIN_COLUMN = "MARGIN"
 POOL_MARGIN_LEGEND = f"{POOL_MARGIN_COLUMN}=EXH-RESET, - = early"
 POOL_LEGEND = (
@@ -23,3 +24,26 @@ MONITOR_LEGEND = (
     "CTX est: estimated context of a cc session at the end of its last ask (percent of the model's maximum input, with"
     " its age); not a live measurement",
 )
+
+
+# The top-to-bottom order below the title (#430). Compact ends with LEADS.
+# Detail section keys are monitor group IDs.
+FRAME_SECTIONS = {
+    "pools": POOLS_HEADING,
+    "suggest": "suggest:",
+    "alerts": "ALERTS",
+    "running": "RUNNING",
+    "recent": "RECENT",
+    "leads": "LEADS",
+    "capacity": "QUOTA",
+    "peers": "PEERS",
+    "execution": "EXECUTION",
+    "sessions": "SESSIONS",
+    "usage": "USAGE",
+    "context": "CONTEXT",
+}
+_FRAME_SECTION_KEYS = tuple(FRAME_SECTIONS)
+FRAME_SECTION_ORDER = _FRAME_SECTION_KEYS[:_FRAME_SECTION_KEYS.index("leads") + 1]
+FRAME_SECTION_HEADS = {key: FRAME_SECTIONS[key] for key in FRAME_SECTION_ORDER}
+FRAME_HEADS = tuple(FRAME_SECTION_HEADS.values())
+FRAME_DETAIL_ORDER = _FRAME_SECTION_KEYS[len(FRAME_SECTION_ORDER):]

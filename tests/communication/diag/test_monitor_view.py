@@ -45,7 +45,7 @@ def quota_visual_frame():
 def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeypatch):
     from peerhub.cli.monitor_layout import cell_width
     from peerhub.cli.monitor_legend import POOL_LEGEND
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     # The grouped layout is the plain view's and is never painted, whatever the colour flag (the rich --expand frame
@@ -65,7 +65,7 @@ def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeyp
 
 
 def test_quota_color_suppression_preserves_identical_text(quota_visual_frame, monkeypatch):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     options = {"width": 80, "height": 24, "unicode": False}
@@ -99,7 +99,7 @@ def test_quota_bar_boundaries_and_monotonic_fill(unicode_mode):
 
 
 def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     observations = quota_visual_frame["groups"]["capacity"]["data"]["observations"]
     observations[3]["state"] = "STALE"  # C1: the stale zero cannot win the caption.
@@ -119,7 +119,7 @@ def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
 ])
 @pytest.mark.parametrize("elapsed", [0, 60])
 def test_quota_reset_countdown_plain_and_tty_parity(frame, state, seconds, expected, elapsed):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
     from peerhub.cli.monitor_format import missing_pool_fact
 
     frame["selected_groups"] = ["capacity"]
@@ -180,7 +180,7 @@ def frame():
 
 
 def test_rich_grouped_view_is_visual_and_never_dumps_json(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="rich", color=False, unicode=True, width=100)
 
@@ -200,7 +200,7 @@ def test_rich_grouped_view_is_visual_and_never_dumps_json(frame):
 
 
 def test_plain_grouped_view_is_aligned_ascii_without_terminal_controls(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="plain", color=False, unicode=False, width=80)
 
@@ -213,7 +213,7 @@ def test_plain_grouped_view_is_aligned_ascii_without_terminal_controls(frame):
 
 @pytest.mark.parametrize("width", [20, 40, 60, 80, 120, 200])
 def test_compact_width_keeps_every_selected_group_visible(frame, width):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="plain", color=False, unicode=False, width=width)
 
@@ -223,7 +223,7 @@ def test_compact_width_keeps_every_selected_group_visible(frame, width):
 
 
 def test_grouped_view_reports_stale_unknown_and_partial_states_explicitly(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["context"]["data"]["sessions"][0]["context"].update(
         percent=None, state="UNKNOWN", reason="no_context_measurement")
@@ -240,7 +240,7 @@ def test_grouped_view_reports_stale_unknown_and_partial_states_explicitly(frame)
 
 
 def test_coverage_group_does_not_call_empty_scope_set_complete(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["coverage"]["data"]["scopes"] = []
     rendered = render_grouped_frame(frame, view="plain", unicode=False)
@@ -252,17 +252,20 @@ def test_human_renderer_is_isolated_from_schema_11_adapter():
     import ast
     from pathlib import Path
 
-    source = Path(__file__).resolve().parents[3] / "peerhub" / "cli" / "monitor_view.py"
-    tree = ast.parse(source.read_text(encoding="utf-8"))
-    imported = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-    imported.extend(alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
-    assert all("monitor_schema11" not in name for name in imported)
+    cli = Path(__file__).resolve().parents[3] / "peerhub" / "cli"
+    renderer = ("monitor_view", "monitor_compact", "monitor_expanded", "monitor_sections",
+                "monitor_activity_view", "monitor_alert_view", "monitor_quota_view")
+    for name in renderer:
+        tree = ast.parse((cli / f"{name}.py").read_text(encoding="utf-8"))
+        imported = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
+        imported.extend(alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
+        assert all("monitor_schema11" not in module for module in imported), name
 
 
 @pytest.mark.parametrize("width", [32, 48, 80, 120])
 def test_rich_frame_respects_terminal_width_without_losing_groups(frame, width):
     from peerhub.cli.monitor_layout import cell_width
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=width)
     assert all(group.upper() in rendered or (group == "capacity" and "QUOTA" in rendered) for group in frame["selected_groups"] if group not in {"overview", "coverage"})
@@ -273,7 +276,7 @@ def test_rich_frame_respects_terminal_width_without_losing_groups(frame, width):
 
 def test_colored_heading_keeps_ansi_after_width_fitting(frame, monkeypatch):
     from peerhub.cli.monitor_layout import RICH_SGR
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=80)
@@ -286,7 +289,7 @@ def test_colored_heading_keeps_ansi_after_width_fitting(frame, monkeypatch):
 @pytest.mark.parametrize("width", [15, 20, 40, 80, 120, 200])
 @pytest.mark.parametrize("height", [1, 2, 3, 4, 5, 8, 24, 60])
 def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, width, height):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=width, height=height)
 
@@ -311,7 +314,7 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
 def test_a_bounded_height_cuts_the_sections_from_the_bottom_up_in_catalog_order(frame):
     """#412: the sections go from the bottom up with a count (the old severity allocation is gone); a tall frame has them
     all, in the one order."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["overview", "execution", "coverage", "store"]
     frame["groups"]["store"]["status"] = "ERROR"
@@ -324,7 +327,7 @@ def test_a_bounded_height_cuts_the_sections_from_the_bottom_up_in_catalog_order(
 
 
 def test_full_severity_classes_keep_catalog_order_when_every_summary_fits(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     statuses = {"overview": "ERROR", "sessions": "UNAVAILABLE", "usage": "STALE",
                 "context": "PARTIAL", "runtime": "UNKNOWN", "execution": "OK",
@@ -339,7 +342,7 @@ def test_full_severity_classes_keep_catalog_order_when_every_summary_fits(frame)
 
 
 def test_store_provenance_and_safe_read_error_are_visible(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["store_selection"] = {"path": "D:/users/alice/private/core.db", "source": "discovered"}
     frame["errors"] = {"sessions": "OperationalError: secret-token SELECT * FROM private"}
@@ -353,7 +356,7 @@ def test_store_provenance_and_safe_read_error_are_visible(frame):
 
 
 def test_narrow_store_header_retains_source_and_wraps_path(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["store_selection"] = {"path": "D:/a/very/long/location/core.db", "source": "workspace"}
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=40, height=80)
@@ -364,7 +367,7 @@ def test_narrow_store_header_retains_source_and_wraps_path(frame):
 
 
 def test_dependent_error_groups_show_safe_root_reason(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["sessions"]["status"] = "ERROR"
     frame["errors"] = {"execution": "OperationalError: SELECT secret from user"}
@@ -376,7 +379,7 @@ def test_dependent_error_groups_show_safe_root_reason(frame):
 
 def test_display_width_ignores_combining_and_joiner_and_sanitizes_bidi(frame):
     from peerhub.cli.monitor_layout import cell_width
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="plain", unicode=True, width=20, height=8)
     assert cell_width("e\u0301") == 1
@@ -386,7 +389,7 @@ def test_display_width_ignores_combining_and_joiner_and_sanitizes_bidi(frame):
 
 def test_cjk_combining_and_joined_emoji_fit_actual_viewport(frame):
     from peerhub.cli.monitor_layout import cell_width
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["sessions"]
     frame["groups"]["sessions"]["data"]["items"][0]["state"] = "\u202e\u200b東京 cafe\u0301 👩\u200d💻\u0378"
@@ -398,7 +401,7 @@ def test_cjk_combining_and_joined_emoji_fit_actual_viewport(frame):
 
 
 def test_unicode_line_separators_cannot_inflate_physical_frame_height(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["overview"]["data"]["peers"][0]["display_name"] = "A\u2028B\u2029C"
     rendered = render_grouped_frame(frame, view="plain", unicode=True, width=80, height=8)
@@ -409,7 +412,7 @@ def test_unicode_line_separators_cannot_inflate_physical_frame_height(frame):
 
 
 def test_refresh_warning_reason_is_bounded_and_sanitized(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["refresh_state"] = "REFRESH PARTIAL · 1 warnings"
     frame["refresh_warnings"] = ["cx: probe_timeout: secret at D:/private/token"]
@@ -428,7 +431,7 @@ def test_refresh_warning_reason_is_bounded_and_sanitized(frame):
 
 
 def test_agy_stop_hint_is_available_in_frame_when_it_fits(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["refresh_state"] = "STOPPED · AGY TOKEN USE"
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
@@ -437,7 +440,7 @@ def test_agy_stop_hint_is_available_in_frame_when_it_fits(frame):
 
 
 def test_append_only_renderer_keeps_full_legacy_human_frame(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80)
 
@@ -447,7 +450,7 @@ def test_append_only_renderer_keeps_full_legacy_human_frame(frame):
 
 
 def test_plain_ascii_monitor_replaces_middle_dot_cleanly_without_question_marks(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["refresh_state"] = "REFRESH PARTIAL · 1 warnings"
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=80)
@@ -466,7 +469,7 @@ def test_plain_ascii_monitor_replaces_middle_dot_cleanly_without_question_marks(
 
 def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
     from peerhub.cli.monitor_layout import cell_width
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     # Add 4 sessions so total is 4 (exceeding 2-row cap)
     frame["groups"]["sessions"]["data"]["items"] = [
@@ -513,7 +516,7 @@ def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
 
 
 def test_expanded_sessions_show_uses_after_gen_and_compact_view_does_not(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["sessions"]["data"]["items"] = [
         {"peer_id": "cx", "state": "ACTIVE", "generation": 1, "resumable": True, "handle": "sess_a", "uses": 3,
@@ -529,7 +532,7 @@ def test_expanded_sessions_show_uses_after_gen_and_compact_view_does_not(frame):
 
 
 def test_narrow_sessions_drop_trailing_fields_whole_for_every_row(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["sessions"]["data"]["items"] = [
         {"peer_id": "cx", "state": "ACTIVE", "generation": n, "resumable": True, "handle": f"sess_{n}", "uses": n,
@@ -548,7 +551,7 @@ def test_narrow_sessions_drop_trailing_fields_whole_for_every_row(frame):
 
 def test_limited_height_drops_other_groups_before_clipping_quota(frame):
     """When terminal height is limited, other groups are dropped before clipping quota rows."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["capacity"]["data"]["observations"] = [
         {"peer_id": "cx", "pool_ref": f"quota:cx:{i}h", "state": "MEASURED",
@@ -565,7 +568,7 @@ def test_limited_height_drops_other_groups_before_clipping_quota(frame):
 
 
 def test_default_output_byte_identical_when_expand_is_false(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     out_implicit = render_grouped_frame(frame, view="plain", unicode=False, width=80)
     out_explicit = render_grouped_frame(frame, view="plain", unicode=False, width=80, expand=False)
@@ -578,7 +581,7 @@ def test_default_output_byte_identical_when_expand_is_false(frame):
 
 def test_detail_loop_stopping_early_emits_hidden_by_terminal_height(frame):
     """When a detail loop stops early due to viewport height, emit '+N rows hidden by terminal height'."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["capacity"]
     frame["groups"]["capacity"]["data"]["observations"] = [
@@ -596,7 +599,7 @@ def test_detail_loop_stopping_early_emits_hidden_by_terminal_height(frame):
 
 def test_warning_and_next_stop_overhead_accounted_for_without_clipping_quota(frame):
     """lines_used accounts for warning and Next: stop lines so quota is not clipped while other groups are dropped."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["capacity"]["data"]["observations"] = [
         {"peer_id": "cx", "pool_ref": f"quota:cx:{i}h", "state": "MEASURED",
@@ -617,7 +620,7 @@ def test_warning_and_next_stop_overhead_accounted_for_without_clipping_quota(fra
 
 def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback(frame):
     """#146 and #147: all CAPACITY rows render inside QUOTA [OK] (before RUNTIME/STORE), bar fills with remaining %, and USAGE computes input+output fallback when provider_total_tokens is None."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["capacity"]["data"]["observations"] = [
         {"peer_id": "cx", "pool_ref": "quota:cx:5h", "state": "MEASURED",
@@ -651,7 +654,7 @@ def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback
 
 def test_monitor_capacity_renders_argon_a_7d_pool_row_like_other_pools(frame):
     """#149: A-7D pool row renders in QUOTA like other pools without special casing."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["groups"]["capacity"]["data"]["observations"] = [
         {
@@ -675,7 +678,7 @@ def test_monitor_capacity_renders_argon_a_7d_pool_row_like_other_pools(frame):
 def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
     """Fixed-time render fixtures at 80x12, 80x24, 100x30, 120x40 (+plain) obey boundaries."""
     from peerhub.cli.monitor_layout import cell_width
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     t0 = 1760790000.0  # 2025-10-18T12:20:00Z
@@ -766,7 +769,7 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
 @pytest.mark.parametrize("view", ["plain", "rich"])
 def test_append_frame_leaves_terminal_last_column_free(frame, width, expand, unicode_mode, view):
     from peerhub.cli.monitor_layout import cell_width
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     rendered = render_grouped_frame(frame, view=view, width=width, unicode=unicode_mode,
                                     color=unicode_mode, expand=expand)
@@ -776,7 +779,7 @@ def test_append_frame_leaves_terminal_last_column_free(frame, width, expand, uni
 @pytest.mark.parametrize("width", [50, 60])
 @pytest.mark.parametrize("height", [None, 24])
 def test_narrow_quota_keeps_leftmost_columns_and_names_the_dropped_ones(frame, width, height):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["capacity"]
     item = frame["groups"]["capacity"]["data"]["observations"][0]
@@ -813,7 +816,7 @@ def test_g_expand_quota_bar_tick_and_painted_pace_preserve_plain_facts(monkeypat
 @pytest.mark.parametrize("height", [7, 9])
 def test_a_bounded_frame_counts_exactly_the_lines_it_hides(frame, height):
     """#412 (the per-section allocation of the old plain frame is gone): the count of the hint is the lines cut."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["usage"]
     frame["groups"]["usage"]["data"] = {"sessions": [
@@ -833,9 +836,9 @@ def test_a_bounded_frame_counts_exactly_the_lines_it_hides(frame, height):
 
 
 def test_c1_soonest_exhaust_header_says_exhausted_for_a_fresh_zero():
-    from peerhub.cli.monitor_view import _render_expanded_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame
 
-    label = next(line for line in _render_expanded_frame(_frame(0), view="plain", width=120).splitlines()
+    label = next(line for line in render_expanded_frame(_frame(0), view="plain", width=120).splitlines()
                  if "QUOTA [" in line)
     assert "ag G-7D 0% exhausted" in label
 
@@ -844,7 +847,7 @@ def test_c1_soonest_exhaust_header_says_exhausted_for_a_fresh_zero():
                                                   (0.25, 60, "past forecast"),
                                                   (0.0, 0, "exhausted")])
 def test_elapsed_forecast_is_not_measured_exhaustion(frame, rem, elapsed, expected):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["capacity"]
     frame["display_elapsed_seconds"] = elapsed
@@ -875,7 +878,7 @@ def _frame(remaining, credits=None):
                                              (0.005, "<1%"), (0.005000001, "1%"),
                                              (0.0, "0%"), (0.01, "1%"), (1.0, "100%")])
 def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
     plain = render_grouped_frame(_frame(remaining), view="plain", width=100, height=24).splitlines()
     rows = [ln for ln in plain if ln.startswith("ag ")]  # the QUOTA row (a POOLS row starts with a space)
     assert shown in [cell.rstrip("!") for cell in rows[0].split()]  # G7
@@ -890,7 +893,7 @@ def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
 @pytest.mark.parametrize("unicode_mode", [False, True])
 def test_peer_and_capacity_remainders_agree_without_changing_raw_frame(remaining, shown, width, unicode_mode):
     import copy
-    from peerhub.cli.monitor_view import _group_lines
+    from peerhub.cli.monitor_sections import group_lines
 
     frame = _frame(remaining)
     peer_group = {"data": {"peers": [{"peer_id": "ag", "quota": {
@@ -899,13 +902,13 @@ def test_peer_and_capacity_remainders_agree_without_changing_raw_frame(remaining
     frame["groups"]["peers"] = peer_group
     before = copy.deepcopy(frame)
     for group_id in ("peers", "capacity"):
-        lines, _ = _group_lines(group_id, frame["groups"][group_id], width=width, unicode=unicode_mode)
+        lines, _ = group_lines(group_id, frame["groups"][group_id], width=width, unicode=unicode_mode)
         assert shown in "\n".join(lines)
     assert frame == before
 
 
 def test_reset_credits_line_uses_relative_time():
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
     credit = {"peer_id": "cx", "available_count": 2, "nearest_expires_at": 1000.0 + 8 * 86400 + 22 * 3600, "state": "MEASURED"}
     out = render_grouped_frame(_frame(0.5, [credit]), view="plain", width=100, height=24)
     assert "cx reset credits: 2 | soonest in 8d22h [MEASURED]" in out
@@ -917,7 +920,7 @@ def test_reset_credits_line_uses_relative_time():
                                                        (1.0, "exhausted", True)])
 def test_exhaustion_alert_requires_within_window_risk(used, expected_state, alert):
     import copy
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
     from peerhub.extensions.quota_projection import project_exhaustion
 
     projection = project_exhaustion(used_fraction=used, window_start=0, resets_at=1000,
@@ -942,7 +945,7 @@ def test_exhaustion_alert_requires_within_window_risk(used, expected_state, aler
 
 
 def test_unified_monitor_human_contract(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
     frame["store_selection"] = {"path": "/workspace/.peerhub/core.db", "source": "explicit"}
     for height in (None, 60):
         rendered = render_grouped_frame(frame, view="plain", width=180, height=height)
@@ -953,7 +956,7 @@ def test_unified_monitor_human_contract(frame):
 
 
 def test_capacity_short_codes_profiles_and_staleness(quota_visual_frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
     from peerhub.cli.lessons import lookup_lessons
     quota_visual_frame["groups"]["peers"] = {"data": {"peers": [
         {"peer_id": "ag", "profile": {"name": "ag.argon", "pools": ["P-8H"]}}],
@@ -970,7 +973,7 @@ def test_capacity_short_codes_profiles_and_staleness(quota_visual_frame):
 
 def test_drift_footer_includes_unknown_pool_reason(quota_visual_frame):
     """Every facts_report reason is drift, including 'ag: unknown_pool' (no 'drift' substring)."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
     quota_visual_frame["groups"]["peers"] = {"data": {"peers": [],
         "facts_report": {"status": "needs_recheck", "reasons": ["ag: unknown_pool"]}}}
     quota_visual_frame["selected_groups"].append("peers")
@@ -982,7 +985,7 @@ def test_drift_footer_includes_unknown_pool_reason(quota_visual_frame):
 
 @pytest.mark.parametrize("height", [None, 40])
 def test_stored_escape_sequences_never_reach_the_terminal_even_when_colour_is_on(quota_visual_frame, height, monkeypatch):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     quota_visual_frame["groups"]["peers"] = {"status": "OK", "data": {"peers": [],

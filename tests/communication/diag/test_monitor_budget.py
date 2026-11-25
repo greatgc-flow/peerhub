@@ -5,16 +5,10 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_layout import cell_width
-from peerhub.cli.monitor_view import (
-    COMPACT_MAX_LINES,
-    FRAME_HEADS,
-    FRAME_SECTION_HEADS,
-    FRAME_TRAILING_ROWS,
-    CompactFrame,
-    fit_compact_frame,
-    render_grouped_frame,
-)
+from peerhub.cli.monitor_compact import COMPACT_MAX_LINES, CompactFrame, fit_compact_frame
+from peerhub.cli.monitor_layout import FRAME_TRAILING_ROWS, cell_width
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTION_HEADS
+from peerhub.cli.monitor_view import render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool, frame  # noqa: F401
 
 

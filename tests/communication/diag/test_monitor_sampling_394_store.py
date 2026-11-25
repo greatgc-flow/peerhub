@@ -12,7 +12,8 @@ import pytest
 from peerhub.extensions import diag_quota
 from peerhub.extensions.diag_readiness import compose
 from peerhub.extensions.monitor_queries import PEER_CAP
-from peerhub.extensions.monitor_read_model import mapped_quota, render_monitor_frame
+from peerhub.extensions.monitor_quota import mapped_quota
+from peerhub.extensions.monitor_read_model import render_monitor_frame
 from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
 from tests.communication.bridge_helpers import bseed
 from tests.communication.harness.bridge import BridgeHarness

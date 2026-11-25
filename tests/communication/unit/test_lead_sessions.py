@@ -16,6 +16,7 @@ import pytest
 
 from peerhub.extensions import lead_sessions as ls
 from peerhub.extensions.lead_sessions import lead_dirs as real_lead_dirs  # bound before the autouse fixture patches it
+from peerhub.extensions.monitor_activity import LEAD_CONTEXT_MARK_PCT
 
 NOW = 1_763_200_000.0
 HOST = "box"
@@ -1009,7 +1010,7 @@ def test_the_reader_writes_nothing(tmp_path: Path):
 
 def test_the_named_limits():
     assert (ls.LEAD_DIRS_CAP, ls.LEAD_FILES_CAP, ls.LEAD_FILE_MAX, ls.LEAD_PROJECTS_CAP, ls.LEAD_TAIL_BYTES,
-            ls.LEAD_CATALOG_MAX, ls.LEAD_PID_SLACK_S, ls.LEAD_CONTEXT_MARK_PCT) == (
+            ls.LEAD_CATALOG_MAX, ls.LEAD_PID_SLACK_S, LEAD_CONTEXT_MARK_PCT) == (
         8, 64, 16_384, 2_000, 262_144, 1_048_576, 2.0, 80)
 
 

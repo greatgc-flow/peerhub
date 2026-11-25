@@ -130,6 +130,7 @@ def test_plan_mismatch_reprobes_with_backoff(store, monkeypatch, capsys, converg
 
 def test_corrupt_quota_row_is_identified_as_quota(store, monkeypatch):
     from peerhub.extensions import monitor_read_model
+    from peerhub.extensions import monitor_quota
     from peerhub.extensions.observation_model import ObservationCorruptError
     account(store, "cx", plan="prolite", plan_status="reported")
     store.add("cx", "X-5H", "ABSENT", age=20, reason=NOT_REPORTED + "free")
@@ -143,7 +144,7 @@ def test_corrupt_quota_row_is_identified_as_quota(store, monkeypatch):
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM observations WHERE kind='account'").fetchall()
         with pytest.raises(sqlite3.DataError, match="invalid quota observation at capture_seq="):
-            monitor_read_model._read_accounts(conn, rows, store.now)
+            monitor_quota._read_accounts(conn, rows, store.now)
 
 
 def test_compact_has_no_accounts_line_and_expand_has_one_row_per_peer(store, capsys):

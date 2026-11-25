@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import json
 
-from peerhub.cli.monitor_view import FRAME_SECTIONS, render_grouped_frame
+from peerhub.cli.monitor_legend import FRAME_SECTIONS
+from peerhub.cli.monitor_view import render_grouped_frame
 from tests.communication.diag import test_monitor_expand_rich as expanded
 from tests.communication.diag import test_monitor_plain_golden as compact
 

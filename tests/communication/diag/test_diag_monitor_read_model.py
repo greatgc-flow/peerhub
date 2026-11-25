@@ -12,7 +12,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.diag, pytest.mark.platform_sensitive
 
 @pytest.mark.parametrize("layout", [".peerhub", "legacy"])
 def test_monitor_resolves_workspace_profiles_with_lineage_marker(tmp_path, monkeypatch, layout):
-    from peerhub.extensions.monitor_read_model import _current_profile, _monitor_workspace
+    from peerhub.extensions.monitor_sessions import current_profile, monitor_workspace
 
     workspace = tmp_path / "workspace"
     database_dir = workspace / ".peerhub" if layout == ".peerhub" else workspace
@@ -23,11 +23,11 @@ def test_monitor_resolves_workspace_profiles_with_lineage_marker(tmp_path, monke
     config.write_text('[profiles."cx.standard"]\nmodel="workspace-model"\n', encoding="utf-8")
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
 
-    root = _monitor_workspace(str(database_dir / "core.db"), None)
-    profile = _current_profile("cx.standard", root)
+    root = monitor_workspace(str(database_dir / "core.db"), None)
+    profile = current_profile("cx.standard", root)
     assert root == workspace
     assert profile["fields"]["model"] == {"value": "workspace-model", "source": "workspace"}
-    assert _monitor_workspace(str(database_dir / "core.db"), tmp_path) == tmp_path
+    assert monitor_workspace(str(database_dir / "core.db"), tmp_path) == tmp_path
 
 
 def test_usage_coverage_reads_bounded_daily_projection():
@@ -219,7 +219,7 @@ def test_session_latency_reads_only_named_scope_and_thirty_utc_days():
 
 
 def test_monitor_telemetry_projection_is_schema_bound_and_allowlisted():
-    from peerhub.extensions.monitor_read_model import public_telemetry
+    from peerhub.extensions.monitor_sessions import public_telemetry
     from peerhub.extensions.usage_normalization import validate_provider_usage
 
     usage = validate_provider_usage({

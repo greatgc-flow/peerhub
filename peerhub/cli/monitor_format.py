@@ -270,7 +270,7 @@ def _has_value(row: dict[str, Any]) -> bool:
 
 def display_min_quota(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Line 1's `min quota` from the rows POOLS draws (P9): the lowest 7-day pool that has a percent at the time of
-    this redraw, with the state the table shows. The rule is monitor_read_model.min_quota's."""
+    this redraw, with the state the table shows. The rule is monitor_quota.min_quota's."""
     weekly = [(round(float(row["remaining"]) * 100), f"{row['peer']} {row['pool']}", row) for row in rows
               if str(row["pool"]).rpartition("-")[1:] == ("-", "7D") and _has_value(row)]
     if not weekly:

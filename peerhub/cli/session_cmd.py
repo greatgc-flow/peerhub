@@ -222,7 +222,7 @@ def run_session(args: argparse.Namespace) -> int:
 
 
 def _session_public_row(row: sqlite3.Row, *, now: float) -> dict[str, Any]:
-    from peerhub.extensions.monitor_read_model import context_estimate_age, public_telemetry
+    from peerhub.extensions.monitor_sessions import context_estimate_age, public_telemetry
 
     binding: dict[str, Any] = {"profile": None, "model": None, "effort": None, "writable": None}
     binding_json = row["binding_json"] if "binding_json" in row.keys() else None

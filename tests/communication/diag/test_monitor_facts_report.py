@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+from peerhub.cli.monitor_expanded import render_expanded_frame as render_grouped_frame
 from peerhub.cli.monitor_view import render_grouped_frame as render_compact
 from peerhub.extensions.adapters.profiles import packaged_defaults_meta
 from peerhub.extensions.monitor_read_model import render_monitor_frame

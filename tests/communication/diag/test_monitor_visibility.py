@@ -10,7 +10,9 @@ import pytest
 
 from peerhub.cli.monitor_layout import cell_width
 from peerhub.cli.monitor_links import GUIDE_TEXT
-from peerhub.cli.monitor_view import FRAME_SECTIONS, FRAME_TRAILING_ROWS, render_grouped_frame
+from peerhub.cli.monitor_legend import FRAME_SECTIONS
+from peerhub.cli.monitor_layout import FRAME_TRAILING_ROWS
+from peerhub.cli.monitor_view import render_grouped_frame
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 
 NOW = 1_794_522_324.0
@@ -594,7 +596,7 @@ def test_painted_field_fitting_preserves_cell_bounds(sep: str, unicode_mode: boo
 @pytest.mark.parametrize("invalid", ["1794522316000000", "bad", None, True, float("nan"), float("inf")])
 @pytest.mark.parametrize("invalid_first", [False, True])
 def test_plan_omission_ignores_invalid_timestamps(frame: dict[str, Any], invalid: object, invalid_first: bool) -> None:
-    from peerhub.cli.monitor_view import _display_plan_omissions
+    from peerhub.cli.monitor_quota_view import display_plan_omissions
 
     cap = frame["groups"]["capacity"]["data"]
     old, current = [deepcopy(item) for item in cap["observations"] if item["peer_id"] == "cx"][:2]
@@ -603,7 +605,7 @@ def test_plan_omission_ignores_invalid_timestamps(frame: dict[str, Any], invalid
     malformed = {**current, "effective_at_us": invalid, "state": "ERROR", "pool_ref": None}
     cap["observations"] = [malformed, old, current] if invalid_first else [old, current, malformed]
     cap["accounts"] = [{"peer_id": "cx", "plan": "pro", "state": "MEASURED"}]
-    result = _display_plan_omissions(frame)
+    result = display_plan_omissions(frame)
     rows = result["groups"]["capacity"]["data"]["observations"]
     assert next(row for row in rows if row["pool_ref"] == old["pool_ref"])["display_retired"] is True
     assert old["state"] == "STALE"

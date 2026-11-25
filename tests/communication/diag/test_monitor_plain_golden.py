@@ -10,7 +10,8 @@ from typing import Any
 import pytest
 
 from peerhub.cli.monitor_links import guide_text_url
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
+from peerhub.cli.monitor_view import render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import NOW, SOURCES_READ, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 

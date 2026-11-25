@@ -334,14 +334,14 @@ def test_guide_names_the_api_peers_and_points_to_their_topic(capsys):
 
 
 def test_suggest_never_names_an_api_peer(tmp_path):
-    from peerhub.cli.monitor_view import _compact_suggestions  # pyright: ignore[reportPrivateUsage]
+    from peerhub.cli.monitor_quota_view import compact_suggestions  # pyright: ignore[reportPrivateUsage]
     from peerhub.extensions.adapters.profiles import list_profiles
 
     profiles = list_profiles(tmp_path)
     assert {"ca.standard", "oa.standard", "ga.standard"} <= {p["profile"] for p in profiles}
     rows = [{"peer": peer, "pool": pool, "aged": False, "state": "ok", "remaining": 0.9, "reset_seconds": 3600.0}
             for p in profiles for peer in [p["profile"].split(".", 1)[0]] for pool in (p["fields"]["pools"]["value"] or [])]
-    text = _compact_suggestions(profiles, rows)
+    text = compact_suggestions(profiles, rows)
     assert text.startswith("suggest: eco=") and not any(f"{kind}." in text for kind in API_KINDS)
 
 

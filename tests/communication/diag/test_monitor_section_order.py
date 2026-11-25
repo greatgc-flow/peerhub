@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, FRAME_TRAILING_ROWS, render_grouped_frame
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
+from peerhub.cli.monitor_layout import FRAME_TRAILING_ROWS
+from peerhub.cli.monitor_view import render_grouped_frame
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 from tests.communication.diag.test_monitor_expand_rich import detail_payload, heads
 
