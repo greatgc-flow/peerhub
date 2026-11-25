@@ -83,6 +83,7 @@ def _restore_console_mode(mode: int | None) -> None:
         pass
 
 
+NO_AUTOWRAP, AUTOWRAP = "\x1b[?7l", "\x1b[?7h"  # DECAWM off while a row-anchored frame is live
 FULL_REPAINT_FRAMES = 60  # live frames between full repaints; the others rewrite only changed rows
 
 
@@ -109,7 +110,11 @@ class FrameOutput:
             self.last_frame = frame
             if not self.started:
                 self.started = True
-                prefix = ("\x1b[?1049h" if self.alt_screen else "") + "\x1b[?25l\x1b[H\x1b[2J"
+                # Row-anchored frames turn auto-wrap off (DECAWM): a row wider than the terminal (ambiguous-width
+                # glyphs drawn double-width on CJK consoles) is clipped at the edge instead of spilling onto the next
+                # row, where a row that did not change would keep the spill until the next full repaint.
+                prefix = (("\x1b[?1049h" if self.alt_screen else "") + "\x1b[?25l"
+                          + (NO_AUTOWRAP if self.anchor_rows else "") + "\x1b[H\x1b[2J")
             else:
                 prefix = "\x1b[H"
             if self.anchor_rows:
@@ -145,10 +150,11 @@ class FrameOutput:
     def close(self) -> None:
         try:
             if self.started:
+                wrap = AUTOWRAP if self.anchor_rows else ""
                 if self.alt_screen:
-                    sys.stdout.write("\x1b[?1049l\x1b[0m\x1b[?25h" + self.last_frame)
+                    sys.stdout.write("\x1b[?1049l" + wrap + "\x1b[0m\x1b[?25h" + self.last_frame)
                 else:
-                    sys.stdout.write("\x1b[0m\x1b[?25h" + ("\r\n" if self.anchor_rows else ""))
+                    sys.stdout.write(wrap + "\x1b[0m\x1b[?25h" + ("\r\n" if self.anchor_rows else ""))
                 sys.stdout.flush()
                 self.started = False
         finally:
