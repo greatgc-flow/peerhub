@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from peerhub.extensions.adapters.api import API_TARGETS
+from peerhub.extensions.adapters.common import classify_refusal_text
 from peerhub.extensions.adapters.profiles import inspect_model_pools, list_profiles
-from peerhub.extensions.adapters.base import classify_refusal_text
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.observation_model import instant_us
 from peerhub.extensions.quota_projection import limit_by_parent, scoped_parent_ref

@@ -22,7 +22,7 @@ from typing import Any
 
 from peerhub.extensions.bridge_claims import ClaimHeldError
 from peerhub.extensions.adapters.api import RequestRejected
-from peerhub.extensions.adapters.base import AgRequiresWritableError
+from peerhub.extensions.adapters.ag import AgRequiresWritableError
 from peerhub.extensions.bridge import (
     ConflictingSessionFlagsError,
     InvalidSessionHandleSyntaxError,
@@ -188,7 +188,7 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
     root = Path(__file__).resolve().parents[3]
     bridge_file = root / "peerhub" / "extensions" / "bridge.py"
     claims_file = root / "peerhub" / "extensions" / "bridge_claims.py"
-    adapter_base = root / "peerhub" / "extensions" / "adapters" / "base.py"
+    adapters = root / "peerhub" / "extensions" / "adapters"
     ask_file = root / "peerhub" / "extensions" / "ask.py"
     app_file = root / "peerhub" / "cli" / "app.py"
 
@@ -199,10 +199,11 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
         with open(file_path, "r", encoding="utf-8") as f:
             tree = ast.parse(f.read(), str(file_path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Raise):
-                if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
-                    if node.exc.func.id and node.exc.func.id[0].isupper():
-                        exceptions.add(node.exc.func.id)
+            if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+                func = node.exc.func
+                name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+                if name and name[0].isupper():
+                    exceptions.add(name)
 
     # 1. Statuses and raises from bridge.py
     with open(bridge_file, "r", encoding="utf-8") as f:
@@ -218,9 +219,10 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
                 if node.exc.func.id and node.exc.func.id[0].isupper():
                     exceptions.add(node.exc.func.id)
 
-    # 2. Raises from bridge_claims.py and adapter base.py
+    # 2. Raises from bridge_claims.py and the CLI provider adapters
     _extract_raises(claims_file)
-    _extract_raises(adapter_base)
+    for module in ("base", "common", "cc", "cx", "ag"):
+        _extract_raises(adapters / f"{module}.py")
 
     # 3. Statuses and raises from ask.py
     with open(ask_file, "r", encoding="utf-8") as f:
@@ -1627,7 +1629,7 @@ def test_batch_classifies_denied_empty_as_unverified():
 
 
 def test_denied_action_names_parses_agy_json_defensively():
-    from peerhub.extensions.adapters.base import denied_action_names
+    from peerhub.extensions.adapters.ag import denied_action_names
     out = '{"response":"","denied_actions":[{"action":"command"},{"action":"command"},{"x":1},"junk",{"action":"edit"}]}'
     assert denied_action_names(out) == ["command", "edit"]
     assert denied_action_names('{"response":"ok"}') == []

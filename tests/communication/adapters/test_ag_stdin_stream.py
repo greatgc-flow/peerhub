@@ -13,9 +13,9 @@ import pytest
 
 from peerhub.cli.app import _provider_limit, main
 from peerhub.extensions import ask as ask_module
-from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, ag_stream, base, process
-from peerhub.extensions.adapters.ag_stream import encode_user_line, parse_ag_stream_json, terminal_quota, terminal_result
-from peerhub.extensions.adapters.base import EXCERPT_CHARS, AgSpec
+from peerhub.extensions.adapters import CliRuntimeTarget, SPECS, Sanitizer, ag, common, process
+from peerhub.extensions.adapters.ag import AgSpec, encode_user_line, parse_ag_stream_json, terminal_quota, terminal_result
+from peerhub.extensions.adapters.common import EXCERPT_CHARS
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
 from peerhub.extensions.adapters.telemetry import unknown_usage
 from peerhub.extensions.ask import ask
@@ -30,16 +30,16 @@ RECORDED = FIXTURE.read_text(encoding="utf-8")
 CID = "vendor-session-sentinel-DO-NOT-PERSIST"
 QUOTA_LINE = Q_STDERR.splitlines()[0]  # error: Individual quota reached. ... Resets in 20h9m47s.
 QUOTA = {"reason": "quota_exhausted", "reset_time": "20h9m47s"}
-REAL_DETECT = base._detect_ag_transport  # captured before the communication conftest forces argv
+REAL_DETECT = ag._detect_ag_transport  # captured before the communication conftest forces argv
 UNICODE = "漢字 😀 שלום é  |  a\r\nb\rc\x00 end"
 
 
 @pytest.fixture(autouse=True)
 def _real_detection(monkeypatch):
-    monkeypatch.setattr(base, "_detect_ag_transport", REAL_DETECT)
-    base._AG_TRANSPORT_CACHE.clear()
+    monkeypatch.setattr(ag, "_detect_ag_transport", REAL_DETECT)
+    ag._AG_TRANSPORT_CACHE.clear()
     yield
-    base._AG_TRANSPORT_CACHE.clear()
+    ag._AG_TRANSPORT_CACHE.clear()
 
 
 def _lines(path: Path) -> list[dict]:
@@ -215,8 +215,8 @@ def test_05_fixture_mutations_fail_closed(kit, bridge_h, name):
 ], ids=["help-flag", "help-no-flag", "help-exit-3", "help-hang", "version-hang", "no-version"])
 def test_06_detection_matrix(kit, monkeypatch, env, expected, version):
     # Only the probe that hangs gets a 1 s deadline; the others keep the real one, so a slow start-up never decides.
-    real_probe, hang = base._probe_cli, env.get("FAKE_PROBE_HANG")
-    monkeypatch.setattr(base, "_probe_cli", lambda b, args, **kw: real_probe(b, args, **{
+    real_probe, hang = common.probe_cli, env.get("FAKE_PROBE_HANG")
+    monkeypatch.setattr(common, "probe_cli", lambda b, args, **kw: real_probe(b, args, **{
         **kw, "timeout_s": 1.0 if args[0] == hang else kw["timeout_s"]}))
     meta = kit.target(env=env).execution_metadata()
     assert meta == {"ag_transport": expected, "ag_transport_source": "help", "ag_cli_version": version}
@@ -254,10 +254,10 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
     binary = tmp_path / "agy.exe"
     binary.write_bytes(b"one")
     probes = Probes()
-    monkeypatch.setattr(base, "_probe_cli", probes)
+    monkeypatch.setattr(common, "probe_cli", probes)
 
     def detect():
-        return base._detect_ag_transport([str(binary)], {}, str(tmp_path)).transport
+        return ag._detect_ag_transport([str(binary)], {}, str(tmp_path)).transport
 
     assert detect() == detect() == "stream"
     assert probes.calls == ["--version", "--help", "--version"]
@@ -275,7 +275,7 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
                                   "aborted"])  # output_truncated alone = a truncated stderr, which the help is also read from
 def test_06b_unusable_probe_is_undetermined_and_never_cached(kit, bridge_h, monkeypatch, probe, flag):
     probes = Probes(fail=(probe, flag))
-    monkeypatch.setattr(base, "_probe_cli", probes)
+    monkeypatch.setattr(common, "probe_cli", probes)
     target = kit.target()
     bseed(bridge_h)
     for _ in range(2):
@@ -729,7 +729,7 @@ def test_23a_e_quota_anywhere_in_the_terminal_is_found(detail):
 def _quota_error(line: str) -> str:
     match = terminal_quota(_result_line(line))
     assert match is not None
-    return base._ag_quota_error(match, "ERROR", 0, Sanitizer())
+    return ag._ag_quota_error(match, "ERROR", 0, Sanitizer())
 
 
 def test_23f_long_line_keeps_the_reset_in_the_summary_within_the_bound():
@@ -758,7 +758,7 @@ def test_23h_a_cut_that_creates_a_higher_priority_reset_drops_line_2():
     line = head + "x" * (limit - len(head) - len(" resets 5:30")) + " resets 5:300 later; " + "y" * 100 + f" resets at {iso}."
     assert line.index(iso) > EXCERPT_CHARS
     assert Sanitizer().clean(line, limit).endswith(" resets 5:30...[truncated]")
-    assert base.extract_reset_time(line) == iso
+    assert common.extract_reset_time(line) == iso
     error = _quota_error(line)
     assert error.split("\n") == [line1, "ag stream result ERROR (exit 0)"]
     assert _provider_limit(error) == {"reason": "quota_exhausted", "reset_time": iso}
@@ -795,7 +795,7 @@ def test_cc_cx_stdin_bytes_argv_and_metadata_are_unchanged(kit, monkeypatch, kin
     assert _drain(target, prompt)[-1][1]["response"] == "OK"
     assert bytes(written) == prompt.encode("utf-8")
     (launch,) = _lines(kit.launch_log)
-    assert launch["argv"] == base.SPECS[kind].argv(None, None, prompt, False, None)
+    assert launch["argv"] == SPECS[kind].argv(None, None, prompt, False, None)
     assert kit.probes == []
 
 
@@ -809,7 +809,7 @@ def test_terminal_result_observations():
     assert observed["response"] == "answer-fragment-sentinel" and observed["conversation_id"] == CID
     assert observed["terminal_line"] == RECORDED.splitlines()[-1]
     assert observed["validation"] is None
-    assert ag_stream.terminal_result(_with_status("ERROR").encode())["response"] is None
+    assert terminal_result(_with_status("ERROR").encode())["response"] is None
 
 
 # ---- decision D (#369): delivery from the framing and the terminal only; step events are telemetry
@@ -1039,11 +1039,11 @@ def _denied_only_mentioned() -> str:
 
 def test_e_d_mentions_outside_the_terminal_result_never_produce_names(kit, tmp_path, monkeypatch, capsys):
     mention = _denied_only_mentioned()
-    assert base.denied_action_names(mention) == []
+    assert ag.denied_action_names(mention) == []
     events = _denied_events()
     events[-1]["result"]["response"] = json.dumps({"denied_actions": [{"action": "command"}]})
     del events[-1]["result"]["denied_actions"]
-    assert base.denied_action_names(_nd(events)) == []
+    assert ag.denied_action_names(_nd(events)) == []
     code, out = _ask_ag(kit, tmp_path, monkeypatch, capsys, mention, True)
     assert (out["status"], out["response"], out["empty_response"], code) == ("delivered", "", True, 0)
     assert "denied_actions" not in out
@@ -1052,11 +1052,11 @@ def test_e_d_mentions_outside_the_terminal_result_never_produce_names(kit, tmp_p
 def test_e_e_names_come_from_a_flat_object_only():
     # The stream transport hands over the validated terminal's `result.denied_actions` as one flat object (#371).
     flat = '{"response":"","denied_actions":[{"action":"command"},{"action":"edit"}]}'
-    assert base.denied_action_names(flat) == ["command", "edit"]
+    assert ag.denied_action_names(flat) == ["command", "edit"]
     listed = [{"action": "command"}]
     for event in ({"event": "step_update", "denied_actions": listed}, {"event": "init", "denied_actions": listed},
                   {"event": "result", "result": {"denied_actions": listed}}):
-        assert base.denied_action_names(json.dumps(event)) == []
+        assert ag.denied_action_names(json.dumps(event)) == []
 
 
 def test_e_f_a_line_separator_in_the_terminal_event_keeps_the_names(kit):

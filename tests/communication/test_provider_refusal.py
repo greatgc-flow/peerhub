@@ -684,10 +684,10 @@ def test_bridge_does_not_ack_incomplete_refusal_event(bridge_h, started, payload
     "Weekly limit reached",
 ])
 def test_cc_limit_phrasings_classify_as_usage_limit(text):
-    from peerhub.extensions.adapters.base import classify_refusal_text
+    from peerhub.extensions.adapters.common import classify_refusal_text
     assert classify_refusal_text(text)["reason"] == "usage_limit"
 
 
 def test_reset_time_ignores_prose_that_is_not_a_time():
-    from peerhub.extensions.adapters.base import extract_reset_time
+    from peerhub.extensions.adapters.common import extract_reset_time
     assert extract_reset_time("rate_limit_error: resets 3 times a day") is None

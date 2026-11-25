@@ -96,7 +96,7 @@ def test_communication_core_has_no_extension_or_cli_imports() -> None:
 def test_runtime_port_and_provider_adapter_do_not_import_bridge() -> None:
     targets = [
         ROOT / "peerhub" / "extensions" / "runtime_contract.py",
-        ROOT / "peerhub" / "extensions" / "adapters" / "base.py",
+        *sorted((ROOT / "peerhub" / "extensions" / "adapters").glob("*.py")),
     ]
     violations = [
         f"{path.relative_to(ROOT)}: {module}"

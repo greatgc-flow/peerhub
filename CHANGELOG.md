@@ -15,6 +15,7 @@ they do not claim new validation or publication evidence.
 ### Changed (internal)
 
 - Split quota and account probes into provider modules with shared probe helpers.
+- Split the Claude Code, Codex, and Antigravity CLI adapters into provider modules. Antigravity owns stream parsing and transport detection.
 
 ## [0.26.14] - 2026-11-25
 

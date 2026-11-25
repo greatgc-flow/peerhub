@@ -381,7 +381,9 @@ def test_t1_catch_up_is_in_prompt_and_bounded(mk):
 
 
 def test_leading_dash_prompt_is_data_for_every_provider():
-    from peerhub.extensions.adapters.base import AgSpec, CcSpec, CxSpec
+    from peerhub.extensions.adapters.ag import AgSpec
+    from peerhub.extensions.adapters.cc import CcSpec
+    from peerhub.extensions.adapters.cx import CxSpec
     for prompt in ("-h", "--help", "-", "ordinary", "\n-h"):
         args = AgSpec().argv(None, None, prompt)
         assert args[args.index("-p") + 1] == ("\n" + prompt if prompt.startswith("-") else prompt)
@@ -533,7 +535,8 @@ def test_native_delivery_cc_oversized_tool_event_before_result_delivers(tmp_path
 
 def test_cx_requires_completion_after_latest_activity_in_both_parsers():
     """Completion must occur after latest activity in both CxSpec and IncrementalEventParser."""
-    from peerhub.extensions.adapters.base import CxSpec, IncrementalEventParser
+    from peerhub.extensions.adapters.base import IncrementalEventParser
+    from peerhub.extensions.adapters.cx import CxSpec
 
     # Turn 1 completes, but newer turn starts without completion
     events_new_turn = (

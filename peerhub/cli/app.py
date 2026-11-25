@@ -464,7 +464,7 @@ def _emit(payload: Any, json_output: bool) -> None:
 
 def _provider_limit(detail_error: str | None) -> dict[str, Any] | None:
     """Limit evidence in a failed ask's error text; informational only, the ask stays uncertain (#186)."""
-    from peerhub.extensions.adapters.base import classify_refusal_text, extract_reset_time
+    from peerhub.extensions.adapters.common import classify_refusal_text, extract_reset_time
     limit = None
     for line in (detail_error or "").splitlines():
         r = classify_refusal_text(line.split(": ", 1)[1] if line.startswith(("ag exited", "cx exited", "cc exited")) else line)
@@ -1522,7 +1522,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     def error_output(code: str, message: str, session: dict[str, Any] | None = None, exception: BaseException | None = None) -> None:
         if args.subcommand == "ask":
             from peerhub.cli.recovery import make_guidance_payload, render_exception_guidance_hint, select_guidance_code
-            from peerhub.extensions.adapters.base import AgRequiresWritableError
+            from peerhub.extensions.adapters.ag import AgRequiresWritableError
             guidance_code = select_guidance_code(exception=exception)
             db_arg = getattr(args, "db", None)
             sid = getattr(args, "stream_id", None)
