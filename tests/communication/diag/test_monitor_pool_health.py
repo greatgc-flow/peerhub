@@ -178,7 +178,7 @@ def test_bounded_frame_evicts_gap_with_pools(expand: bool) -> None:
         screen = mv.render_grouped_frame(data, view="plain", width=100, height=height, expand=expand)
         shown = "\nPOOLS " in screen
         assert shown == (f"\ngap vs {PACE_GAP_BASELINE}" in screen), (height, screen)
-        if height == 5 + mv.FRAME_TRAILING_ROWS:  # verdict, title, POOLS heading, row and gap
+        if height == 5 + monitor_layout.FRAME_TRAILING_ROWS:  # verdict, title, POOLS heading, row and gap
             assert shown
 
 

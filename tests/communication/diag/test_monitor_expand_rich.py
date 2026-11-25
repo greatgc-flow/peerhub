@@ -10,9 +10,11 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_format, monitor_layout, monitor_legend, monitor_links, monitor_view as mv
+from peerhub.cli import monitor_activity_view, monitor_compact, monitor_format, monitor_layout, monitor_legend, monitor_links
 from peerhub.cli.monitor_layout import cell_width
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
+from peerhub.cli.monitor_view import render_grouped_frame
+from peerhub.extensions import monitor_queries
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import GOLDEN_GUIDE_URL, _payload, blocks, full_payload, quiet_payload
@@ -146,7 +148,7 @@ def test_expansion_keeps_the_compact_pool_rows_and_section_order(width, color, u
 def test_expand_uses_the_terminal_width_and_compact_widens_its_pool_table():
     payload = eight_pools_payload()
     small = compact(payload, width=140)
-    assert cell_width(small.splitlines()[0]) == mv.COMPACT_WIDTH - 1
+    assert cell_width(small.splitlines()[0]) == monitor_compact.COMPACT_WIDTH - 1
     assert max(map(cell_width, block(small, "pools"))) == 139
     wide = expand(payload, width=140).splitlines()
     assert max(cell_width(line) for line in wide) == 139 and cell_width(wide[0]) == 139  # one rule: the last column stays free
@@ -411,7 +413,7 @@ def test_running_entries_start_with_the_compact_marker_and_keep_every_field():
     asks = [row for row in payload["groups"]["activity"]["data"]["asks"] if row["state"] in ("run", "overdue")]
     for row, ask_row in zip(rows, asks):
         text = flat(row)
-        for field in mv._ask_fields(ask_row):
+        for field in monitor_activity_view._ask_fields(ask_row):
             assert field in text, field
         assert f"ask: {ask_row['ask_line_long']}" in text
         assert all(line.startswith("   ") and not line.startswith("    ") for line in row.splitlines()[1:])
@@ -441,15 +443,15 @@ def test_recent_expands_history_and_names_the_running_and_superseded_counts():
 
     payload = quiet_payload()
     asks = [ask("ok", name=f"done-{i}", age=60.0 * (i + 1), exact=True, reply_line="fine")
-            for i in range(mv.TEXT_NEWEST_ROWS + 1)]
+            for i in range(monitor_queries.TEXT_NEWEST_ROWS + 1)]
     asks.append(ask("unsure", name="replaced", superseded=True, note="superseded", age=4000, exact=True))
     asks.append(ask(name="still-running"))
     payload["groups"]["activity"]["data"] = activity_data(asks)
     screen = expand(payload)
-    assert f"── RECENT {mv.TEXT_NEWEST_ROWS + 1} (1 running) · superseded 1 ─" in screen
+    assert f"── RECENT {monitor_queries.TEXT_NEWEST_ROWS + 1} (1 running) · superseded 1 ─" in screen
     rows = entries(block(screen, "recent"))
-    assert len(rows) == mv.TEXT_NEWEST_ROWS + 1
-    assert f"done-{mv.TEXT_NEWEST_ROWS - 1}" in rows[-2] and "replaced" in rows[-1]
+    assert len(rows) == monitor_queries.TEXT_NEWEST_ROWS + 1
+    assert f"done-{monitor_queries.TEXT_NEWEST_ROWS - 1}" in rows[-2] and "replaced" in rows[-1]
     assert "still-running" not in "".join(rows)
 
 def test_leads_entries_list_every_lead_with_a_context_meter():
@@ -572,7 +574,7 @@ def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
         assert len(lines) <= height - 1
         assert lines[:2] == whole[:2]
         shown = heads(screen)
-        if height == 5 + mv.FRAME_TRAILING_ROWS:
+        if height == 5 + monitor_layout.FRAME_TRAILING_ROWS:
             assert lines[-1].startswith(f"gap vs {PACE_GAP_BASELINE}")
         else:
             assert "--expand | more" in screen

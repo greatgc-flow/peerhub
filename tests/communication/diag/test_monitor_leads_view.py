@@ -12,14 +12,10 @@ import pytest
 
 from peerhub.cli.monitor_layout import cell_width
 from peerhub.cli.monitor_legend import MONITOR_LEGEND
-from peerhub.cli.monitor_view import (
-    COMPACT_MAX_LINES,
-    FRAME_HEADS,
-    FRAME_SECTIONS,
-    CompactFrame,
-    fit_compact_frame,
-    render_grouped_frame,
-)
+from peerhub.cli.monitor_compact import COMPACT_MAX_LINES, CompactFrame, fit_compact_frame
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
+from peerhub.cli.monitor_view import render_grouped_frame
+from peerhub.extensions.monitor_activity import LEAD_CONTEXT_MARK_PCT
 from tests.communication.diag.test_monitor_activity import db  # noqa: F401  (a fixture: a store with the Bridge tables)
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame, section  # noqa: F401
 
@@ -451,10 +447,13 @@ def test_unmatched_caller_session_statistic_respects_read_evidence(frame, read):
         assert header.index(warning) < header.index("0 sessions found")
 
 
-def test_the_view_mark_mirrors_the_read_model_mark():
-    from peerhub.cli import monitor_view
-    from peerhub.extensions import monitor_read_model
-    assert monitor_view._LEAD_MARK_PCT == monitor_read_model.LEAD_CONTEXT_MARK_PCT  # pyright: ignore[reportPrivateUsage]
+def test_the_view_marks_leads_at_the_read_model_threshold(frame):
+    threshold = LEAD_CONTEXT_MARK_PCT
+    with_leads(frame, [lead("below", session=sess(context_pct=threshold - 1)),
+                       lead("at", session=sess(context_pct=threshold))])
+    _, below, at = leads_block(screen(frame))
+    assert f"ctx {threshold - 1}% " in below
+    assert f"ctx {threshold}%!" in at
 
 
 def test_the_legend_names_the_leads_columns():

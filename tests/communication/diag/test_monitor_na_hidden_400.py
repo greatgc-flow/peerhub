@@ -18,10 +18,8 @@ from peerhub.cli.monitor_layout import (
     cell_width,
 )
 from peerhub.cli.monitor_legend import POOL_LEGEND
-from peerhub.cli.monitor_view import (
-    _HIDDEN_QUOTA_WINDOWS,
-    render_grouped_frame,
-)
+from peerhub.cli.monitor_quota_view import HIDDEN_QUOTA_WINDOWS
+from peerhub.cli.monitor_view import render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_expand_rich import block, expand, strip
 from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload
@@ -142,7 +140,7 @@ def test_all_unavailable_pools_have_no_empty_tables_or_legend(view, expanded):
     options = dict(view=view, width=150, expand=expanded)
     hidden = render_grouped_frame(payload, show_quota_notes=SHOW_QUOTA_NOTES_DEFAULT, **options)
     assert re.search(r"POOLS 0\b[^\n]*$", hidden, re.MULTILINE)
-    assert _HIDDEN_QUOTA_WINDOWS in hidden
+    assert HIDDEN_QUOTA_WINDOWS in hidden
     assert all(text not in hidden for text in ("A-7D", "PACE(pp)", "PEER POOL", "gap vs ", "no quota evidence"))
 
     shown = render_grouped_frame(payload, show_quota_notes=True, **options)

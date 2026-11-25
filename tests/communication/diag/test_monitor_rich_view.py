@@ -10,9 +10,11 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_format, monitor_layout, monitor_legend, monitor_view as mv
+from peerhub.cli import monitor_format, monitor_layout, monitor_legend
+from peerhub.cli import monitor_quota_view
 from peerhub.cli.monitor_layout import cell_width
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER, render_grouped_frame
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER
+from peerhub.cli.monitor_view import render_grouped_frame
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
@@ -144,8 +146,8 @@ def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
     width = 110
     line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 8")
     assert line.startswith(f"── {POOLS_HEAD} 8 ─") and line.endswith("─") and cell_width(line) == width - 1
-    assert mv.POOLS_USE_FIRST_HINT in line
-    titles = [word for word in line.replace(mv.POOLS_USE_FIRST_HINT, "").split() if word in monitor_format._POOL_COLUMNS]
+    assert monitor_quota_view.POOLS_USE_FIRST_HINT in line
+    titles = [word for word in line.replace(monitor_quota_view.POOLS_USE_FIRST_HINT, "").split() if word in monitor_format._POOL_COLUMNS]
     assert titles == ["STATE", "LEFT", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
     rows = [text for text in strip(rich(full_payload(), width=width)).splitlines() if "X-7D" in text]
     assert line.index("LEFT") + len("LEFT") == rows[0].index("42%") + len("42%")
@@ -560,14 +562,14 @@ def test_a_redraw_after_the_reset_moves_min_quota_to_the_lowest_pool_that_still_
 
 
 def test_min_quota_of_the_rows_mirrors_the_read_model_rule():
-    from peerhub.extensions import monitor_read_model as mrm
+    from peerhub.extensions import monitor_quota
 
     rows = [pool("ag", "G-5H", .01), pool("ag", "G-7D", .40), pool("cc", "C-7D", .40), pool("cx", "X-7D", .07),
             pool("zz", "Q-30D", .02)]
     payload = human_payload(*rows, min_quota=None)
     assert verdict(payload).endswith("| min quota 7% cx X-7D low")  # 7-day pools only; the 5-hour and 30-day rows do not count
-    states = mrm.pool_states([{**row, "kind": "quota", "reset_in_seconds": 86400.0} for row in rows], {}, NOW, {})
-    assert mrm.min_quota(states) == {"pool": "cx X-7D", "left_pct": 7, "state": "low", "aged": False}
+    states = monitor_quota.pool_states([{**row, "kind": "quota", "reset_in_seconds": 86400.0} for row in rows], {}, NOW, {})
+    assert monitor_quota.min_quota(states) == {"pool": "cx X-7D", "left_pct": 7, "state": "low", "aged": False}
     tie = human_payload(pool("cx", "X-7D", .40), pool("ag", "G-7D", .40), min_quota=None)
     assert verdict(tie).endswith("| min quota 40% ag G-7D ok")  # a tie goes to the first name, as in the read model
 

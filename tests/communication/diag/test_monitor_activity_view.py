@@ -14,12 +14,9 @@ from peerhub.cli.monitor_legend import (
     POOL_MARGIN_COLUMN,
 )
 from peerhub.cli.monitor_links import GUIDE_TEXT
-from peerhub.cli.monitor_view import (
-    FRAME_HEADS,
-    FRAME_SECTIONS,
-    POOLS_USE_FIRST_HINT,
-    render_grouped_frame,
-)
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
+from peerhub.cli.monitor_quota_view import POOLS_USE_FIRST_HINT
+from peerhub.cli.monitor_view import render_grouped_frame
 
 NOW = 1_794_700_000.0  # 2026-11-14 23:46:40Z
 SOURCES_READ = {"activity": "read", "capacity": "read", "accounts": "read", "facts": "read"}

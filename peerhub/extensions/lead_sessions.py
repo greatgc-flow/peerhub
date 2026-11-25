@@ -17,9 +17,7 @@ from typing import Any, cast
 
 from peerhub.extensions import process_tree
 from peerhub.extensions.monitor_queries import ACTIVITY_SPAN_S
-from peerhub.extensions.monitor_read_model import activity_lines
-from peerhub.extensions.monitor_read_model import LEAD_CONTEXT_MARK_PCT as LEAD_CONTEXT_MARK_PCT  # one owner of the mark
-from peerhub.extensions.monitor_read_model import _SAFE_MODEL, _display, _iso_seconds  # pyright: ignore[reportPrivateUsage]
+from peerhub.extensions.monitor_values import SAFE_MODEL, activity_lines, display_text, iso_seconds
 
 LEAD_DIRS_CAP = 8
 LEAD_FILES_CAP = 64
@@ -355,7 +353,7 @@ def _context(line: dict[str, Any]) -> tuple[int, float | None, str | None] | Non
             return None
         tokens += value
     model = cast(dict[str, Any], message).get("model")
-    return (tokens, _iso_seconds(line.get("timestamp")), _matching(_SAFE_MODEL, model)) if tokens > 0 else None
+    return (tokens, iso_seconds(line.get("timestamp")), _matching(SAFE_MODEL, model)) if tokens > 0 else None
 
 
 def _said(message: object) -> str | None:
@@ -368,23 +366,23 @@ def _row(item: dict[str, Any], alive: bool | None, active_at: float | None, fact
          windows: dict[str, int], text_on: bool, secrets: list[str]) -> dict[str, Any]:
     digest = hashlib.sha256(item["sessionId"].encode("ascii")).hexdigest()
     tokens, context_at, raw_model = facts.get("context", (None, None, None))
-    model = _cleaned_match(_SAFE_MODEL, raw_model, 128, secrets)
+    model = _cleaned_match(SAFE_MODEL, raw_model, 128, secrets)
     window = windows.get(model) if model else None
-    cleaned_cwd = _display(item.get("cwd"), LEAD_FILE_MAX, secrets)  # cleaned and redacted whole before its last part is taken
+    cleaned_cwd = display_text(item.get("cwd"), LEAD_FILE_MAX, secrets)  # cleaned and redacted whole before its last part is taken
     return {
         "key": digest, "id": digest[:8], "tool": "cc", "pid": item["pid"], "alive": alive,
         "entry": _cleaned_match(_ENTRY, item.get("entrypoint"), 24, secrets),
-        "name": _display(item.get("name"), 40, secrets) if text_on else None,
-        "folder": _display(re.split(r"[\\/]", cleaned_cwd.rstrip("\\/"))[-1], 40, secrets) if cleaned_cwd else None,
-        "cwd": _display(item.get("cwd"), 200, secrets),
+        "name": display_text(item.get("name"), 40, secrets) if text_on else None,
+        "folder": display_text(re.split(r"[\\/]", cleaned_cwd.rstrip("\\/"))[-1], 40, secrets) if cleaned_cwd else None,
+        "cwd": display_text(item.get("cwd"), 200, secrets),
         "state": _cleaned_match(_STATE, item.get("status"), 16, secrets),
         "state_since": _epoch_ms(item.get("statusUpdatedAt")),
         "started_at": item["startedAt"] / 1000,
-        "version": _display(item.get("version"), 20, secrets),
+        "version": display_text(item.get("version"), 20, secrets),
         "active_at": active_at, "model": model, "context_tokens": tokens, "context_window": window,
         "context_pct": min(100, tokens * 100 // window) if tokens and window else None,
         "context_at": context_at,
-        "title": _display(facts.get("title"), 80, secrets),
+        "title": display_text(facts.get("title"), 80, secrets),
         "prompt_line": _line(facts.get("prompt"), last=False, secrets=secrets),
         "said_line": _line(facts.get("said"), last=True, secrets=secrets),
     }
@@ -402,7 +400,7 @@ def _matching(pattern: re.Pattern[str], value: object) -> str | None:
 def _cleaned_match(pattern: re.Pattern[str], value: object, cap: int, secrets: list[str]) -> str | None:
     """`value` cleaned and redacted like every string from a file (#376 3.5) when it matches `pattern` before and after;
     None otherwise (a redacted secret no longer matches)."""
-    return _matching(pattern, _display(value, cap, secrets)) if _matching(pattern, value) else None
+    return _matching(pattern, display_text(value, cap, secrets)) if _matching(pattern, value) else None
 
 
 def _finite(value: object) -> float | None:

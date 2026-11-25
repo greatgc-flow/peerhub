@@ -5,12 +5,8 @@ import re
 from pathlib import Path
 
 from peerhub.cli.monitor_format import POOLS_USE_FIRST_ASCENDING
-from peerhub.cli.monitor_view import (
-    FRAME_HEADS,
-    FRAME_SECTIONS,
-    FRAME_SECTION_ORDER,
-    POOLS_USE_FIRST_HINT,
-)
+from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER
+from peerhub.cli.monitor_quota_view import POOLS_USE_FIRST_HINT
 
 ROOT = Path(__file__).resolve().parents[3]
 MONITOR_DOC = "docs/monitor.md"

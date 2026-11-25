@@ -17,6 +17,7 @@ import pytest
 
 from peerhub.extensions import bridge, bridge_claims, bridge_registry, delivery_projections
 from peerhub.extensions import monitor_queries, monitor_read_model as mrm
+from peerhub.extensions import monitor_activity, monitor_values
 from tests.communication.harness.core import CoreHarness
 
 pytestmark = [pytest.mark.integration, pytest.mark.diag]
@@ -49,8 +50,8 @@ def wsgen(db) -> str:
 
 
 def caller(**kw: Any) -> dict[str, Any]:
-    base = {"v": 1, "tool": "cc", "label": "peerhub", "session": "sess-raw-1", "host": mrm._this_host(),  # pyright: ignore[reportPrivateUsage]
-            "ns": mrm._this_ns(), "ask_pid": 4242, "ask_created": 1790812000.5,  # pyright: ignore[reportPrivateUsage]
+    base = {"v": 1, "tool": "cc", "label": "peerhub", "session": "sess-raw-1", "host": monitor_activity._this_host(),  # pyright: ignore[reportPrivateUsage]
+            "ns": monitor_activity._this_ns(), "ask_pid": 4242, "ask_created": 1790812000.5,  # pyright: ignore[reportPrivateUsage]
             "cwd": "C:/very/secret/path", "batch": None, "task": None}
     base.update(kw)
     return base
@@ -542,7 +543,7 @@ def test_batch_name_and_no_raw_identity_leaves_the_read_model(db):
     row = out["groups"]["activity"]["data"]["asks"][0]
     assert row["name"] == "b1234/review" and row["stream"] == "s-batch"
     dumped = json.dumps(out)
-    for raw in ("sess-raw-1", "4242", "very/secret/path", mrm._this_host()):  # pyright: ignore[reportPrivateUsage]
+    for raw in ("sess-raw-1", "4242", "very/secret/path", monitor_activity._this_host()):  # pyright: ignore[reportPrivateUsage]
         assert raw not in dumped
 
 
@@ -765,7 +766,7 @@ def test_superseded_rows_do_not_take_the_text_ranks_of_ended_rows(db):
 def test_format_character_table_covers_every_cf_and_cc_character():
     missing = [cp for cp in range(sys.maxunicode + 1)
                if unicodedata.category(chr(cp)) in ("Cf", "Cc") and chr(cp) not in "\n\r"
-               and mrm._strip_controls(chr(cp)) != ("" if chr(cp) != "\t" else " ")]  # pyright: ignore[reportPrivateUsage]
+               and monitor_values._strip_controls(chr(cp)) != ("" if chr(cp) != "\t" else " ")]  # pyright: ignore[reportPrivateUsage]
     assert missing == []
 
 

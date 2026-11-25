@@ -204,7 +204,7 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
     for height in range(len(lines) + 2, 3, -1):
         screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height, expand=expand)
         assert len(screen.splitlines()) < height
-        if 5 + mv.FRAME_TRAILING_ROWS < height <= len(lines):
+        if 5 + monitor_layout.FRAME_TRAILING_ROWS < height <= len(lines):
             assert "rows hidden" in screen
         kept = [line for line in screen.splitlines() if not line.startswith(("+", "Coverage:", f"{monitor_links.GUIDE_TEXT}: "))]
         original = iter(lines)
@@ -427,7 +427,7 @@ def test_expanded_separators_show_at_exact_full_fit_and_yield_below_it(width: in
     roomy = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=200, expand=True)
     assert "\n\n" in roomy and "rows hidden" not in roomy
     data_lines = [line for line in roomy.splitlines() if not line.startswith(f"{monitor_links.GUIDE_TEXT}: ")]
-    exact_height = len(data_lines) + mv.FRAME_TRAILING_ROWS
+    exact_height = len(data_lines) + monitor_layout.FRAME_TRAILING_ROWS
     exact = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=exact_height, expand=True)
     assert exact.splitlines() == data_lines
     for height in range(exact_height - 2, exact_height):  # below it the bottom goes, with a count (#412)

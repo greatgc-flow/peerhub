@@ -20,6 +20,7 @@ they do not claim new validation or publication evidence.
 - Split session receipts, delivery projections, and ask budgets into separate modules and moved provider usage validation alongside normalization.
 - Split bridge exceptions and durable control handling into dedicated modules.
 - Split monitor terminal links, formatting and layout, and bounded SQLite queries into dedicated modules.
+- Split monitor frame rendering by section and separate alert, activity, quota, and session projections from snapshot assembly.
 - Move CLI parser registration and handlers into command-family modules.
 
 ### Documentation

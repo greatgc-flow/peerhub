@@ -284,7 +284,7 @@ def test_old_disabled_fact_ages_to_stale_not_a_fresh_na(store, capsys):
 
 
 def test_disabled_pool_is_never_limiting_in_mapped_quota():
-    from peerhub.extensions.monitor_read_model import mapped_quota
+    from peerhub.extensions.monitor_quota import mapped_quota
     obs = [{"pool_ref": "quota:ag:3P-5H", "state": "ABSENT", "reason": DISABLED, "effective_at_us": 5},
            {"pool_ref": "quota:ag:3P-7D", "state": "MEASURED", "effective_at_us": 5,
             "measurements": {"remaining_fraction": 0.4}}]

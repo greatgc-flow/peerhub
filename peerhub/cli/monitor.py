@@ -183,7 +183,8 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                         show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT,
                         links: bool = False) -> str:
     from peerhub.cli.monitor_links import file_link_url, monitor_links_enabled
-    from peerhub.cli.monitor_view import FRAME_TRAILING_ROWS, render_grouped_frame
+    from peerhub.cli.monitor_layout import FRAME_TRAILING_ROWS
+    from peerhub.cli.monitor_view import render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
     # A5: separately from the decoration, text cells keep every character this stream can encode (not only on UTF).

@@ -34,11 +34,16 @@ A Claude probe failure records `claude_usage_timeout`, `claude_usage_spawn_faile
 
 ## Monitor implementation
 
-The grouped monitor assembles the read snapshot and its alerts in
-`peerhub/extensions/monitor_read_model.py`. The bounded projection queries in
-`peerhub/extensions/monitor_queries.py` use the same read transaction. The CLI
-composes human frames in `monitor_view.py`, using `monitor_format.py` for quota
-tables, `monitor_layout.py` for fitting terminal text, and `monitor_links.py` for
-OSC 8 hyperlinks.
+`peerhub/extensions/monitor_read_model.py` owns the read transaction and assembles
+the snapshot. `monitor_queries.py` contains the bounded SQL. `monitor_activity.py`,
+`monitor_quota.py`, and `monitor_sessions.py` project the rows, and
+`monitor_alerts.py` synthesizes alerts from the snapshot evidence.
+
+`peerhub/cli/monitor_view.py` prepares the human view and selects the layout.
+`monitor_compact.py` builds the shared priority sections. `monitor_expanded.py`
+adds the detail sections from `monitor_sections.py`. `monitor_activity_view.py`,
+`monitor_alert_view.py`, and `monitor_quota_view.py` render their respective frame
+sections. They use `monitor_format.py` for quota tables, `monitor_layout.py` for
+terminal text fitting, and `monitor_links.py` for OSC 8 hyperlinks.
 
 See the [monitor guide](../monitor.md) for refresh, redraw and quota display behavior.
