@@ -18,6 +18,7 @@ from peerhub.core.peer_kinds import BUILTIN_PEER_LABELS
 
 if TYPE_CHECKING:
     from peerhub.cli.arguments import Subparsers
+    from peerhub.extensions.bridge_claims import ClaimToken
 
 
 ASK_QUERY_FILE_OPTIONS = ("--query-file", "--prompt-file")
@@ -178,28 +179,31 @@ def _session_trailer(session: dict[str, Any]) -> str:
 
 
 def _wait_for_ask_resources(
-    db: Path,
+    acquire: Callable[[bool], ClaimToken | None],
     *,
     resource_reader: Callable[[], load_limits.ResourceSample] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
-) -> None:
-    from peerhub.extensions.diag_running import running_report
-    from peerhub.extensions.liveness import PROCESSES_DEAD
-
+) -> ClaimToken:
     resource_reader = resource_reader or load_limits.read_resources
     deadline = monotonic() + ASK_LOAD_MAX_WAIT_SECONDS
     waiting = False
-    while warnings := load_limits.load_warnings(resource_reader().facts()):
+    while True:
+        warnings = load_limits.load_warnings(resource_reader().facts())
+        if not warnings:
+            token = acquire(False)
+            assert token is not None
+            return token
         detail = "; ".join(warnings)
         remaining = deadline - monotonic()
         if remaining <= 0:
+            token = acquire(False)
+            assert token is not None
             print(f"Warning: {detail}. Starting ask after the resource wait limit.", file=sys.stderr, flush=True)
-            return
-        rows = running_report(db, all_rows=True)["rows"]
-        if not any(row.get("state") != PROCESSES_DEAD for row in rows):
+            return token
+        if (token := acquire(True)) is not None:
             print(f"Warning: {detail}. Starting ask.", file=sys.stderr, flush=True)
-            return
+            return token
         if not waiting:
             print(f"Waiting to start ask while other asks are active ({detail}).", file=sys.stderr, flush=True)
             waiting = True
@@ -243,7 +247,7 @@ def run_ask(args: argparse.Namespace) -> int:
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                      fresh=args.fresh, session=args.session, query_file=args.query_file,
                      on_output=None if args.json else show_output, on_stream_budget=show_budget_warning,
-                     before_claim=_wait_for_ask_resources, before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices,
+                     launch_gate=_wait_for_ask_resources, before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices,
                      dry_run=bool(args.dry_run))
     except Exception:
         if has_streamed and not args.json and not output_has_newline:

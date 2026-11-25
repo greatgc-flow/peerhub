@@ -27,7 +27,7 @@ from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIME
                                                  SpawnFailure, check_argv)
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets, path_secrets
 from peerhub.extensions.adapters.telemetry import CC_EVENT_TYPES
-from peerhub.extensions.process_tree import process_created
+from peerhub.extensions.process_tree import capture_process_identity, process_created
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
 
 if TYPE_CHECKING:
@@ -675,19 +675,19 @@ class CliRuntimeTarget:
         self._san = Sanitizer(secrets=[*env_secrets(self._parent_env), *env_secrets(merged),
                                       *self._extra_secrets, *path_secrets(str(snapshot.root_realpath))])
 
-    def execution_metadata(self) -> dict[str, Any]:
+    def execution_metadata(self, *, renew: Callable[[], None] | None = None) -> dict[str, Any]:
         metadata: dict[str, Any] = {"env_scrubbed": list(self.env_scrubbed)} if self._account is not None else {}
         if self.runtime_kind == "ag":
             try:
-                decision = self._ag_transport_decision()
+                decision = self._ag_transport_decision(renew=renew)
             except Exception as e:  # evidence must never fail the delivery; the decision fails it closed instead
                 decision = ag.AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {type(e).__name__}")
             self._ag_transport = decision
             metadata.update(decision.metadata())
         return metadata
 
-    def _ag_transport_decision(self) -> ag.AgTransport:
-        return ag.select_transport(self._base, self._env, self._workspace, self._spec.binary)
+    def _ag_transport_decision(self, *, renew: Callable[[], None] | None = None) -> ag.AgTransport:
+        return ag.select_transport(self._base, self._env, self._workspace, self._spec.binary, renew=renew)
 
     @property
     def can_resume(self) -> bool:
@@ -852,7 +852,14 @@ class CliRuntimeTarget:
             return preamble + prompt
         return prompt
 
-    def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]:
+    def deliver_supervised(self, external_session_id: str, record: Any, catch_up: list[Any],
+                           publish_launch: Callable[[dict[str, Any]], None]) -> Iterable[RuntimeEvent]:
+        if sys.platform == "win32":
+            return self.deliver(external_session_id, record, catch_up)
+        return self.deliver(external_session_id, record, catch_up, publish_launch=publish_launch)
+
+    def deliver(self, external_session_id: str, record: Any, catch_up: list[Any], *,
+                publish_launch: Callable[[dict[str, Any]], None] | None = None) -> Iterable[RuntimeEvent]:
         prompt = self._prompt(record, catch_up)
         # ---- genuine pre-spawn failures: nothing was created
         self.validate_execution_policy()
@@ -1004,7 +1011,11 @@ class CliRuntimeTarget:
             with self._active_lock:
                 if external_session_id in self._active:
                     raise PrespawnError("delivery already running for session")
-                proc.start()
+                try:
+                    proc.start(suspended=publish_launch is not None)
+                except BaseException:
+                    proc.cancel_launch()
+                    raise
                 self._active[external_session_id] = proc
         except SpawnFailure as e:
             self._note("prespawn_failure")
@@ -1016,12 +1027,26 @@ class CliRuntimeTarget:
                 created = process_created(proc.pid)
             except Exception:  # process identity is best-effort evidence after spawn
                 created = None
+            process = dict(provider_pid=proc.pid, provider_created=created,
+                           provider_identity=capture_process_identity(proc.pid))
+            if publish_launch is not None:
+                if process["provider_identity"] is None and (sys.platform.startswith("linux") or created is None):
+                    raise PrespawnError("could not verify the supervised launch process")
+                publish_launch(process)
+                try:
+                    proc.release_launch()
+                except SpawnFailure as e:
+                    self._note("prespawn_failure")
+                    raise PrespawnError(san.clean(f"cannot spawn {self._spec.binary}: {e}", common.EXCERPT_CHARS)) from e
+                except OSError as e:
+                    raise RuntimeTargetError(san.clean(str(e), common.EXCERPT_CHARS)) from e
             yield ("started", f"{self.runtime_kind}:{proc.pid}:{uuid.uuid4().hex[:8]}",
-                   {"provider_pid": proc.pid, "provider_created": created})
+                   process)
             res = proc.wait()
             parser.close()
             finished = True
         finally:
+            proc.cancel_launch()
             if not finished:  # consumer stopped iterating (fenced/closed): never leave an orphan process
                 proc.abort()
                 self._note("aborted", pid=proc.pid, termination_confirmed=proc.termination_confirmed)

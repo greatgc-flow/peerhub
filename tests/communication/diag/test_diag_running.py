@@ -188,9 +188,13 @@ def abandoned_leases(lease_store: sqlite3.Connection, monkeypatch: pytest.Monkey
             lease_store.execute("INSERT INTO bridge_invocations (delivery_id,invocation_no,stream_id,peer_id,claim_generation) "
                                 "VALUES (?,1,?,'cx',1)", (delivery, stream))
             kind, certainty = ("about_to_invoke", "NOT_STARTED") if i == 2 else ("started", "STARTED")
-            provider = dict(provider_pid=300, provider_created=NOW - 30) if i == 1 else {}
+            provider = dict(provider_pid=300 if i == 1 else 310 + i, provider_created=NOW - 30)
             lease_store.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
-                                "VALUES (?,?,'cx',?,?,?)", (delivery, stream, kind, certainty, json.dumps(provider)))
+                                "VALUES (?,?,'cx',?,?,?)", (delivery, stream, kind, certainty, "{}" if i == 2 else json.dumps(provider)))
+            if i == 2:
+                lease_store.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                                    "VALUES (?,?,'cx','launch_reserved','NOT_STARTED',?)",
+                                    (delivery, stream, json.dumps(provider)))
     return lease_store
 
 
@@ -242,6 +246,74 @@ def test_dead_ask_release_is_idempotent_and_preserves_uncertainty(abandoned_leas
         ("d0", "processes_dead", "UNCERTAIN"), ("d2", "processes_dead", "UNCERTAIN")]
     assert BridgeLedger.open_invocation(abandoned_leases, "d2") is None
     assert {row["delivery_id"] for row in report(__file__)["rows"]} == {"d1", "d3"}
+
+
+def test_retry_uses_current_invocation_and_only_its_process_evidence(abandoned_leases: sqlite3.Connection) -> None:
+    conn = abandoned_leases
+    with conn:
+        conn.execute("UPDATE bridge_claims SET generation=2 WHERE stream_id='s2'")
+        conn.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                     """VALUES ('d2','s2','cx','prespawn_failure','NOT_STARTED','{"invocation_no":1}')""")
+        conn.execute("INSERT INTO bridge_invocation_resolutions VALUES ('d2',1,'prespawn_failure',1)")
+        conn.execute("INSERT INTO bridge_invocations (delivery_id,invocation_no,stream_id,peer_id,claim_generation) "
+                     "VALUES ('d2',2,'s2','cx',2)")
+        caller_detail = dict(v=1, host="test-host", ns="test-ns", ask_pid=450, ask_created=NOW - 1)
+        conn.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                     "VALUES ('d2','s2','cx','about_to_invoke','NOT_STARTED',?)",
+                     (json.dumps(dict(invocation_no=2, caller=caller_detail)),))
+        conn.execute("UPDATE bridge_claims SET expires_at=? WHERE stream_id!='s2'", (NOW - 1,))
+    (row,) = report(__file__)["rows"]
+    assert row["delivery_id"] == "d2" and row["caller"]["ask_pid"] == 450
+    assert "state" not in row  # the first invocation's launch is not evidence about this retry
+    with conn:
+        BridgeLedger.release_dead_asks(conn, "test", NOW)
+        assert BridgeLedger.open_invocation(conn, "d2") == 2
+        conn.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                     "VALUES ('d2','s2','cx','launch_reserved','NOT_STARTED',?)",
+                     (json.dumps(dict(invocation_no=2, provider_pid=451, provider_created=NOW)),))
+        assert BridgeLedger.release_dead_asks(conn, "test", NOW) == 1
+    assert BridgeLedger.open_invocation(conn, "d2") is None
+    assert not report(__file__)["rows"]
+
+
+def test_gate_skips_dead_invocations_but_counts_a_later_live_ask(abandoned_leases: sqlite3.Connection) -> None:
+    conn = abandoned_leases
+    with conn:
+        conn.execute("UPDATE bridge_claims SET expires_at=? WHERE stream_id='s3'", (NOW - 1,))
+        assert BridgeLedger.has_active_asks(conn, "test", NOW)
+        conn.execute("UPDATE bridge_claims SET expires_at=? WHERE stream_id='s1'", (NOW - 1,))
+        assert not BridgeLedger.has_active_asks(conn, "test", NOW)
+
+
+def test_preinvocation_claim_can_expire_without_delivery_evidence(lease_store: sqlite3.Connection,
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = lease_store
+    monkeypatch.setattr(process_tree, "process_created", lambda pid: NOW if pid == 300 else None)
+    seed_leases(conn, 2)
+    reader = caller.detect_caller()
+    with conn:
+        conn.execute(bridge_claims._DDL_CALLERS)  # pyright: ignore[reportPrivateUsage]
+        conn.execute("INSERT INTO bridge_claims VALUES ('s2','cx','claim-owner',1,?,60,'test')", (NOW + 60,))
+        for i, pid in enumerate((301, 300, 302)):
+            detail = {**reader, "ask_pid": pid, "ask_created": NOW, "ask_identity": None,
+                      "caller_pid": 300, "caller_created": NOW}
+            conn.execute("INSERT INTO bridge_claim_callers VALUES (?, 'cx', 1, ?)", (f"s{i}", json.dumps(detail)))
+        assert BridgeLedger.release_dead_asks(conn, "test", NOW) == 2
+    assert [r[0] for r in conn.execute("SELECT expires_at FROM bridge_claims ORDER BY stream_id")] == [NOW, NOW + 60, NOW]
+    assert [r[0] for r in conn.execute("SELECT certainty FROM bridge_deliveries ORDER BY seq")] == ["NOT_STARTED"] * 2
+    assert conn.execute("SELECT count(*) FROM bridge_evidence").fetchone()[0] == 0
+
+
+def test_monitor_retains_orphan_alert_after_claim_takeover(abandoned_leases: sqlite3.Connection) -> None:
+    conn = abandoned_leases
+    with conn:
+        conn.execute("UPDATE bridge_claims SET generation=2 WHERE stream_id='s1'")
+    for text_on in (False, True):
+        activity = read_activity_group(conn, __file__, NOW, human=True, text_on=text_on,
+                                       liveness=None, process_probe=None, output={}, errors={})
+        assert activity is not None
+        alerts = build_alerts(asks=activity["asks"], pools=None, accounts=None, facts_report=None, failures=[], now=NOW)
+        assert [(a["code"], a["kind"], a["subject"]) for a in alerts] == [("a2", "orphan running", "cx s1")]
 
 
 def test_expired_claim_is_excluded(db):
@@ -538,7 +610,7 @@ def test_running_works_on_a_store_without_the_scope_index(tmp_path):
     path = CoreHarness(tmp_path / "old").db_path
     with closing(sqlite3.connect(path)) as c:
         for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
-            if SCOPE_INDEX not in stmt:
+            if SCOPE_INDEX not in stmt and "idx_bd_running_scope" not in stmt:
                 c.execute(stmt)
         c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
         c.commit()

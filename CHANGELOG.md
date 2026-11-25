@@ -24,6 +24,12 @@ they do not claim new validation or publication evidence.
 ### Fixed
 
 - Deterministic tests use a quiet CPU and RAM sample and isolate the Antigravity transport cache. The ask gate and probe tests supply their own resource readings.
+- Linux ask liveness uses the boot ID and process start ticks, so wall-clock corrections do not revoke live leases. Legacy timestamp mismatches and unverified leaderless sessions remain unknown.
+- POSIX asks record their launch identity before the provider can execute. The reaper leaves unresolved invocations with missing process evidence unknown.
+- The reaper and `diag running` follow the current invocation when a retry reuses a delivery. The reaper can also expire a dead wrapper's pre-invocation claim without changing delivery certainty.
+- Under resource pressure, asks check for activity and reserve a launch in the same store transaction. Confirmed-dead asks do not make the gate wait, and the existing wait limit still applies.
+- Antigravity transport detection verifies the running version before using a cached result, tracks the executable behind recognized Windows launchers, and renews the ask lease between probes.
+- Monitor keeps the orphan alert for an unresolved delivery after another ask takes over its claim.
 
 ### Removed
 

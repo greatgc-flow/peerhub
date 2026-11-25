@@ -27,6 +27,35 @@ def process_created(pid: int) -> float | None:
         return None
 
 
+def boot_id() -> str:
+    return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+
+
+def process_identity(pid: int, *, include_zombie: bool = False) -> str | None:
+    """Linux PID identity independent of wall-clock corrections. Read errors remain errors."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii", errors="replace")
+    except FileNotFoundError:
+        import psutil
+
+        if psutil.pid_exists(pid):
+            raise PermissionError(f"cannot read process identity for PID {pid}")
+        return None
+    fields = stat.rsplit(")", 1)[1].split()  # field 3 follows comm, which may contain ')' and spaces
+    if not include_zombie and fields[0] in ("Z", "X"):
+        return None
+    return f"linux:{boot_id()}:{int(fields[19])}"
+
+
+def capture_process_identity(pid: int) -> str | None:
+    if sys.platform.startswith("linux"):
+        try:
+            return process_identity(pid)
+        except (OSError, ValueError, IndexError):
+            pass
+    return None
+
+
 def _is_provider(process: Process) -> bool:
     name = Path(process.name()).stem.lower()
     if name in {"codex", "claude", "agy", "ant"} or name.startswith("codex-"):
@@ -40,21 +69,41 @@ def _is_provider(process: Process) -> bool:
 
 
 def provider_descendant(wrapper: int, wrapper_created: float | None, provider: int | None,
-                        provider_created: float | None) -> bool:
-    """Find a live provider through surviving parent links or its POSIX launch session."""
+                        provider_created: float | None, provider_identity: str | None = None) -> bool | None:
+    """Check surviving launch descendants. A leaderless POSIX session is ambiguous."""
     import psutil
+
+    if sys.platform != "win32":
+        if provider is None:
+            return None
+        if provider_identity is not None:
+            if provider_identity.split(":")[1] != boot_id():
+                return False
+            leader = process_identity(provider, include_zombie=True)
+            if leader is not None and leader != provider_identity:
+                return False  # the original session cannot outlive reuse of its leader PID
+        else:
+            leader = None
+        for process in psutil.process_iter():
+            try:
+                if os.getsid(process.pid) == provider and process.status() != psutil.STATUS_ZOMBIE:
+                    if leader is None:
+                        return None
+                    current = process_identity(provider, include_zombie=True)
+                    if current is None:
+                        return None
+                    return current == leader
+            except (psutil.NoSuchProcess, ProcessLookupError):
+                continue
+            except (psutil.AccessDenied, PermissionError):
+                return None
+        return False
 
     parents: dict[int, list[psutil.Process]] = {}
     for process in psutil.process_iter():
         try:
             parents.setdefault(process.ppid(), []).append(process)
-            if (sys.platform != "win32" and provider is not None and provider_created is not None
-                    and os.getsid(process.pid) == provider and process.create_time() >= provider_created
-                    and process.status() != psutil.STATUS_ZOMBIE and process.is_running()):
-                return True  # the adapter starts the provider in its own session
-        except (psutil.NoSuchProcess, ProcessLookupError):
-            continue
-        except psutil.AccessDenied:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
     roots = {wrapper: wrapper_created}
@@ -72,7 +121,7 @@ def provider_descendant(wrapper: int, wrapper_created: float | None, provider: i
                 born = process.create_time()
                 if earliest is None or born < earliest or not process.is_running():
                     continue
-                if sys.platform == "win32" and parent in roots:
+                if parent in roots:
                     # A child of a replacement PID belongs to it if born on or after it.
                     replacement = process_created(parent)
                     if replacement is not None and born >= replacement:

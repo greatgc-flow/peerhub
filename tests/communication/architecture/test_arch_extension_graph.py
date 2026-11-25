@@ -31,7 +31,7 @@ ALLOWED: dict[str, set[str]] = {
     "monitor_activity": {"adapters", "caller", "diag_running", "liveness", "monitor_queries", "monitor_sessions",
                          "monitor_values"},
     "monitor_alerts": {"liveness", "monitor_activity", "monitor_preferences", "monitor_queries", "monitor_quota", "monitor_values"},
-    "monitor_queries": {"observation_model"},
+    "monitor_queries": {"bridge_ledger", "observation_model"},
     "monitor_quota": {"monitor_queries", "monitor_values", "observation_model", "quota_projection", "quota_windows"},
     "monitor_sessions": {"adapters", "monitor_queries", "monitor_values", "session_receipts", "usage_normalization"},
     "monitor_values": {"adapters"},
@@ -48,7 +48,7 @@ ALLOWED: dict[str, set[str]] = {
     "quota_probes": {"quota_types", "observation_model", "binary_resolution", "process_tree", "win_job"},
     "quota_types": {"observation_model"},
     # M1 Diag
-    "diag": {"observation_model"},
+    "diag": {"bridge_ledger", "observation_model"},
     "diag_readiness": {"adapters", "diag", "observation_model", "quota_projection"},
     "diag_running": {"caller", "diag", "liveness"},
     "diag_quota": {"diag", "observation_model", "quota_projection"},

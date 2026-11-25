@@ -33,6 +33,9 @@ _DDL = [
     # #330: `diag running` reads only the live claim generation of a scope. No schema version change: older writers on the same
     # store keep it up to date, and the read-only reader works (more slowly) on a store that does not have it yet.
     "CREATE INDEX IF NOT EXISTS idx_bd_scope_claim_generation ON bridge_deliveries(stream_id, peer_id, claim_generation)",
+    # A retried invocation can belong to a newer claim than its delivery row.
+    "CREATE INDEX IF NOT EXISTS idx_bd_running_scope ON bridge_deliveries(stream_id,peer_id) "
+    "WHERE acked=0 AND certainty IN ('NOT_STARTED','STARTED')",
     """CREATE TABLE IF NOT EXISTS bridge_reconciliations (
         delivery_id TEXT PRIMARY KEY, reconcile_record_id TEXT NOT NULL, decision TEXT NOT NULL, consumed_attempt INTEGER)""",
     """CREATE TABLE IF NOT EXISTS bridge_controls (
