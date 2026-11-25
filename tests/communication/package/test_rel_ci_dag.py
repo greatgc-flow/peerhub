@@ -343,7 +343,8 @@ def test_rel_006_verify_runs_the_same_gate_selections_sequentially_without_provi
         "python -u -m pytest -q -n auto --junitxml=junit/g0.xml tests/communication/architecture tests/communication/schema tests/communication/unit tests/communication/property tests/communication/meta tests/communication/security",
         "python -u -m pytest -q -n auto --junitxml=junit/g1.xml tests/communication/core tests/communication/migration tests/communication/concurrency tests/communication/fault tests/communication/integration",
         "python -u -m pytest -q -n auto --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e tests/continuity tests/collaboration",
-        "python -u -m pytest -q -m serial_timing tests/communication/diag/test_diag_monitor_read_model.py",
+        "python -u -m pytest -q -m serial_timing --junitxml=junit/monitor-timing.xml -o junit_suite_name=monitor-timing "
+        "tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py",
     ]
     g2, timing = (next(step for step in verify["steps"] if step.get("run") == run) for run in tests[2:])
     assert g2["env"]["PEERHUB_CI_SERIAL_TIMING"] == "1"

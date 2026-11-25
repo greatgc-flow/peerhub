@@ -59,8 +59,14 @@ jobs:
         env:
           PEERHUB_CI_SERIAL_TIMING: "1"
         run: python -u -m pytest -q -n auto --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e tests/continuity tests/collaboration
-      - name: Run the monitor latency check serially
-        run: python -u -m pytest -q -m serial_timing tests/communication/diag/test_diag_monitor_read_model.py
+      - name: Run the monitor latency checks serially
+        id: monitor-timing
+        run: >-
+          python -u -m pytest -q -m serial_timing --junitxml=junit/monitor-timing.xml -o junit_suite_name=monitor-timing
+          tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py
+      - name: Merge monitor timing JUnit
+        if: ${{ !cancelled() && (steps.monitor-timing.outcome == 'success' || steps.monitor-timing.outcome == 'failure') }}
+        run: python -m tools.ci_platform merge-junit junit/g2.xml junit/monitor-timing.xml
       - name: Bind G2 JUnit to the cutover candidate (source, policy, gate definitions)
         if: always()
         run: python -m tools.release_evidence --stamp-junit junit/g2.xml --gate G2 --commit "$(git rev-parse HEAD)"

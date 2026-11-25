@@ -825,8 +825,9 @@ def test_select_count_for_the_default_groups_and_for_capacity_alone(tmp_path, fa
     assert capacity["query_families"] == 1 and capacity["groups"]["capacity"]["status"] == "OK"
 
 
-def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
-    def store(name):
+@pytest.fixture
+def activity_scale_store(tmp_path):
+    def store(name, history):
         path = CoreHarness(tmp_path / name).db_path
         with closing(sqlite3.connect(path)) as c:
             for stmt in bridge_schema._DDL:  # pyright: ignore[reportPrivateUsage]
@@ -834,12 +835,7 @@ def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
             c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
             for stmt in (*bridge_registry.DDL, *delivery_projections.DDL):
                 c.execute(stmt)
-            c.commit()
-        return path
-
-    def seed(path, history):
-        generation = wsgen(path)
-        with closing(sqlite3.connect(path)) as c:
+            generation = wsgen(path)
             c.executemany("INSERT INTO bridge_claims (stream_id,peer_id,owner_id,generation,expires_at,lease_sec,workspace_generation) "
                           "VALUES (?,?,?,?,?,?,?)", [(f"other{i}", "cx", "o", 1, NOW - 100.0 - i, 60.0, generation) for i in range(150)]
                           + [("peer:cx:chat", "cx", "o", history, NOW - 10.0, 60.0, generation)])
@@ -850,32 +846,44 @@ def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
                           + [(f"h{i}", 1000 + i, "peer:cx:chat", "cx", f"hr{i}", i, 1, "NOT_STARTED", i + 1, json.dumps(ok_result()),
                               "d", iso(NOW - 10.0)) for i in range(history)])
             c.commit()
+        return path
 
+    return store
+
+
+def test_scale_one_scope_with_a_long_delivery_history(activity_scale_store):
     def steps(path):
-        conn = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
-        counter = [0]
-        conn.set_progress_handler(lambda: counter.__setitem__(0, counter[0] + 1) or 0, 1)
         params = monitor_queries._activity_params(NOW, wsgen(path), True)  # pyright: ignore[reportPrivateUsage]
         sql = monitor_queries._ACTIVITY_SQL  # pyright: ignore[reportPrivateUsage]
-        rows = conn.execute(sql, params).fetchall()
-        conn.set_progress_handler(None, 1)
-        started = time.perf_counter()
-        conn.execute(sql, params).fetchall()
-        elapsed = time.perf_counter() - started  # timed without the per-instruction callback
-        plan = " | ".join(str(row[3]) for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params))
-        conn.close()
-        return counter[0], len(rows), elapsed, plan
+        counter = [0]
+        with closing(sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True)) as conn:
+            conn.set_progress_handler(lambda: counter.__setitem__(0, counter[0] + 1) or 0, 1)
+            rows = conn.execute(sql, params).fetchall()
+            conn.set_progress_handler(None, 1)
+            plan = " | ".join(str(row[3]) for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params))
+        return counter[0], len(rows), plan
 
-    small_db, big_db = store("small"), store("big")
-    seed(small_db, 150)
-    seed(big_db, 9000)
-    small, rows_small, _, _ = steps(small_db)
-    big, rows_big, seconds, plan = steps(big_db)
+    small_db, big_db = activity_scale_store("small", 150), activity_scale_store("big", 9000)
+    small, rows_small, _ = steps(small_db)
+    big, rows_big, plan = steps(big_db)
     assert rows_small == rows_big == 151
     # The scope prefix of an index, never a table scan. Both scope indexes start with (stream_id, peer_id); since #330 added
     # idx_bd_scope_claim_generation the planner may take either for this prefix-only search.
     assert re.search(r"SEARCH d USING INDEX idx_bd_scope_(claim_)?generation \(stream_id=\? AND peer_id=\?\)", plan), plan
     # The statement reads every delivery of each scope active in the last 24 hours (the cost class of #330): linear in that history.
-    print(f"activity statement VM steps: history 150 -> {small}, history 9000 -> {big} ({seconds * 1000:.1f} ms)")
-    assert big < small * 120 and seconds < 1.0
+    print(f"activity statement VM steps: history 150 -> {small}, history 9000 -> {big}")
+    assert big < small * 120
     assert len(data(big_db)["asks"]) == 151
+
+
+@pytest.mark.serial_timing
+def test_activity_long_delivery_history_wall_clock(activity_scale_store):
+    path = activity_scale_store("big", 9000)
+    sql = monitor_queries._ACTIVITY_SQL  # pyright: ignore[reportPrivateUsage]
+    params = monitor_queries._activity_params(NOW, wsgen(path), True)  # pyright: ignore[reportPrivateUsage]
+    with closing(sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True)) as conn:
+        conn.execute(sql, params).fetchall()  # warm the same connection before measuring
+        started = time.perf_counter()
+        conn.execute(sql, params).fetchall()
+        elapsed = time.perf_counter() - started
+    assert elapsed < 1.0

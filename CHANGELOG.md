@@ -30,6 +30,9 @@ they do not claim new validation or publication evidence.
 - Under resource pressure, asks check for activity and reserve a launch in the same store transaction. Confirmed-dead asks do not make the gate wait, and the existing wait limit still applies.
 - Antigravity transport detection verifies the running version before using a cached result, tracks the executable behind recognized Windows launchers, and renews the ask lease between probes.
 - Monitor keeps the orphan alert for an unresolved delivery after another ask takes over its claim.
+- CI failure artifacts and G2 release evidence include the outcomes of the serial monitor latency checks.
+- Package tests retry interrupted builds and installs in fresh directories and share only completed attempts across workers.
+- The monitor activity SQL wall-clock check runs in the serial CI step. VM-step and query-plan checks stay in the parallel suite.
 
 ### Removed
 

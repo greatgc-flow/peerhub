@@ -46,8 +46,14 @@ jobs:
         env:
           PEERHUB_CI_SERIAL_TIMING: "1"
         run: python -u -m pytest -q -n auto --junitxml=junit/ubuntu-full.xml
-      - name: Run the monitor latency check serially
-        run: python -u -m pytest -q -m serial_timing tests/communication/diag/test_diag_monitor_read_model.py
+      - name: Run the monitor latency checks serially
+        id: monitor-timing
+        run: >-
+          python -u -m pytest -q -m serial_timing --junitxml=junit/monitor-timing.xml -o junit_suite_name=monitor-timing
+          tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py
+      - name: Merge monitor timing JUnit
+        if: ${{ !cancelled() && (steps.monitor-timing.outcome == 'success' || steps.monitor-timing.outcome == 'failure') }}
+        run: python -m tools.ci_platform merge-junit junit/ubuntu-full.xml junit/monitor-timing.xml
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
@@ -94,9 +100,15 @@ jobs:
         env:
           PEERHUB_CI_SERIAL_TIMING: "1"
         run: python -u -m pytest -q -n auto --durations=25 --junitxml=junit/windows-full.xml
-      - name: Run the monitor latency check serially
+      - name: Run the monitor latency checks serially
+        id: monitor-timing
         if: steps.suite.outputs.windows_suite == 'full'
-        run: python -u -m pytest -q -m serial_timing tests/communication/diag/test_diag_monitor_read_model.py
+        run: >-
+          python -u -m pytest -q -m serial_timing --junitxml=junit/monitor-timing.xml -o junit_suite_name=monitor-timing
+          tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py
+      - name: Merge monitor timing JUnit
+        if: ${{ !cancelled() && (steps.monitor-timing.outcome == 'success' || steps.monitor-timing.outcome == 'failure') }}
+        run: python -m tools.ci_platform merge-junit junit/windows-full.xml junit/monitor-timing.xml
       - name: Run reviewed Windows platform-sensitive inventory
         if: steps.suite.outputs.windows_suite == 'targeted'
         run: python -u -m pytest -q -m platform_sensitive --junitxml=junit/windows-platform.xml -rs
@@ -178,8 +190,14 @@ jobs:
         env:
           PEERHUB_CI_SERIAL_TIMING: "1"
         run: python -u -m pytest -q -n auto --junitxml="junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml"
-      - name: Run the monitor latency check serially
-        run: python -u -m pytest -q -m serial_timing tests/communication/diag/test_diag_monitor_read_model.py
+      - name: Run the monitor latency checks serially
+        id: monitor-timing
+        run: >-
+          python -u -m pytest -q -m serial_timing --junitxml=junit/monitor-timing.xml -o junit_suite_name=monitor-timing
+          tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py
+      - name: Merge monitor timing JUnit
+        if: ${{ !cancelled() && (steps.monitor-timing.outcome == 'success' || steps.monitor-timing.outcome == 'failure') }}
+        run: python -m tools.ci_platform merge-junit "junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml" junit/monitor-timing.xml
       - name: Stamp candidate CI evidence
         if: github.event_name == 'workflow_dispatch' && inputs.full_matrix
         shell: bash

@@ -1,11 +1,23 @@
 """Default tests are hermetic; live provider access requires an explicit marker."""
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Mapping
 
 import pytest
+from xdist import is_xdist_worker
 
 from peerhub.core import load_limits
+
+
+def pytest_collection_modifyitems(session: pytest.Session, items: list[pytest.Item]) -> None:
+    if os.environ.get("PEERHUB_CI_SERIAL_TIMING") != "1" or not is_xdist_worker(session):
+        return
+    timing = [item for item in items if item.get_closest_marker("serial_timing") is not None]
+    if timing:
+        deferred = set(timing)
+        items[:] = [item for item in items if item not in deferred]
+        session.config.hook.pytest_deselected(items=timing)
 
 
 @pytest.fixture(autouse=True)

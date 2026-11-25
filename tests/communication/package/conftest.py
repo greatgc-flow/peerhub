@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import os
-import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from filelock import FileLock
@@ -40,18 +40,19 @@ def package_session_root(request: pytest.FixtureRequest, tmp_path_factory: pytes
 
 
 def _prepare_once(session_root: Path, name: str, prepare: Callable[[Path], None]) -> Path:
-    # The pytest session root is unique to this run. Other workers can reuse the
-    # artifacts only after setup succeeds, and can retry an interrupted setup.
-    root = session_root / name
-    ready = root / ".ready"
+    ready = session_root / f"{name}.ready"
     with FileLock(str(session_root / f"{name}.lock")):
-        if not ready.is_file():
-            if root.exists():
-                shutil.rmtree(root)
-            root.mkdir()
-            prepare(root)
-            ready.touch()
-    return root
+        if ready.is_file():
+            return session_root / ready.read_text(encoding="utf-8")
+        # A child may still write here if its worker dies. Leave interrupted
+        # attempts to pytest's temp retention and give each retry its own path.
+        root = session_root / f"{name}-{uuid4().hex}"
+        root.mkdir()
+        prepare(root)
+        pending = root / ".ready"
+        pending.write_text(root.name, encoding="utf-8")
+        pending.replace(ready)
+        return root
 
 
 @pytest.fixture(scope="session")
