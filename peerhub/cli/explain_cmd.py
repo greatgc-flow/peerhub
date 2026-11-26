@@ -85,7 +85,7 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
         from peerhub.cli import lessons
         from peerhub.cli.lessons import render_lesson
 
-        # Order: guidance code > exact profile id (above) > lessons index > exact lesson id > keywords.
+        # Order: guidance code > exact profile id (above) > lessons index > lesson id or alias > keywords.
         if code.strip().casefold() in {"", "lessons", "list"}:
             index = lessons.lesson_index()
             print(json.dumps({"lessons": index}, indent=2, ensure_ascii=True) if json_output
@@ -259,7 +259,7 @@ def render_guidance_reference() -> str:
 
 def register_explain_parser(subparsers: Subparsers) -> None:
     explain_parser = subparsers.add_parser("explain", help="Explain outcome codes or look up operational lessons")
-    explain_parser.add_argument("code", nargs="*", help="Guidance code, profile, lesson ID, or keywords. Omit it or use lessons (also list) for the index.")
+    explain_parser.add_argument("code", nargs="*", help="Guidance code, profile, lesson ID or alias, or keywords. Omit it or use lessons (also list) for the index.")
     explain_parser.add_argument("--json", action="store_true", default=False)
 
 

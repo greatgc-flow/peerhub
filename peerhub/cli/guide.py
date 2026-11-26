@@ -25,7 +25,10 @@ def render_guide() -> str:
     from peerhub.core.peer_kinds import API_PEER_KINDS
 
     # Keep one discovery pointer; lesson lookup is the shared topic index.
-    vote = next(lesson for lesson in load_lessons() if lesson.get("guide_order") == 1)
+    lessons = load_lessons()
+    vote = next(lesson for lesson in lessons if lesson.get("guide_order") == 1)
+    topics = sorted((lesson for lesson in lessons if lesson.get("guide_order", 0) >= 3),
+                    key=lambda lesson: lesson.get("guide_order", 0))
     return "\n".join([
         "PeerHub guide (decisions only)",
         # CLI peers are grouped by what their sandboxes support.
@@ -40,7 +43,7 @@ def render_guide() -> str:
         "Other sessions' asks count. No cap.",
         "Timeout: --timeout-seconds 1800-3600 for implementer/review (default 600); ag up to 7200.",
         "Uncertain (timeout, empty reply, pending_earlier_record): stop the stream, check diag running and working tree, never blind-retry.",
-        f"More: peerhub profile list; peerhub explain <topic> for: parallel-quota, {', '.join(topic['id'] for topic in sorted((item for item in load_lessons() if item.get('guide_order', 0) >= 3 and item['id'] != 'parallel-quota'), key=lambda item: item.get('guide_order', 0)))}, setup; peerhub explain lessons.",
+        f"More: peerhub profile list; peerhub explain <topic> for: {', '.join(topic['id'] for topic in topics)}, setup; peerhub explain lessons.",
     ])
 
 

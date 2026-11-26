@@ -14,6 +14,10 @@ they do not claim new validation or publication evidence.
 - `peerhub ask` accepts repeated `--query-file` flags and joins the files in command-line order with one blank line between them.
 - Both monitor layouts show a short ask ID on each RUNNING row and one `peerhub monitor open ID` footer for reading the stored prompt.
 
+### Changed
+
+- `peerhub explain` consolidates monitor, ag, parallel quota, cc/cx hazards and review lessons. Old topic names open their cluster as aliases.
+
 ### Fixed
 
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
@@ -30,6 +34,7 @@ they do not claim new validation or publication evidence.
 - Monitor JSON 1.1 and `--schema-version`. Use `monitor --json` for schema 2.0.
 - Removed the diag watch options `--live`, `--view`, `--cycles`, and `--interval-seconds`. Use `peerhub monitor` for the terminal watch or `peerhub diag --plan` for one AI planning read per turn.
 - Removed `diag --plan --json --compact`. Use `peerhub diag --plan --json` for the full plan.
+- Removed `peerhub explain handoff`. Follow [AGENTS.md](AGENTS.md) to [NOW.md](NOW.md) and use the [query-file example](docs/commands.md#ask) for ag inline context.
 
 ## [0.26.19] - 2026-11-26
 

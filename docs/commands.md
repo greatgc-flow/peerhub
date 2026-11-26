@@ -127,7 +127,7 @@ Add `--response-task TASK_ID` to include the reply for a completed task in the b
 | `guide` | Print the offline quick reference. |
 | `explain` | Look up lessons, profiles, or outcome codes offline. |
 
-`peerhub guide` gives the quick start and safety decisions offline. Bare `peerhub explain`, `peerhub explain list`, and `peerhub explain lessons` list the lesson IDs. Ask for one ID, an outcome code, an exact profile ID such as `cc.effort`, or free words such as `peerhub explain ag silence`. Both commands support `--json`. Run `peerhub explain exit-codes` for process exit codes and stdout/stderr behavior. See the [lookup order and lesson catalog](lessons.md).
+`peerhub guide` gives the quick start and safety decisions offline. Bare `peerhub explain`, `peerhub explain list`, and `peerhub explain lessons` list the current lesson IDs. Ask for one ID or alias, an outcome code, an exact profile ID such as `cc.effort`, or free words such as `peerhub explain ag silence`. Each old lesson name in a cluster opens the full entry, so `peerhub explain monitor-view` opens `monitor-states`. Both commands support `--json`. Run `peerhub explain exit-codes` for process exit codes and stdout/stderr behavior. See the [lookup order and lesson catalog](lessons.md).
 
 ## Update
 

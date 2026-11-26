@@ -208,7 +208,7 @@ The compact frame has two views with the same lines and rows. The plain view (`-
 - No state is shown by colour or glyph alone: the words of the plain view stay. The colours come from the 256-colour palette (semicolon SGR codes only; `COLORTERM` changes nothing). `NO_COLOR` keeps the rich layout with its Unicode glyphs and prints no colour. Output that cannot show Unicode gets the same layout with ASCII glyphs (`--`, `#`, `.`, `*`, `^`, `v`, `x`, `o`, `>`). A terminal that draws these glyphs two cells wide should use `--view plain` (or `PEERHUB_MONITOR_VIEW=plain`).
 - `--expand` keeps the full DB path in the header. Pipe it to see the finished history and sampled superseded asks. Continuous VT watches print their final frame back on the normal screen. Finite watches stay there throughout.
 - A child pool (`└─ F-7D`, `└─ 3P-5H`) has its own bar: `▬` filled and `╌` empty (ASCII `=` and `-`), where a parent keeps `█` and `░` (`#` and `.`). On a terminal the rich view ends line 2 with a `Guide` link (OSC 8) to [docs/monitor.md](docs/monitor.md), which says what every part of the screen means; a build without a release tag omits the link, and `PEERHUB_NO_LINKS=1` turns it off. When there is room and the header has no Guide link, the frame can show a `Guide: <url>` trailer.
-- [docs/monitor.md](docs/monitor.md) is the reading guide of the monitor. `peerhub explain monitor-view` sums up the order and the look; `peerhub explain monitor-states` explains the states, PACE and `suggest:`.
+- `peerhub explain monitor-states` covers monitor layout, quota states, PACE, account rows and alerts offline. [Monitor guide](docs/monitor.md)
 
 An example of the rich view, shown here without colour (the uncoloured frame, as `NO_COLOR` prints it):
 

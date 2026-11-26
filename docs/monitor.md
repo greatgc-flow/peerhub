@@ -5,7 +5,7 @@
 `peerhub diag --plan --json` reports the same difference as `exhaust_margin_seconds`, using the effective reset for a parent-limited pool. The plan text marks early exhaustion with `!early`.
 
 This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
-`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. For quick offline help, use `peerhub explain monitor-view` or `peerhub explain monitor-states`.
+`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. For quick offline help, use `peerhub explain monitor-states`. The alert codes `a1` through `a6` also open that lesson.
 
 Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
 required quota reading reaches 210 seconds (90 seconds before expiry) or is missing. Failed or partial peers retry after 60 seconds.
