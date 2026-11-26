@@ -501,7 +501,7 @@ def test_final_report_exposes_task_diagnostics_and_child_explain(no_scratch):
         assert lines[index + 1].startswith("    next: ")
         assert all(part in lines[index + 1] for part in [*commands, request])
 
-def test_selected_replies_keep_all_statuses_and_follow_manifest_order(no_scratch, monkeypatch, capsys):
+def test_responses_include_all_completed_replies_in_manifest_order(no_scratch, monkeypatch, capsys):
     from peerhub.core import workspace
     from peerhub.extensions import bridge_ledger
 
@@ -523,29 +523,19 @@ def test_selected_replies_keep_all_statuses_and_follow_manifest_order(no_scratch
     monkeypatch.setattr(workspace, "Workspace", Mock())
     monkeypatch.setattr(bridge_ledger, "reap_dead_asks", Mock())
     argv = _argv("x.db", "unused.json", max_parallel=2)
-    assert main([*argv, "--json", "--response-task", "last", "--response-task", "First",
-                 "--response-task", "failed", "--response-task", "First"]) == 1
+    assert main([*argv, "--json", "--responses"]) == 1
     report = json.loads(capsys.readouterr().out)
     rows = report["tasks"]
     assert [(row["task_id"], row["status"]) for row in rows] == [
         ("first", "COMPLETED"), ("First", "COMPLETED"), ("failed", "UNCERTAIN"), ("last", "COMPLETED"),
     ]
     assert {row["task_id"]: row["response"] for row in rows if "response" in row} == {
-        "First": "reply for First", "last": "reply for last",
+        "first": "reply for first", "First": "reply for First", "last": "reply for last",
     }
     rendered = batch.render_text(report)
-    assert rendered.split("---", 1)[1] == " First reply ---\nreply for First\n--- last reply ---\nreply for last"
-
-
-def test_response_task_dry_run_validates_exact_ids_without_showing_replies(dry_run, capsys):
-    argv = dry_run([_task("review")])
-    assert main([*argv, "--dry-run", "--json", "--response-task", "review"]) == 0
-    (task,) = json.loads(capsys.readouterr().out)["tasks"]
-    assert "response" not in task
-    assert main([*argv, "--dry-run", "--json", "--response-task", "Review"]) == 1
-    assert json.loads(capsys.readouterr().out)["error"] == {
-        "code": "invalid_manifest", "message": "unknown task IDs for --response-task: 'Review'",
-    }
+    assert rendered.split("---", 1)[1] == (
+        " first reply ---\nreply for first\n--- First reply ---\nreply for First\n--- last reply ---\nreply for last"
+    )
 
 
 def test_batch_help_shows_a_valid_manifest_and_prompt_alternative(capsys, monkeypatch):

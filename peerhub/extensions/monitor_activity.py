@@ -312,10 +312,9 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
             lease = finite_number(r["lease_sec"], overflow_is_missing=True)
             row["_lease_age_s"] = (max(0.0, now - (expires_at - lease))
                                    if state == "run" and lease is not None and lease > 0 else None)
-        else:
-            ask_id = r["record_id"]
-            if isinstance(ask_id, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", ask_id):
-                row["_ask_id"] = ask_id
+        ask_id = r["record_id"]
+        if isinstance(ask_id, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", ask_id):
+            row["_ask_id"] = ask_id
     return row
 
 

@@ -98,7 +98,7 @@ CLI output defaults to compact human text, including when redirected. Use `--jso
 # Persist the prompt, execute one provider, and persist its response.
 peerhub ask cx "Summarize this repository" --stream review --request-id review-001
 
-# Recommend a peer and print an ask command that reads review.txt.
+# Deprecated: use peerhub diag --plan for planning. This command is removed next release.
 peerhub suggest --tier effort --task review
 
 # Show the tier's candidate profiles and the quota facts behind their eligibility.
@@ -108,20 +108,17 @@ peerhub suggest --tier effort --task review --candidates
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
 
-# AIs read quota with one low-token command (pools + active asks + RAM and CPU); `peerhub monitor` is the human screen.
+# AI agents read quota once per turn (pools, active asks, RAM and CPU). People use `peerhub monitor`.
 peerhub diag --plan
 
 # Read committed observations without probing or writing.
 peerhub diag
 peerhub diag quota --json
 peerhub diag health
-peerhub diag --live --interval-seconds 2
-peerhub diag --view rich
 # Use diag quota --max-age-seconds N for recent readings, or diag --plan --peer PEER (repeatable) and --observation-db PATH to narrow the plan's stored evidence.
 
-# List every monitor group and see what each ID means; --json emits the same catalog.
-peerhub monitor groups
-peerhub monitor groups --json
+# List group IDs under --group.
+peerhub monitor --help
 
 # Show a read-only snapshot once, without provider refresh or writes.
 peerhub monitor --snapshot
@@ -137,14 +134,8 @@ peerhub monitor --no-probe --interval-seconds 60
 # For a person who wants only the verdict, suggestion and pools (AI sessions read `peerhub diag --plan` instead).
 peerhub monitor --snapshot --group capacity
 
-# Keep the schema 1.1 quota/dashboard output for existing scripts.
-peerhub monitor --json --schema-version 1.1 --cycles 1
-
-# Customize grouped watch and snapshot defaults (workspace by default).
-peerhub monitor defaults set --group overview activity peers execution sessions usage context capacity coverage
-peerhub monitor defaults show
-# Reset defaults saved before 0.24.16 to include the new activity group.
-peerhub monitor defaults reset
+# Read one grouped JSON snapshot (schema 2.0).
+peerhub monitor --json --snapshot
 
 # Review with a second provider using a declared profile.
 peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
@@ -176,7 +167,8 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API pee
 
 Quota is collected separately from diagnostics. The default peers are shown in `peerhub observation refresh --peers cx cc ag`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 
-`peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
+`peerhub suggest` is deprecated, removed in the next release; use `peerhub diag --plan`.
+Until removal, `peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
 prints an ask command and one reason line. Put the task and supporting material
 in `prompt.txt` or, with `--task`, in `review.txt`, `code.txt`, or `read.txt`.
 The generated command selects the store and profile, requests a fresh session,
@@ -196,10 +188,7 @@ for details.
 
 `--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its `MARGIN` and `EXH/RESET` pair, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 
-`diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
-
-`monitor groups` lists all eleven stable group IDs, their meaning, and whether each
-is selected by the effective defaults. The default monitor includes running and
+`monitor --help` lists the available group IDs. The default monitor includes running and
 recent asks (`activity`), quota capacity (`capacity`), retained session state and
 configured binding (`sessions`), per-peer dependency chains (`peers`), and Bridge
 delivery certainty (`execution`).
@@ -220,7 +209,7 @@ The compact frame has two views with the same lines and rows. The plain view (`-
 - No state is shown by colour or glyph alone: the words of the plain view stay. The colours come from the 256-colour palette (semicolon SGR codes only; `COLORTERM` changes nothing). `NO_COLOR` keeps the rich layout with its Unicode glyphs and prints no colour. Output that cannot show Unicode gets the same layout with ASCII glyphs (`--`, `#`, `.`, `*`, `^`, `v`, `x`, `o`, `>`). A terminal that draws these glyphs two cells wide should use `--view plain` (or `PEERHUB_MONITOR_VIEW=plain`).
 - `--expand` keeps the full DB path in the header. Pipe it to see the finished history and sampled superseded asks. Continuous VT watches print their final frame back on the normal screen. Finite watches stay there throughout.
 - A child pool (`└─ F-7D`, `└─ 3P-5H`) has its own bar: `▬` filled and `╌` empty (ASCII `=` and `-`), where a parent keeps `█` and `░` (`#` and `.`). On a terminal the rich view ends line 2 with a `Guide` link (OSC 8) to [docs/monitor.md](docs/monitor.md), which says what every part of the screen means; a build without a release tag omits the link, and `PEERHUB_NO_LINKS=1` turns it off. When there is room and the header has no Guide link, the frame can show a `Guide: <url>` trailer.
-- [docs/monitor.md](docs/monitor.md) is the reading guide of the monitor. `peerhub explain monitor-view` sums up the order and the look; `peerhub explain monitor-states` explains the states, PACE and `suggest:`.
+- `peerhub explain monitor-states` covers monitor layout, quota states, PACE, account rows and alerts offline. [Monitor guide](docs/monitor.md)
 
 An example of the rich view, shown here without colour (the uncoloured frame, as `NO_COLOR` prints it):
 
@@ -279,19 +268,16 @@ What was measured and what was not. Historical measurements on Windows 11 with C
 
 The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for every pool and detailed session and group sections. Both layouts show `MARGIN`, the `EXH/RESET` pair and the even-burn mark. `--view rich` adds colour on terminals.
 `--view plain` selects ASCII-safe output: the frame's own lines and marks are ASCII, while request, reply, lead and alert text keeps every character the output encoding can show (Korean, Kana and CJK stay readable; ambiguous-width characters become `?`; the cut mark is `~`). Add repeatable `--group` options to
-watch one or more groups, or `--group all` to include all eleven. `monitor groups`
-lists group IDs and meanings; `monitor defaults show|set|reset` inspects and
-changes the default selection (`show` prints a table; `--json` gives JSON). `monitor --snapshot` renders one read-only
+watch one or more groups, or `--group all` to include all eleven. `monitor --snapshot` renders one read-only
 dashboard without refreshing providers. In a terminal, `--snapshot --expand`
 fits the screen; piping shows all rows, for example
 `peerhub monitor --snapshot --group all --expand | more`.
-Quota windows omitted by a plan or disabled by a provider are `n/a`. Both human layouts hide these windows by default and omit pools without readings from the weekly pace gap. Add `--show-quota-notes` to include unavailable windows in the POOLS count, show their names inline (for example, `(C-5H n/a)`) and see their reasons in compact POOLS or expanded QUOTA. The layout options `--compact` and `--expand` are mutually exclusive. These options and `--show-quota-notes` apply to human output.
+Compact hides unavailable quota windows. Expanded POOLS counts and names them, and expanded QUOTA gives their reasons. A RUNNING row shows the short ask ID. Use `peerhub monitor open ID` to read the stored prompt.
 
 Configured weekly dependencies appear together in POOLS: for example, `cc F-7D` is a child of `cc C-7D`. With both pools fresh, the F-7D row is limited by C-7D: LEFT and PACE are the lower of the two, the reset is the nearer one, the state is the worse one, and its own value stays in the FAMILY note (for example `own 26%`); a fresh exhausted C-7D says `blocked` and names C-7D. POOLS, QUOTA, the `suggest:` line, `diag quota` and `diag readiness` use the same rule. Sections that read only a sample (EXECUTION, SESSIONS, USAGE, CONTEXT) say `sample N/M` in their head, and PEERS says `showing N of M peers` when capped. Stale, unknown, reset or ambiguous parent evidence is not treated as a current block. The rich expanded QUOTA table shows the same state. Live VT watch rewrites changed rows at fixed screen positions so wide glyphs cannot push later rows down. See [the monitor guide](docs/monitor.md#the-alternate-screen-and-live_row_margin) for full repaints and terminal behavior.
 
 For automation, `--json` emits schema
-2.0 NDJSON frames for watch and one JSON object for snapshot. The frozen 0.16.1
-machine contract is available via `--json --schema-version 1.1`.
+2.0 NDJSON frames for watch and one JSON object for snapshot.
 
 The `diag` dashboard shows a threat summary, a stable pool
 table with usage, PACE in percentage points, reset countdown, conditional
@@ -304,13 +290,11 @@ data”. Inferred anchors remain conditional and predictive accuracy is not
 established.
 
 Monitor reads committed evidence every N seconds (`--interval-seconds`).
-With `--probe`, it also collects initially and then every Kth cycle
-(`--collect-every`). Collection may spend quota through provider calls such as
+In a terminal it refreshes quota when due. Collection may spend quota through provider calls such as
 agy `/usage` and `/credits`. With `--cycles` omitted,
 stdout on a TTY watches until interrupted; non-TTY stdout runs one cycle.
 Explicit `--cycles 0` watches until interrupted everywhere; positive values
-bound watch cycles. The legacy dashboard and
-live diagnostics update countdowns at most 1 Hz; PACE and forecast ETA remain
+bound watch cycles. Monitor updates countdowns at most 1 Hz; PACE and forecast ETA remain
 anchored to the measurement. Non-TTY human watch prints one completed frame
 per cycle without escapes (skipping the initial pre-refresh frame), while unavailable VT on a TTY appends without escapes; schema 2.0 JSON watch emits one `initial` frame plus
 one `complete` frame per cycle (default non-TTY JSON = two lines). `NO_COLOR` suppresses

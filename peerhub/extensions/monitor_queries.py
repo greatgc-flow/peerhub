@@ -1,10 +1,14 @@
 """Bounded SQLite queries for monitor projections, executed on the caller's read snapshot."""
 from __future__ import annotations
 
+import re
 import sqlite3
+from contextlib import closing
+from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.delivery_reads import invocation_marker_join, invocation_process_fields
 from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, QUOTA_PROJECTION_SAMPLE_COUNT_SQL
 
@@ -16,6 +20,18 @@ _ROW_COLUMNS = ("o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_re
                 "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind ")
 _ROW_JOINS = ("FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
               "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref ")
+
+
+def read_ask_prompt(db_path: str, short_id: str) -> str | None:
+    """Read the immutable prompt by its complete generated ID, with the common prefix omitted."""
+    record_id = f"rec-{short_id}" if re.fullmatch(r"[0-9a-f]{12}", short_id) else short_id
+    with closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        schema = conn.execute("PRAGMA user_version").fetchone()[0]
+        if schema > SUPPORTED_SCHEMA_VERSION:
+            raise SchemaVersionError(future_schema_message(schema, SUPPORTED_SCHEMA_VERSION))
+        row = conn.execute("SELECT body_json FROM records WHERE record_id=? AND kind='prompt'",
+                           (record_id,)).fetchone()
+    return row[0] if row else None
 
 
 def _guarded(json_column: str, path: str, value: str) -> str:

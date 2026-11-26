@@ -8,9 +8,46 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-27
+
+Breaking: removes CLI options listed under Removed, following the [scope decision](docs/history/scope-decision-2026-11-27.md).
+
+### Added
+
+- Root `NOW.md` gives peers a capped, test-pinned handoff that is refreshed in the PR that changes it.
+- `peerhub ask` accepts repeated `--query-file` flags and joins the files in command-line order with one blank line between them.
+- Both monitor layouts show a short ask ID on each RUNNING row and one `peerhub monitor open ID` footer for reading the stored prompt.
+
+### Changed
+
+- `peerhub explain` consolidates monitor, ag, parallel quota, cc/cx hazards and review lessons. Old topic names open their cluster as aliases.
+
 ### Fixed
 
+- `monitor` returns exit code 4 (storage read failure, as documented) for a corrupt store; it returned 1.
+- The plain RUNNING footer prints the `PATH` placeholder when a non-ASCII store path cannot be shown unchanged.
+
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
+- The release-flow test fixture uses pytest-managed scratch space (#492).
+
+### Removed
+
+- Monitor `--collect-every`. Terminal watch checks quota freshness automatically.
+- Monitor `--probe`. Use `peerhub observation refresh` for explicit collection.
+- Monitor `--show-quota-notes`. Use `--expand` for quota notes.
+- `monitor defaults` and saved `monitor.toml` preferences. Pass repeatable `--group` options to select groups.
+- `monitor groups`. See `peerhub monitor --help` for group IDs.
+- Monitor JSON 1.1 and `--schema-version`. Use `monitor --json` for schema 2.0.
+- Diag watch options `--live`, `--view`, `--cycles`, and `--interval-seconds`. Use `peerhub monitor` for the terminal watch or `peerhub diag --plan` for one AI planning read per turn.
+- `diag --plan --json --compact`. Use `peerhub diag --plan --json` for the full plan.
+- `peerhub explain handoff` (never released). Follow [AGENTS.md](AGENTS.md) to [NOW.md](NOW.md) and use the [query-file example](docs/commands.md#ask) for ag inline context.
+- `batch run --response-task`. Use `--responses` to include completed replies.
+
+### Changed
+
+- `ask` reports high CPU load as a warning and proceeds; RAM protection and batch admission remain.
+- `peerhub suggest` is deprecated and will be removed in the next release; use `peerhub diag --plan`.
+
 
 ## [0.26.19] - 2026-11-26
 

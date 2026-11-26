@@ -109,7 +109,7 @@ def test_cross_view_health_equivalence() -> None:
     assert plan_rows[child][3].startswith("0.00")
     assert plan_rows[child][4:] == ["blocked", child_json["reason"]]
     for screen in (compact, expanded):
-        assert old_pool not in screen and "(stale)" not in screen
+        assert (old_pool in screen) == (screen == expanded) and "(stale)" not in screen
         assert all(f"~{QUOTA_TTL_SECONDS // 60}m" in " ".join(cells) for cells in pool_cells(screen, stale_pool))
     retired = json_rows[old_pool]
     assert retired["action"] == retired["health"]["state"] == "n/a"
@@ -380,9 +380,9 @@ def test_missing_pool_cells_match_the_record_and_docs(unicode: bool) -> None:
     assert all(f"`{placeholder}`" in line for line in (left_doc, margin_doc, pair_doc))
     for expand in (False, True):
         screen = mv.render_grouped_frame(frame(item), width=100, unicode=unicode, expand=expand)
-        assert "gap vs " not in screen
-        with_notes = mv.render_grouped_frame(frame(item), width=100, unicode=unicode, expand=expand, show_quota_notes=True)
-        assert f"{pool} {placeholder}" in next(line for line in with_notes.splitlines() if line.startswith("gap vs "))
+        assert ("gap vs " in screen) == expand
+        if expand:
+            assert f"{pool} {placeholder}" in next(line for line in screen.splitlines() if line.startswith("gap vs "))
         rows = pool_cells(screen, pool)
         assert rows and all(placeholder in cells for cells in rows)
         for cells in rows:

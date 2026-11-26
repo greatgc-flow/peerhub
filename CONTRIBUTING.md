@@ -52,7 +52,7 @@ platform suite.
 ## Quota forecast backtesting
 
 Collect an opt-in trace with `peerhub monitor --json --cycles 0 >> quota-trace.ndjson`
-(Ctrl-C stops it); this may contact providers and spend quota. Quota observations
+(Ctrl-C stops it). Redirected watch reads committed evidence. Use a terminal monitor or explicit observation refresh to collect fresh observations. Quota observations
 also accumulate in the selected store. Replay them read-only with
 `python -m tools.quota_report --backtest --db <store> [--json]`. The report groups by pool
 and stable reset, skipping fewer than five distinct samples or less than 5%
@@ -95,6 +95,7 @@ explains the change and the checks you ran.
 Finish related changes and tests locally, then open one focused PR. Repeat the
 closing keyword for each issue the PR resolves. When deferring a proposal,
 record the reason and the condition that would reopen it on its issue.
+Update [NOW.md](NOW.md) in the same PR when state, flow or next steps change.
 For security vulnerabilities, see [SECURITY.md](SECURITY.md); for Dependabot PRs, review the changelog and run tests (majors need cx review).
 
 ## Knowledge placement
@@ -170,7 +171,8 @@ If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model f
 
 1. Include the version bump in the last feature PR for the release. Update
    `peerhub/_version.py`, the `## Current source: v0.x.y` heading in `docs/STATUS.md`, and the matching
-   `CHANGELOG.md` section. Wait for CI to be green: `gh pr checks`
+   `CHANGELOG.md` section. Set `Updated:` and `Released:` in [NOW.md](NOW.md)
+   to the new version and record the release date. Wait for CI to be green: `gh pr checks`
    must show zero pending or failed checks before merging. Never merge before
    checks finish.
    For a topic branch before opening its PR, ordinary hosted CI can be

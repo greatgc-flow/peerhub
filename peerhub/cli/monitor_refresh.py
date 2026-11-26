@@ -78,7 +78,7 @@ def try_quota_refresh(db_path: str | Path, peers: Sequence[str]) -> None:
 
 
 def monitor_auto_probe(args: argparse.Namespace) -> bool:
-    return (not args.probe and not args.no_probe and sys.stdout.isatty()
+    return (not args.no_probe and sys.stdout.isatty()
             and os.environ.get("PEERHUB_MONITOR_PROBE", "").strip().lower() not in {"off", "0", "false", "no"})
 
 
@@ -158,10 +158,8 @@ def required_quota_pools(db: str | Path, peers: Sequence[str]) -> dict[str, set[
 class RefreshSchedule:
     """Schedule on monotonic deadlines derived from the last committed readings."""
 
-    def __init__(self, required: Mapping[str, set[str]], *, forced_interval: float | None = None) -> None:
+    def __init__(self, required: Mapping[str, set[str]]) -> None:
         self.required = dict(required)
-        self._forced_interval = forced_interval
-        self._forced_at = dict.fromkeys(required, float("-inf"))
         self._evidence_due: dict[str, float] = {}
         self._retry_at: dict[str, float] = {}
         self._failed_at: dict[str, float] = {}
@@ -194,7 +192,7 @@ class RefreshSchedule:
             # A failed peer waits out its cooldown; a merely deferred one (the lock was held elsewhere) is also not due
             # while fresh evidence says so, or a refresh by another process would restart jobs every tick.
             return self._retry_at[peer] if peer in self._failed_at else max(self._retry_at[peer], evidence_due)
-        return min(evidence_due, self._forced_at[peer]) if self._forced_interval is not None else evidence_due
+        return evidence_due
 
     def due(self, now: float) -> tuple[str, ...]:
         return tuple(peer for peer in self.required if self._due_at(peer) <= now)
@@ -235,8 +233,6 @@ class RefreshSchedule:
             else:
                 self._failed_at.pop(peer, None)
                 self._retry_at.pop(peer, None)
-            if self._forced_interval is not None:
-                self._forced_at[peer] = now + self._forced_interval
 
 
 class RefreshJob:
@@ -246,19 +242,19 @@ class RefreshJob:
     _active: ClassVar[RefreshJob | None] = None
 
     def __init__(self, args: argparse.Namespace, peers: tuple[str, ...], required: Mapping[str, set[str]], *,
-                 force: bool, retry: tuple[str, ...]) -> None:
+                 retry: tuple[str, ...]) -> None:
         from peerhub.extensions.quota_probes.common import ProbeCancellation
 
         self.peers = peers
         self.result: dict[str, Any] | None = None
         self._cancel = ProbeCancellation()
-        self._worker = Thread(target=self._run, args=(args, required, force, retry), name="peerhub-quota-refresh", daemon=True)
+        self._worker = Thread(target=self._run, args=(args, required, retry), name="peerhub-quota-refresh", daemon=True)
 
     @classmethod
-    def start(cls, args: argparse.Namespace, peers: tuple[str, ...], *, force: bool,
+    def start(cls, args: argparse.Namespace, peers: tuple[str, ...], *,
               required: Mapping[str, set[str]] | None = None, retry: tuple[str, ...] = ()) -> RefreshJob | None:
         job = cls(args, peers, required if required is not None else required_quota_pools(args.db, peers),
-                  force=force, retry=retry)
+                  retry=retry)
         try:
             with cls._lock:
                 if cls._active is not None:
@@ -277,18 +273,17 @@ class RefreshJob:
             if cls._active is self:
                 cls._active = None
 
-    def _run(self, args: argparse.Namespace, required: Mapping[str, set[str]], force: bool, retry: tuple[str, ...]) -> None:
+    def _run(self, args: argparse.Namespace, required: Mapping[str, set[str]], retry: tuple[str, ...]) -> None:
         from peerhub.extensions import quota_capture
 
         try:
             with quota_capture.quota_refresh_lock(args.db, cancelled=self._cancel.cancelled) as acquired, closing(self._cancel):
                 if not acquired or self.cancelled():
                     return
-                if not force:
-                    check = RefreshSchedule({peer: required[peer] for peer in self.peers})
-                    check.update(read_quota_readings(args.db), 0)
-                    due = set(check.due(0)) | set(retry)
-                    self.peers = tuple(peer for peer in self.peers if peer in due)
+                check = RefreshSchedule({peer: required[peer] for peer in self.peers})
+                check.update(read_quota_readings(args.db), 0)
+                due = set(check.due(0)) | set(retry)
+                self.peers = tuple(peer for peer in self.peers if peer in due)
                 timeout = args.timeout
                 if timeout >= MONITOR_REFRESH_LEAD_SECONDS:
                     timeout = MONITOR_PROBE_MAX_TIMEOUT_SECONDS

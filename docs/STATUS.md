@@ -1,10 +1,10 @@
 # PeerHub Development Status
 
-> **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for the remaining development queue and the deferred backlog. The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`CONTRIBUTING.md`) point here.
+> Active work, recent flow and next steps are in [NOW.md](../NOW.md). This document keeps the deferred backlog and its start triggers. The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases.
 
 Dates are UTC.
 
-## Current source: v0.26.19
+## Current source: v0.27.0
 
 From v0.24.13 each published release carries the G3 JUnit files (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml`) and the live-evidence JSON as assets; the release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases. The release PR sets the heading above; no per-release paragraph or follow-up docs PR is kept here.
 

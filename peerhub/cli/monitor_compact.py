@@ -7,11 +7,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, cast
 
+from peerhub.core.shell import format_shell_command
 from peerhub.core.text import clean_text
 from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_activity_view import compact_activity
 from peerhub.cli.monitor_alert_view import alert_section, decorate_verdict, verdict_line
-from peerhub.cli.monitor_format import na_pool_note, pool_gap
+from peerhub.cli.monitor_format import pool_gap
 from peerhub.cli.monitor_layout import (
     FILE_HYPERLINK,
     FRAME_TRAILING_ROWS,
@@ -35,7 +36,6 @@ from peerhub.cli.monitor_layout import (
 from peerhub.cli.monitor_leads_view import compact_leads
 from peerhub.cli.monitor_legend import FRAME_SECTIONS, FRAME_SECTION_ORDER, POOL_LEGEND, QUOTA_NA
 from peerhub.cli.monitor_links import GUIDE_TEXT, link_profiles, location_lines, osc_link
-from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.monitor_quota_view import (
     HIDDEN_QUOTA_WINDOWS,
     compact_suggestions,
@@ -46,6 +46,7 @@ from peerhub.cli.monitor_quota_view import (
     selected_quota_readings,
 )
 from peerhub.cli.monitor_recent_view import expanded_recent
+from peerhub.cli.monitor_running_view import ask_split
 from peerhub.cli.monitor_sections import billing_summary
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL, oldest_measured_quota_age
@@ -94,7 +95,7 @@ class CompactFrame:
     recent: list[str] | None = None  # [RECENT header, *rows]; None when there is no ended ask
     recent_short: list[str] | None = None  # --expand: the rows of `recent` (entries of two lines) as one line each
     suggest: list[str] = field(default_factory=lambda: list[str]())
-    pool_notes: list[str] = field(default_factory=lambda: list[str]())
+    running_hint: str = ""
     pool_gap: list[str] = field(default_factory=lambda: list[str]())
     pool_legend: list[str] = field(default_factory=lambda: list[str]())
     pools: list[str] | None = None  # [POOLS header, *rows]; None when `capacity` is not selected
@@ -137,7 +138,6 @@ def frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str 
     header = [fit(line) for line in frame.header]
     parts = {key: fitted(getattr(frame, key), (pool_width or width) if key == "pools" else width)
              for key in FRAME_SECTION_ORDER}
-    pool_notes = [fit(line, pool_width or width) for line in frame.pool_notes]
     pool_gap = [fit(line) for line in frame.pool_gap]
     pool_legend = [fit(line) for line in frame.pool_legend]
     totals = {"running": frame.running_total, "leads": frame.leads_total, "pools": frame.pools_total}
@@ -151,7 +151,9 @@ def frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str 
         rows = len(lines) - header_lines.get(key, 1)
         hidden = totals.get(key, 0) - rows
         extra = [overflow(hidden, nouns[key], width, unicode)] if hidden > 0 and rows > 0 else []
-        return [*lines, *extra, *pool_notes, *pool_gap, *pool_legend] if key == "pools" else [*lines, *extra]
+        if key == "running" and rows and frame.running_hint:
+            extra.append(fit(frame.running_hint))
+        return [*lines, *extra, *pool_gap, *pool_legend] if key == "pools" else [*lines, *extra]
 
     def assemble() -> list[str]:
         return [verdict, *header, *(line for key in FRAME_SECTION_ORDER for line in section(key))]
@@ -174,9 +176,6 @@ def frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str 
     yield assemble()
     for key in reversed(FRAME_SECTION_ORDER):
         rows = parts[key]
-        if key == "pools" and pool_notes:
-            pool_notes.clear()
-            yield assemble()
         if rows and key == "recent" and frame.recent_short:
             rows[1:] = [fit(line) for line in frame.recent_short]
             yield assemble()
@@ -319,6 +318,15 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
         verdict = verdict_line(payload, width, unicode, keep)
     frame = CompactFrame(verdict=verdict, header=header)
     frame.alerts = alert_section(payload, width, unicode, keep, rich=rich, paint=paint, expand=expand)
+    activity = as_dict(as_dict(groups.get("activity")).get("data"))
+    if any(row.get("_ask_id") for row in ask_split(activity)[0]):
+        frame.running_hint = "peerhub monitor open ID"
+        if store.get("source") == "explicit":
+            path = str(store.get("path") or "")
+            command = format_shell_command(["peerhub", "--db", path, "monitor", "open", "ID"])
+            unchanged = clean_text(path) == path and (unicode or (path.isascii() and ascii_text(command, keep) == command))
+            frame.running_hint = (command if path and unchanged and cell_width(command) <= width
+                                  else "peerhub --db PATH monitor open ID")
     links = bool(payload.get("_file_links"))
     if "activity" in selected_ids and not expand:
         frame.running, frame.running_total, frame.recent = compact_activity(groups, width, unicode, keep,
@@ -334,20 +342,13 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
         profile_urls = as_dict(payload.get("_profile_urls"))
         if profile_urls:
             frame.suggest = [link_profiles(line, profile_urls) for line in frame.suggest]
-        show_notes = bool(payload.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
-        visible_rows = rows if show_notes else [row for row in rows if row["state"] != QUOTA_NA]
+        visible_rows = rows if expand else [row for row in rows if row["state"] != QUOTA_NA]
         if visible_rows:
-            frame.pool_gap = pool_gap(rows, width, unicode, show_quota_notes=show_notes)
+            frame.pool_gap = pool_gap(rows, width, unicode, show_quota_notes=expand)
             frame.pool_legend = wrap_text(POOL_LEGEND, width)
             frame.pools, frame.pools_total, frame.pools_header_lines = pool_section(
                 rows, pool_width or width, unicode, keep, rich=rich, paint=paint, every=expand,
-                guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls, show_quota_notes=show_notes)
-            if not expand and show_notes:
-                dim = RICH_SGR["dim"] if paint else None
-                frame.pool_notes = [
-                    paint_text(line, dim) for row in rows if row["state"] == QUOTA_NA and (note := na_pool_note(row))
-                    for line in wrap_text(note, max(1, pool_width or width))
-                ]
+                guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls, show_quota_notes=expand)
         else:
             if rows:
                 notes = [] if expand else wrap_text(HIDDEN_QUOTA_WINDOWS, width)

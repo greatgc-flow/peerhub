@@ -201,12 +201,12 @@ def test_explicit_missing_db_with_legacy_store_present_emits_no_hint_line(pollut
     assert "Ignored legacy store:" not in err
 
 
-def test_schema_11_explicit_default_path_with_legacy_store_emits_no_hint(polluted_subfolder_workspace, monkeypatch, capsys):
+def test_monitor_explicit_default_path_with_legacy_store_emits_no_hint(polluted_subfolder_workspace, monkeypatch, capsys):
     ws, _ = polluted_subfolder_workspace
     monkeypatch.chdir(ws)
     monkeypatch.delenv("PEERHUB_DB", raising=False)
 
-    code = main(["--db", str(DEFAULT_DB_PATH), "monitor", "--json", "--schema-version", "1.1"])
+    code = main(["--db", str(DEFAULT_DB_PATH), "monitor", "--json"])
     assert code == 5
     out, err = capsys.readouterr()
     payload = json.loads(out)
@@ -215,12 +215,12 @@ def test_schema_11_explicit_default_path_with_legacy_store_emits_no_hint(pollute
     assert "Ignored legacy store:" not in err
 
 
-def test_schema_11_env_default_path_with_legacy_store_emits_no_hint(polluted_subfolder_workspace, monkeypatch, capsys):
+def test_monitor_env_default_path_with_legacy_store_emits_no_hint(polluted_subfolder_workspace, monkeypatch, capsys):
     ws, _ = polluted_subfolder_workspace
     monkeypatch.chdir(ws)
     monkeypatch.setenv("PEERHUB_DB", str(DEFAULT_DB_PATH))
 
-    code = main(["monitor", "--json", "--schema-version", "1.1"])
+    code = main(["monitor", "--json"])
     assert code == 5
     out, err = capsys.readouterr()
     payload = json.loads(out)
@@ -229,12 +229,12 @@ def test_schema_11_env_default_path_with_legacy_store_emits_no_hint(polluted_sub
     assert "Ignored legacy store:" not in err
 
 
-def test_schema_11_no_store_selected_with_legacy_store_emits_hint(polluted_subfolder_workspace, monkeypatch, capsys):
+def test_monitor_no_store_selected_with_legacy_store_emits_hint(polluted_subfolder_workspace, monkeypatch, capsys):
     ws, sub_store = polluted_subfolder_workspace
     monkeypatch.chdir(ws)
     monkeypatch.delenv("PEERHUB_DB", raising=False)
 
-    code = main(["monitor", "--json", "--schema-version", "1.1"])
+    code = main(["monitor", "--json"])
     assert code == 5
     out, err = capsys.readouterr()
     payload = json.loads(out)
@@ -383,8 +383,7 @@ def test_implicit_miss_refuses_before_dispatch(tmp_path, monkeypatch, capsys, co
 
 
 @pytest.mark.parametrize("command", [["guide"], ["explain", "store_missing"],
-                                     ["profile", "list"], ["monitor", "groups"],
-                                     ["monitor", "defaults", "show"]])
+                                     ["profile", "list"]])
 def test_store_free_commands_work_without_store(tmp_path, monkeypatch, capsys, command):
     monkeypatch.chdir(tmp_path)
     assert main(command) == 0

@@ -154,11 +154,11 @@ def test_retired_pools_form_one_dim_note_per_peer(expand: bool, monkeypatch: pyt
     for item in frame["groups"]["capacity"]["data"]["observations"]:
         if not item["pool_ref"].endswith("C-7D"):
             item.update(state="ABSENT", reason="not reported by provider", display_retired=True, display_plan="pro")
-    screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
+    screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
     notes = [line for line in screen.splitlines() if "not reported by plan" in line]
     assert len(notes) == 1 and "C-5H,C-30D" in notes[0]  # one note in the QUOTA details (POOLS has a row per pool)
     assert notes[0].strip().startswith(f"\x1b[{monitor_layout.RICH_SGR['dim']}m") and notes[0].endswith("\x1b[0m")
-    plain = mv.render_grouped_frame(frame, show_quota_notes=True, view="plain", color=True, unicode=False, width=180, expand=expand)
+    plain = mv.render_grouped_frame(frame, view="plain", color=True, unicode=False, width=180, expand=expand)
     assert [line for line in plain.splitlines() if "not reported by plan" in line] == [
         "cc C-5H,C-30D n/a (not reported by plan pro)"]
 
@@ -176,8 +176,8 @@ def test_folded_na_combines_suffix_after_last_column_without_losing_numbers(expa
         if not item["pool_ref"].endswith("C-7D"):
             item.update(state="ABSENT", reason="not reported by provider", measurements=None)
     before = json.dumps(frame, sort_keys=True)
-    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, expand=expand, show_quota_notes=True)
-    assert "(F-7D,C-5H n/a)" in screen
+    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, expand=expand)
+    assert ("(F-7D,C-5H n/a)" in screen) == expand
     assert "`- C-5H" not in screen and "`- F-7D" not in screen
     assert "30%" in screen if width >= 60 else True  # narrower expanded tables may drop REM whole
     assert all(monitor_layout.cell_width(line) < width for line in screen.splitlines())
@@ -220,7 +220,7 @@ def test_expanded_folded_pool_keeps_identity_and_reason(reason: str, detail: str
     item = next(item for item in frame["groups"]["capacity"]["data"]["observations"]
                 if item["pool_ref"].endswith("F-7D"))
     item.update(state="ABSENT", reason=reason, measurements=None)
-    screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="plain", unicode=False, width=180, expand=True)
+    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=True)
     assert "(F-7D n/a)" in screen
     assert f"cc F-7D n/a {detail}" in screen
 
@@ -270,8 +270,10 @@ def test_na_root_is_counted_and_its_peer_gets_a_marker(expand: bool, monkeypatch
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state="ABSENT", reason="not reported by provider", measurements=None)
     hidden = mv.render_grouped_frame(frame, view="rich", width=180, expand=expand)
-    assert "POOLS 0" in hidden and "C-5H" not in hidden
-    screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
+    if not expand:
+        assert "POOLS 0" in hidden and "C-5H" not in hidden
+        return
+    screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
     assert "POOLS 1" in ANSI_ESCAPE.sub("", screen) and "(C-5H n/a)" in screen
     dim = monitor_layout.RICH_SGR["dim"]
     assert not any("○ n/a" in line for line in screen.splitlines())

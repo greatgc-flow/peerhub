@@ -14,36 +14,36 @@ from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 from peerhub.extensions import monitor_alerts
 
 pytestmark = [pytest.mark.unit]
-MONITOR_ALERTS_LESSON = "monitor-alerts"
+MONITOR_LESSON = "monitor-states"
 
 
 @pytest.mark.parametrize(("query", "expected"), [
-    ("AG SILENCE", ["ag-silence-long-asks"]),
+    ("AG SILENCE", ["ag-recipe"]),
     ("permission ag", ["ag-recipe"]),
     ("pip checkout", ["installed-vs-checkout"]),
     ("PYTHONPATH", ["installed-vs-checkout"]),
     ("read-only", ["ag-recipe"]),
-    ("cx plan window", ["plan-windows"]),
-    ("cx-plan-windows", ["plan-windows"]),
-    ("cc absent", ["plan-windows"]),
-    ("ag not reported", ["plan-windows"]),
+    ("cx plan window", [MONITOR_LESSON]),
+    ("cx-plan-windows", [MONITOR_LESSON]),
+    ("cc absent", [MONITOR_LESSON]),
+    ("ag not reported", [MONITOR_LESSON]),
     ("ag empty reply", ["ag-recipe"]),
     ("denied_empty", ["ag-recipe"]),
-    ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-requires-writable", "ag-silence-long-asks", "multi-peer-quota-shaping", "plan-windows"]),
+    ("ag", ["ag-recipe", MONITOR_LESSON, "parallel-quota"]),
     ("cc allow rules", ["cc-allow-rules"]),
     ("fable haiku", ["cc-allow-rules"]),
-    ("monitor", ["monitor-accounts", MONITOR_ALERTS_LESSON, "monitor-states", "monitor-view", "plan-windows"]),
-    ("monitor-view", ["monitor-view"]),
-    ("order", ["monitor-view"]),
-    ("glyph", ["monitor-view"]),
-    ("colour bar", ["monitor-view"]),
-    ("pill", ["monitor-view"]),
-    ("quota unknown", ["monitor-states"]),
-    ("low fast aged suggest alternative cycles tty legend", ["monitor-states"]),
-    ("accounts", ["monitor-accounts"]),
-    ("review-loop", ["review-recipe"]),
-    ("review-scores-to-100", ["review-recipe"]),
-    ("pytest basetemp", ["cx-sandbox-and-prompt-hygiene"]),
+    ("monitor", [MONITOR_LESSON]),
+    ("monitor-view", [MONITOR_LESSON]),
+    ("order", [MONITOR_LESSON]),
+    ("glyph", [MONITOR_LESSON]),
+    ("colour bar", [MONITOR_LESSON]),
+    ("pill", [MONITOR_LESSON]),
+    ("quota unknown", [MONITOR_LESSON]),
+    ("low fast aged suggest alternative cycles tty legend", [MONITOR_LESSON]),
+    ("accounts", [MONITOR_LESSON]),
+    ("review-loop", ["independent-peer-votes"]),
+    ("review-scores-to-100", ["independent-peer-votes"]),
+    ("pytest basetemp", ["cc-allow-rules"]),
     ("subagents", ["peer-subagents"]),
     ("api credits", ["api-peers"]),
     ("ca stateless", ["api-peers"]),
@@ -56,6 +56,7 @@ MONITOR_ALERTS_LESSON = "monitor-alerts"
     ("ant install", ["setup"]),
     ("executable not found", ["setup"]),
     ("codex sign-in", ["setup"]),
+    ("handoff", []),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -68,11 +69,11 @@ def test_lookup(query, expected):
 
 def test_free_words_cli(capsys, tmp_path):
     db = tmp_path / "unused.db"
-    lesson_id = "ag-silence-long-asks"
+    lesson_id = "ag-recipe"
     assert main(["--db", str(db), "explain", "ag", "silence"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith(f"{lesson_id}:")
-    assert len(lines) <= 5
+    assert "--silence-timeout-seconds 7200" in "\n".join(lines)
     assert not db.exists()
     assert main(["explain", "ag silence", "--json"]) == 0
     lessons = json.loads(capsys.readouterr().out)["lessons"]
@@ -96,7 +97,7 @@ def test_cc_allow_rules_lesson_states_exact_match_and_prefix_fix():
     lesson = next(lesson for lesson in load_lessons() if lesson["id"] == "cc-allow-rules")
     for needle in ("exact command string", "Bash(peerhub:*)", "denied_actions", "docs/adapters/cc.md"):
         assert needle in lesson["fix"], needle
-    assert lesson["issue"] == "#303"
+    assert "#303" in lesson["issue"]
 
 
 def test_no_match_hint(capsys):
@@ -128,7 +129,9 @@ def test_explain_help_advertises_the_index(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["explain", "--help"])
     assert exc.value.code == 0
-    assert "lessons (also list)" in " ".join(capsys.readouterr().out.split())
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "lessons (also list)" in help_text
+    assert "lesson ID or alias" in help_text
 
 
 def test_explain_json_envelope_is_the_same_for_index_and_keyword_lookup(capsys):
@@ -143,14 +146,10 @@ def test_explain_json_envelope_is_the_same_for_index_and_keyword_lookup(capsys):
     assert {"id", "title", "symptom", "fix", "issue"} <= set(full)
 
 
-def test_review_recipe_keeps_legacy_aliases_and_links_to_the_release_bar(capsys):
-    """#366 A5: one review recipe with a pasteable brief; the old ids still find it."""
-    ids = {lesson["id"] for lesson in load_lessons()}
-    assert "review-recipe" in ids and not {"review-loop", "review-scores-to-100"} & ids
-    for old_id in ("review-loop", "review-scores-to-100"):
-        assert main(["explain", old_id]) == 0
-        assert capsys.readouterr().out.splitlines()[0].startswith("review-recipe:")
-    fix = next(lesson for lesson in load_lessons() if lesson["id"] == "review-recipe")["fix"]
+def test_review_recipe_links_to_the_release_bar():
+    """#366 A5: the review cluster holds the pasteable brief."""
+    (lesson,) = lesson_by_id("review-recipe")
+    fix = lesson["fix"]
     for needle in ("Score each item 0-100", "violates a documented contract", "reachable from supported inputs",
                    "recommendation", "exact fix", "CONTRIBUTING.md#release-lessons", "Re-review the exact shipped tag",
                    "another model family", "full suite once", "only targeted tests", "two rounds",
@@ -170,41 +169,41 @@ def test_explain_covers_emitted_monitor_alert_codes(capsys):
             code = node.args[0]
             assert isinstance(code, ast.Constant) and isinstance(code.value, str)
             emitted.add(code.value)
-    (lesson,) = lesson_by_id(MONITOR_ALERTS_LESSON)
-    documented = set(re.findall(r"^- (\w+) ", lesson["fix"], re.MULTILINE))
+    (lesson,) = lesson_by_id(MONITOR_LESSON)
+    documented = set(re.findall(r"^- (a\d+) ", lesson["fix"], re.MULTILINE))
+    assert {f"a{i}" for i in range(1, 7)} <= documented
     assert emitted and emitted <= documented
     for topic in sorted(documented):
         assert main(["explain", topic]) == 0, topic
         out = capsys.readouterr().out
-        assert out.startswith(f"{MONITOR_ALERTS_LESSON}:")
+        assert out.startswith(f"{MONITOR_LESSON}:")
         assert "docs/monitor.md#alerts" in out
         assert sum(line.strip().startswith(f"- {topic} ") for line in out.splitlines()) == 1
 
 
 def test_lessons_without_peerhub_mechanism_are_deleted():
     ids = {lesson["id"] for lesson in load_lessons()}
-    assert not {"pin-census-before-implementation", "dry-run-path-aware-checkers", "explicit-shell-wait-conditions"} & ids
+    assert not {"handoff", "pin-census-before-implementation", "dry-run-path-aware-checkers", "explicit-shell-wait-conditions"} & ids
 
 
 def test_new_and_moved_lesson_content():
-    """#366 A1/A4/A5: subagents (#361), cx tmp_path tests NOT RUN, ACCOUNTS split, vote recipe, 600 s default."""
+    """#366 A1/A4/A5: subagents, cx tmp_path limits, expanded ACCOUNTS, votes and timeouts."""
     by_id = {lesson["id"]: lesson for lesson in load_lessons()}
     sub = by_id["peer-subagents"]["fix"]
     for needle in ("Agent tool", "spawn_agent", "names that tool explicitly", "invoke_subagent",
                    "no /loop-style persistence", "same peer quota", "disjoint task", "one merged final report"):
         assert needle in sub, needle
     assert "#361" in by_id["peer-subagents"]["issue"]
-    cx_fix = by_id["cx-sandbox-and-prompt-hygiene"]["fix"]
+    cx_fix = by_id["cc-allow-rules"]["fix"]
     assert "tmp_path tests as NOT RUN" in cx_fix and "docs/adapters/cx.md" in cx_fix
     cx_doc = " ".join(Path("docs/adapters/cx.md").read_text(encoding="utf-8").split())
     for needle in ("Tests that use `tmp_path` cannot run", "`--basetemp`", "measured 2026-11-14 on Python 3.15",
                    "Never add shims or temporary folders"):
         assert needle in cx_doc, needle
     assert "--basetemp=" not in cx_fix  # the measured workaround does not work
-    assert {"pytest", "tmp_path", "acl", "basetemp"} <= set(by_id["cx-sandbox-and-prompt-hygiene"]["keywords"])
-    assert "ACCOUNTS" not in by_id["monitor-states"]["fix"]
+    assert {"pytest", "tmp_path", "acl", "basetemp"} <= set(by_id["cc-allow-rules"]["keywords"])
     # #374: ACCOUNTS left the compact frame; account problems reach line 1 as alerts
-    account_fix = by_id["monitor-accounts"]["fix"]
+    account_fix = by_id[MONITOR_LESSON]["fix"]
     assert "ACCOUNTS in --expand" in account_fix and "docs/monitor.md#accounts" in account_fix
     monitor = " ".join(Path("docs/monitor.md").read_text(encoding="utf-8").split())
     for needle in ("raise a line-1 alert", "display_plan", "plan_changed: true", "at least five minutes old"):
@@ -240,7 +239,7 @@ def test_ag_recipe_names_allow_list_scope_and_cx_lesson_holds_the_cx_facts():
     assert "#391" in ag["issue"] and {"allow-list", "scope", "glob", "wildcard"} <= set(ag["keywords"])
     for cx_fact in ("peerhub store", "checkpoint receipts", "runtime_error"):
         assert cx_fact not in ag["fix"], cx_fact  # cx sentences are not in the ag recipe
-    cx = by_id["cx-sandbox-and-prompt-hygiene"]
+    cx = by_id["cc-allow-rules"]
     for needle in ("cx sandbox lanes cannot open the peerhub store",
                    "reader asks must be launched by the orchestrator",
                    "use checkpoint receipts and a silence timeout",
@@ -248,7 +247,7 @@ def test_ag_recipe_names_allow_list_scope_and_cx_lesson_holds_the_cx_facts():
         assert needle in cx["fix"], needle
     assert "#391" in cx["issue"] and {"store", "checkpoint", "runtime_error"} <= set(cx["keywords"])
     assert [lesson["id"] for lesson in lookup_lessons("ag allow-list scope")] == ["ag-recipe"]
-    assert [lesson["id"] for lesson in lookup_lessons("cx checkpoint")] == ["cx-sandbox-and-prompt-hygiene"]
+    assert [lesson["id"] for lesson in lookup_lessons("cx checkpoint")] == ["cc-allow-rules"]
 
 
 SETUP_TOOLS = {  # peer -> (the tool, its official page), read 2026-11-16 (#385)
@@ -310,26 +309,41 @@ def test_known_guidance_and_alias_take_priority(capsys):
         assert "Guidance Code: ask_uncertain" in capsys.readouterr().out
 
 
-def test_exact_lesson_id_is_its_own_step_before_keywords(capsys, monkeypatch):
-    """#328 C: ids are printed in output, so querying one finds exactly that lesson (a separate step, not part of keyword search)."""
-    from peerhub.cli import app, lessons
-    from peerhub.cli.lessons import lesson_by_id
-    assert [lesson["id"] for lesson in lesson_by_id("monitor-probe-age")] == ["monitor-probe-age"]
-    assert [lesson["id"] for lesson in lesson_by_id("  Monitor-Probe-Age ")] == ["monitor-probe-age"]
+def test_exact_lesson_id_is_its_own_step_before_keywords():
+    """#328 C: exact IDs and aliases have their own lookup step."""
+    assert [lesson["id"] for lesson in lesson_by_id("monitor-probe-age")] == [MONITOR_LESSON]
+    assert [lesson["id"] for lesson in lesson_by_id("  Monitor-Probe-Age ")] == [MONITOR_LESSON]
     assert lesson_by_id("monitor probe age") == [] and lesson_by_id("probe") == [] and lesson_by_id("") == []
-    assert main(["explain", "monitor-probe-age"]) == 0
-    out = capsys.readouterr().out
-    assert out.splitlines()[0].startswith("monitor-probe-age:") and "No matching" not in out
-    assert len(out.splitlines()) <= 5
-    assert main(["explain", "monitor-probe-age", "--json"]) == 0
-    assert [lesson["id"] for lesson in json.loads(capsys.readouterr().out)["lessons"]] == ["monitor-probe-age"]
-    catalog = load_lessons()
-    parser = app.build_parser()
-    monkeypatch.setattr(app, "build_parser", lambda **_: parser)
-    monkeypatch.setattr(lessons, "load_lessons", lambda: catalog)
-    for lesson in catalog:  # every printed id resolves to itself through explain
-        assert main(["explain", lesson["id"]]) == 0
-        assert capsys.readouterr().out.splitlines()[0].startswith(f"{lesson['id']}:")
+
+
+def test_all_old_lesson_names_open_their_cluster(capsys):
+    from peerhub.cli.explain_cmd import run_explain_cli
+
+    # Pin the previous public names independently of the packaged alias list.
+    old_names = {
+        "ag-recipe": ("ag-requires-writable", "ag-silence-long-asks", "ag-bulk-profile-heuristics",
+                      "ag-empty-reply-causes", "ag-permission-limit"),
+        "cc-allow-rules": ("cx-sandbox-and-prompt-hygiene", "concurrent-cc-lanes"),
+        "independent-peer-votes": ("review-recipe", "batch-review-and-verify", "review-loop", "review-scores-to-100"),
+        "monitor-states": ("monitor-view", "monitor-accounts", "monitor-alerts", "monitor-insuff",
+                           "monitor-stale-window", "monitor-probe-age", "monitor-drift", "plan-windows", "cx-plan-windows"),
+        "parallel-quota": ("quota-aware-peer-runs", "multi-peer-quota-shaping", "batch-and-load", "stream-reuse-cost"),
+    }
+    standalone = {
+        "api-peers", "ask-basics", "ask-metrics", "ask-timeouts", "batch-shell-crlf", "caller-ownership",
+        "caller-timeout-claim-held", "discovery-commands", "exit-codes", "installed-vs-checkout", "instruction-diet",
+        "invalid-arguments", "peer-subagents", "report-issues", "setup", "store-and-upgrade", "store-missing",
+        "suggest", "writes-and-uncertain",
+    }
+    by_id = {lesson["id"]: lesson for lesson in load_lessons()}
+    assert not {alias for names in old_names.values() for alias in names} & by_id.keys()
+    for key in sorted(standalone | old_names.keys()):
+        lesson = by_id[key]
+        for name in (key, *old_names.get(key, ())):
+            assert run_explain_cli(name) == 0, name
+            assert capsys.readouterr().out == render_lesson(lesson) + "\n", name
+            assert run_explain_cli(name, json_output=True) == 0, name
+            assert json.loads(capsys.readouterr().out) == {"lessons": [lesson]}, name
 
 
 def test_explain_order_is_guidance_then_lesson_id_then_keywords(capsys, monkeypatch):
@@ -362,13 +376,15 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 def test_catalog_and_rendering():
     lessons = load_lessons()
     ids = {lesson["id"] for lesson in lessons}
+    aliases = [alias for lesson in lessons for alias in lesson.get("aliases", ())]
     assert len(lessons) == len(ids)
+    assert len(aliases) == len(set(aliases)) and ids.isdisjoint(aliases)
     assert {"ask-metrics", "caller-ownership", "suggest"} <= ids
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & ids
     for lesson in lessons:
         assert all(lesson.values())
         rendered = render_lesson(lesson)
-        if lesson["id"] != MONITOR_ALERTS_LESSON:
+        if not lesson.get("aliases"):
             assert len(rendered.splitlines()) <= 5
         assert lesson["issue"] in rendered
 
@@ -397,5 +413,10 @@ def test_monitor_view_explains_guide_trailer_and_matches_reference(capsys):
     (lesson,) = json.loads(capsys.readouterr().out)["lessons"]
     guide_rule = next(sentence for sentence in lesson["fix"].split(". ") if "PEERHUB_NO_LINKS" in sentence)
     assert all(word in guide_rule for word in ("OSC 8", "Guide:", "fits"))
-    expected = lesson["fix"].replace("docs/monitor.md", "[docs/monitor.md](monitor.md)")
-    assert f"- Fix: {expected}" in Path("docs/lessons.md").read_text(encoding="utf-8")
+    reference = Path("docs/lessons.md").read_text(encoding="utf-8")
+    assert guide_rule in reference and "[docs/monitor.md](monitor.md)" in reference
+
+
+def test_lesson_ids_and_aliases_match_case_insensitively():
+    assert [lesson["id"] for lesson in lesson_by_id("AG-REQUIRES-WRITABLE")] == ["ag-recipe"]
+    assert [lesson["id"] for lesson in lesson_by_id("Ag-Recipe")] == ["ag-recipe"]

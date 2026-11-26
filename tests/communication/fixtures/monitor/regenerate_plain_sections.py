@@ -18,7 +18,7 @@ def main() -> None:
         for name, payload, options in cases:
             wide = module is expanded
             expected = compact.blocks(fixtures[name], expanded=wide)
-            actual = compact.blocks(render_grouped_frame(payload, show_quota_notes=True, **options), expanded=wide)
+            actual = compact.blocks(render_grouped_frame(payload, **options), expanded=wide)
             new_pool = actual.get(pools)
             if new_pool == expected.get(pools):
                 continue

@@ -33,7 +33,11 @@ Read from position 0 to start at the beginning. Advance to the position you actu
 | `ask` | Send a prompt to a peer or preview it with `--dry-run`. |
 | `outcome` | Record whether an ask was accepted, rejected, or retried. |
 
-`peerhub ask PEER "prompt"` accepts inline text or `--query-file PATH` (alias `--prompt-file`) for a UTF-8 file. Use `--dry-run` to inspect the resolved ask without writing or contacting a provider.
+`peerhub ask PEER "prompt"` accepts positional text or UTF-8 files supplied with `--query-file PATH` (alias `--prompt-file`). Repeat the option to join files in command-line order with one blank line between them. The monitor uses the last file for its prompt link when that file is eligible. Use `--dry-run` to inspect the resolved ask without writing or contacting a provider.
+
+```powershell
+peerhub ask ag --query-file NOW.md --query-file task.md --writable --stream handoff --request-id handoff-1
+```
 
 - **Profiles.** Use a qualified `--profile PEER.NAME` to choose a [configured profile](config-hierarchy.md#model-profiles). `--model` and `--effort` override the binding. See [batch planning](batch.md) for choosing a tier and [API peers](api-credits.md) for provider-specific constraints.
 - **Streams and retries.** Choose a dedicated `--stream` for each new task and target one peer per stream. CLI peers default to `peer:<id>:chat`; API peers default to `peer:<id>:<request-id>`. Use a new `--request-id` for each new ask and reuse it for retries of the same ask. A changed prompt, binding or session selector can conflict. An uncertain execution blocks the stream pending reconciliation.
@@ -47,11 +51,11 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 ## Diagnostics and observation
 
-`peerhub diag` reads the store and committed evidence. Use `--live` for repeated reads, `--interval-seconds` to set the interval and `--cycles N` to limit the watch (default 0, until interrupted). Live JSON is one object per line. For the human dashboard, use [monitor](monitor.md).
+`peerhub diag` reads the store and committed evidence once. AI agents can run `peerhub diag --plan` once per turn. For a continuously updated terminal dashboard, use [monitor](monitor.md).
 
 | Command | Reads |
 |---|---|
-| `diag` | Read committed evidence. With `--plan`, show per-pool `spend` (PACE <= -10), `hold`, `rest` (PACE > +20 or forecast exhausts before reset) or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. The plan supports plain text and JSON. Passing `--view rich` is a usage error. |
+| `diag` | Read committed evidence. With `--plan`, show per-pool `spend` (PACE <= -10), `hold`, `rest` (PACE > +20 or forecast exhausts before reset) or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. The plan supports plain text and JSON. |
 | `diag quota` | Stored quota and rate-limit evidence, filtered by `--peer`, `--pool` or `--max-age-seconds`. Missing evidence is `UNKNOWN`. |
 | `diag health` | Store selection and health, or a stream's health. |
 | `diag readiness` | Cached profile readiness. `READY` requires fresh positive verified quota and a matching terminal delivery. A pool's remaining value expires at its reset even when its observation is still fresh. |
@@ -60,7 +64,7 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. These commands exit 5 if the observation store is missing. Without an override, the selected store supplies observations. With an existing observation store and a missing selected store, `diag --plan` still reports the observations and shows the active ask count as unknown (`load.active: null` in JSON). See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing.
 
-Use `diag --plan --json --compact` for repeated plan reads. Each pool includes its identity, left percentage, PACE, action, limiting pool (`binding`), reason, own reset and effective reset after parent limits. The top-level `load` still includes lease-active asks and current machine resources.
+Use `diag --plan --json` for scripts. Each pool includes its identity, left percentage, PACE, action, limiting pool (`binding`), reason, its own reset and the effective reset after parent limits. The top-level `load` includes lease-active asks and current machine resources.
 
 | Command | Purpose |
 |---|---|
@@ -74,11 +78,7 @@ Use `peerhub observation refresh --peers cx` to refresh a single provider's evid
 | Command | Purpose |
 |---|---|
 | `monitor` | Watch the dashboard or read one frame with `--snapshot`. See the [monitor guide](monitor.md). |
-| `monitor groups` | List group IDs and their default selection. |
-| `monitor defaults` | Manage the saved monitor group selection. |
-| `monitor defaults show` | Show the effective selection and its source. |
-| `monitor defaults set` | Save the group selection. |
-| `monitor defaults reset` | Remove the saved selection from the chosen layer. |
+| `monitor open` | Read a stored prompt with the short ID from RUNNING, e.g. `peerhub monitor open ID`. |
 | `monitor repair` | Release dead leases and rebuild monitor projections from durable evidence. |
 
 ## Accounts, profiles, and sessions
@@ -116,9 +116,9 @@ commands, code, and documentation.
 |---|---|
 | `batch` | Manage [parallel asks](batch.md). |
 | `batch run` | Run a flat manifest or validate it with `--dry-run`. Execution spends quota. |
-| `suggest` | Recommend a profile and print an ask command. See [suggest an ask](batch.md#suggest-an-ask) for eligibility and refresh costs. |
+| `suggest` | Deprecated, removed in the next release. Use `peerhub diag --plan`. |
 
-Add `--response-task TASK_ID` to include the reply for a completed task in the batch report. Repeat it to select multiple case-sensitive task IDs, or use `--responses` to include every completed reply. Dry runs show no replies.
+`batch run --responses` includes every completed reply in the report. Dry runs show no replies.
 
 ## Guide and explain
 
@@ -127,7 +127,7 @@ Add `--response-task TASK_ID` to include the reply for a completed task in the b
 | `guide` | Print the offline quick reference. |
 | `explain` | Look up lessons, profiles, or outcome codes offline. |
 
-`peerhub guide` gives the quick start and safety decisions offline. Bare `peerhub explain`, `peerhub explain list`, and `peerhub explain lessons` list the lesson IDs. Ask for one ID, an outcome code, an exact profile ID such as `cc.effort`, or free words such as `peerhub explain ag silence`. Both commands support `--json`. Run `peerhub explain exit-codes` for process exit codes and stdout/stderr behavior. See the [lookup order and lesson catalog](lessons.md).
+`peerhub guide` gives the quick start and safety decisions offline. Bare `peerhub explain`, `peerhub explain list`, and `peerhub explain lessons` list the current lesson IDs. Ask for one ID or alias, an outcome code, an exact profile ID such as `cc.effort`, or free words such as `peerhub explain ag silence`. Each old lesson name in a cluster opens the full entry, so `peerhub explain monitor-view` opens `monitor-states`. Both commands support `--json`. Run `peerhub explain exit-codes` for process exit codes and stdout/stderr behavior. See the [lookup order and lesson catalog](lessons.md).
 
 ## Update
 

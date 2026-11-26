@@ -81,7 +81,7 @@ M1_SCRIPT = PRELUDE + textwrap.dedent("""
     import io, contextlib
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        codes.append(main(["--db", db, "diag", "--view", "rich"]))
+        codes.append(main(["--db", db, "diag"]))
         codes.append(main(["--db", db, "diag", "health"]))
     api_views = io.StringIO()
     with contextlib.redirect_stdout(api_views):
@@ -245,10 +245,10 @@ def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1
     assert set(M2_M3_MODULES) <= modules  # a renamed module must not silently escape the gate
     m1 = {"adapters", "ask", "billing_port", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
-          "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "pool_health", "schema_guard",
+          "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "pool_health", "schema_guard",
           "quota_projection", "bridge_registry", "session_receipts", "ask_budgets", "delivery_projection_rebuild", "delivery_projections",
           "monitor_read_model", "delivery_reads", "usage_normalization", "runtime_contract",
-          "caller", "liveness", "lead_sessions", "monitor_preferences", "monitor_queries",
+          "caller", "liveness", "lead_sessions", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",
           "diag_read_model", "quota_read_model", "quota_windows", "recovery_classification", "profile_stats"}
     assert not (m1 & set(M2_M3_MODULES))

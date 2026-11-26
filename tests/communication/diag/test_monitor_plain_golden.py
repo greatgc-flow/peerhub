@@ -53,6 +53,8 @@ def full_payload() -> dict[str, Any]:
                 reply_line="결론: 모두 닫힘 (C1-C5 100)"),
             ask("unsure", profile="cc.fable", name="shipped-check", age=1980, exact=False),
             ask("error", peer="cx", profile="cx.effort", name="build-docs", age=2400, exact=True, reply_line="exit 2")]
+    for index, row in enumerate(asks[:4], 1):
+        row["_ask_id"] = f"rec-{index:012x}"
     aged = pool("ag", "A-7D", .79, pace=14)
     aged.update(state="STALE", age_seconds=540, measurements=None)
     absent = pool("cx", "X-30D", None)
@@ -159,7 +161,7 @@ def test_plain_frame_matches_its_golden(case, payload, kwargs, monkeypatch):
     # POOLS and QUOTA share anchored pace, an elastic bar and EXH/RESET columns.
     # M5 adds profile names. M9 and G8 add the gap and legend within the POOLS height budget.
     monkeypatch.setenv("PEERHUB_GUIDE_URL", GOLDEN_GUIDE_URL)
-    screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
+    screen = render_grouped_frame(payload, **kwargs)
     assert in_order(screen, ORDER) == screen  # the sections print in the one order
     assert "\x1b" not in screen
     actual, expected = blocks(screen), blocks(GOLDENS[case])

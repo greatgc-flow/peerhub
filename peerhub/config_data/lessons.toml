@@ -9,41 +9,21 @@ issue = "Monitor design record M10"
 
 [[lessons]]
 id = "monitor-states"
-title = "Monitor states, PACE, suggestions and cycles"
-keywords = ["monitor", "pace", "low", "fast", "aged", "suggest", "alternative", "cycles", "tty", "legend", "quota", "unknown", "est", "estimated", "gone", "overdue", "orphan"]
-symptom = "Monitor states, including gone and overdue asks, quota pace, or redirected watch behavior need explanation."
-fix = "Check the reading's age before acting on LEFT or PACE. Use --show-quota-notes to see omitted windows. See docs/monitor.md#pools for quota states and docs/monitor.md#running for activity states and alert timing."
-issue = "#310, #311, 0.24.4, #376, #378, 2026-11-25 gone ask follow-up"
-
-[[lessons]]
-id = "monitor-alerts"
-title = "Monitor alert codes"
-keywords = ["alerts", "a1", "a2", "a3", "a4", "a5", "a6"]
-symptom = "The monitor shows a short alert code."
-fix = """See the table in docs/monitor.md#alerts.
+title = "Monitor layout, quota states and alerts"
+aliases = ["monitor-view", "monitor-accounts", "monitor-alerts", "monitor-insuff", "monitor-stale-window", "monitor-probe-age", "monitor-drift", "plan-windows", "cx-plan-windows", "a1", "a2", "a3", "a4", "a5", "a6"]
+keywords = ["monitor", "pace", "low", "fast", "aged", "suggest", "alternative", "cycles", "tty", "legend", "quota", "unknown", "est", "estimated", "gone", "overdue", "orphan", "view", "order", "rich", "plain", "glyph", "glyphs", "colour", "color", "colours", "bar", "pill", "rule", "rules", "meter", "palette", "NO_COLOR", "unicode", "accounts", "account", "login", "token", "expiry", "credits", "display_plan", "plan_changed", "alerts", "a1", "a2", "a3", "a4", "a5", "a6", "INSUFF", "STALE", "window", "PROBE", "age", "DRIFT", "cc", "ag", "cx", "absent", "not reported", "plan", "windows", "cx-plan-windows", "codex", "claude", "agy", "pool", "5h", "7d", "X-5H", "X-7D", "prolite", "reported", "incomplete"]
+symptom = "You want to interpret the terminal frame, account rows, quota readings or alerts."
+fix = """Use --expand for the full DB path and detail rows. PEERHUB_NO_LINKS disables OSC 8 and prints a copyable Guide: line when it fits. Check monitor changes in both layouts at narrow and wide widths. See docs/monitor.md for layout and refresh timing.
+- Check the reading's age before acting on LEFT or PACE. In --expand, quota notes explain windows the provider omitted or disabled (n/a). INSUFF means measured capacity with too little evidence to forecast. STALE:window means the capacity evidence expired. For stale evidence or a failed PROBE, run peerhub observation refresh --peers PEER. If refresh fails again, check authentication and the installed CLI. For DRIFT, refresh the packaged model facts or upgrade PeerHub. See docs/monitor.md#pools and docs/model-profiles/README.md#refresh-from-installed-clis.
+- Read ACCOUNTS in --expand or JSON capacity.accounts for the plan, login and token expiry. See docs/monitor.md#accounts.
+- For gone, orphaned and overdue asks, see docs/monitor.md#running. Alert meanings are in docs/monitor.md#alerts.
 - a1 Ask ended badly.
 - a2 Ask is gone, orphaned or overdue.
 - a3 Quota pool is exhausted.
 - a4 Reserved.
 - a5 Account is logged out or its token has expired or is expiring.
 - a6 A group read failed or model facts need a recheck."""
-issue = "Monitor alert table"
-
-[[lessons]]
-id = "monitor-view"
-title = "Monitor view: frame order and the rich look"
-keywords = ["monitor", "view", "order", "rich", "plain", "glyph", "glyphs", "colour", "color", "colours", "bar", "pill", "rule", "rules", "meter", "palette", "NO_COLOR", "unicode"]
-symptom = "The order of the compact monitor frame, the plain or rich view, or a glyph, bar, pill, rule or colour of the rich view needs explanation."
-fix = "Use --expand for the full DB path and detail rows. PEERHUB_NO_LINKS disables OSC 8 and prints a copyable Guide: line when it fits. Check monitor changes in both layouts at narrow and wide widths. See docs/monitor.md for layout and refresh timing."
-issue = "#376 (P21, 0.24.18), P23, #412, #414, #422"
-
-[[lessons]]
-id = "monitor-accounts"
-title = "Monitor ACCOUNTS: plan, login and token expiry"
-keywords = ["monitor", "accounts", "account", "login", "token", "expiry", "credits", "display_plan", "plan_changed"]
-symptom = "The monitor ACCOUNTS --expand rows or JSON capacity.accounts need explanation (plan, login state, token expiry, ?, n/a, aged, plan changed)."
-fix = "Read ACCOUNTS in --expand or JSON capacity.accounts for the plan, login and token expiry. See docs/monitor.md#accounts."
-issue = "#329"
+issue = "#310, #311, #328, #329, #376, #378, #412, #414, #422"
 
 [[lessons]]
 id = "installed-vs-checkout"
@@ -56,27 +36,14 @@ issue = "#117"
 [[lessons]]
 id = "ag-recipe"
 guide_order = 9
-title = "ag recipe (empty replies, permissions, trusted -w)"
-keywords = ["ag", "agy", "recipe", "permission", "permissions", "writable", "read-only", "sandbox", "limit", "failed_not_started", "empty", "reply", "denied_empty", "delivered", "trustedWorkspaces", "allow", "allow-list", "scope", "glob", "wildcard", "grep", "cat", "inline", "regex", "command", "files", "binary", "prompt", "query-file", "resume"]
-symptom = "ag fails or returns an empty reply: delivered/TERMINAL with no text, denied_empty after a denied shell or read_file, a resumed stream that fabricates paths, or failed_not_started without write permission."
-fix = "Put the task text inline via --query-file and say \"no tools\". Pass the trusted project root with -w and use --writable on every turn. After an empty or denied_empty reply, always start a new stream with the content inlined. See docs/adapters/ag.md#empty-responses-and-denied-tools."
-issue = "#140, #284, #287, #300, #302, #391, #406"
-
-[[lessons]]
-id = "ag-requires-writable"
-title = "ag asks require explicit --writable, including pings and reviews"
-keywords = ["ag", "agy", "writable", "pings", "reviews", "ask_delivery_failed"]
-symptom = "[ask_delivery_failed] ag execution requires --writable: agy CLI does not enforce a read-only sandbox when --mode accept-edits is omitted."
-fix = "Add --writable. The intentional #140 gate applies to pings and reviews because agy lacks a read-only sandbox. Use trusted workspaces only. See docs/adapters/ag.md#current-contract."
-issue = "#140, #359"
-
-[[lessons]]
-id = "ag-silence-long-asks"
-title = "ag silence and long asks"
-keywords = ["ag", "agy", "silence", "silent", "long", "asks", "timeout", "uncertain", "blocked", "stream"]
-symptom = "ag prints nothing until completion; a long ask can hit the silence timeout."
-fix = "Use --timeout-seconds 7200 --silence-timeout-seconds 7200 for long asks. Check for partial effects after an uncertain reply. See docs/commands.md#ask and docs/guidance-reference.md#ask_uncertain."
-issue = "#118"
+title = "ag recipe for permissions, empty replies and long asks"
+aliases = ["ag-requires-writable", "ag-silence-long-asks", "ag-bulk-profile-heuristics", "ag-empty-reply-causes", "ag-permission-limit"]
+keywords = ["ag", "agy", "recipe", "permission", "permissions", "writable", "read-only", "sandbox", "limit", "failed_not_started", "empty", "reply", "denied_empty", "delivered", "trustedWorkspaces", "allow", "allow-list", "scope", "glob", "wildcard", "grep", "cat", "inline", "regex", "command", "files", "binary", "prompt", "query-file", "resume", "pings", "reviews", "ask_delivery_failed", "silence", "silent", "long", "asks", "timeout", "uncertain", "blocked", "stream", "profile", "effort", "flash", "argon", "bulk", "image", "WinError", "206", "size"]
+symptom = "ag refuses an ask without write permission, returns an empty reply after a denied tool, stalls on a long ask, or rejects a large prompt."
+fix = """For votes, put the task text inline via --query-file and say "no tools" in a private empty workspace (independent replies; batch rejects overlapping writable workspaces). For repo work, ag reads files with its file reader when -w is under a folder in agy trustedWorkspaces, git worktrees included (measured 2026-11-27); files outside -w can be denied, so inline them. Pass the trusted project root with -w and use --writable on every turn, including pings and reviews, because agy lacks a read-only sandbox. After an empty or denied_empty reply, start a new stream with the content inlined. See docs/adapters/ag.md#empty-responses-and-denied-tools.
+- ag can stay silent until completion. For long asks, use --timeout-seconds 7200 --silence-timeout-seconds 7200. Check for partial effects after an uncertain reply. See docs/guidance-reference.md#ask_uncertain.
+- Try flash-medium if flash-low returns an empty reply on bulk work. Prompts and catch-up history go over stdin up to 1,000,000 bytes. ag uses argv if agy lacks stream-json input or if PEERHUB_AG_TRANSPORT=argv is set. The argv limits are 30,000 bytes on Windows and 120,000 on POSIX. Inlining a file still counts toward the limit. Split an oversized prompt, or start a new stream if catch-up history pushed it over. Use a new request ID for a changed prompt. For an ag argv limit, cc/cx can use stdin on a separate stream. Cross-check dense numeric image tables."""
+issue = "#118, #140, #284, #287, #290, #300, #302, #309, #359, #391, #406"
 
 [[lessons]]
 id = "ask-timeouts"
@@ -87,30 +54,6 @@ fix = "Raise the timeout above the 600-second default for long asks. Inspect the
 issue = "#350"
 
 [[lessons]]
-id = "ag-bulk-profile-heuristics"
-title = "ag profile choice for bulk work"
-keywords = ["ag", "agy", "profile", "effort", "flash", "argon", "bulk", "image", "WinError", "206", "prompt", "size"]
-symptom = "A low-effort ag profile returns an empty reply on a long list of file or shell items; very long inline prompts fail on Windows."
-fix = "Try flash-medium if flash-low returns an empty reply on bulk work. ag prompts, including catch-up history, go over stdin up to 1,000,000 bytes; only an agy without stream-json input or PEERHUB_AG_TRANSPORT=argv uses argv, limited to 30,000 bytes (30 KB) on Windows and 120,000 bytes (120 KB) on POSIX. For ask_prompt_too_large, split into parts under the limit (one ask each), or for an ag argv limit use cc/cx on a separate stream (stdin, 1,000,000-byte maximum); if the prompt alone is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id. File paths do not bypass the limit and ag file reads may be denied; inline small excerpts. Dense numeric image tables stay unreliable for every model: cross-read before trusting."
-issue = "#290, #309"
-
-[[lessons]]
-id = "cx-sandbox-and-prompt-hygiene"
-title = "cx sandbox facts and prompt hygiene"
-keywords = ["cx", "codex", "windows", "sandbox", "unelevated", "process", "enumeration", "AGENTS.md", "rule", "file", "query", "forward", "implementer", "pytest", "tmp_path", "acl", "basetemp", "store", "reader", "orchestrator", "checkpoint", "receipts", "runtime_error", "silence", "partial"]
-symptom = "cx reports UNKNOWN late for process/task enumeration, treats a query file as a task to forward and runs peerhub itself, pytest tmp_path tests fail with a temp-directory ACL error, a cx lane cannot open the peerhub store, or a long cx ask ends in runtime_error with partial edits."
-fix = "Report tmp_path tests as NOT RUN for the lead. When cx sandbox lanes cannot open the peerhub store, reader asks must be launched by the orchestrator. For long asks, use checkpoint receipts and a silence timeout. A runtime_error can leave partial edits. See docs/adapters/cx.md#windows-sandbox-workflow."
-issue = "#285, #286, #288, #391"
-
-[[lessons]]
-id = "multi-peer-quota-shaping"
-title = "Quota shaping across peers"
-keywords = ["quota", "cx", "ag", "cc", "pool", "consolidated", "draft", "timer", "sleep", "reset"]
-symptom = "The scarce premium peer exhausts its pool early; a delayed start queued with sleep never ran."
-fix = "Consolidate final verification in one scarce-pool ask. In the observed run, splitting cx work did not save quota and an in-session timer died with its session. See docs/batch.md for planning a wave."
-issue = "#288"
-
-[[lessons]]
 id = "batch-shell-crlf"
 title = "Shell batching on Windows (CRLF, last line)"
 keywords = ["batch", "shell", "crlf", "profile", "newline", "windows", "read", "job", "ALL_DONE", "dry-run", "bash", "heredoc", "backslash", "escaping"]
@@ -119,69 +62,16 @@ fix = 'Validate with peerhub batch run --dry-run. Stage scripts that contain esc
 issue = "#289 and Windows shell check, 2026-11-14"
 
 [[lessons]]
-id = "stream-reuse-cost"
-title = "Stream reuse cost: reuse within one task only"
-keywords = ["stream", "reuse", "resume", "session", "context", "tokens", "quota", "cost", "vote"]
-symptom = "Quota drains fast although prompts are short: a long-lived --stream is reused across many tasks, so later asks can resend earlier context."
-fix = "Reuse only within one task. Start a new stream for a new task or an independent vote. For a handoff, include a short summary of decisions and relevant file paths. See docs/commands.md#ask."
-issue = "#340"
-
-[[lessons]]
 id = "independent-peer-votes"
 guide_order = 1
 title = "Independent review votes"
-keywords = ["peer", "vote", "votes", "author", "independent", "unanimity", "review", "self-vote", "batch", "responses", "verdict", "fresh", "consequential"]
-symptom = "A document author votes AGREE on their own work and the result is treated as unanimous approval, votes are collected one ask at a time, or a routine check is sent to three peers or to a named stream."
-fix = "Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Use a new stream per voter: --fresh on a used stream can still include up to 100 earlier records (24 KB), even when a stream name is given. A named stream is for review rounds on one diff only. Require voters did not author the document. There is no `vote` command: run peerhub batch run votes.json --batch-id ID --max-parallel n --responses. cc/cx use the repository workspace, not writable; ag uses a private empty directory as workspace (always writable). Keep prompts inline. Reply VERDICT / BLOCKERS / NITS (<= 300 tokens). See docs/commands.md#ask."
-issue = "#297, #366, 0.25.0 plan D6"
-
-[[lessons]]
-id = "batch-review-and-verify"
-title = "Batch review findings and verify drafts"
-keywords = ["review", "findings", "batch", "mechanical", "sweep", "draft", "verify", "script"]
-symptom = "Reviewers surface one mechanical discrepancy per round, or a draft evidence table contains unverified errors."
-fix = "Ask for the complete mechanical sweep in one list and compare identifiers with a small script before voting. Check drafts against files and command output, then have a second reviewer triage objections. Give editing lanes disjoint files, keep reviewers read-only, and give Git writes to one lead. See CONTRIBUTING.md#working-with-ai-peers."
-issue = "#297, #298"
-
-[[lessons]]
-id = "quota-aware-peer-runs"
-title = "Quota-aware peer runs"
-keywords = ["quota", "429", "reset", "stream", "pool", "parallel", "flash", "workers", "capacity"]
-symptom = "A peer returns HTTP 429 and an uncertain ask blocks its stream, or parallel work exhausts a shared quota pool."
-fix = "Read peerhub diag --plan and defer when the pool is exhausted. Reconcile uncertain work before retrying. See docs/batch.md for quota-aware parallelism."
-issue = "#297, #298, #299"
-
-[[lessons]]
-id = "monitor-insuff"
-title = "INSUFF projection data"
-keywords = ["INSUFF"]
-symptom = "A measured quota window has too few samples or too little use for projection."
-fix = "Capacity remains measured; forecast is unavailable until the projection support gates are met. Do not interpret INSUFF as healthy or unlimited. See docs/monitor.md#pools."
-issue = "0.24.0"
-
-[[lessons]]
-id = "monitor-stale-window"
-title = "STALE:window"
-keywords = ["STALE", "window"]
-symptom = "Quota evidence has expired."
-fix = "Run peerhub observation refresh --peers PEER to collect fresh evidence. Expired capacity is unavailable, never zero or unlimited. See docs/monitor.md#alerts."
-issue = "0.24.0"
-
-[[lessons]]
-id = "monitor-probe-age"
-title = "PROBE age"
-keywords = ["PROBE", "age"]
-symptom = "A provider probe failed or has no current usable evidence; the suffix is its age."
-fix = "Run peerhub observation refresh --peers PEER. If it fails again, check authentication and the installed CLI. See docs/monitor.md#alerts."
-issue = "0.24.0, #328"
-
-[[lessons]]
-id = "monitor-drift"
-title = "DRIFT peers"
-keywords = ["DRIFT"]
-symptom = "Observed provider CLI or model facts differ from configured observations."
-fix = "Refresh packaged model facts or upgrade PeerHub. See docs/model-profiles/README.md#refresh-from-installed-clis."
-issue = "0.24.0"
+aliases = ["review-recipe", "batch-review-and-verify", "review-loop", "review-scores-to-100"]
+keywords = ["peer", "vote", "votes", "author", "independent", "unanimity", "review", "self-vote", "batch", "responses", "verdict", "fresh", "consequential", "review-loop", "review-scores-to-100", "loop", "score", "round", "brief", "materiality", "contract", "narrow", "defects", "deduction", "unverified", "suite", "targeted", "ports", "WinError", "worktree", "cross-family", "final", "tag", "gitlink", "findings", "mechanical", "sweep", "draft", "verify", "script"]
+symptom = "You need independent votes on a fixed diff, a complete sweep of findings, or a release review with deductions tied to defects."
+fix = """Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Use a new stream per voter: --fresh on a used stream can still include up to 100 earlier records (24 KB), even when a stream name is given. A named stream is for review rounds on one diff only. Require voters did not author the document. There is no `vote` command: run peerhub batch run votes.json --batch-id ID --max-parallel n --responses. cc/cx use the repository workspace, not writable; ag uses a private empty directory as workspace (always writable). Keep prompts inline. Reply VERDICT / BLOCKERS / NITS (<= 300 tokens). See docs/commands.md#ask.
+- Ask for the complete mechanical sweep in one list and compare identifiers with a small script before voting. Check drafts against files and command output, then have a second reviewer triage objections. Give editing lanes disjoint files, keep reviewers read-only, and give Git writes to one lead. See CONTRIBUTING.md#working-with-ai-peers.
+- Use the release bar in CONTRIBUTING.md#release-lessons. Paste this reviewer brief: "Score each item 0-100. Deduct only for a defect that violates a documented contract or is reachable from supported inputs. Label other findings as recommendations. For each deduction give the exact fix (file:line + change). Report unrun checks as NOT RUN." Re-review the exact shipped tag and confirm the final candidate with a reviewer from another model family. The coordinator runs the full suite once and shares the result. Reviewers run only targeted tests. Give them allow rules and run checks they could not. Record the commit and time for each live measurement. After two rounds finding new defects in one new component, narrow its contract (fail closed). Avoid `git add -A` in a checkout with agent worktrees because it stages them as gitlinks."""
+issue = "#297, #298, #345, #366, 0.25.0 plan D6"
 
 [[lessons]]
 id = "store-missing"
@@ -200,20 +90,15 @@ fix = "Run peerhub COMMAND --help, correct the arguments and retry only if no ex
 issue = "0.24.0"
 
 [[lessons]]
-id = "plan-windows"
-title = "Quota windows depend on the peer plan"
-keywords = ["cc", "ag", "cx", "absent", "not reported", "plan", "window", "windows", "cx-plan-windows", "codex", "claude", "agy", "quota", "pool", "5h", "7d", "X-5H", "X-7D", "prolite", "reported", "monitor", "incomplete"]
-symptom = "peerhub monitor --show-quota-notes labels a pool n/a, and agents read it as exhausted or unusable."
-fix = "Use --show-quota-notes to see why the provider omitted or disabled a window. See docs/monitor.md#pools."
-issue = "0.24.0 (cx); 0.24.1 (all peers); #328 (disabled)"
-
-[[lessons]]
 id = "cc-allow-rules"
-title = "cc allow rules are exact-match and model-dependent"
-keywords = ["cc", "claude", "allow", "rules", "rule", "allowlist", "bash", "permission", "permissions", "denied", "denied_actions", "model", "fable", "haiku", "headless", "prefix", "exact", "settings"]
-symptom = "A headless cc ask with one model denies a Bash command that .claude/settings.local.json allows and another model runs (observed on #303: fable denied, haiku ran; not reproduced), or cc returns no usable answer with denied_actions set."
-fix = "Check denied_actions. Bash rules match the exact command string. Use a narrow prefix such as Bash(peerhub:*) and matching PowerShell rules when appropriate. See docs/adapters/cc.md#headless-cc-peers-readtest-allow-rules."
-issue = "#303"
+title = "cc and cx permissions, sandbox limits and long asks"
+aliases = ["cx-sandbox-and-prompt-hygiene", "concurrent-cc-lanes"]
+keywords = ["cc", "claude", "allow", "rules", "rule", "allowlist", "bash", "permission", "permissions", "denied", "denied_actions", "model", "fable", "haiku", "headless", "prefix", "exact", "settings", "cx", "codex", "windows", "sandbox", "unelevated", "process", "enumeration", "AGENTS.md", "file", "query", "forward", "implementer", "pytest", "tmp_path", "acl", "basetemp", "store", "reader", "orchestrator", "checkpoint", "receipts", "runtime_error", "silence", "partial", "concurrent", "lanes", "memory", "reaper", "supervisor", "parent", "shell"]
+symptom = "Headless cc denies a command or loses its parent shell, or a cx lane cannot read the store, run tmp_path tests or finish a long ask."
+fix = """For cc, check denied_actions. Bash rules match the exact command string. Models can wrap the command differently. Use a narrow prefix such as Bash(peerhub:*) and matching PowerShell rules when appropriate. See docs/adapters/cc.md#headless-cc-peers-readtest-allow-rules.
+- For cx, report tmp_path tests as NOT RUN for the lead. Unelevated process and task enumeration can report UNKNOWN after a delay on Windows. When cx sandbox lanes cannot open the peerhub store, reader asks must be launched by the orchestrator. Give the lane the task directly in the query file to avoid forwarding it as another ask. For long asks, use checkpoint receipts and a silence timeout. A runtime_error can leave partial edits. See docs/adapters/cx.md#windows-sandbox-workflow.
+- Size memory-heavy lanes from the load line in peerhub diag --plan. Run long jobs under a background supervisor and check in short polls. If the supervisor is reaped, check peerhub diag running and inspect receipts and partial effects before starting new work."""
+issue = "#285, #286, #288, #303, #352, #391"
 
 [[lessons]]
 id = "caller-timeout-claim-held"
@@ -224,28 +109,12 @@ fix = "Wait for the claim to end, then rerun the identical command with the same
 issue = "#312"
 
 [[lessons]]
-id = "review-recipe"
-title = "Review recipe for release candidates"
-keywords = ["review", "review-loop", "review-scores-to-100", "loop", "score", "round", "brief", "materiality", "contract", "narrow", "defects", "deduction", "unverified", "suite", "targeted", "ports", "WinError", "worktree", "cross-family", "final", "tag", "gitlink"]
-symptom = "Reviewers deduct without naming a defect, penalize unrun checks or keep finding defects in one new component. Parallel full suites can exhaust Windows ports (WinError 10048)."
-fix = "Use the release bar in CONTRIBUTING.md#release-lessons. Paste this reviewer brief: \"Score each item 0-100. Deduct only for a defect that violates a documented contract or is reachable from supported inputs. Label other findings as recommendations. For each deduction give the exact fix (file:line + change). Report unrun checks as NOT RUN.\" Re-review the exact shipped tag and confirm the final candidate with a reviewer from another model family. The coordinator runs the full suite once and shares the result. Reviewers run only targeted tests. Give them allow rules and run checks they could not. Record the commit and time for each live measurement. After two rounds finding new defects in one new component, narrow its contract (fail closed). Avoid `git add -A` in a checkout with agent worktrees because it stages them as gitlinks."
-issue = "#345; 2026-11-10 (0.24.5/0.24.6 review rounds)"
-
-[[lessons]]
 id = "instruction-diet"
 title = "Keep peer instructions, memory and quota spend small"
 keywords = ["instruction", "diet", "memory", "quota", "observation", "refresh", "snapshot", "profile", "ladder", "pytest", "launcher", "allow", "headless", "cc", "tokens", "global", "workspace", "votes", "deepthink"]
 symptom = "Every peer ask re-reads a large memory index or instruction file, a per-turn observation refresh burns quota, headless cc cannot run pytest, or 60-word votes run on the heaviest profile."
 fix = "For headless cc, allow a single repo-local pytest launcher that sets the environment and forwards arguments. Prefix rules miss environment-prefixed commands. Refresh observations every 30-60 minutes. AI agents use peerhub diag --plan each turn. People use peerhub monitor. Keep peer memory and instructions small and workspace-scoped. Keep global rules generic. Use standard for bulk work and votes, effort for code, and deepthink for review and design."
 issue = "#337"
-
-[[lessons]]
-id = "concurrent-cc-lanes"
-title = "Concurrent cc lanes and parent shell lifetime"
-keywords = ["cc", "concurrent", "lanes", "memory", "reaper", "supervisor", "parent", "shell"]
-symptom = "On Windows, memory pressure can reap parent shells and kill long cc asks when concurrent lanes load large indexes."
-fix = "Size memory-heavy lanes from the load line in peerhub diag --plan. For any peer, run long jobs under a background supervisor and check completion in short polls so user updates can arrive. If the supervisor is reaped, check peerhub diag running and inspect receipts and partial effects before starting new work."
-issue = "#352"
 
 [[lessons]]
 id = "peer-subagents"
@@ -273,8 +142,6 @@ symptom = "An ask ends failed_not_started with 'claude executable not found' (or
 fix = "Install the missing CLI and sign in, or set OPENAI_API_KEY or GEMINI_API_KEY in PeerHub's environment. Keep keys off the command line and out of files. Retry after the prerequisite is fixed. See README.md#what-each-peer-needs for each peer."
 issue = "#385"
 
-# The six topics below hold what the 0.25.0 `peerhub guide` no longer prints (plan D5). Every earlier guide fact is here
-# or in an older topic (ag-recipe, api-peers, store-missing, monitor-states, peer-subagents, setup, ask-timeouts).
 [[lessons]]
 id = "ask-basics"
 guide_order = 3
@@ -303,15 +170,6 @@ fix = "Run peerhub update --plan. Back up the store before upgrading and reopen 
 issue = "0.25.0 plan D5; #123"
 
 [[lessons]]
-id = "batch-and-load"
-guide_order = 6
-title = "Batch runs, load and cost side effects"
-keywords = ["batch", "load", "concurrency", "balance", "cancel", "manifest", "cost", "side-effects"]
-symptom = "How many asks to run at once, what a batch spends, how suggest: and PACE guide the choice of a peer, and which quota and account side effects exist."
-fix = "Validate with peerhub batch run tasks.json --batch-id review-001 --max-parallel n --dry-run. Execution spends quota. See docs/batch.md for sizing and resuming a wave."
-issue = "0.25.0 plan D5; docs/batch.md"
-
-[[lessons]]
 id = "discovery-commands"
 guide_order = 7
 title = "Discovery and inspection commands"
@@ -332,7 +190,7 @@ issue = "0.25.0 plan D5"
 [[lessons]]
 id = "ask-metrics"
 title = "Ask receipts, outcomes, and profile measurements"
-keywords = ["receipt", "outcome", "profile stats", "profile check", "measurement", "coverage", "stream budget", "handoff", "query file"]
+keywords = ["receipt", "outcome", "profile stats", "profile check", "measurement", "coverage", "stream budget", "query file"]
 symptom = "You want to compare profiles, mark an answer's outcome, or understand an ask receipt or a stream budget warning."
 fix = "Run peerhub profile stats --json. Mark the result with peerhub outcome using requested_record_id or the ID from the terminal receipt. See docs/config-hierarchy.md#profile-measurements-and-stream-budgets."
 issue = "0.25.0 plan M2"
@@ -347,12 +205,15 @@ issue = "0.25.0 plan D7/D8/A6/A7"
 
 [[lessons]]
 id = "parallel-quota"
-guide_order = 11
+guide_order = 6
 title = "Spread parallel work over the least quota"
-keywords = ["parallel", "quota", "pace", "pools", "batch", "loop", "distribute", "minimal", "ram", "free", "memory", "slots", "load", "diag", "plan", "resource", "resources"]
-symptom = "Several tasks can run at once and the caller wants them spread over the pools with the most spare quota, spending as little as possible."
-fix = "Read peerhub diag --plan and choose usable pools by lowest 7D PACE first, spreading work across eligible pools (distinct pools of one peer count). Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Refresh only the peers the next wave may use (peerhub observation refresh --peers cx ag) and read the plan after each wave. Spend spare quota near reset on needed review or preparation. See docs/batch.md#parallel-work-over-the-least-quota."
-issue = "owner decisions 2026-11-22 and 2026-11-25"
+aliases = ["quota-aware-peer-runs", "multi-peer-quota-shaping", "batch-and-load", "stream-reuse-cost"]
+keywords = ["parallel", "quota", "pace", "pools", "batch", "loop", "distribute", "minimal", "ram", "free", "memory", "slots", "load", "diag", "plan", "resource", "resources", "429", "reset", "stream", "pool", "flash", "workers", "capacity", "cx", "ag", "cc", "consolidated", "draft", "timer", "sleep", "concurrency", "balance", "cancel", "manifest", "cost", "side-effects", "reuse", "resume", "session", "context", "tokens", "vote"]
+symptom = "You need to size a parallel wave, a shared pool is close to exhaustion, or a peer returns HTTP 429."
+fix = """Read peerhub diag --plan and choose usable pools by lowest 7D PACE first. Spread work across eligible pools, including distinct pools of one peer. Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Execution spends quota.
+- Refresh only the peers the next wave may use (peerhub observation refresh --peers cx ag) and read the plan after each wave. Defer exhausted pools and reconcile uncertain work before retrying. Use spare quota near reset on needed review or preparation. See docs/batch.md#parallel-work-over-the-least-quota.
+- Reserve a scarce pool for consolidated final verification. Run delayed jobs in a supervised process so they can outlive the caller session. Reuse a stream within one task to limit catch-up context. Start a new stream for a new task or independent vote."""
+issue = "#288, #297, #298, #299, #340, 0.25.0 plan D5, owner decisions 2026-11-22 and 2026-11-25"
 
 [[lessons]]
 id = "exit-codes"
@@ -375,7 +236,7 @@ Diag health returns {error[stream_not_found]} for a missing stream. \
 Update --check returns 0. Update --plan returns 0 when ready, {error[ask_claim_held]} if an ask is or may be running, \
 and {diag[FAILED]}/{diag[UNAVAILABLE]}/{diag[SCHEMA_VERSION]} for an unreadable/missing/incompatible store. \
 Suggest returns 0 for a suggestion or 1 for unavailable. Explain returns 0 for a match or 1 for no match. \
-Monitor snapshot/watch use 0 for success, 1 for invalid defaults, an agy token-use stop or a failed final refresh in finite watch, and the diag store codes. \
+Monitor snapshot/watch use 0 for success, 1 for an agy token-use stop or a failed final refresh in finite watch, and the diag store codes. \
 Observation refresh returns 0 for OK or 1 for a non-OK refresh. Shared store errors use the diag store codes as applicable. \
 Coded errors appear on stderr as [code] message; next: ... \
 With --json, ask errors and invalid manifests can include an error object with code and message on stdout. \

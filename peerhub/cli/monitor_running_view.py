@@ -1,6 +1,7 @@
 """Render compact and expanded monitor views of running asks."""
 from __future__ import annotations
 
+import re
 from typing import Any, cast
 
 from peerhub.core.scalars import finite_converted_number as finite_number
@@ -62,6 +63,11 @@ def running_total(data: dict[str, Any], running: list[dict[str, Any]]) -> int:
     return int(number) if number is not None and number >= 0 else len(running)
 
 
+def _short_id(row: dict[str, Any]) -> str:
+    record_id = str(row.get("_ask_id") or "-")
+    return record_id[4:] if re.fullmatch(r"rec-[0-9a-f]{12}", record_id) else record_id
+
+
 def running_head(data: dict[str, Any], running: list[dict[str, Any]], unicode: bool,
                   keep: str | None = None) -> tuple[str, int]:
     total = running_total(data, running)
@@ -81,6 +87,7 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
     open_row = _is_open(row)
     fields: list[str] = []
     if open_row:
+        fields.append(f"ID {_short_id(row)}")
         flag = _flag(row)
         left = finite_number(row.get("lease_left_s"))
         reason = (f"lease expired {compact_age(-left)} ago" if flag == "!overdue" and left is not None and left < 0
@@ -152,7 +159,7 @@ def compact_running(data: dict[str, Any], width: int, unicode: bool, keep: str |
     shown = running[:RUNNING_CAP]
     flags = [_flag(row) for row in shown]
     flagged = any(flags)
-    table = [[*([flag] if flagged else []), compact_age(finite_number(row.get("elapsed_s"))),
+    table = [[*([flag] if flagged else []), _short_id(row), compact_age(finite_number(row.get("elapsed_s"))),
               cell(row.get("profile") or row.get("peer")), cell(as_dict(row.get("lead")).get("label")),
               short_text(cell(row.get("ask_line")), ACTIVITY_SNIPPET_COLS, unicode), cell(row.get("name"))]
              for row, flag in zip(shown, flags)]
@@ -161,12 +168,12 @@ def compact_running(data: dict[str, Any], width: int, unicode: bool, keep: str |
     if rich and table:
         marks = [_RUN_MARKS[flag] for flag in flags]
         marked = [[glyphs.get(glyph, "") + word, *row[first:]] for (glyph, word, _), row in zip(marks, table)]
-        if table_columns(marked, width - 1, 4)[0] - 1 >= table_columns(table, width - 1, first + 3)[0] - first:
+        if table_columns(marked, width - 1, 5)[0] - 1 >= table_columns(table, width - 1, first + 4)[0] - first:
             table, first = marked, 1
             painter = column_painter(0, [colour for _, _, colour in marks]) if paint else None
     if links:
-        painter = query_painter(shown, first + 3, painter)
-    rows = [" " + line for line in fit_table(table, width - 1, unicode, right=(first,), elastic=first + 3, paint=painter)]
+        painter = query_painter(shown, first + 4, painter)
+    rows = [" " + line for line in fit_table(table, width - 1, unicode, right=(first + 1,), elastic=first + 4, paint=painter)]
     return [heading_rule(head, width, unicode, paint) if rich else head, *rows], total
 
 

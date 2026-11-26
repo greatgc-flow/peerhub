@@ -35,7 +35,7 @@ ALLOWED: dict[str, set[str]] = {
                            "monitor_sessions", "quota_read_model"},
     "monitor_activity": {"adapters", "caller", "diag_running", "liveness", "monitor_queries", "monitor_sessions",
                          "monitor_values"},
-    "monitor_alerts": {"liveness", "monitor_activity", "monitor_preferences", "monitor_queries", "monitor_quota", "monitor_values"},
+    "monitor_alerts": {"liveness", "monitor_activity", "monitor_queries", "monitor_quota", "monitor_values"},
     "monitor_queries": {"delivery_reads", "observation_model"},
     "monitor_quota": {"monitor_queries", "observation_model", "quota_projection", "quota_read_model", "quota_windows"},
     "monitor_sessions": {"adapters", "monitor_queries", "monitor_values", "session_receipts", "usage_normalization"},
@@ -57,7 +57,6 @@ ALLOWED: dict[str, set[str]] = {
     "diag_readiness": {"adapters", "diag", "observation_model", "quota_projection", "quota_windows"},
     "diag_running": {"caller", "diag", "liveness"},
     "diag_quota": {"diag", "observation_model", "quota_projection"},
-    "diag_watch": {"diag"},
     "diag_read_model": {"billing_port", "diag", "observation_model", "pool_health", "quota_projection", "quota_read_model", "quota_windows"},
     "quota_projection": {"observation_model"},
     "quota_read_model": {"observation_model", "pool_health", "quota_windows"},
@@ -150,9 +149,9 @@ def test_cli_adapter_layers_import_only_their_dependencies():
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "billing_port", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
-          "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
+          "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
           "ask_budgets", "delivery_projection_rebuild", "delivery_projections", "delivery_reads", "monitor_read_model", "usage_normalization", "runtime_contract",
-          "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries",
+          "caller", "liveness", "lead_sessions", "pool_health", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",
           "diag_read_model", "quota_read_model", "quota_windows", "recovery_classification", "profile_stats"}
     helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "manifest"}

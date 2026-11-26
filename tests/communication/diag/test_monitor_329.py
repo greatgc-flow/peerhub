@@ -342,35 +342,35 @@ def test_5h_na_notes_use_the_fresh_account_plan_when_the_quota_probe_reports_non
     store.h.create_peer({"peer_id": "cc", "display_name": "Claude", "adapter_ref": "claude"})  # the PEERS block needs a registered peer
     cc_without_5h(store)
     account(store, "cc", age=30, plan="pro", plan_status="reported")
-    compact = snapshot(store, capsys, "--show-quota-notes")
-    expanded = snapshot(store, capsys, "--expand", "--show-quota-notes")
+    compact = snapshot(store, capsys)
+    expanded = snapshot(store, capsys, "--expand")
     observations = json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
     item = next(o for o in observations if o["pool_ref"] == "quota:cc:C-5H")
     assert item["reason"] == NOT_REPORTED + "unknown"  # the stored fact is not rewritten
     assert item["display_plan"] == "pro" and item["plan_source"] == "account"
     other = next(o for o in observations if o["pool_ref"] == "quota:cc:C-7D")
     assert "display_plan" not in other and "plan_source" not in other  # only the notes that needed it carry the fields
-    for output in (compact, expanded):
-        pools = output.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
-        assert f"(C-5H {QUOTA_NA})" in pools and "plan unknown" not in output
+    assert "C-5H" not in compact
+    pools = expanded.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
+    assert f"(C-5H {QUOTA_NA})" in pools and "plan unknown" not in expanded
     assert "plan pro: no 5h window" in expanded
 
 
 def test_unknown_plan_stays_unknown_without_a_fresh_account_plan(store, capsys):
     cc_without_5h(store)
     account(store, "cc", age=7 * 3600, plan="pro", plan_status="reported")  # aged: not a fresh reading
-    assert "plan unknown" in snapshot(store, capsys, "--expand", "--show-quota-notes")
+    assert "plan unknown" in snapshot(store, capsys, "--expand")
     store2 = Store(store.db.parent.parent / "second")
     cc_without_5h(store2)
     account(store2, "cc", age=30, plan=None, plan_status="UNKNOWN")  # reported nothing
-    assert "plan unknown" in snapshot(store2, capsys, "--expand", "--show-quota-notes")
+    assert "plan unknown" in snapshot(store2, capsys, "--expand")
 
 
 def test_a_quota_probe_plan_is_never_overridden_by_the_account_plan(store, capsys):
     store.measured("cx", "X-7D", age=20, source="codex_app_server", evidence_ref="probe:cx:app-server")
     store.add("cx", "X-5H", "ABSENT", age=20, source="codex_app_server", evidence_ref="probe:cx:app-server", reason=NOT_REPORTED + "prolite")
     account(store, "cx", age=30, plan="other", plan_status="reported")
-    out = snapshot(store, capsys, "--expand", "--show-quota-notes")
+    out = snapshot(store, capsys, "--expand")
     assert "(plan prolite)" in out and "plan other" not in out
     items = json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
     assert all("display_plan" not in o for o in items)

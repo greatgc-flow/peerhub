@@ -38,32 +38,6 @@ def test_profile_show_unknown_name_does_not_leak_the_exception_class(capsys):
     assert "ValueError" not in err
 
 
-def test_monitor_defaults_show_is_a_table_and_json_only_with_flag(tmp_path, capsys, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "cfg"))
-    code, out, err = _run(capsys, "monitor", "defaults", "show")
-    assert code == 0 and err == ""
-    lines = out.splitlines()
-    assert not out.lstrip().startswith("{")
-    assert lines[0].split() == ["ID", "DEFAULT"]
-    rows = {line.split()[0]: line.split()[1] for line in lines[1:] if line.split()[0] != "Defaults:"}
-    assert rows["overview"] == "yes" and rows["store"] == "no"
-    assert lines[-1] == "Defaults: packaged (OK)"
-    code, out, _ = _run(capsys, "monitor", "defaults", "show", "--json")
-    assert code == 0 and json.loads(out)["selected_groups"][0] == "overview"
-
-
-def test_monitor_defaults_show_invalid_file_names_the_reason(tmp_path, capsys, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "cfg"))
-    (tmp_path / "cfg").mkdir()
-    (tmp_path / "cfg" / "monitor.toml").write_text("not = [toml", encoding="utf-8")
-    code, out, _ = _run(capsys, "monitor", "defaults", "show")
-    assert code == 1
-    assert not out.lstrip().startswith("{")
-    assert "Defaults: global (ERROR)" in out and "Reason: invalid_toml" in out
-
-
 def test_account_list_empty_prints_the_no_x_line(tmp_path, capsys):
     db = _store(tmp_path, capsys)
     code, out, _ = _run(capsys, "--db", db, "account", "list")

@@ -211,9 +211,9 @@ def test_running_rows_order_cells_and_name_last(frame):
     running = section(lines, "RUNNING")
     assert len(running) == 4  # the header and three rows; no flag column when no row has a flag
     first = running[1].split()
-    assert first[:3] == ["16m", "cx.deepthink", "QA"] and first[-1] == "review-api"
+    assert first[:4] == ["-", "16m", "cx.deepthink", "QA"] and first[-1] == "review-api"
     assert "Review phase four" in running[1]
-    assert running[3].split()[:2] == ["41s", "cc.effort"] and running[3].endswith("rank-374-r1/cc")
+    assert running[3].split()[:3] == ["-", "41s", "cc.effort"] and running[3].endswith("rank-374-r1/cc")
 
 
 @pytest.mark.parametrize("alive,state,flag", [(False, "run", "!gone"), (None, "run", "?"), (True, "overdue", "!overdue")])
@@ -225,7 +225,7 @@ def test_flag_column_appears_only_when_a_row_has_a_flag(frame, alive, state, fla
     flagged = next(line for line in running if line.endswith("rank-374-r1/cc"))
     assert flagged.split()[0] == flag
     plain = running[1]
-    assert plain[:1 + len(flag)].strip() == "" and plain.split()[0] == "16m"  # an empty flag cell, not a shifted row
+    assert plain[:1 + len(flag)].strip() == "" and plain.split()[:2] == ["-", "16m"]  # an empty flag cell, not a shifted row
     columns = {line.index("cc.") if "cc." in line else line.index("cx.") for line in running[1:]}
     assert len(columns) == 1  # the flag column aligns every row
 
@@ -286,7 +286,7 @@ def test_narrow_activity_rows_drop_columns_from_the_right(frame, width):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=width))
     running = section(lines, "RUNNING")
     assert all(cell_width(line) <= width - 1 for line in running)
-    assert all(line.split()[0] in {"16m", "5m", "41s"} for line in running[1:])
+    assert all(line.split()[1] in {"16m", "5m", "41s"} for line in running[1:])
     assert "~" not in "".join(line.split()[1] for line in running[1:])
 
 
@@ -353,8 +353,6 @@ def test_agy_token_stop_is_one_more_alert_before_the_low_ones(frame):
     ({"capacity": "not_selected", "accounts": "not_selected", "facts": "not_selected"},
      "OK? (quota, accounts, facts not read)"),
     ({"activity": "not_selected", "accounts": "truncated"}, "OK? (asks not read; accounts partial)"),
-    ({"activity": "not_selected", "hint": "peerhub monitor defaults reset"},
-     "OK? (asks not read; peerhub monitor defaults reset)"),
     ({"activity": "not_selected", "capacity": "stale"}, "OK? (asks not read; quota stale)"),
     ({"capacity": "unknown"}, "OK? (quota unknown)"),  # #376 P14: no 7-day pool the provider reports has a number
     ({"activity": "not_selected", "capacity": "unknown"}, "OK? (asks not read; quota unknown)"),
@@ -397,12 +395,11 @@ def test_attn_carries_a_question_mark_when_a_source_was_not_read(frame, sources,
     assert alerts[1:] == [f"source {key}: {reasons[value]}" for key, value in sources.items()]
 
 
-def test_expand_lists_unread_sources_without_alerts_and_the_hint(frame):
-    frame["alert_sources"].update(activity="not_selected", hint="peerhub monitor defaults reset")
+def test_expand_lists_unread_sources_without_alerts(frame):
+    frame["alert_sources"].update(activity="not_selected")
     expanded = render_grouped_frame(frame, view="plain", unicode=False, width=120, expand=True)
-    assert expanded.startswith("OK? (asks not read; peerhub monitor defaults reset)")
+    assert expanded.startswith("OK? (asks not read)")
     assert "ALERTS 0" in expanded and "source activity: not selected" in expanded
-    assert "hint: peerhub monitor defaults reset" in expanded
 
 
 @pytest.mark.parametrize("view,unicode_mode,sep", [("plain", False, " | "), ("rich", True, " · ")])
@@ -559,21 +556,3 @@ def test_bounded_expand_keeps_the_verdict_first_and_the_height(frame):
         lines = lines_of(screen)
         assert lines[0].startswith("OK | 3 running") and len(lines) < height, (height, screen)
         assert all(cell_width(line) < 100 for line in lines)
-
-
-def test_monitor_passes_the_preference_source_to_the_read_model(tmp_path, monkeypatch, capsys):
-    from peerhub.cli.app import main
-    from tests.communication.harness.observation import ObservationHarness
-
-    h = ObservationHarness(tmp_path / "pref")
-    seen: list[object] = []
-
-    def render(db, groups, **kw):
-        seen.append(kw.get("preference_source"))
-        return {"schema_version": "2.0", "status": "OK", "read_at": NOW, "groups": {}, "errors": {},
-                "alert_sources": dict(SOURCES_READ), "alerts": [], "min_quota": None}
-
-    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", render)
-    assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "capacity", "--view", "plain"]) == 0
-    assert seen == ["command"]
-    capsys.readouterr()

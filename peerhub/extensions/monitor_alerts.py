@@ -98,23 +98,9 @@ def merge_activity_frame(snapshot: dict[str, Any], activity: dict[str, Any]) -> 
             "alerts": failures + activity["alerts"] + others}
 
 
-def _saved_defaults_source(groups: list[str]) -> str | None:
-    """The saved-defaults layer when `groups` is exactly what it selects; the read model has no other view of the selection."""
-    try:
-        from peerhub.extensions.monitor_preferences import effective_preferences
-        preference = effective_preferences()
-    except (ImportError, OSError, ValueError, KeyError, TypeError):
-        return None
-    if preference.get("status") == "OK" and preference.get("source") in ("workspace", "global") \
-            and list(preference.get("selected_groups") or []) == list(groups):
-        return str(preference["source"])
-    return None
-
-
 def alert_source_status(groups: list[str], errors: dict[str, str], activity_data: dict[str, Any] | None,
-                        quota: QuotaSnapshot, pools: list[dict[str, Any]] | None,
-                        preference_source: str | None) -> dict[str, Any]:
-    """Report how completely each alert source was read and whether saved defaults omitted activity."""
+                        quota: QuotaSnapshot, pools: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Report how completely each alert source was read."""
     capacity_read = bool(set(groups) & {"capacity", "peers"})
     capacity_failed = "capacity" in errors
 
@@ -136,6 +122,4 @@ def alert_source_status(groups: list[str], errors: dict[str, str], activity_data
     }
     if no_evidence:
         alert_sources["reasons"] = {"capacity": "no quota evidence"}
-    if "activity" not in groups and (preference_source or _saved_defaults_source(groups)) in ("workspace", "global"):
-        alert_sources["hint"] = "peerhub monitor defaults reset"
     return alert_sources

@@ -158,7 +158,7 @@ def test_expand_uses_the_terminal_width_and_compact_widens_its_pool_table():
 def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
     small = compact(payload, width=140).splitlines()
-    big = expand(payload, width=140, show_quota_notes=True).splitlines()
+    big = expand(payload, width=140).splitlines()
     assert block("\n".join(small), "pools")[0].startswith("── POOLS 8 ─")
     assert block("\n".join(big), "pools")[0].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = block("\n".join(big), "pools")[1:]
@@ -343,8 +343,7 @@ def test_quota_hides_the_window_after_reset_and_names_it_in_notes(elapsed):
     payload = _payload([], [pool("cc", "C-7D", .10, fast=True, pace=31.0, reset=-1 if elapsed == 0 else 1)],
                        display_elapsed_seconds=elapsed)
     screen = expand(payload, width=160)
-    assert "C-7D" not in screen
-    notes = expand(payload, width=160, show_quota_notes=True)
+    notes = screen
     assert "cc C-7D n/a (quota window expired)" in [line.strip() for line in block(notes, "capacity")]
 
 
@@ -356,7 +355,7 @@ def test_g_one_even_burn_legend_follows_pools_and_gap():
 
 
 def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns():
-    screen = expand(detail_payload(), show_quota_notes=True, width=140)
+    screen = expand(detail_payload(), width=140)
     quota = block(screen, "capacity")
     for row in (" cx X-30D n/a not reported (plan prolite)", " ag STALE:window; next: peerhub observation refresh --peers ag",
                 " cc F-7D evidence UNKNOWN; next: peerhub observation refresh --peers cc",
@@ -364,7 +363,7 @@ def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns(
                 " ACCOUNTS (plan is display data; the expiry is the login token's, not billing)"):
         assert row in quota, row
     assert "cc.effort" in next(line for line in quota if " C-7D " in line)
-    narrow = block(expand(detail_payload(), show_quota_notes=True, width=60), "capacity")
+    narrow = block(expand(detail_payload(), width=60), "capacity")
     assert next(line for line in narrow if "PEER POOL" in line).split()[:5] == ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)"]
     assert any("Columns omitted: age" in line for line in narrow)  # G4
 
@@ -416,10 +415,10 @@ def test_running_entries_start_with_the_compact_marker_and_keep_every_field():
             assert field in text, field
         assert f"ask: {ask_row['ask_line_long']}" in text
         assert all(line.startswith("   ") and not line.startswith("    ") for line in row.splitlines()[1:])
-    assert rows[0].startswith(f" {U['run']} flag none (caller alive) · state run · elapsed 16m · started 2026-11-14 23:30:40Z")
-    assert rows[1].startswith(f" {U['gone']} flag !gone (caller process gone) · state run")
-    assert rows[3].startswith(" ! flag !overdue (lease expired 2m ago) · state overdue")
-    painted = [line for line in screen.splitlines() if re.match(r"^ \x1b\[[0-9;]+m.\x1b\[0m flag ", line)]
+    assert rows[0].startswith(f" {U['run']} ID 000000000001 · flag none (caller alive) · state run · elapsed 16m · started 2026-11-14 23:30:40Z")
+    assert rows[1].startswith(f" {U['gone']} ID 000000000002 · flag !gone (caller process gone) · state run")
+    assert rows[3].startswith(" ! ID 000000000004 · flag !overdue (lease expired 2m ago) · state overdue")
+    painted = [line for line in screen.splitlines() if re.match(r"^ \x1b\[[0-9;]+m.\x1b\[0m ID ", line)]
     assert [SGR.findall(line)[0] for line in painted] == [monitor_layout.RICH_SGR[c] for c in ("ok", "bad", "warn", "warn")]
     assert not any(line.startswith("- ") for line in strip(screen).splitlines())  # the plain view's entry mark
 
@@ -523,7 +522,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     assert heads(screen) == ORDER
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
-    assert any(line.startswith("-- POOLS 10 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
+    assert any(line.startswith("-- POOLS 11 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
     assert [row.split()[0] for row in entries(block(screen, "running"))] == [A["run"], A["gone"], "?", "!"]
     assert all(re.match(rf" {re.escape(A['dot'])} (ok|empty|unsure|error) ", row) for row in entries(block(screen, "recent")))
     if width == 100:
@@ -639,7 +638,7 @@ def test_the_plain_expand_goldens_cover_every_case():
 def test_plain_expand_matches_its_golden(case, payload, kwargs):
     # C1, M3–M5 and G: QUOTA shares POOLS' state, tick, durations and profile labels.
     # M9/G8 add the same gap and legend above suggest, moving the height cut.
-    screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
+    screen = render_grouped_frame(payload, **kwargs)
     actual, expected = blocks(screen, expanded=True), blocks(GOLDENS[case], expanded=True)
     pools = FRAME_SECTIONS["pools"]
     assert actual.get(pools) == expected.get(pools)
@@ -652,7 +651,7 @@ def test_plain_expand_matches_its_golden(case, payload, kwargs):
             common = min(len(shown), len(saved))
             assert shown[:common] == saved[:common], section
     assert "\x1b" not in screen and screen.isascii()
-    assert render_grouped_frame(payload, show_quota_notes=True, color=True, **kwargs) == screen  # the plain view is never painted
+    assert render_grouped_frame(payload, color=True, **kwargs) == screen  # the plain view is never painted
 
 
 def test_the_plain_expand_frame_has_the_one_order_of_the_compact_frame():
@@ -663,7 +662,7 @@ def test_the_plain_expand_frame_has_the_one_order_of_the_compact_frame():
     assert lines[1].startswith("PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age")
     assert heads(screen) == ORDER
     assert any("PACE(pp)" in line and "EXH/RESET" in line for line in lines)  # G4
-    assert any(line.startswith("- flag none (caller alive) | state run") for line in lines)  # RUNNING keeps every field
+    assert any(line.startswith("- ID 000000000001 | flag none (caller alive) | state run") for line in lines)  # RUNNING keeps every field
     assert lines.index(DB_LINE) == 2
 
 

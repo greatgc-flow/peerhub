@@ -205,7 +205,7 @@ def test_a_frame_whose_only_seven_day_pool_is_unknown_reports_unknown_capacity(t
     h = ObservationHarness(tmp_path / "unknown")
     h.register_pool({"schema_version": "1.0", "resource_pool_id": "cx:X-7D", "provider": "openai", "kind": "QUOTA", "metadata": {}})
     h.capture("cx", "quota", FakeObservationSource(unavailable("probe_failed")), resource_pool_ref="cx:X-7D")
-    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, preference_source="command")
+    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10)
     assert out["alert_sources"] == {"activity": "not_selected", "capacity": "unknown", "accounts": "read", "facts": "read"}
     assert out["min_quota"] is None and out["alerts"] == [] and out["errors"] == {}
     (pool,) = out["groups"]["capacity"]["data"]["observations"]  # the pool's own error stays visible
@@ -224,7 +224,7 @@ def _quota_store(tmp_path, fraction, **measurements):
 def test_all_stale_frame_reports_stale_capacity_and_an_aged_min_quota_without_a3(tmp_path):
     from tests.communication.harness.observation import T0
     h = _quota_store(tmp_path, 0.0)
-    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 300, preference_source="command")
+    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 300)
     assert out["groups"]["capacity"]["data"]["observations"][0]["state"] == "STALE"
     assert out["alert_sources"]["capacity"] == "stale"
     assert out["min_quota"] == {"pool": "cx X-7D", "left_pct": 0, "state": "aged", "aged": True}
@@ -239,7 +239,7 @@ def test_stale_frame_whose_reset_has_passed_has_no_min_quota(tmp_path):
     h.register_pool({"schema_version": "1.0", "resource_pool_id": "cx:X-7D", "provider": "openai", "kind": "QUOTA", "metadata": {}})
     h.capture("cx", "quota", FakeObservationSource(measured({"remaining_fraction": 0.3, "resets_at": T0 + 100})),
               resource_pool_ref="cx:X-7D")
-    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 300, preference_source="command")
+    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 300)
     assert out["groups"]["capacity"]["data"]["observations"][0]["state"] == "STALE"
     assert out["alert_sources"]["capacity"] == "stale" and out["min_quota"] is None and out["alerts"] == []
 
@@ -247,10 +247,8 @@ def test_stale_frame_whose_reset_has_passed_has_no_min_quota(tmp_path):
 @pytest.mark.parametrize("fraction", [0.145, 0.855, 0.285, 0.575, 0.355])
 def test_stale_value_is_the_checked_fraction_not_one_minus_used(tmp_path, fraction):
     from tests.communication.harness.observation import T0
-    out = mrm.render_monitor_frame(_quota_store(tmp_path, fraction).db_path, ["capacity"], read_at=T0 + 300,
-                                   preference_source="command")
-    fresh = mrm.render_monitor_frame(_quota_store(tmp_path / "f", fraction).db_path, ["capacity"], read_at=T0 + 10,
-                                     preference_source="command")
+    out = mrm.render_monitor_frame(_quota_store(tmp_path, fraction).db_path, ["capacity"], read_at=T0 + 300)
+    fresh = mrm.render_monitor_frame(_quota_store(tmp_path / "f", fraction).db_path, ["capacity"], read_at=T0 + 10)
     assert out["min_quota"]["left_pct"] == fresh["min_quota"]["left_pct"] == round(fraction * 100)
 
 
@@ -270,7 +268,7 @@ def test_fast_needs_two_samples_on_every_path_without_another_statement(tmp_path
         h.capture("cx", "quota", FakeObservationSource(measured({"remaining_fraction": 0.42, "resets_at": T0 + QUOTA_FIXTURE_RESET_SECONDS})),
                   resource_pool_ref="cx:X-7D")
     statements: list[str] = []
-    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 20, preference_source="command", human=human,
+    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 20, human=human,
                                    trace_callback=statements.append)
     assert out["min_quota"] == {"pool": "cx X-7D", "left_pct": 42, "state": shown, "aged": False}
     assert out["query_families"] == (2 if human else 1)  # the count rides in the capacity statement; human adds its export only
@@ -290,8 +288,8 @@ def test_a_malformed_older_sample_does_not_abort_the_human_export(tmp_path, has_
                   "observed_at, captured_at, effective_at_us) VALUES ('bad-json','cx','cx:X-7D','quota','s','MEASURED','{not json',"
                   "'2026-10-01T00:00:00Z', NULL, 0)")
         c.commit()
-    plain = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, preference_source="command")
-    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, preference_source="command", human=True)
+    plain = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10)
+    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, human=True)
     (item,) = out["_human_observations"]
     assert item["last_measurements"] == {"remaining_fraction": fraction, **anchors}
     assert item["projection_samples"] == expected_samples
@@ -301,7 +299,7 @@ def test_a_malformed_older_sample_does_not_abort_the_human_export(tmp_path, has_
 
 def test_fresh_frame_reads_capacity_and_alerts_on_an_out_pool(tmp_path):
     from tests.communication.harness.observation import T0
-    out = mrm.render_monitor_frame(_quota_store(tmp_path, 0.0).db_path, ["capacity"], read_at=T0 + 10, preference_source="command")
+    out = mrm.render_monitor_frame(_quota_store(tmp_path, 0.0).db_path, ["capacity"], read_at=T0 + 10)
     assert out["alert_sources"]["capacity"] == "read"
     assert out["min_quota"] == {"pool": "cx X-7D", "left_pct": 0, "state": "out", "aged": False}
     assert [(a["code"], a["subject"]) for a in out["alerts"]] == [("a3", "cx X-7D")]
@@ -313,7 +311,7 @@ def test_a_store_without_quota_reports_reads_capacity(tmp_path):
     h = ObservationHarness(tmp_path / "noquota")
     h.register_pool({"schema_version": "1.0", "resource_pool_id": "cx:X-7D", "provider": "openai", "kind": "QUOTA", "metadata": {}})
     h.capture("cx", "quota", FakeObservationSource(absent({"reason": "not reported by provider"})), resource_pool_ref="cx:X-7D")
-    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 300, preference_source="command")
+    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 300)
     assert out["alert_sources"]["capacity"] == "read" and out["min_quota"] is None and out["alerts"] == []
 
 
@@ -343,7 +341,7 @@ def test_a_failing_group_is_an_a6_alert_and_an_error_source(tmp_path, damage):
             c.execute("DROP TABLE observations")
             c.execute("CREATE TABLE observations (capture_seq INTEGER)")
         c.commit()
-    out = mrm.render_monitor_frame(h.db_path, ["capacity", "activity"], read_at=NOW, preference_source="command")
+    out = mrm.render_monitor_frame(h.db_path, ["capacity", "activity"], read_at=NOW)
     assert out["groups"]["capacity"]["status"] == "ERROR" and out["errors"] == {"capacity": "OperationalError"}
     assert out["alert_sources"] == {"activity": "read", "capacity": "error", "accounts": "error", "facts": "error"}
     assert [(a["code"], a["kind"], a["subject"]) for a in out["alerts"]] == [("a6", "store", "capacity: OperationalError")]
@@ -353,7 +351,7 @@ def test_a_failing_group_is_an_a6_alert_and_an_error_source(tmp_path, damage):
 def test_a_store_that_never_had_a_quota_refresh_is_not_a_store_failure(tmp_path, groups):
     from tests.communication.diag.test_monitor_activity import _bridge_store  # pyright: ignore[reportPrivateUsage]
     h = _bridge_store(tmp_path)  # a real store with an ask, but no observation tables yet (never a quota refresh)
-    out = mrm.render_monitor_frame(h.db_path, groups, read_at=2000.0, preference_source="command", liveness=lambda *a, **k: True)
+    out = mrm.render_monitor_frame(h.db_path, groups, read_at=2000.0, liveness=lambda *a, **k: True)
     assert out["alerts"] == []
     assert out["alert_sources"] == {"activity": "read", "capacity": "no_evidence", "accounts": "no_evidence",
                                     "facts": "no_evidence", "reasons": {"capacity": "no quota evidence"}}
@@ -381,28 +379,6 @@ def test_a_never_refreshed_store_and_one_with_empty_observation_tables_differ_on
     assert never["alert_sources"]["capacity"] == "no_evidence"
     for key in ("status", "groups", "errors", "alerts", "min_quota"):
         assert never[key] == empty[key], key
-
-
-@pytest.mark.parametrize("source,hint", [("workspace", True), ("global", True), ("command", False), ("packaged", False)])
-def test_hint_when_saved_defaults_omit_activity(tmp_path, source, hint):
-    h = CoreHarness(tmp_path / "ws")
-    out = mrm.render_monitor_frame(h.db_path, ["store"], read_at=NOW, preference_source=source)
-    assert ("hint" in out["alert_sources"]) is hint
-    if hint:
-        assert out["alert_sources"]["hint"] == "peerhub monitor defaults reset"
-
-
-def test_hint_is_inferred_from_saved_defaults_when_no_source_is_given(tmp_path, monkeypatch):
-    h = CoreHarness(tmp_path / "ws")
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
-    config = tmp_path / ".peerhub" / "config" / "monitor.toml"
-    config.parent.mkdir(parents=True)
-    config.write_text('schema_version = 1\n[monitor]\ndefault_groups = ["store"]\n', encoding="utf-8")
-    out = mrm.render_monitor_frame(h.db_path, ["store"], read_at=NOW)
-    assert out["alert_sources"]["hint"] == "peerhub monitor defaults reset"
-    other = mrm.render_monitor_frame(h.db_path, ["capacity", "store"], read_at=NOW)
-    assert "hint" not in other["alert_sources"]
 
 
 def test_frame_alerts_come_from_activity_rows(tmp_path):

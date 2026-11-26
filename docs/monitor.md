@@ -1,19 +1,16 @@
 # Reading the PeerHub monitor
 
-`peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
+`peerhub monitor` is the human screen. AI agents read `peerhub diag --plan` once per turn (pools plus the load line, about 350 tokens).
 
 `peerhub diag --plan --json` reports the same difference as `exhaust_margin_seconds`, using the effective reset for a parent-limited pool. The plan text marks early exhaustion with `!early`.
 
 This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
-`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. For quick offline help, use `peerhub explain monitor-view` or `peerhub explain monitor-states`.
+`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. For quick offline help, use `peerhub explain monitor-states`. The alert codes `a1` through `a6` also open that lesson.
 
 Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
 required quota reading reaches 210 seconds (90 seconds before expiry) or is missing. Failed or partial peers retry after 60 seconds.
 If agy reports model-token use, watch stops unless `--allow-agy-token-use` was passed.
-Use `--no-probe` or set `PEERHUB_MONITOR_PROBE=off` to disable automatic refresh. Redirected watch reads committed evidence
-by default. Explicit `--probe` also schedules collection on the watch cadence. `--collect-every K` applies to
-that cadence and scripted cycles. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
-to collect and show one completed cycle.
+Use `--no-probe` or set `PEERHUB_MONITOR_PROBE=off` to disable automatic refresh. Redirected watch and snapshots read committed evidence. Use `peerhub observation refresh` for explicit collection.
 With `--cycles N` and `N > 0`, scripted runs keep synchronous refresh and the same output as before, while continuous TTY watch refreshes in the background.
 
 On Windows, background quota refresh puts each probe in a Job Object before it can start children.
@@ -30,10 +27,10 @@ For a command you can run, use `peerhub suggest --tier standard` and see
 
 ## Commands and output
 
-- `monitor groups` lists all eleven group IDs and whether the effective defaults select them. The defaults select nine groups. Use `--group GROUP` (repeatable), `--group all`, or `monitor defaults show|set|reset` to inspect or change the selection.
+- `monitor --help` lists the eleven group IDs under `--group`. The monitor selects nine by default. Repeat `--group GROUP` to select individual groups or use `--group all`.
 - `monitor --snapshot` renders one read-only frame. Use `monitor --snapshot --expand --group sessions --group execution` for the retained-session and execution tables. `monitor --no-probe --interval-seconds 60` watches committed evidence. Pass the global `--db PATH` before `monitor` to choose another store.
 - Without `--cycles`, a terminal watches until interrupted and redirected output runs one cycle. Explicit `--cycles 0` watches everywhere until interrupted. Positive values bound the watch.
-- `--json` emits schema 2.0: one object for a snapshot, or one `initial` frame plus a `complete` frame per watch cycle (NDJSON). Older scripts can select `--json --schema-version 1.1`.
+- `--json` emits schema 2.0: one object for a snapshot, or one `initial` frame plus a `complete` frame per watch cycle (NDJSON).
 - `--view plain` uses an ASCII frame. `--view rich` uses terminal glyphs and colour when available. See [CLI help](commands.md#guide-and-explain) and the [probe contract](implementation/OBSERVATION_PROBES.md).
 
 ## The top lines
@@ -69,18 +66,15 @@ JSON `min_quota.state` also reports `aged` for a stale zero, with `aged: true`.
 
 Below the title, both layouts show `quota 5h old -> peerhub observation refresh` when the oldest quota reading is more
 than an hour old. Ages of a day or more use days. Without quota readings, the line says `quota: no reading -> peerhub observation refresh`.
-The per-pool `aged` state keeps its own freshness rule. Human `diag quota` and `diag --live` show the same notice.
+The per-pool `aged` state keeps its own freshness rule. `diag quota` shows the same notice.
 After a timeout, both monitor layouts keep a measured value less than 15 minutes old and show one note per affected peer,
 such as `cc probe timeout (value 3m old)`.
 A quota probe that still times out under high CPU load is labeled `delayed by load`.
 
 ## POOLS
 
-`POOLS n` counts pools selected for the current view before row limits are applied. Both layouts hide unavailable
-(`n/a`) windows by default, including the legacy Antigravity weekly bucket when the provider omits it from a
-complete report. Add `--show-quota-notes` to count and name them inline and show reasons in compact POOLS or
-expanded QUOTA. This display option applies to snapshots and watches. See [Antigravity quota pools](adapters/ag.md#quota-pools).
-Both layouts also hide readings past their reset or older than their window. Quota notes show them as `n/a`, and the
+`POOLS n` counts pools selected for the current view before row limits are applied. Compact hides unavailable windows. Expanded POOLS counts them and expanded QUOTA includes the reason for each. See [Antigravity quota pools](adapters/ag.md#quota-pools).
+Compact also hides readings past their reset or older than their window. Quota notes show them as `n/a`, and the
 header age excludes them. `diag --plan` shows a reset window as `hold` with `window reset; refresh` and omits it from
 other pools' gates. Plan JSON retains the previous window's measured LEFT and reset time.
 
@@ -100,7 +94,7 @@ The expanded view includes all short windows, with visible rows limited by the f
 
 The gap line compares weekly parent pools with readings against `X-7D` in percentage points. It shows `—` when a
 comparison cannot be calculated, for example when the baseline reading is missing or a reading is stale.
-`--show-quota-notes` also includes pools without readings in the gap line. The gap line leaves the frame with POOLS.
+Expanded POOLS also includes pools without readings in the gap line. The gap line leaves the frame with POOLS.
 All pools use the even-burn reference
 of 0 pp. The design rejected per-pool targets in `[pool_targets]` and `[pools.<ID>]` (spend, rest and priority settings).
 The legend under the gap line reads:
@@ -122,7 +116,7 @@ PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = earl
 | `blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. <a id="state-blocked"></a> |
 | `aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. <a id="state-aged"></a> |
 | `reset` | `○` | the reset time has passed, so the number is no longer true; refresh. <a id="state-reset"></a> |
-| `n/a` | | the plan no longer reports this window (or the provider switched it off). Shown in the human frame with `--show-quota-notes`. <a id="state-na"></a> |
+| `n/a` | | the plan no longer reports this window (or the provider switched it off). Shown in the human frame with `--expand`. <a id="state-na"></a> |
 | `?` | `○` | unknown: no number. <a id="state-unknown"></a> |
 
 **Order.** POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools.
@@ -194,6 +188,11 @@ row is the elapsed time, profile, lead, the ask's first words and the stream. A 
 normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller is gone and the ask has no confirmed end),
 `!orphan` (a provider process is still alive after both the caller and wrapper exited) and `?` (liveness unknown).
 `--expand` lists every field of each sampled running ask. Both layouts count running asks beyond the detail sample.
+
+Each row starts with the ask's 12-character record ID after the state flag. The RUNNING footer gives
+`peerhub monitor open ID` to print the stored prompt as a JSON string, including inline and file-backed asks.
+Use the same global `--db PATH` when you selected the monitor store explicitly. The ID still works after the ask ends.
+A dash means the claim has no prompt record to open.
 
 Continuous terminal watch reads activity every `min(5 s, --interval-seconds)` using `RUNNING_REFRESH_SECONDS`.
 Activity rows, alerts, source status and the verdict update together, including when an activity alert clears.
@@ -304,8 +303,7 @@ you run. Snapshots and terminal frames without a Guide link end with a copyable 
 That URL uses `main` for development builds.
 
 The rich view also links the database path and profile names to their files, and recorded query text to its local file.
-The quota state in the verdict and the STATE words in POOLS and QUOTA link to the state descriptions for the package version. On supported terminals, the source shown by
-`peerhub monitor defaults show` links to its config file. Local destinations must exist. These details keep the same
+The quota state in the verdict and the STATE words in POOLS and QUOTA link to the state descriptions for the package version. Local destinations must exist. These details keep the same
 visible text when links are unavailable, and commands remain copyable text.
 
 ## Environment

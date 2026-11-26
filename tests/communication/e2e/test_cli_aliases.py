@@ -52,10 +52,39 @@ def test_ask_prompt_file_alias(capsys, monkeypatch):
     assert json.loads(output)["request_id"] == request_id
 
 
+def test_ask_combines_query_files_in_option_order(capsys, monkeypatch):
+    from peerhub.extensions import ask as ask_module
+
+    files = {"z-NOW.md": b"\xef\xbb\xbfcurrent state\r\n\r\n", "a-task.md": b"\n  task delta\r\n"}
+    monkeypatch.setattr(Path, "read_bytes", lambda path: files[path.name])
+
+    def fake_ask(db, peer, prompt, **options):
+        assert peer == "ag"
+        assert prompt == "current state\n\n  task delta\n"
+        assert options["query_file"] == "a-task.md"
+        return {"status": "delivered", "response": "ok"}
+
+    monkeypatch.setattr(ask_module, "ask", fake_ask)
+    assert app.main(["--db", __file__, "ask", "ag", "--writable", "--json",
+                     "--query-file", "z-NOW.md", "--prompt-file", "a-task.md"]) == 0
+    assert json.loads(capsys.readouterr().out)["response"] == "ok"
+
+
+def test_ask_rejects_positional_prompt_with_repeated_query_files(capsys, monkeypatch):
+    def unexpected_resolution(*args, **kwargs):
+        pytest.fail("ask must validate the prompt source before selecting a store")
+
+    monkeypatch.setattr(app, "select_store", unexpected_resolution)
+    with pytest.raises(SystemExit) as exc:
+        app.main(["ask", "ag", "task delta", "--query-file", "NOW.md", "--query-file", "task.md"])
+    assert exc.value.code == 2
+    assert "ask requires exactly one of prompt or --query-file" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("command, expected", [
     (["peer"], ("show", "alias of get")),
     (["peer", "show"], ("alias of get",)),
-    (["ask"], ("--query-file", "--prompt-file")),
+    (["ask"], ("--query-file", "--prompt-file", "Repeatable UTF-8 prompt file")),
 ])
 def test_aliases_appear_in_help(command, expected, capsys):
     with pytest.raises(SystemExit) as exc:

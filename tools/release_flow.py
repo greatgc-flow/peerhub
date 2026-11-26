@@ -199,7 +199,8 @@ class ReleaseFlow:
         self.check_main()
         if (actual := source_version(self.root)) != self.version:
             raise FlowError(f"peerhub/_version.py is {actual}. Expected {self.version}. "
-                            "Include the version bump, STATUS heading and changelog in the last feature PR for the release.")
+                            "Include the version bump, STATUS heading, changelog and NOW.md Updated/Released fields "
+                            "in the last feature PR for the release.")
         self.notes()
         remote = self.git("remote", "get-url", "origin")
         match = re.fullmatch(r"(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)"

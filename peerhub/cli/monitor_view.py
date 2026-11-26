@@ -22,14 +22,12 @@ from peerhub.cli.monitor_links import (
     monitor_links_enabled,
     osc_link,
 )
-from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.monitor_quota_view import display_retired_windows, with_retained_quota
 
 
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False, text_encoding: str | None = None,
-                         show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT,
                          links: bool = False, tty: bool = False) -> str:
     """Compact human default; the established renderer supplies expanded detail.
 
@@ -40,7 +38,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     guide_url = guide_link_url(os.environ) if enabled else None
     store = as_dict(payload.get("store_selection"))
     payload = {**with_retained_quota(display_retired_windows(payload)),
-               "_show_quota_notes": show_quota_notes, "_guide_url": guide_url,
+               "_guide_url": guide_url,
                "_state_doc_url": (guide_released(None) or GUIDE_MAIN_URL) if enabled else None,
                "_db_url": file_link_url(store.get("path")) if enabled else None,
                "_profile_urls": payload.get("_profile_urls") if enabled else None,

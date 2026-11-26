@@ -1,11 +1,10 @@
 """Pure renderer and CLI tests for monitor compact 'peers' dependency view.
 
 Failing RED phase suite for PR1 (docs/history/design/monitor-peers-view-2026-10-16.md).
-Tests pure renderer fixtures and preference catalog contracts without provider calls.
+Tests renderer fixtures and group selection without provider calls.
 """
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 
@@ -166,37 +165,10 @@ def peers_frame() -> dict[str, Any]:
     }
 
 
-def test_1_catalog_lists_peers_with_description_and_default_yes(tmp_path, monkeypatch, capsys):
-    """1. Catalog lists 'peers' with description + default yes (groups text + JSON shape unchanged except new id)."""
-    from peerhub.cli.app import main
-    from peerhub.core.monitor_groups import DEFAULT_GROUPS, GROUP_IDS, GROUPS
+def test_peers_is_a_selectable_default_group():
+    from peerhub.core.monitor_groups import DEFAULT_GROUPS, GROUP_IDS
 
-    # Catalog tuple and default groups must include 'peers'
-    assert "peers" in GROUP_IDS
-    assert "peers" in DEFAULT_GROUPS
-
-    peers_spec = next((item for item in GROUPS if item["id"] == "peers"), None)
-    assert peers_spec is not None
-    assert peers_spec.get("description")
-    assert peers_spec.get("collection_effect") == "read_only"
-
-    # JSON shape unchanged except new id
-    monkeypatch.chdir(tmp_path)
-    assert main(["monitor", "groups", "--json"]) == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["schema_version"] == "2.0"
-    assert payload["selection_scope"] == "grouped_views"
-    catalog_ids = [group["id"] for group in payload["groups"]]
-    assert "peers" in catalog_ids
-
-    entry = next(g for g in payload["groups"] if g["id"] == "peers")
-    assert entry["default_selected"] is True
-    assert entry["description"] == peers_spec["description"]
-
-    # Human output lists 'peers', default 'yes', and description
-    assert main(["monitor", "groups"]) == 0
-    text_out = capsys.readouterr().out
-    assert re.search(r"^peers\s+yes\s+.+", text_out, re.MULTILINE)
+    assert "peers" in DEFAULT_GROUPS and "peers" in GROUP_IDS
 
 
 def test_2_renderer_prints_one_block_per_peer_with_4_links(peers_frame):

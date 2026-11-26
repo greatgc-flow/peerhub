@@ -8,7 +8,11 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[3]
 TOML = tomllib.loads((REPO / "peerhub" / "config_data" / "model-defaults.toml").read_text(encoding="utf-8"))
-LESSONS = {item["id"] for item in tomllib.loads((REPO / "peerhub" / "config_data" / "lessons.toml").read_text(encoding="utf-8"))["lessons"]}
+LESSONS = {
+    name
+    for item in tomllib.loads((REPO / "peerhub" / "config_data" / "lessons.toml").read_text(encoding="utf-8"))["lessons"]
+    for name in (item["id"], *item.get("aliases", ()))
+}
 PACKAGED = {k: v for k, v in TOML["profiles"].items() if k != "*"}
 ONE_PER_PEER = ("cc.effort", "cx.effort", "ag.effort")
 
@@ -164,4 +168,4 @@ def test_explain_precedence_profile_id_then_lesson_id_then_keywords(tmp_path, mo
     assert run_explain_cli("cc-allow-rules") == 0  # a lesson id that starts with a peer name is not a profile id
     assert capsys.readouterr().out.startswith("cc-allow-rules:")
     assert run_explain_cli("monitor-probe-age") == 0
-    assert capsys.readouterr().out.startswith("monitor-probe-age:")
+    assert capsys.readouterr().out.startswith("monitor-states:")

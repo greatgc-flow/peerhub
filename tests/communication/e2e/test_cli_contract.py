@@ -20,7 +20,7 @@ def test_inventory_file_equals_the_real_parser():
     committed = json.loads(inv.INVENTORY.read_text(encoding="utf-8"))
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
-        "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor defaults reset", "monitor defaults set", "monitor defaults show", "monitor groups", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
+        "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor open", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
         "profile check", "profile list", "profile show", "profile stats", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "suggest", "update"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
@@ -53,7 +53,7 @@ def test_command_reference_matches_the_parser_inventory():
 
 
 @pytest.mark.parametrize(("command", "option"), [
-    ("ask", "--final-only"), ("batch run", "--response-task"), ("diag", "--compact"),
+    ("ask", "--final-only"), ("batch run", "--responses"),
 ])
 def test_output_flag_is_documented_in_reference_and_help(command, option, capsys):
     reference = (ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
@@ -364,7 +364,6 @@ def universal_json_effect(e, command):
     from types import SimpleNamespace
     from tests.communication.e2e.cli_extension_effects import (
         account_effect, batch_effect, refresh_effect, session_inspection_effect,
-        monitor_management_effect,
     )
     prefix = [] if command == "*" else command.split()
     def run(db, *argv):
@@ -388,8 +387,6 @@ def universal_json_effect(e, command):
         refresh_effect(proxy, "--json")
     elif root == "session":
         session_inspection_effect(proxy, "show" if command.endswith("show") else "list", "--json")
-    elif root == "monitor":
-        monitor_management_effect(proxy, ["monitor", "defaults", "show", "--json"])
     elif root == "profile":
         action = prefix[1] if len(prefix) == 2 else "list"
         argv = ["profile", action] + (["cx.standard"] if action == "show" else [])
@@ -427,7 +424,7 @@ def universal_json_effect(e, command):
 
 
 for _command in (
-    "*", "account", "batch", "diag health", "diag integrity", "guide", "monitor defaults",
+    "*", "account", "batch", "diag health", "diag integrity", "guide",
     "observation", "observation refresh", "offset", "offset advance", "offset get", "outcome", "peer",
     "peer get", "peer list", "peer register", "profile", "profile check", "profile list", "profile show", "profile stats",
     "record", "record append", "record read", "session", "session list", "session show",
@@ -515,9 +512,8 @@ def test_root_help_and_bad_invocations(capsys):
     assert r.returncode == 2 and "Traceback" not in r.stderr  # real process, not only in-process
 
 
-@pytest.mark.parametrize("command", ["monitor", "diag"])
-def test_dashboard_help_documents_output_capabilities_and_cadence(capsys, command):
-    code, out, err = run(capsys, "unused.db", command, "--help")
+def test_monitor_help_documents_output_capabilities_and_cadence(capsys):
+    code, out, err = run(capsys, "unused.db", "monitor", "--help")
     help_text = " ".join(out.split())
     assert code == 0 and not err
     assert all(text in help_text for text in ("TTY", "VT", "non-TTY", "every N s", "1 Hz", "without escapes"))

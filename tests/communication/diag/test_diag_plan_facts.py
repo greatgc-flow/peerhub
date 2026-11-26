@@ -65,10 +65,9 @@ def test_reset_short_window_holds_without_gating_and_is_hidden_in_both_views(wit
 
     payload = _payload([], [pool("ag", "G-5H", .3, reset=-FRESH_AGE / 2), pool("ag", "G-7D", .5)],
                        selected_groups=["capacity"])
-    for expand in (False, True):
-        options = dict(view="plain", width=120, expand=expand)
-        assert "G-5H" not in render_grouped_frame(payload, **options)
-        assert "ag G-5H n/a (quota window expired)" in render_grouped_frame(payload, show_quota_notes=True, **options)
+    options = dict(view="plain", width=120)
+    assert "G-5H" not in render_grouped_frame(payload, expand=False, **options)
+    assert "ag G-5H n/a (quota window expired)" in render_grouped_frame(payload, expand=True, **options)
 
 
 def test_weekly_gates_use_each_siblings_own_action_and_skip_na_reset_and_other_accounts():

@@ -39,10 +39,7 @@ def register_batch_parser(subparsers: Subparsers) -> None:
     batch_run.add_argument("--max-parallel", required=True, type=int, help="Caller-chosen maximum simultaneous tasks (integer >= 1)")
     batch_run.add_argument("--dry-run", action="store_true", help="Validate the manifest and list the tasks without running them")
     batch_run.add_argument("--json", action="store_true")
-    replies = batch_run.add_mutually_exclusive_group()
-    replies.add_argument("--responses", action="store_true", help="Include each completed task's reply text in the report")
-    replies.add_argument("--response-task", action="append", metavar="TASK_ID",
-                         help="Include the reply for this completed task (case-sensitive, repeatable)")
+    batch_run.add_argument("--responses", action="store_true", help="Include each completed task's reply text in the report")
 
 
 def _batch_load_sample(db: str) -> dict[str, Any]:
@@ -81,10 +78,6 @@ def run_batch(args: argparse.Namespace) -> int:
     try:
         max_parallel = batch.check_max_parallel(args.max_parallel)
         tasks = batch.load_manifest(args.manifest, batch_id=args.batch_id)
-        response_tasks = frozenset(args.response_task or ())
-        unknown = response_tasks.difference(task.task_id for task in tasks)
-        if unknown:
-            raise batch.ManifestError("unknown task IDs for --response-task: " + ", ".join(repr(task) for task in sorted(unknown)))
         workspaces = batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
         profiles: dict[str, str | None] = {}
@@ -153,7 +146,7 @@ def run_batch(args: argparse.Namespace) -> int:
                 previous[signum] = signal.signal(signum, request_cancel)
             report = batch.run_batch(tasks, batch_id=args.batch_id, max_parallel=max_parallel,
                                      db=db, cancel=cancel, argv_builder=batch.default_argv_builder,
-                                     responses=args.responses, response_tasks=response_tasks)
+                                     responses=args.responses)
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)

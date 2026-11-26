@@ -320,8 +320,8 @@ def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
 def test_unknown_and_all_absent_are_never_zero_or_unlimited(compact_frame):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     compact_frame["groups"]["capacity"]["data"]["observations"] = [rows[6]]
-    screen = render_grouped_frame(compact_frame, show_quota_notes=True, width=100)
-    assert "(X-5H n/a)" in screen and "POOLS 1" in screen
+    screen = render_grouped_frame(compact_frame, width=100)
+    assert "X-5H" not in screen and "POOLS 0" in screen
     assert "100%" not in screen and "%" not in screen
 
 

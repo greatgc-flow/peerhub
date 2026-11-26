@@ -239,9 +239,10 @@ def test_disabled_bucket_layout_shows_only_na(width, expand):
     payload = _payload([], [pool("ag", "3P-7D", 0.0, pace=66.7, reset=7080), disabled],
                        selected_groups=["capacity"])
     hidden = render_grouped_frame(payload, view="plain", unicode=False, width=width, expand=expand)
-    assert "3P-5H" not in hidden
-    text = render_grouped_frame(payload, view="plain", unicode=False, width=width, expand=expand,
-                                show_quota_notes=True)
+    if not expand:
+        assert "3P-5H" not in hidden
+        return
+    text = render_grouped_frame(payload, view="plain", unicode=False, width=width, expand=expand)
     pools, _, quota = text.split("POOLS ", 1)[1].partition("QUOTA [")
     assert_disabled_bucket_note(pools.split(f"ag 3P-5H {QUOTA_NA} ", 1)[0])
     if expand:
@@ -254,7 +255,7 @@ def test_disabled_bucket_is_na_with_no_capacity_or_reset_in_compact_expanded_and
     disabled_store(store)
     compact = snapshot(store, capsys)
     assert "3P-5H" not in compact
-    expanded = snapshot(store, capsys, "--expand", "--show-quota-notes")
+    expanded = snapshot(store, capsys, "--expand")
     pools = expanded.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
     assert_disabled_bucket_note(pools)
     assert f"ag 3P-5H {QUOTA_NA} disabled by provider:" in expanded
