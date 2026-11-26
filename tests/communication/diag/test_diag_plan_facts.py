@@ -14,7 +14,7 @@ from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_TAG_LEGEND, ren
 from peerhub.extensions.diag_read_model import PLAN_GATE_TAG, plan_data
 from peerhub.extensions.quota_windows import FAMILIES
 from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, ResourceSample, load_snapshot
-from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
+from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS, format_pace
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 from peerhub.extensions.observation_model import epoch_to_iso
@@ -282,7 +282,7 @@ def test_limited_child_agrees_with_health_and_keeps_own_pace_and_reset():
     }
     text_row = next(line.split() for line in render_plan(report, profiles_by_pool=profiles).splitlines()
                     if line.startswith("cc   F-7D"))
-    assert text_row[2:4] == ["0%", f"{facts['pace_pt']:+.1f}!"]
+    assert text_row[2:4] == ["0%", format_pace(facts['pace_pt']) + "!"]
     assert text_row[4].startswith("OUT/")
     assert text_row[5:7] == ["0.00", "blocked"]
     assert row["action"] == "blocked" and row["reason"] == f"gate: {parent['resource_pool_ref'].rsplit(':', 1)[1]} out"
@@ -318,11 +318,11 @@ def test_plan_formats_pace_exhaustion_and_gaps_from_health():
     gaps = plan_data(report, {})["gaps"]
     assert gaps["baseline"] == "X-7D"
     lines = render_plan(report, width=100).splitlines()
-    assert "gap: vs X-7D (pp): C-7D +20.0, G-7D +20.0, A-7D —, 3P-7D —" in lines
+    assert "gap: vs X-7D (pp): C-7D +20.00, G-7D +20.00, A-7D —, 3P-7D —" in lines
     table = {line.split()[1]: line.split() for line in lines if line[:2] in {"ag", "cc", "cx"}}
-    assert table["G-7D"][3:5] == ["+20.0!", "2d02h/4d21h!"]
-    assert table["C-7D"][3] == "+20.0"
-    assert table["X-7D"][3] == "0.0"
+    assert table["G-7D"][3:5] == ["+20.00!", "2d02h/4d21h!"]
+    assert table["C-7D"][3] == "+20.00"
+    assert table["X-7D"][3] == format_pace(0)
     assert PLAN_EARLY_TAG in table["G-7D"] and PLAN_EARLY_TAG not in table["X-7D"]
 
 
@@ -586,4 +586,4 @@ def test_plan_and_health_agree_at_spend_boundary_with_float_noise():
     assert row["health"]["pace_band"] == row["action"] == "spend"
     cells = next(line.split() for line in render_plan(report, width=120).splitlines()
                  if line.split()[:2] == [row["peer"], pool])
-    assert cells[3] == f"{-PLAN_SPEND_PACE_PT:+.1f}" and cells[6] == row["action"]
+    assert cells[3] == format_pace(-PLAN_SPEND_PACE_PT) and cells[6] == row["action"]

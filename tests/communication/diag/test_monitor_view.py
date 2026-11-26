@@ -806,10 +806,10 @@ def test_g_expand_quota_bar_tick_and_painted_pace_preserve_plain_facts(monkeypat
     bar = compact[1]
     assert monitor_format.BAR_CELLS <= len(bar) <= monitor_format.BAR_MAX_CELLS
     assert bar == monitor_format._bar_quota(.5, len(bar), unicode=False, even_burn=.625)[1:-1]
-    assert (compact[0], *compact[2:4]) == ("ok", "50%", "+12.5")
+    assert (compact[0], *compact[2:4]) == ("ok", "50%", "+12.50")
     assert "\x1b" not in plain
     rich = mv.render_grouped_frame(payload, view="rich", color=True, width=120, expand=True)
-    assert rich.count(f"\x1b[{monitor_layout.RICH_SGR['ok']}m+12.5\x1b[0m") == 2  # M1
+    assert rich.count(f"\x1b[{monitor_layout.RICH_SGR['ok']}m+12.50\x1b[0m") == 2  # M1
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b" not in mv.render_grouped_frame(payload, view="rich", color=True, width=120, expand=True)
 

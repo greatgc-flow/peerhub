@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from peerhub.core.text import strip_controls
-from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
+from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS, format_pace
 from peerhub.extensions.billing_port import billing_consumer
 from peerhub.extensions.observation_model import BILLING_KINDS
 from peerhub.extensions.quota_projection import observation_projection
@@ -287,7 +287,7 @@ def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) ->
 
     band = pace_band(pace_pt)
     if band == "rest":
-        return "rest", stale + f"PACE {pace_pt:+.1f} > {PLAN_REST_PACE_PT:+.0f}"
+        return "rest", stale + f"PACE {format_pace(pace_pt)} > {PLAN_REST_PACE_PT:+.0f}"
     if band == "spend":
         return "spend", stale + f"{-pace_pt:.0f}pp above even share"
     return "hold", stale + "on pace"

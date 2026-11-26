@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from peerhub.core.quota_policy import format_pace
+
 if TYPE_CHECKING:
     from peerhub.extensions.pool_health import PoolHealth
 
@@ -83,7 +85,7 @@ def missing_pool_fact(unicode: bool = True) -> str:
 def format_pool_pace(pace: float | None, *, unicode: bool = True) -> str:
     if pace is None:
         return missing_pool_fact(unicode)
-    return f"{pace:+.1f}" if round(pace, 1) else "0.0"
+    return format_pace(pace)
 
 
 def format_pool_left(facts: PoolHealth, age: float | None, *, unicode: bool = True) -> str:

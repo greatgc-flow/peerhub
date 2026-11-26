@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- PACE now prints two decimals everywhere (monitor, `diag`, `diag --plan`, gap line, `suggest`), from one setting (`PACE_DECIMALS`). One step is about 10 minutes of a 7-day window; one decimal was about 1h41m, so a fresh window looked frozen.
+
 ### Fixed
 
 - An unused quota window whose provider-reported start lands a few seconds after the measurement (agy reports reset as its own clock plus the window) now shows PACE 0.0 instead of `?`/`-` in the monitor, `diag` and `diag --plan`.

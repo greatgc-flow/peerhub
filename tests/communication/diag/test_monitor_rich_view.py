@@ -349,7 +349,7 @@ def test_m1_a_fast_state_and_its_pace_use_separate_colours():
     row = pool("cx", "X-7D", .5, fast=True, pace=12.5)
     line = row_of(rich(pools_payload(row)), "X-7D")
     assert f"\x1b[{monitor_layout.RICH_SGR['warn']}m{U['fast']} fast\x1b[0m" in line
-    assert f"\x1b[{monitor_layout.RICH_SGR['ok']}m+12.5\x1b[0m" in line
+    assert f"\x1b[{monitor_layout.RICH_SGR['ok']}m+12.50\x1b[0m" in line
 
 
 @pytest.mark.parametrize("state,glyph", [("ok", "ok"), ("fast", "fast"), ("low", "low"), ("out", "out"), ("aged", "aged"),
@@ -372,7 +372,7 @@ def test_m1_the_family_cell_is_dim_and_left_is_neutral():
     line = row_of(rich(pools_payload(pool("cc", "C-7D", .63, pace=-20))), "C-7D")
     assert f"\x1b[{monitor_layout.RICH_SGR['dim']}mclaude: cc.effort\x1b[0m" in line
     assert span(line, "63%") is None
-    assert f"\x1b[{monitor_layout.RICH_SGR['spend']}m-20.0\x1b[0m" in line
+    assert f"\x1b[{monitor_layout.RICH_SGR['spend']}m-20.00\x1b[0m" in line
 
 
 # ---- RUNNING, LEADS and RECENT rows ----------------------------------------------------------------------------------
