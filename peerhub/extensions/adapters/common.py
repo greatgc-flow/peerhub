@@ -28,13 +28,12 @@ def render_prompt(record: Any, catch_up: list[Any], *, limit: int | None = None)
                          f"through position {info.get('omitted_through_position', '?')}]")
     # Bridge projections arrive oldest first; never truncate here: the injected budget decides.
     for r in catch_up:
-        parts.append(f"[{getattr(r, 'position', '?')} {getattr(r, 'record_id', '?')} "
-                     f"{getattr(r, 'author_peer_id', '?')} {getattr(r, 'kind', '?')}] {txt(r)}")
+        parts.append(f"[{getattr(r, 'position', '?')} {getattr(r, 'kind', '?')}] {txt(r)}")
     has_context = bool(parts)
     parts.append(txt(record))
     prompt = "\n\n".join(parts)
     if has_context:
-        preamble = "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
+        preamble = "Use the stream context below for the final request.\n\n"
         if limit is not None and limit - len(preamble) < len(prompt.encode("utf-8")) <= limit:
             return prompt
         return preamble + prompt

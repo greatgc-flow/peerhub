@@ -227,6 +227,18 @@ def test_windows_text_probe_timeout_terminates_and_closes_job(windows):
     windows.kernel.CloseHandle.assert_called_once_with(JOB_HANDLE)
 
 
+def test_windows_probe_close_is_idempotent(windows):
+    cancellation = ProbeCancellation()
+    cancellation.spawn(COMMAND)
+    cancellation.close()
+    cancellation.close()
+
+    windows.kernel.TerminateJobObject.assert_called_once()
+    windows.kernel.CloseHandle.assert_called_once_with(JOB_HANDLE)
+    with pytest.raises(OSError, match="quota collection cancelled"):
+        cancellation.spawn(COMMAND)
+
+
 @pytest.mark.platform_sensitive
 @pytest.mark.skipif(os.name != "nt", reason="requires real Windows Job Objects")
 def test_windows_probe_cancel_kills_child_after_wrapper_exit_and_reaches_eof():

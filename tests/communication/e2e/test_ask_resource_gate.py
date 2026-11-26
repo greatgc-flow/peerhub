@@ -95,9 +95,10 @@ def test_two_busy_asks_on_distinct_streams_cannot_both_reserve_the_store():
         ready = Barrier(2, timeout=10)
 
         def reserve(stream):
+            busy = BridgeLedger.launch_check(claims)
             ready.wait()
             try:
-                return claims.acquire("cx", stream, stream, 60, caller=identity, busy=BridgeLedger.has_active_asks)
+                return claims.acquire("cx", stream, stream, 60, caller=identity, busy=busy)
             except LaunchBusyError:
                 return None
 

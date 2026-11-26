@@ -179,7 +179,7 @@ class BridgeSessions(BridgeLedger):
             return CoreStore.read_records_from(conn, stream_id, after, limit)
 
         if BridgeSessions._delta_overflows(candidate, boundary, exact=exact,
-                                   native_delta=lambda m, r: BridgeSessions._project_native_delta(read_records, budget, m, r),
+                                   native_delta=lambda m, r: BridgeSessions._project_native_delta(conn, budget, m, r),
                                    local_delta=lambda m, r: BridgeSessions._project_local_delta(
                                        read_records, budget, m, r, BridgeSessions._local_delta_evidence(conn, m, r.position))):
             if exact:
@@ -394,14 +394,20 @@ class BridgeSessions(BridgeLedger):
         return seen is None
 
     def _native_delta(self, mapping: Mapping[str, Any], rec: Record | PersistedRecord, *, page: int = 200) -> CatchUpProjection:
-        return self._project_native_delta(self.store.read_records, self.catch_up_budget, mapping, rec, page=page)
+        with self.store.read_uow() as conn:
+            return self._project_native_delta(conn, self.catch_up_budget, mapping, rec, page=page)
 
     @staticmethod
-    def _project_native_delta(read_records: _RecordReader, budget: CatchUpBudget, mapping: Mapping[str, Any],
+    def _project_native_delta(conn: sqlite3.Connection, budget: CatchUpBudget, mapping: Mapping[str, Any],
                               rec: Record | PersistedRecord, *, page: int = 200) -> CatchUpProjection:
         peer, stream = mapping["peer_id"], mapping["stream_id"]
+
+        def read_records(stream_id: str, after: int, limit: int) -> list[Record]:
+            return CoreStore.read_records_from(conn, stream_id, after, limit)
+
         candidates = (r for r in BridgeSessions._read_record_range(read_records, stream, mapping["context_watermark"], rec.position, page)
-                      if (r.kind != "control.redirect" or (not r.targets or peer in r.targets)))
+                      if (r.kind != "control.redirect" or (not r.targets or peer in r.targets))
+                      and not BridgeSessions._native_reply_seen(conn, r, mapping))
         # Native continuity is all-or-nothing; count limits belong to fresh bootstrap only.
         return project_catch_up(candidates, CatchUpBudget(max_bytes=budget.max_bytes, max_tokens=budget.max_tokens,
                                                           token_estimator=budget.token_estimator),

@@ -14,10 +14,12 @@ Covers:
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
 import textwrap
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,7 +28,7 @@ import pytest
 
 pytestmark = pytest.mark.platform_sensitive
 
-from peerhub.extensions.adapters import CliRuntimeTarget
+from peerhub.extensions.adapters import CliRuntimeTarget, process
 from peerhub.extensions.adapters.event_parser import MAX_EVENT_BYTES, IncrementalEventParser
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult, run_bounded
 from peerhub.extensions.runtime_contract import RuntimeTargetError
@@ -667,47 +669,46 @@ def test_ag_invalid_toplevel_array_rejected_after_truncation(tmp_path):
         list(target.deliver(sess, _record(), []))
 
 
-def test_blocking_display_callback_does_not_mask_later_error(tmp_path):
+def test_blocking_display_callback_does_not_mask_later_error(monkeypatch):
     """P1 process.py:163: Blocking display callback must not cause later process error to be discarded."""
-    ws = tmp_path / "ws_slow_display"
-    ws.mkdir()
-    # Process emits early CC result event (which looks like a complete successful response),
-    # then sleeps 0.2s, then emits a fatal error event or non-zero crash.
-    script = textwrap.dedent("""
-        import sys, json, time
-        first_ev = {
-            "type": "result",
-            "subtype": "success",
-            "is_error": False,
-            "result": "early success",
-            "session_id": "sess-slow-1",
-        }
-        sys.stdout.write(json.dumps(first_ev) + "\\n")
-        sys.stdout.flush()
-        time.sleep(0.2)
-        # Followed by a subsequent error event
-        err_ev = {"type": "result", "subtype": "error", "is_error": True, "error": "fatal later error"}
-        sys.stdout.write(json.dumps(err_ev) + "\\n")
-        sys.stdout.flush()
-    """)
+    first = b'{"type":"result","subtype":"success","is_error":false,"result":"early success","session_id":"sess-slow-1"}\n'
+    later = b'{"type":"result","subtype":"error","is_error":true,"result":"fatal later error"}\n'
+    chunks = iter((first, later))
+    entered, release = threading.Event(), threading.Event()
+
+    def read_stdout(_: int) -> bytes:
+        chunk = next(chunks, b"")
+        if chunk == later and not entered.wait(timeout=5):
+            return b""
+        return chunk
 
     def slow_display(chunk: str) -> None:
-        # Blocks display for 6.0 seconds (longer than the 5.0s thread join timeout)
-        time.sleep(6.0)
+        entered.set()
+        release.wait()
 
+    child = SimpleNamespace(
+        pid=os.getpid(), returncode=0, poll=lambda: 0, wait=lambda timeout: 0,
+        stdout=SimpleNamespace(read1=read_stdout, close=lambda: None),
+        stderr=io.BytesIO(), stdin=io.BufferedWriter(io.BytesIO()),
+    )
+    monkeypatch.setattr(process.subprocess, "Popen", lambda *args, **kwargs: child)
     target = CliRuntimeTarget(
         "cc",
-        ws,
-        command=[PY, "-c", script],
+        Path.cwd(),
+        command=[PY, "-c", "pass"],
         timeout_s=15.0,
         max_bytes=50_000,
         on_output=slow_display,
     )
     sess = target.create_session()
-    # Evidence parsing must NOT return earlier partial success as terminal.
-    # It must either observe the later error (RuntimeTargetError) or fail indeterminate on join timeout.
-    with pytest.raises(RuntimeTargetError):
-        list(target.deliver(sess, _record(), []))
+    events = []
+    try:
+        # The later error is available only after display entered its callback.
+        with pytest.raises(RuntimeTargetError, match="fatal later error"):
+            events.extend(target.deliver(sess, _record(), []))
+        assert [event[0] for event in events] == ["started"]
+    finally:
+        release.set()
 
 
 def test_cli_app_ask_streaming_does_not_retain_chunks(tmp_path, monkeypatch, capsys):

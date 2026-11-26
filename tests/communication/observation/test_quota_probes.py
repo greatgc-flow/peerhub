@@ -25,6 +25,148 @@ def test_provider_discovery_stub_leaves_system_executable_lookup_available():
     assert shutil.which(sys.executable) is not None
 
 
+def test_version_cache_uses_executable_and_script_identity_and_retries_failures(monkeypatch):
+    from types import SimpleNamespace
+
+    from peerhub.extensions import quota_capture, quota_probes
+
+    cmd = [sys.executable, __file__]
+    clock = 100.0
+    output = "codex-cli 1.2.3"
+    calls = []
+
+    def probe(command, **options):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(quota_capture, "_VERSION_CACHE", {})
+    monkeypatch.setattr(quota_capture, "time", SimpleNamespace(monotonic=lambda: clock))
+    monkeypatch.setattr(quota_probes, "real_command", lambda *a: cmd)
+    monkeypatch.setattr(quota_probes, "run_text_probe", probe)
+
+    def version():
+        return quota_capture._probe_cli_version("cx", None)
+
+    assert version() == version() == "1.2.3"
+    assert calls == [[*cmd, "--version"]]
+    cmd = [sys.executable, common.__file__]
+    output = "codex-cli 2.3.4"
+    assert version() == "2.3.4" and calls[-1] == [*cmd, "--version"]
+    clock += quota_capture.VERSION_CACHE_MAX_AGE_SECONDS
+    output = "version unavailable"
+    assert version() is None
+    output = "codex-cli 3.4.5"
+    assert version() == version() == "3.4.5"
+    assert len(calls) == 4
+
+
+def test_command_identity_rejects_invalid_paths(monkeypatch):
+    from peerhub.extensions import quota_capture
+
+    def invalid_path(*args, **kwargs):
+        raise ValueError("invalid path")
+
+    monkeypatch.setattr(Path, "resolve", invalid_path)
+    assert quota_capture._command_identity([sys.executable]) is None
+
+
+def test_version_probe_handles_discovery_and_subprocess_errors(monkeypatch):
+    from peerhub.extensions import quota_capture, quota_probes
+
+    def discovery_failure(*args):
+        raise ValueError("invalid executable override")
+
+    def probe_failure(*args, **kwargs):
+        raise OSError("executable could not start")
+
+    monkeypatch.setattr(quota_probes, "real_command", discovery_failure)
+    assert quota_capture._probe_cli_version("cx", None) is None
+    monkeypatch.setattr(quota_probes, "real_command", lambda *args: ["fake-codex"])
+    monkeypatch.setattr(quota_probes, "run_text_probe", probe_failure)
+    assert quota_capture._probe_cli_version("cx", None) is None
+
+
+def test_version_probe_propagates_cancellation(monkeypatch):
+    from peerhub.extensions import quota_capture, quota_probes
+
+    cancellation = common.ProbeCancellation()
+
+    def cancel_probe(command, **options):
+        cancellation.stop()
+        return subprocess.CompletedProcess(command, 1, "", "")
+
+    monkeypatch.setattr(quota_probes, "real_command", lambda *args: ["fake-codex"])
+    monkeypatch.setattr(quota_probes, "run_text_probe", cancel_probe)
+    with pytest.raises(OSError, match="quota collection cancelled"):
+        quota_capture._probe_cli_version("cx", None, cancellation=cancellation)
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_incremental_refresh_leaves_caller_cancellation_open(monkeypatch, cancelled):
+    from unittest.mock import Mock
+
+    from peerhub.extensions import quota_capture
+
+    cancellation = Mock(spec=common.ProbeCancellation)
+    cancellation.cancelled.return_value = cancelled
+
+    def interrupted(**options):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(quota_capture, "ObservationStore", Mock())
+    with pytest.raises(OSError if cancelled else KeyboardInterrupt):
+        quota_capture.refresh_quota(__file__, ["cc"], pollers={"cc": interrupted}, version_checker=lambda _: None,
+                                    cancellation=cancellation, incremental=True)
+    cancellation.close.assert_not_called()
+    cancellation.stop.assert_not_called()
+
+
+def test_explicit_parallel_collection_owns_probes_and_keeps_ag_exit_grace(monkeypatch):
+    from threading import Barrier, get_ident
+    from types import SimpleNamespace
+
+    from peerhub.extensions import quota_capture, quota_probes
+    from peerhub.extensions.quota_probes import agy
+
+    overlap = Barrier(2, timeout=5)
+    owners = {}
+    committed = []
+    caller = get_ident()
+    budget = 10
+
+    def ag_usage(command, *, timeout, cancellation, **options):
+        assert timeout == budget + agy.AGY_USAGE_EXIT_GRACE_SECONDS
+        assert command[-1] == f"{budget}s"
+        owners["ag"] = cancellation
+        overlap.wait()
+        return subprocess.CompletedProcess(command, 1, "", "")
+
+    def claude_usage(*, cancellation, **options):
+        owners["cc"] = cancellation
+        overlap.wait()
+        return []
+
+    def persist(observation):
+        assert get_ident() == caller
+        committed.append(observation.subject_ref)
+
+    monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
+    monkeypatch.setattr(agy, "_agy_cwd_refusal", lambda cwd: None)
+    monkeypatch.setattr(common, "real_command", lambda *a: ["fake-agy"])
+    monkeypatch.setattr(common, "run_text_probe", ag_usage)
+    monkeypatch.setattr(quota_probes, "poll_claude_usage", claude_usage)
+    monkeypatch.setattr(quota_capture, "ObservationStore", lambda *a, **kw: SimpleNamespace(persist=persist))
+    monkeypatch.setattr(quota_capture, "_read_latest_facts_report", lambda store: None)
+    monkeypatch.setattr(quota_capture, "probe_timeout_factor", lambda reader: 1.0)
+
+    quota_capture.refresh_quota(__file__, ["cc", "ag"], account_pollers={}, deadline_sec=budget,
+                                version_checker=lambda _: None)
+    assert committed == ["cc", "ag"] and not overlap.broken
+    assert owners["ag"] is owners["cc"]
+    with pytest.raises(OSError, match="quota collection cancelled"):
+        owners["ag"].spawn(["fake-agy"])
+
+
 def test_real_binary_returns_literal_path_not_resolved(monkeypatch, tmp_path):
     # On this portable install, env/nodejs/npm-global is a junction whose
     # .resolve() target contains "&" -- a cmd.exe command separator that

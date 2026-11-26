@@ -316,6 +316,7 @@ def test_runner_waits_on_both_resources_before_launch_and_leaves_running_work_al
         return sample(min_ram, warn - 1)
 
     monkeypatch.setattr(batch.subprocess, "Popen", spawn)
+    monkeypatch.setattr(batch, "RESOURCE_SAMPLE_MAX_AGE_SECONDS", 0)
     monkeypatch.setattr(batch, "RESOURCE_POLL_SECONDS", 0)
     tasks = [batch.Task(name, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S)
              for name in ("first", "second")]
@@ -330,22 +331,27 @@ def test_runner_waits_on_both_resources_before_launch_and_leaves_running_work_al
 
 def test_runner_cancel_interrupts_resource_wait_without_launch(no_scratch, monkeypatch):
     cancel = threading.Event()
+    started = threading.Event()
     launches = []
     reply = b'{"status": "delivered", "certainty": "TERMINAL", "response": "reply"}'
 
     def spawn(argv, **kwargs):
         launches.append(argv[0])
+        started.set()
         return SimpleNamespace(poll=lambda: 0 if cancel.is_set() else None, returncode=0,
                                stdout=io.BytesIO(reply), stderr=io.BytesIO())
 
-    def cancel_wait(timeout):
-        assert timeout == batch.RESOURCE_POLL_SECONDS
+    real_wait = batch.wait
+
+    def cancel_wait(futures, *, timeout, return_when):
+        assert timeout == batch.RESOURCE_POLL_SECONDS and started.wait(5)
         cancel.set()
-        return True
+        return real_wait(futures, timeout=timeout, return_when=return_when)
 
     readings = iter([load_limits.ResourceSample()])
     monkeypatch.setattr(batch.subprocess, "Popen", spawn)
-    monkeypatch.setattr(cancel, "wait", cancel_wait)
+    monkeypatch.setattr(batch, "RESOURCE_SAMPLE_MAX_AGE_SECONDS", 0)
+    monkeypatch.setattr(batch, "wait", cancel_wait)
     tasks = [batch.Task(name, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S) for name in ("running", "held")]
     report = batch.run_batch(tasks, batch_id="facts", max_parallel=len(tasks), db="x.db", cancel=cancel,
                              argv_builder=lambda task, **_: [task.task_id],
@@ -353,6 +359,54 @@ def test_runner_cancel_interrupts_resource_wait_without_launch(no_scratch, monke
                                  cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT)))
     assert launches == ["running"]
     assert {row["task_id"]: row.get("reason") for row in report["tasks"]}["held"] == "cancelled"
+
+
+def test_runner_reuses_a_recent_sample_for_available_slots(no_scratch, monkeypatch):
+    reply = b'{"status": "delivered", "certainty": "TERMINAL", "response": "reply"}'
+    monkeypatch.setattr(batch.subprocess, "Popen", lambda argv, **_: SimpleNamespace(
+        poll=lambda: 0, returncode=0, stdout=io.BytesIO(reply), stderr=io.BytesIO()))
+    monkeypatch.setattr(batch, "time", SimpleNamespace(monotonic=lambda: 0))
+    reader = Mock(return_value=load_limits.ResourceSample())
+    tasks = [batch.Task(name, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S)
+             for name in ("a", "b", "c")]
+    report = batch.run_batch(tasks, batch_id="facts", max_parallel=len(tasks), db="x.db",
+                             argv_builder=lambda task, **_: [task.task_id], resource_reader=reader)
+    reader.assert_called_once_with()
+    assert [row["status"] for row in report["tasks"]] == ["COMPLETED"] * len(tasks)
+
+
+def test_runner_rechecks_gate_when_a_worker_finishes(no_scratch, monkeypatch, capsys):
+    first_finish = threading.Event()
+    reply = b'{"status": "delivered", "certainty": "TERMINAL", "response": "reply"}'
+    real_wait = batch.wait
+    waits = []
+
+    def spawn(argv, **kwargs):
+        def poll():
+            if argv[0] == "first":
+                assert first_finish.wait(5)
+            return 0
+
+        return SimpleNamespace(poll=poll, returncode=0, stdout=io.BytesIO(reply), stderr=io.BytesIO())
+
+    def wait_until_first_finishes(futures, *, timeout, return_when):
+        waits.append((len(futures), timeout, return_when))
+        first_finish.set()
+        return real_wait(futures, timeout=timeout, return_when=return_when)
+
+    monkeypatch.setattr(batch.subprocess, "Popen", spawn)
+    monkeypatch.setattr(batch, "RESOURCE_SAMPLE_MAX_AGE_SECONDS", 0)
+    monkeypatch.setattr(batch, "wait", wait_until_first_finishes)
+    readings = iter([load_limits.ResourceSample()])
+    busy = load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT)
+    tasks = [batch.Task(name, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S)
+             for name in ("first", "second")]
+    report = batch.run_batch(tasks, batch_id="facts", max_parallel=2, db="x.db",
+                             argv_builder=lambda task, **_: [task.task_id],
+                             resource_reader=lambda: next(readings, busy))
+    assert waits == [(1, batch.RESOURCE_POLL_SECONDS, batch.FIRST_COMPLETED)]
+    assert [row["status"] for row in report["tasks"]] == ["COMPLETED", "COMPLETED"]
+    assert "starting with no ask running" in capsys.readouterr().err
 
 
 def test_runner_starts_with_a_warning_when_no_ask_is_running(no_scratch, monkeypatch, capsys):
@@ -446,6 +500,52 @@ def test_final_report_exposes_task_diagnostics_and_child_explain(no_scratch):
         index = next(i for i, line in enumerate(lines) if line.startswith(row["task_id"] + " "))
         assert lines[index + 1].startswith("    next: ")
         assert all(part in lines[index + 1] for part in [*commands, request])
+
+def test_selected_replies_keep_all_statuses_and_follow_manifest_order(no_scratch, monkeypatch, capsys):
+    from peerhub.core import workspace
+    from peerhub.extensions import bridge_ledger
+
+    tasks = [batch.Task(name, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S)
+             for name in ("first", "First", "failed", "last")]
+
+    def spawn(argv, **kwargs):
+        task_id = argv[0]
+        result = {"status": "delivered", "certainty": "TERMINAL", "response": f"reply for {task_id}"}
+        if task_id == "failed":
+            result["status"] = "uncertain"
+        return SimpleNamespace(poll=lambda: 0, returncode=0, stdout=io.BytesIO(json.dumps(result).encode()),
+                               stderr=io.BytesIO())
+
+    monkeypatch.setattr(batch.subprocess, "Popen", spawn)
+    monkeypatch.setattr(batch, "load_manifest", lambda *_a, **_kw: tasks)
+    monkeypatch.setattr(batch, "default_argv_builder", lambda task, **_kw: [task.task_id])
+    monkeypatch.setattr(load_limits, "read_resources", load_limits.ResourceSample)
+    monkeypatch.setattr(workspace, "Workspace", Mock())
+    monkeypatch.setattr(bridge_ledger, "reap_dead_asks", Mock())
+    argv = _argv("x.db", "unused.json", max_parallel=2)
+    assert main([*argv, "--json", "--response-task", "last", "--response-task", "First",
+                 "--response-task", "failed", "--response-task", "First"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    rows = report["tasks"]
+    assert [(row["task_id"], row["status"]) for row in rows] == [
+        ("first", "COMPLETED"), ("First", "COMPLETED"), ("failed", "UNCERTAIN"), ("last", "COMPLETED"),
+    ]
+    assert {row["task_id"]: row["response"] for row in rows if "response" in row} == {
+        "First": "reply for First", "last": "reply for last",
+    }
+    rendered = batch.render_text(report)
+    assert rendered.split("---", 1)[1] == " First reply ---\nreply for First\n--- last reply ---\nreply for last"
+
+
+def test_response_task_dry_run_validates_exact_ids_without_showing_replies(dry_run, capsys):
+    argv = dry_run([_task("review")])
+    assert main([*argv, "--dry-run", "--json", "--response-task", "review"]) == 0
+    (task,) = json.loads(capsys.readouterr().out)["tasks"]
+    assert "response" not in task
+    assert main([*argv, "--dry-run", "--json", "--response-task", "Review"]) == 1
+    assert json.loads(capsys.readouterr().out)["error"] == {
+        "code": "invalid_manifest", "message": "unknown task IDs for --response-task: 'Review'",
+    }
 
 
 def test_batch_help_shows_a_valid_manifest_and_prompt_alternative(capsys, monkeypatch):

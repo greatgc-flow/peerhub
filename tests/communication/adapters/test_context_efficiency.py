@@ -97,17 +97,17 @@ def test_partial_usage_omits_unknown_counters(kind, stdout, expected):
 
 
 @pytest.mark.parametrize("truncated,omitted", [(True, 3), (False, 3)])
-def test_catch_up_prompt_has_one_boundary_then_identified_records_then_current_ask(truncated, omitted):
+def test_catch_up_prompt_has_one_boundary_then_position_and_role_then_current_ask(truncated, omitted):
     history = ProjectedRecords([
         SimpleNamespace(position=4, record_id="r4", author_peer_id="user", kind="prompt", body="old question"),
         SimpleNamespace(position=5, record_id="r5", author_peer_id="cx", kind="response", body={"fact": "known"}),
     ])
     history.boundary = {"truncated": truncated, "omitted_count": omitted, "omitted_through_position": 3}
     prompt = render_prompt(SimpleNamespace(body="current question"), history)
-    assert prompt == ('PeerHub stream context follows. Use the earlier records as context for the final request.\n\n'
+    assert prompt == ('Use the stream context below for the final request.\n\n'
                       '[context truncated: 3 earlier records omitted through position 3]\n\n'
-                      '[4 r4 user prompt] old question\n\n'
-                      '[5 r5 cx response] {"fact": "known"}\n\ncurrent question')
+                      '[4 prompt] old question\n\n'
+                      '[5 response] {"fact": "known"}\n\ncurrent question')
     assert prompt.count("[context truncated:") == 1
 
 
@@ -115,7 +115,7 @@ def test_empty_truncated_history_still_reports_boundary():
     history = ProjectedRecords()
     history.boundary = {"truncated": True, "omitted_count": 2, "omitted_through_position": 2}
     assert render_prompt(SimpleNamespace(body="now"), history) == (
-        "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
+        "Use the stream context below for the final request.\n\n"
         "[context truncated: 2 earlier records omitted through position 2]\n\nnow")
 
 
@@ -126,6 +126,6 @@ def test_complete_history_has_no_boundary_note(boundary):
     ])
     history.boundary = boundary
     assert render_prompt(SimpleNamespace(body="now"), history) == (
-        "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
-        "[1 r1 user prompt] earlier\n\nnow")
+        "Use the stream context below for the final request.\n\n"
+        "[1 prompt] earlier\n\nnow")
     assert render_prompt(SimpleNamespace(body="now"), []) == "now"

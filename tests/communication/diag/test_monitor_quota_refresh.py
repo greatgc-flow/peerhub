@@ -264,12 +264,56 @@ def test_finite_watch_retains_automatic_collection_cadence(monkeypatch, options,
 
 def test_dispatch_skips_when_guard_is_busy_or_peer_refreshed(monkeypatch):
     monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", lambda *a: pytest.fail("unexpected refresh"))
-    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(False), raising=False)
-    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [])
+    attempts = []
+
+    def guard(db, *, wait):
+        attempts.append(wait)
+        return nullcontext(len(attempts) > 1)
+
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", guard)
+    freshness = iter([False, False, True, True])  # contention, then refreshed while acquiring the lock, then already fresh
+    monkeypatch.setattr(diag_quota, "has_recent_quota", lambda db, peer: next(freshness))
     monitor_refresh.refresh_dispatch_quota(Path(__file__), "cc")
-    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
-    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [{"subject_ref": "cc", "age_seconds": 60}])
-    monitor_refresh.try_quota_refresh(__file__, ["cc"])
+    monitor_refresh.refresh_dispatch_quota(Path(__file__), "cc")
+    monitor_refresh.refresh_dispatch_quota(Path(__file__), "cc")
+    assert attempts == [False, False]
+    assert list(freshness) == []
+
+
+@pytest.mark.parametrize("rollups", [True, False])
+@pytest.mark.parametrize("age,latest_age,expected", [
+    (QUOTA_MAX_AGE_SECONDS, None, True),
+    (QUOTA_MAX_AGE_SECONDS + .000001, None, False),
+    (30, -1, False),
+    (30, 10, True),
+])
+def test_dispatch_freshness_reads_only_latest_quota_for_the_peer(monkeypatch, rollups, age, latest_age, expected):
+    from peerhub.extensions import diag, observation
+    from peerhub.extensions.observation_model import EvidenceState, Observation, epoch_to_iso
+
+    now = 1_800_000_000.0
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(observation._DDL)
+    if rollups:
+        for sql in observation._TRIGGERS:
+            conn.execute(sql)
+    else:
+        conn.execute("DROP TABLE observation_rollups")
+
+    def append(identifier, peer, kind, age_s):
+        observation.ObservationStore.append(conn, Observation(
+            observation_id=identifier, subject_ref=peer, kind=kind, source="test", state=EvidenceState.ERROR,
+            payload={"condition": "test_error"}, observed_at=epoch_to_iso(now - age_s)))
+
+    append("other-peer", "cx", "quota", 0)
+    append("other-kind", "cc", "account", 0)
+    append("quota", "cc", "quota", age)
+    if latest_age is not None:
+        append("newest-quota", "cc", "quota", latest_age)
+    monkeypatch.setattr(diag, "_default_factory", lambda _: conn)
+    monkeypatch.setattr(diag_quota, "quota_report", lambda *a, **kw: pytest.fail("built a quota report"))
+    assert diag_quota.has_recent_quota(__file__, "cc", read_at=now) is expected
 
 
 @pytest.mark.parametrize("failure", ["reader", "collector"])
@@ -280,8 +324,8 @@ def test_dispatch_refresh_failure_is_quiet(monkeypatch, capsys, failure):
         calls.append(failure)
         raise ValueError("invalid quota profile configuration")
 
-    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
-    monkeypatch.setattr(diag_quota, "quota_items", fail if failure == "reader" else lambda *a, **kw: [])
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db, **kw: nullcontext(True))
+    monkeypatch.setattr(diag_quota, "has_recent_quota", fail if failure == "reader" else lambda *a: False)
     monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", fail)
     monitor_refresh.refresh_dispatch_quota(Path(__file__), "cc")
     assert calls == [failure]
@@ -296,8 +340,8 @@ def test_dispatch_does_not_wait_for_a_blocked_collector(monkeypatch):
         release.wait(5)
         done.set()
 
-    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
-    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [])
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db, **kw: nullcontext(True))
+    monkeypatch.setattr(diag_quota, "has_recent_quota", lambda *a: False)
     monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
     try:
         monitor_refresh.refresh_dispatch_quota(Path(__file__), "cc")
@@ -338,7 +382,7 @@ def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
     assert "quota: no reading -> peerhub observation refresh" in terminal.getvalue()
 
 
-def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatch):
+def test_automatic_collection_retries_only_the_timed_out_peer(monkeypatch):
     from peerhub.extensions.quota_probes.common import fail_closed
     from peerhub.extensions.observation_model import EvidenceState
 
@@ -362,7 +406,7 @@ def test_automatic_collection_retries_timed_out_peer_before_next_peer(monkeypatc
 
     result = quota_capture.refresh_quota(__file__, ["cc", "cx"], pollers={"cc": poll, "cx": poll},
                                          version_checker=lambda kind: None, retry_timeouts=True)
-    assert calls == ["cc", "cc", "cx"]
+    assert sorted(calls) == ["cc", "cc", "cx"]
     assert [item["state"] for item in result["observations"]] == ["ERROR", "ABSENT"]
 
 
@@ -421,7 +465,26 @@ def test_pid_lock_reaps_dead_owner_and_bounds_wait_for_live_owner(tmp_path, monk
     with quota_capture.quota_refresh_lock(db) as locked:
         assert locked
         assert lock_file.read_text(encoding="ascii") == str(os.getpid())
+        with quota_capture.quota_refresh_lock(db, wait=False) as second:
+            assert not second
         with quota_capture.quota_refresh_lock(db) as second:
             assert not second
     with quota_capture.quota_refresh_lock(db) as locked:
         assert locked
+
+
+@pytest.mark.parametrize("os_lock_acquired", [False, True])
+def test_nonblocking_guard_never_sleeps_for_os_lock_or_live_pid(monkeypatch, os_lock_acquired):
+    from time import monotonic
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    scratch = MagicMock()
+    scratch.__truediv__.return_value.open.return_value = io.BytesIO(b"123")
+    monkeypatch.setattr(quota_capture, "store_scratch_dir", lambda _: scratch)
+    monkeypatch.setattr(quota_capture, "_try_file_lock", lambda _: os_lock_acquired)
+    monkeypatch.setattr("psutil.pid_exists", lambda pid: pid == 123)
+    monkeypatch.setattr(quota_capture, "time", SimpleNamespace(monotonic=monotonic,
+                                                              sleep=lambda _: pytest.fail("dispatch polled the lock")))
+    with quota_capture.quota_refresh_lock(__file__, wait=False) as locked:
+        assert not locked

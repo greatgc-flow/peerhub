@@ -5,7 +5,7 @@ import argparse
 import subprocess
 from contextlib import nullcontext
 from pathlib import Path
-from threading import Event, get_ident
+from threading import Barrier, Event, get_ident
 from time import monotonic
 from types import SimpleNamespace
 
@@ -16,6 +16,7 @@ from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_view, mo
 from peerhub.extensions import quota_capture
 from peerhub.cli.app import main
 from peerhub.extensions import monitor_read_model
+from peerhub.extensions.observation_model import EvidenceState
 from peerhub.extensions.quota_probes import common, poll_claude_usage
 from tests.communication.diag.test_monitor_activity_view import NOW, pool
 from tests.communication.diag.test_monitor_plain_golden import GOLDEN_GUIDE_URL, _payload, full_payload
@@ -212,78 +213,100 @@ def test_live_title_at_zero_width_keeps_heartbeat():
         monitor_layout.QUOTA_HEARTBEAT_ASCII[0], True)
 
 
-@pytest.mark.parametrize("second_status", ["OK", "PARTIAL", "FAILED", "raises"])
-def test_job_commits_each_peer_before_starting_the_next(monkeypatch, second_status):
+def _stub_job_refresh(monkeypatch, poll, persist):
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(quota_capture, "ObservationStore", lambda *a, **kw: SimpleNamespace(persist=persist))
+    monkeypatch.setattr(quota_capture, "_read_latest_facts_report", lambda store: None)
+    monkeypatch.setattr(quota_capture, "probe_timeout_factor", lambda reader: 1.0)
+    monkeypatch.setattr(monitor_refresh, "configured_pools", lambda *a: None)
+    refresh = monitor_refresh.refresh_with_profile_pools
+    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", lambda *a, **kw: refresh(
+        *a, **kw, pollers={"cc": poll, "cx": poll}, version_checker=lambda _: None))
+
+
+@pytest.mark.parametrize("second_state", [EvidenceState.ABSENT, EvidenceState.ERROR, None])
+def test_job_overlaps_providers_and_commits_each_as_it_finishes(monkeypatch, second_state):
     from peerhub.cli.monitor_refresh import RefreshJob
 
+    overlap = Barrier(2, timeout=5)
+    fast_committed = Event()
+    writer = get_ident()
     committed = []
-    calls = []
-    first = _result("cc", "C-7D")
-    second = _result("cx", "X-7D")
 
-    def collect(db, peers, **options):
+    def poll(ids, instance_id, profile_id, **options):
         assert options["deadline_sec"] == monitor_refresh.MONITOR_PROBE_MAX_TIMEOUT_SECONDS
-        calls.append(peers)
-        if peers == ("cc",):
-            committed.append(first)
-            return {"status": "OK", "observations": [first], "warnings": ["cc warning"]}
-        assert peers == ("cx",) and committed == [first]
-        if second_status == "raises":
-            raise OSError("provider unavailable")
-        if second_status == "OK":
-            committed.append(second)
-        return {"status": second_status, "observations": [second], "warnings": ["cx warning"]}
+        assert get_ident() != writer
+        overlap.wait()
+        state = EvidenceState.ABSENT
+        if instance_id == "cc":
+            assert fast_committed.wait(5)
+            state = second_state or state
+        return [common.fail_closed(ids, instance_id, profile_id, state, NOW, 300, peer=instance_id)]
 
-    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
-    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
+    def persist(obs):
+        assert get_ident() == writer
+        if obs.subject_ref == "cc" and second_state is None:
+            raise OSError("commit failed")
+        committed.append(obs.subject_ref)
+        fast_committed.set()
+
+    _stub_job_refresh(monkeypatch, poll, persist)
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=monitor_refresh.MONITOR_REFRESH_LEAD_SECONDS)
     peers = ("cc", "cx")
-    job = RefreshJob(args, peers, dict.fromkeys(peers, set()), force=True, retry=())
-    job._run(args, dict.fromkeys(peers, set()), True, ())
+    required = dict.fromkeys(peers, set())
+    job = RefreshJob(args, peers, required, force=True, retry=())
+    job._run(args, required, True, ())
 
-    assert calls == [("cc",), ("cx",)]
-    assert job.result == {
-        "status": "OK" if second_status == "OK" else "PARTIAL",
-        "observations": [first] if second_status == "raises" else [first, second],
-        "warnings": ["cc warning", "OSError" if second_status == "raises" else "cx warning"],
-    }
+    assert committed == (["cx"] if second_state is None else ["cx", "cc"])
+    assert job.result is not None
+    assert job.result["status"] == ("OK" if second_state == EvidenceState.ABSENT else "PARTIAL")
+    assert [(item["subject_ref"], item["state"]) for item in job.result["observations"]] == (
+        [("cc", second_state.value)] if second_state is not None else []) + [("cx", "ABSENT")]
+    assert job.result["warnings"] == (["OSError"] if second_state is None else [])
 
 
 def test_job_reports_failed_if_every_peer_fails(monkeypatch):
     from peerhub.cli.monitor_refresh import RefreshJob
 
-    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
-    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", lambda db, peers, **kw: {
-        "status": "FAILED", "warnings": list(peers),
-    })
+    def persist(obs):
+        raise OSError("commit failed")
+
+    _stub_job_refresh(monkeypatch, lambda **kw: [], persist)
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
     peers = ("cc", "cx")
     required = dict.fromkeys(peers, set())
     job = RefreshJob(args, peers, required, force=True, retry=())
     job._run(args, required, True, ())
 
-    assert job.result == {"status": "FAILED", "observations": [], "warnings": ["cc", "cx"]}
+    assert job.result == {"status": "FAILED", "observations": [], "warnings": ["OSError", "OSError"]}
 
 
-def test_job_cancelled_during_one_peer_skips_the_next(monkeypatch):
+def test_job_cancellation_discards_results_in_flight(monkeypatch):
     from peerhub.cli.monitor_refresh import RefreshJob
 
+    overlap = Barrier(2, timeout=5)
+    peers_stopped = Event()
     calls = []
 
-    def collect(db, peers, **options):
-        calls.append(peers)
-        options["cancellation"].stop()
-        return {"status": "OK"}
+    def collect(instance_id, cancellation, **options):
+        calls.append(instance_id)
+        overlap.wait()
+        if instance_id == "cc":
+            cancellation.stop()
+            peers_stopped.set()
+        else:
+            assert peers_stopped.wait(5)
+            assert cancellation.cancelled()
+        return []
 
-    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
-    monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
+    _stub_job_refresh(monkeypatch, collect, lambda _: pytest.fail("committed after cancellation"))
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
     peers = ("cc", "cx")
     required = dict.fromkeys(peers, set())
     job = RefreshJob(args, peers, required, force=True, retry=())
     job._run(args, required, True, ())
 
-    assert calls == [("cc",)]
+    assert sorted(calls) == ["cc", "cx"] and peers_stopped.is_set()
     assert job.result is None
 
 
@@ -504,7 +527,7 @@ def test_job_cleans_up_a_lingering_probe_before_releasing_the_guard(monkeypatch,
 
     def collect(db, peers, **options):
         options["cancellation"].spawn(["fake-provider"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return {"status": "PARTIAL"}
+        return {"status": "PARTIAL", "observations": [], "warnings": []}
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: process)
     monkeypatch.setattr(common, "kill_process_tree", lambda proc, **kw: events.append(proc) or True)
@@ -567,6 +590,22 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
     captured = capsys.readouterr()
     assert captured.out.encode("utf-8") == expected[mode]
     assert captured.err == ""
+
+
+def test_human_monitor_render_caches_nearest_store_selection(monkeypatch):
+    from peerhub.cli import store_select
+
+    calls: list[object] = []
+    monkeypatch.setattr(store_select, "select_store", lambda *a, **kw: (
+        calls.append((a, kw)) or SimpleNamespace(source="discovered", path=Path("/w/.peerhub/core.db"))))
+    monkeypatch.setattr(monitor, "_cached_profiles", lambda *a: [])
+    payload = {"store_selection": {"path": "/w/.peerhub/core.db", "source": "discovered"}, "groups": {}}
+    first = monitor._render_human_frame(payload, view="plain", width=100, height=None, color=False,
+                                        nearest_store="/w/.peerhub/core.db")
+    second = monitor._render_human_frame(payload, view="plain", width=100, height=None, color=False,
+                                         nearest_store="/w/.peerhub/core.db")
+    assert first == second
+    assert calls == []
 
 
 def test_a_deferred_peer_that_another_process_refreshed_is_not_due_again_at_the_cooldown():

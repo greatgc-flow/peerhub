@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import sqlite3
 import json
+from contextlib import closing, nullcontext
+from threading import Event
 from types import SimpleNamespace
 from pathlib import Path
 from typing import Any
@@ -174,6 +176,70 @@ def test_refresh_quota_partial_or_failed_refresh_preserves_prior_drift(tmp_path)
     assert "ag: unknown_pool" not in rep3["reasons"]
     assert rep3["checks"]["ag_pools"] == "ok"
     assert rep3["unknown_pools"] == []
+
+
+@pytest.mark.parametrize("pool_changed", [False, True])
+def test_incremental_cc_commit_before_ag_preserves_facts(monkeypatch, pool_changed):
+    from peerhub.extensions import quota_capture
+    from peerhub.extensions.quota_probes import common
+
+    cc_committed = Event()
+    committed = []
+    old_date, new_date = "2026-10-19", "2026-10-20"
+    old_pool, new_pool = "old-pool", "new-pool"
+    prior = {
+        "checks": {"ag_version": "drift", "ag_pools": "drift"},
+        "check_dates": {"ag_version": old_date, "ag_pools": old_date},
+        "reasons": ["ag: version_drift", "ag: unknown_pool"],
+        "unknown_pools": [old_pool],
+    }
+
+    def poll_cc(ids, instance_id, profile_id, **options):
+        return [common.fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, 100, 300, peer="cc")]
+
+    def poll_ag(**options):
+        assert cc_committed.wait(5)
+        value = SimpleNamespace(quota_pool_scope="G-5H", remaining_fraction=.8,
+                                window_started_at=100, resets_at=18100)
+        evidence = SimpleNamespace(state=EvidenceState.MEASURED, value=value, evidence_ref="probe:ag",
+                                   source_tag="fake_usage", observed_at=100, captured_at=100)
+        return [SimpleNamespace(evidence=evidence, extra={"unknown_pools": [new_pool] if pool_changed else []})]
+
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.execute("CREATE TABLE observations (capture_seq INTEGER PRIMARY KEY, kind TEXT, payload_json TEXT)")
+        conn.execute("INSERT INTO observations (kind, payload_json) VALUES ('quota', ?)",
+                     (json.dumps({"facts_report": prior}),))
+
+        def persist(obs):
+            conn.execute("INSERT INTO observations (kind, payload_json) VALUES (?, ?)",
+                         (obs.kind, json.dumps(obs.payload)))
+            committed.append(obs.subject_ref)
+            if obs.subject_ref == "cc":
+                cc_committed.set()
+
+        store = SimpleNamespace(read_tx=lambda: nullcontext(conn), persist=persist, register_resource_pool=lambda _: None)
+        monkeypatch.setattr(quota_capture, "ObservationStore", lambda *args, **kwargs: store)
+        monkeypatch.setattr(quota_capture, "utc_now_iso", lambda: f"{new_date}T00:00:00Z")
+        versions = {"cc": OBS["cc"] + ".drift", "ag": OBS["ag"] if pool_changed else None}
+        result = refresh_quota(__file__, ["ag", "cc"], pollers={"ag": poll_ag, "cc": poll_cc},
+                               version_checker=versions.__getitem__, incremental=True)
+        final = quota_capture._read_latest_facts_report(store)
+
+    assert result["status"] == "OK"
+    assert committed == ["cc", "ag"]
+    cc_report = result["observations"][1]["payload"]["facts_report"]
+    assert cc_report["checks"]["ag_version"] == cc_report["checks"]["ag_pools"] == "drift"
+    assert cc_report["unknown_pools"] == [old_pool]
+    assert set(cc_report["reasons"]) == {*prior["reasons"], "cc: version_drift"}
+    assert final == result["observations"][0]["payload"]["facts_report"]
+    assert final["checks"]["cc_version"] == "drift"
+    assert final["check_dates"]["cc_version"] == new_date
+    assert final["checks"]["ag_version"] == ("ok" if pool_changed else "drift")
+    assert final["check_dates"]["ag_version"] == (new_date if pool_changed else old_date)
+    assert final["checks"]["ag_pools"] == ("drift" if pool_changed else "ok")
+    assert final["check_dates"]["ag_pools"] == new_date
+    assert final["unknown_pools"] == ([new_pool] if pool_changed else [])
+    assert final["reasons"] == ["ag: unknown_pool" if pool_changed else "ag: version_drift", "cc: version_drift"]
 
 
 @pytest.mark.parametrize("outcome", ["ERROR", "UNKNOWN", "STALE", "ABSENT", "mixed", "empty", "exception", "measured"])

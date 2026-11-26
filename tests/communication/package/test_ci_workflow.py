@@ -1,6 +1,8 @@
 """CI fast-path/full-matrix contracts and Windows inventory guard."""
 from __future__ import annotations
 
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,16 +24,24 @@ SERIAL_TIMING_RUN = (
 )
 
 
-def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
+def test_ci_has_fast_gates_smoke_and_weekly_candidate_matrix():
     wf = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     jobs = wf["jobs"]
-    assert {"ubuntu-full", "windows-platform", "compatibility-smoke", "pytest-oracle-compat", "full-matrix", "ci-pass"} <= set(jobs)
+    assert {"plan", "ubuntu-full", "windows-platform", "compatibility-smoke", "pytest-oracle-compat", "full-matrix", "ci-pass"} <= set(jobs)
     triggers = wf.get("on", wf.get(True, {}))
     assert "schedule" in triggers and "workflow_dispatch" in triggers
     matrix = jobs["full-matrix"]["strategy"]["matrix"]
     assert matrix == {"os": ["ubuntu-latest", "windows-latest"],
                       "python-version": ["3.11", "3.12", "3.13", "3.14", "3.15"]}
-    assert "schedule" in jobs["full-matrix"]["if"] and "inputs.full_matrix" in jobs["full-matrix"]["if"]
+    plan = jobs["plan"]
+    route = next(step for step in plan["steps"] if step.get("id") == "route")
+    assert route["env"]["DISPATCH_MATRIX"] == "${{ inputs.full_matrix || false }}"
+    assert plan["outputs"]["full_matrix"] == "${{ steps.route.outputs.full_matrix }}"
+    assert plan["outputs"]["windows_suite"] == "${{ steps.route.outputs.windows_suite }}"
+    for job in ("ubuntu-full", "windows-platform", "compatibility-smoke", "full-matrix"):
+        assert jobs[job]["needs"] == "plan"
+        flag = "true" if job == "full-matrix" else "false"
+        assert f"needs.plan.outputs.full_matrix == '{flag}'" in jobs[job]["if"]
     smoke = jobs["compatibility-smoke"]["strategy"]["matrix"]["include"]
     assert len(smoke) == 6
     assert {(cell["os"], cell["python-version"]) for cell in smoke} == {
@@ -53,7 +63,7 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     assert targeted.get("env", {}).get("PEERHUB_CI_SERIAL_TIMING") is None
     for step in windows_steps:
         if step.get("uses", "").startswith("actions/setup-python@") or step.get("name") == "Install dependencies":
-            assert step.get("if") == "steps.suite.outputs.windows_suite != 'skip'"
+            assert step.get("if") == "needs.plan.outputs.windows_suite != 'skip'"
     ubuntu_steps = jobs["ubuntu-full"]["steps"]
     reverse_check = next(i for i, step in enumerate(ubuntu_steps)
                          if "verify-marker-inventory" in step.get("run", ""))
@@ -63,11 +73,12 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     assert "refs/heads/main" in jobs["windows-platform"]["if"]
     assert "always()" in jobs["ci-pass"]["if"]
     assert set(jobs["ci-pass"]["needs"]) == {
-        "ubuntu-full", "windows-platform", "compatibility-smoke", "pytest-oracle-compat", "full-matrix"
+        "plan", "ubuntu-full", "windows-platform", "compatibility-smoke", "pytest-oracle-compat", "full-matrix"
     }
     aggregate_run = "\n".join(step.get("run", "") for step in jobs["ci-pass"]["steps"])
     aggregate_env = next(step["env"] for step in jobs["ci-pass"]["steps"] if step.get("name") == "Verify required CI lanes")
     assert "pytest-oracle-compat" in aggregate_run and "PYTEST_ORACLE_RESULT" in aggregate_env
+    assert 'test "$PLAN_RESULT" = success' in aggregate_run and aggregate_env["PLAN_RESULT"] == "${{ needs.plan.result }}"
     assert "github.run_id" in wf["concurrency"]["group"]
     assert wf["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     for job_name in ("ubuntu-full", "windows-platform", "full-matrix"):
@@ -77,7 +88,8 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
         parallel = next(step for step in steps if "pytest -q -n auto" in step.get("run", ""))
         serial = next(step for step in steps if step.get("run") == SERIAL_TIMING_RUN)
         assert parallel["env"]["PEERHUB_CI_SERIAL_TIMING"] == "1"
-        assert serial.get("if") == parallel.get("if")
+        assert serial.get("if") == (f"matrix.python-version == '{matrix['python-version'][0]}'"
+                                     if job_name == "full-matrix" else parallel.get("if"))
         assert "PEERHUB_CI_SERIAL_TIMING" not in serial.get("env", {})
         assert not serial.get("continue-on-error")
         assert steps.index(serial) == steps.index(parallel) + 1
@@ -90,36 +102,91 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     assert "-m live" not in text and "tools.live_gate" not in text
 
 
-def test_windows_suite_skips_only_prose_and_runs_platform_inventory_for_code(monkeypatch, tmp_path):
+def test_windows_suite_skips_only_prose_and_runs_platform_inventory_for_code(monkeypatch):
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="README.md\0docs/design/monitor.md\0"))
-    assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "skip"
+    assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == "skip"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="peerhub/extensions/adapters/cli_runtime.py\0"))
-    assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
+    assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == "targeted"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="tests/communication/fault/test_flt_storage.py\0"))
-    assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
+    assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == "targeted"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="docs/m1_impl/catalog.json\0"))
-    assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
+    assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == "targeted"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="peerhub/README.md\0"))
-    assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
+    assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == "targeted"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="docs/m1_spec/contract.md\0"))
-    assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
-    # CI workflow/selector edits require actual full-Windows coverage on that PR,
-    # not just the platform-sensitive subset.
-    for changed in (".github/workflows/ci.yml", "tools/ci_platform.py"):
+    assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == "targeted"
+    for changed in ("tools/ci_platform.py", "tests/conftest.py", "ci/platform_sensitive_tests.txt"):
         monkeypatch.setattr(
             ci_platform.subprocess, "run",
             lambda *a, changed=changed, **k: SimpleNamespace(stdout=changed + "\0"),
         )
-        assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "full"
+        assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == "full"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("git unavailable")))
-    assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "full"
+    assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == "full"
 
 
-def test_windows_suite_escalates_main_and_scheduled_runs(monkeypatch, tmp_path):
+def test_windows_suite_escalates_main_and_scheduled_runs(monkeypatch):
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="README.md\0"))
-    assert ci_platform.windows_suite("push", "base", "head", ref="refs/heads/main", repo=tmp_path) == "full"
-    assert ci_platform.windows_suite("schedule", "base", "head", repo=tmp_path) == "full"
-    assert ci_platform.windows_suite("pull_request", "", "head", repo=tmp_path) == "full"
+    assert ci_platform.windows_suite("push", "base", "head", ref="refs/heads/main", repo=ROOT) == "full"
+    assert ci_platform.windows_suite("schedule", "base", "head", repo=ROOT) == "full"
+    assert ci_platform.windows_suite("pull_request", "", "head", repo=ROOT) == "full"
+
+
+@pytest.mark.parametrize(("change", "expected"), [
+    ("routine", "targeted"), ("windows", "full"), ("invalid", "full"),
+])
+def test_windows_suite_compares_execution_settings_for_ci_workflow_edits(monkeypatch, change, expected):
+    source = (ROOT / ci_platform.CI_WORKFLOW).read_text(encoding="utf-8")
+    modified = {
+        "routine": source.replace("timeout-minutes: 35", "timeout-minutes: 36"),
+        "windows": source.replace("runs-on: windows-latest", "runs-on: windows-2025"),
+        "invalid": "jobs: [",
+    }[change]
+    assert modified != source
+
+    def git(_, *args):
+        if args[0] == "diff":
+            return ci_platform.CI_WORKFLOW + "\0"
+        return source if args[-1].startswith("base:") else modified
+
+    monkeypatch.setattr(ci_platform, "git_output", git)
+    assert ci_platform.windows_suite("pull_request", "base", "head", repo=ROOT) == expected
+
+
+@pytest.mark.parametrize(("event", "dispatch", "bump", "candidate", "matrix", "suite"), [
+    ("push", False, True, "true", "true", "skip"),
+    ("push", False, False, "false", "false", "full"),
+    ("pull_request", False, True, "false", "false", "targeted"),
+    ("workflow_dispatch", True, False, "true", "true", "skip"),
+    ("workflow_dispatch", False, False, "false", "false", "targeted"),
+    ("schedule", False, False, "false", "true", "skip"),
+])
+def test_plan_routes_only_version_bumps_and_explicit_dispatches_to_candidate_ci(
+    monkeypatch, event, dispatch, bump, candidate, matrix, suite,
+):
+    def git(_, *args):
+        if args[0] == "diff":
+            return "peerhub/_version.py\0"
+        version = "1.2.4" if bump and args[-1].startswith("head:") else "1.2.3"
+        return f'# {args[-1]}\n__version__ = "{version}"\n'
+
+    monkeypatch.setattr(ci_platform, "git_output", git)
+    ref = "refs/heads/main" if event != "pull_request" else "refs/pull/1/merge"
+    assert ci_platform.plan(event, ref, "base", "head", dispatch, repo=ROOT) == {
+        "candidate": candidate, "full_matrix": matrix, "windows_suite": suite,
+    }
+
+
+def test_plan_uses_candidate_matrix_when_main_push_base_is_unavailable(monkeypatch):
+    def git(_, *args):
+        if args[-1].startswith("expired:"):
+            raise subprocess.CalledProcessError(128, "git show")
+        return '__version__ = "1.2.3"\n'
+
+    monkeypatch.setattr(ci_platform, "git_output", git)
+    assert ci_platform.plan("push", "refs/heads/main", "expired", "head", False, repo=ROOT) == {
+        "candidate": "true", "full_matrix": "true", "windows_suite": "skip",
+    }
 
 
 def test_platform_marker_inventory_is_exact_and_fails_closed(monkeypatch, tmp_path):
@@ -181,7 +248,9 @@ def test_release_workflow_requires_exact_candidate_ci_before_live_validation():
     assert "release-evidence" in jobs["publish"]["needs"]
     assert "matrix" in jobs["release-evidence"]["needs"]
     assert "candidate-ci" in jobs["live-validation"]["needs"]
+    assert "candidate-ci" in jobs["build"]["needs"] and "verify" in jobs["build"]["needs"]
     assert "candidate-ci" in jobs["release-evidence"]["needs"]
+    assert [step["run"] for step in jobs["verify"]["steps"] if "run" in step] == ["python -m tools.traceability"]
     for job_name in ("verify", "build", "matrix", "release-evidence", "candidate-ci"):
         checkout_refs = [step.get("with", {}).get("ref") for step in jobs[job_name]["steps"]
                          if step.get("uses", "").startswith("actions/checkout@")]
@@ -206,7 +275,7 @@ def test_release_workflow_requires_exact_candidate_ci_before_live_validation():
         "path": "ci-junit/",
     }
     verify = next(step for step in candidate["steps"] if "--verify-ci-junit ci-junit" in step.get("run", ""))
-    assert '--commit "$GITHUB_SHA"' in verify["run"]
+    assert '--commit "$GITHUB_SHA"' in verify["run"] and "--verify-source-catalog" in verify["run"]
     upload = next(step for step in candidate["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
     assert upload["with"]["name"] == "candidate-ci-junit" and upload["with"]["path"] == "ci-junit/"
     assert candidate["steps"].index(select) < candidate["steps"].index(download) < candidate["steps"].index(verify) < candidate["steps"].index(upload)
@@ -217,8 +286,48 @@ def test_release_workflow_requires_exact_candidate_ci_before_live_validation():
     assert archived["with"]["path"] == "ci-junit/"
     generate = next(step for step in evidence["steps"] if "tools.release_evidence" in step.get("run", ""))
     assert '--ci-junit-dir ci-junit --ci-run-url "$CI_RUN_URL"' in generate["run"]
+    assert "--g4-matrix-dir junit" in generate["run"]
+    assert all(f"junit/g{gate}.xml" not in generate["run"] for gate in range(3))
+    package = next(step for step in jobs["build"]["steps"] if "--junitxml=junit/g4.xml" in step.get("run", ""))
+    assert "--ignore=tests/communication/package/test_rel_matrix.py" in package["run"]
     assert generate["env"]["CI_RUN_URL"] == "${{ needs.candidate-ci.outputs.run-url }}"
     assert evidence["steps"].index(archived) < evidence["steps"].index(generate)
+
+
+def test_release_verify_and_source_version_work_without_packages_or_git(monkeypatch):
+    jobs = yaml.safe_load((ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8"))["jobs"]
+    verify = jobs["verify"]["steps"]
+    checkout = next(step for step in verify if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"].get("fetch-depth", 1) == 1
+    assert [step["run"] for step in verify if "run" in step] == ["python -m tools.traceability"]
+    build_commands = [step["run"] for step in jobs["build"]["steps"] if "run" in step]
+    version_step = next(i for i, run in enumerate(build_commands) if "source_version()" in run)
+    assert version_step < next(i for i, run in enumerate(build_commands) if "pip install" in run)
+
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setenv("GIT_DIR", str(ROOT / "peerhub/_version.py"))
+    for args in (["-m", "tools.traceability"], ["-c", "from tools.release_evidence import source_version; print(source_version())"]):
+        result = subprocess.run([sys.executable, "-E", "-S", *args], cwd=ROOT, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0 and result.stdout.strip(), result.stderr
+
+
+def test_release_matrix_runs_the_whole_excluded_file_against_the_built_dist():
+    jobs = yaml.safe_load((ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8"))["jobs"]
+    matrix = jobs["matrix"]
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]
+    assert matrix["strategy"]["matrix"] == ci["full-matrix"]["strategy"]["matrix"]
+    test_file = "tests/communication/package/test_rel_matrix.py"
+    run = next(step for step in matrix["steps"] if "-m pytest" in step.get("run", ""))
+    report = '"junit/g4-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml"'
+    assert run["run"] == f"python -u -m pytest -q --junitxml={report} {test_file}"
+    assert run["env"]["PEERHUB_DIST_DIR"] == "${{ github.workspace }}/dist"
+    assert not run.get("if") and not run.get("continue-on-error")
+    stamp = next(step for step in matrix["steps"] if "--stamp-junit" in step.get("run", ""))
+    assert stamp["run"] == f'python -m tools.release_evidence --stamp-junit {report} --gate G4 --commit "$(git rev-parse HEAD)" --dist dist'
+    download = next(step for step in matrix["steps"] if step.get("with", {}).get("name") == "dist")
+    assert download["uses"].startswith("actions/download-artifact@") and download["with"]["path"] == "dist/"
+    assert matrix["needs"] == ["build"]
+    assert matrix["steps"].index(download) < matrix["steps"].index(run) < matrix["steps"].index(stamp)
 
 
 def test_ci_dispatch_stamps_and_uploads_source_reports_for_every_candidate_cell():
@@ -231,15 +340,18 @@ def test_ci_dispatch_stamps_and_uploads_source_reports_for_every_candidate_cell(
     suite = next(step for step in steps if "pytest -q" in step.get("run", ""))
     assert f'--junitxml="{report}"' in suite["run"]
     stamp = next(step for step in steps if "--stamp-junit" in step.get("run", ""))
-    dispatch = "github.event_name == 'workflow_dispatch' && inputs.full_matrix"
-    assert stamp["if"] == dispatch
+    candidate = "needs.plan.outputs.candidate == 'true'"
+    assert stamp["if"] == candidate
     assert f'--stamp-junit "{report}" --gate G2 --commit "$(git rev-parse HEAD)"' in stamp["run"]
     upload = next(step for step in steps if step.get("with", {}).get("name") == f"junit-{name}")
-    assert upload["if"] == dispatch
+    assert upload["if"] == candidate
     assert upload["with"]["path"] == report
     assert upload["with"]["if-no-files-found"] == "error"
     assert upload["with"]["overwrite"] is True
     timing = next(step for step in steps if step.get("run") == SERIAL_TIMING_RUN)
+    weekly = next(step for step in steps if step.get("with", {}).get("name", "").startswith("junit-monitor-timing-"))
+    assert weekly["if"] == "github.event_name == 'schedule' && steps.monitor-timing.outcome == 'success'"
+    assert weekly["with"]["path"] == report
     assert steps.index(suite) < steps.index(timing) < steps.index(stamp) < steps.index(upload)
 
 
@@ -247,7 +359,6 @@ def test_ci_dispatch_stamps_and_uploads_source_reports_for_every_candidate_cell(
     ("ci.yml", "ubuntu-full", "junit/ubuntu-full.xml"),
     ("ci.yml", "windows-platform", "junit/windows-full.xml"),
     ("ci.yml", "full-matrix", '"junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml"'),
-    ("publish.yml", "verify", "junit/g2.xml"),
 ])
 def test_monitor_timing_junit_is_merged_before_stamping_or_upload_on_failure(workflow, job, report):
     wf = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8"))

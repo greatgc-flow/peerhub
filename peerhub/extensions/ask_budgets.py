@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping
 
+from peerhub.core.models import iso_timestamp
 from peerhub.core.peer_kinds import CLI_PEER_ALIASES
 from peerhub.extensions.session_receipts import json_object, valid_observed_at
 
@@ -30,8 +31,40 @@ ASK_METRIC_DDL = (
 
 # The prompt Record is the ask identity. An idempotent replay or a reconciled delivery
 # never adds another ask to this cohort.
-ASK_RECORD = ("r.kind='prompt' AND r.idempotency_key GLOB 'ask:*' "
+ASK_KEY_PREFIX = "ask:"
+ASK_RECORD = (f"r.kind='prompt' AND r.idempotency_key GLOB '{ASK_KEY_PREFIX}*' "
               "AND json_type(r.metadata_json,'$.binding')='text' AND json_type(r.metadata_json,'$.runtime_kind')='text'")
+
+# Legacy prompts can have non-text metadata values. Leave unclassified JSON
+# for the Python guard, which also preserves the original mismatch messages.
+_STREAM_PROMPT = (
+    f"kind='prompt' AND idempotency_key GLOB '{ASK_KEY_PREFIX}*' AND "
+    "CASE WHEN json_valid(metadata_json) AND json_valid(targets_json) THEN "
+    "json_type(metadata_json,'$.binding') IS NOT NULL AND json_type(metadata_json,'$.runtime_kind') IS NOT NULL "
+    "AND json_array_length(targets_json)>0 ELSE 1 END"
+)
+_STREAM_TARGET = (
+    "CASE WHEN json_valid(targets_json) THEN CASE WHEN json_array_length(targets_json)=1 "
+    r"AND json_type(targets_json,'$[0]')='text' AND instr(targets_json,'\u0000')=0 "
+    "THEN json_extract(targets_json,'$[0]') END END"
+)
+STREAM_PEER_CONFLICTS_SQL = " UNION ALL ".join(
+    f"SELECT targets_json,metadata_json,position FROM records WHERE stream_id=:stream AND {_STREAM_PROMPT} AND {_STREAM_TARGET} {bound}"
+    for bound in ("IS NULL", "<:peer", ">:peer")
+) + " ORDER BY position"
+
+# Only well-formed, whole-second UTC timestamps can be ordered lexically.
+# Unknown and legacy ends take their own index range and retain the Python fallback.
+_CONFIRMED_END = (
+    "CASE WHEN length(CAST(terminal_at AS BLOB))=20 "
+    "AND terminal_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z' "
+    "AND substr(terminal_at,1,4)<>'0000' AND substr(terminal_at,12,2)<'24' "
+    "AND date(substr(terminal_at,1,10),'+0 days')=substr(terminal_at,1,10) THEN terminal_at END"
+)
+WRITE_PATH_INDEXES = (
+    f"CREATE INDEX IF NOT EXISTS idx_records_ask_target ON records(stream_id,{_STREAM_TARGET},position) WHERE {_STREAM_PROMPT}",
+    f"CREATE INDEX IF NOT EXISTS idx_bd_confirmed_end ON bridge_deliveries({_CONFIRMED_END})",
+)
 
 
 def install_ask_metrics(conn: sqlite3.Connection) -> None:
@@ -161,8 +194,12 @@ def _competing_calls(conn: sqlite3.Connection, delivery_id: str, provider: str, 
                      stopped: float) -> list[tuple[float | None, float | None, list[str] | None]]:
     competitors: list[tuple[float | None, float | None, list[str] | None]] = []
     for row in conn.execute(
+        "WITH candidates AS ("
+        f"SELECT delivery_id FROM bridge_deliveries WHERE {_CONFIRMED_END}>=? UNION ALL "
+        f"SELECT delivery_id FROM bridge_deliveries WHERE {_CONFIRMED_END} IS NULL) "
         "SELECT e.detail,d.terminal_at,d.result_digest,t.detail AS telemetry "
-        "FROM bridge_invocations i JOIN bridge_deliveries d ON d.delivery_id=i.delivery_id "
+        "FROM candidates c CROSS JOIN bridge_deliveries d ON d.delivery_id=c.delivery_id "
+        "CROSS JOIN bridge_invocations i ON i.delivery_id=d.delivery_id "
         "LEFT JOIN records r ON r.record_id=d.record_id "
         "LEFT JOIN bridge_session_history h ON h.session_handle=d.session_handle "
         "LEFT JOIN bridge_evidence t ON t.delivery_id=d.delivery_id AND t.kind='session_telemetry' "
@@ -170,7 +207,8 @@ def _competing_calls(conn: sqlite3.Connection, delivery_id: str, provider: str, 
         "AND json_extract(e.detail,'$.invocation_no')=i.invocation_no "
         "LEFT JOIN bridge_invocation_resolutions x ON x.delivery_id=i.delivery_id AND x.invocation_no=i.invocation_no "
         "WHERE d.delivery_id<>? AND COALESCE(h.runtime_kind,json_extract(r.metadata_json,'$.runtime_kind'),d.peer_id)=? "
-        "AND (x.reason IS NULL OR x.reason='promoted_may_have_started')", (delivery_id, provider)):
+        "AND (x.reason IS NULL OR x.reason='promoted_may_have_started')",
+        (iso_timestamp(started), delivery_id, provider)):
         marker = json_object(row["detail"])
         start = marker.get("quota_invoked_at")
         end = _epoch(row["terminal_at"])

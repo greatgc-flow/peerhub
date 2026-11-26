@@ -304,6 +304,7 @@ EXCEPTION_CONTROL_FLOW_ALLOWLIST: dict[str, str] = {
     "ImportError": "Optional dependency loading failure caught during dynamic module import.",
     "LaunchBusyError": "Claim acquisition signals the resource gate to wait and retry without emitting a CLI error.",
     "OSError": "Low-level OS/socket error caught during file/socket operations.",
+    "FileNotFoundError": "OSError subclass: a read snapshot of a store file that does not exist; handled like OSError.",
     "TypeError": "Standard library type error caught during internal argument validation.",
 }
 
@@ -632,6 +633,9 @@ def test_guidance_payload_structure():
     assert payload["explain_cmd"] == "peerhub explain ask_uncertain"
     assert isinstance(payload["summary"], str)
     assert len(payload["summary"]) > 0
+    assert "peerhub diag health --stream STREAM_ID" in payload["summary"]
+    assert "Do not retry" in payload["summary"]
+    assert len(payload["recover"]) == 1
 
 
 def test_render_guidance_hint_contains_all_components():
@@ -639,8 +643,9 @@ def test_render_guidance_hint_contains_all_components():
     hint = render_guidance_hint(entry)
     assert len(hint.splitlines()) == 1
     assert entry.recover[0]["purpose"] in hint
-    assert entry.avoid in hint
+    assert "Do not retry this stream" in hint
     assert "peerhub explain ask_uncertain" in hint
+    assert len(hint) < 180
 
 
 def test_guidance_context_instantiation(tmp_path):
@@ -761,6 +766,8 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     from tests.communication.fakes import FakeRuntimeTarget
 
     db = tmp_path / "core.db"
+    timeout_hint = "do not retry on the same stream; start a new stream with explicit --timeout-seconds"
+    safety_hint = "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims."
     rt = FakeRuntimeTarget()
     rt.script_deliver(("started", "exec-1"), ("timeout", 5))
     rt.script_deliver(("started", "exec-2"), ("timeout", 5))
@@ -772,19 +779,20 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     assert code == 1
     data = json.loads(capsys.readouterr().out)
     assert data["status"] == "uncertain"
+    earlier_record = data["record_id"]
     assert data["guidance"]["code"] == "ask_uncertain"
     assert data["guidance"]["explain_cmd"] == "peerhub explain ask_uncertain"
     assert data["guidance"]["code"] in REGISTRY
+    assert timeout_hint in data["guidance"]["summary"]
+    assert "long reviews: 1800 or more" in data["guidance"]["summary"]
+    assert safety_hint in data["guidance"]["summary"]
 
     # Check human stderr on uncertain outcome
     code = main(["--db", str(db), "ask", "cx", "first question (text)", "--stream", "s2"])
     assert code == 1
     err = capsys.readouterr().err
     assert "[ask_uncertain]" in err
-    assert "ask_uncertain" in err
-    assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
-    assert "long reviews: 1800 or more" in err
-    assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err
+    assert "Do not retry" in err
     assert len(err.splitlines()) == 1
     assert "next:" in err
     assert "peerhub explain" in err
@@ -798,9 +806,13 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     data = json.loads(capsys.readouterr().out)
     assert data["status"] == "pending_earlier_record"
     assert data["processed_status"] in ("uncertain", "blocked_uncertain")
+    assert data["record_id"] == earlier_record != data["requested_record_id"]
     assert data["guidance"]["code"] == "ask_blocked_uncertain"
     assert data["guidance"]["explain_cmd"] == "peerhub explain ask_blocked_uncertain"
     assert data["guidance"]["code"] in REGISTRY
+    assert timeout_hint in data["guidance"]["summary"]
+    assert "long reviews: 1800 or more" in data["guidance"]["summary"]
+    assert safety_hint in data["guidance"]["summary"]
 
     # Check human stderr for pending_earlier_record
     code = main(["--db", str(db), "ask", "cx", "second question (text)", "--stream", "s1"])
@@ -808,10 +820,9 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     err = capsys.readouterr().err
     assert "[ask_blocked_uncertain]" in err
     assert len(err.splitlines()) == 1
-    assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
-    assert "long reviews: 1800 or more" in err
-    assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err
+    assert "Do not retry" in err
     assert "peerhub explain ask_blocked_uncertain" in err
+    assert rt2.count("deliver") == 0
 
 
 def test_scenario_claim_held(tmp_path, monkeypatch, capsys):

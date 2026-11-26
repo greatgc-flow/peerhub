@@ -25,9 +25,9 @@ pyright
 ```
 
 The full suite takes about 15-17 minutes serially on a 12-core Windows PC. For everyday
-work, use `--deselect` to skip `test_rel_005`, which re-runs only the architecture
-tests, fake-peer E2E tests and `tests/communication/fault/test_flt_bridge.py`
-(about 40 tests); CI and releases still run it:
+work, use `--deselect` to skip `test_rel_005`, which re-runs 10 representative architecture,
+fake-peer E2E and Bridge fault cases without provider CLIs, credentials or outbound
+network access; CI and releases still run it:
 
 ```bash
 pytest -q --deselect tests/communication/package/test_rel_ci_dag.py::test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or_network
@@ -40,8 +40,14 @@ pytest -q -n 8
 ```
 
 This takes about 8 to 10 minutes on the maintainer host (measured 2026-11-14 and 2026-11-16); the passed count grows with every release, so take it from the last line of your own run. Keep `pytest -q` as the
-serial reference command; CI and release gates stay serial. If a test is flaky
-under parallelism, rerun it serially before treating it as a bug.
+serial reference command. CI runs the full deterministic suites with xdist
+and runs the latency checks separately. If a test is flaky under parallelism,
+rerun it serially before treating it as a bug.
+
+On pull requests, Windows runs the platform-sensitive inventory for routine
+changes, including workflow edits. Changes to Windows execution or suite
+selection run the full Windows suite. Prose-only pull requests skip the Windows
+platform suite.
 
 ## Quota forecast backtesting
 
@@ -169,16 +175,15 @@ If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model f
    60 minute limit of `full-matrix`; it is cancelled, which fails `ci-pass`.
    This is not a test failure: run `gh run rerun <RUN-ID> --failed`, which
    repeats only the failed and cancelled jobs, and wait for `ci-pass` again.
-2. Dispatch `gh workflow run ci.yml --ref <candidate-ref> -f full_matrix=true`
-   on a ref pinned to the merged release commit (right after the squash merge,
-   `--ref main`; a branch run does not count because the SHA differs; a Windows
-   cell cancelled at the 60 min timeout: `gh run rerun <RUN-ID> --failed`, then
-   rerun the failed publish run). Wait for `ci-pass` and all ten
-   `full-matrix` cells to pass on that SHA before publishing the draft. The G2
-   reports must still be available and current when G5 runs.
+2. A push that changes the package version on `main` runs candidate CI on
+   the pushed commit. Wait for `ci-pass` and all ten `full-matrix` cells to
+   pass on the merged release SHA before publishing the draft. For recovery,
+   dispatch `gh workflow run ci.yml --ref <candidate-ref> -f full_matrix=true`
+   on a ref pinned to that SHA (`--ref main` while it is still the head of
+   `main`). The ten source reports must still be available and current when G5 runs.
    To verify the reports before spending quota, download them with
    `gh run download <RUN-ID> --pattern "junit-g2-rc-matrix-*" --dir <REPORT-DIR>`
-   and run `python -m tools.release_evidence --verify-ci-junit <REPORT-DIR> --commit <HEAD-SHA> --release-policy docs/m1_impl/release-policy.json`.
+   and run `python -m tools.release_evidence --verify-ci-junit <REPORT-DIR> --verify-source-catalog --commit <HEAD-SHA> --release-policy docs/m1_impl/release-policy.json`.
    From a **clean checkout of the same merged commit**, run
    `python -m tools.live_gate --yes`. This spends provider quota, refuses CI,
    and requires `agy`, `claude` and `codex` on PATH and logged in. It writes
@@ -239,10 +244,15 @@ and the shipped-tag check (step 7) is done.
 **Automated flow**
 
 From the clean, merged checkout, run `python -m tools.release_flow run --version X.Y.Z`
-to dispatch full-matrix CI, run the local live gate, and prepare a verified draft.
-The live gate spends provider quota. Add `--ci-first` to wait for green CI before
-the live gate, or `--dry-run` to print the plan only. Use `--resume` to reuse the
-recorded CI run and hash-verified live evidence after a successful live gate.
+to adopt the exact-SHA candidate run from the main push, run the local live gate,
+and prepare a verified draft. If no candidate push run is visible, the flow
+dispatches the matrix on `main`. Use `--ci-run-id <RUN-ID>` to select an
+explicit recovery run on `main`.
+The live gate spends provider quota. Add `--ci-first` to validate CI reports before
+spending quota, or `--dry-run` to print the plan. Use `--resume` after an interruption
+or a live failure. It checks the recorded CI reports and the SHA, hashes and freshness
+of the completed live stages, then runs the remaining stages. If reports have expired,
+start a fresh flow with a current recovery run.
 Publishing the draft stays manual. After the publish workflow succeeds, verify
 PyPI as in step 4.
 
@@ -263,16 +273,18 @@ every public command and subcommand (use the `--help` tree as the checklist), `p
 contradictions, stale text and layout glitches before publishing, and record what was checked in the release PR.
 Every monitor change must look and behave the same in compact and expand.
 
-Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
-G0/G1/G2 verification, including the G7 invariant tests in G0, the M2/M3
-catalog tests in G2, and the traceability scan. The
-`candidate-ci` job selects the successful dispatch on the candidate SHA and
-verifies all ten G2 reports before `live-validation` fetches the three G3 JUnit
-assets. The local evidence JSON is a fourth, informational asset. `build`
-produces and tests the wheel and sdist. After build, the
-10-cell matrix tests the built distributions on Ubuntu/Windows with Python
-3.11–3.15. `release-evidence` includes the verified CI reports and records
-`ci_run_url` in the evidence bundle.
+Publishing the draft triggers `.github/workflows/publish.yml`. The `verify`
+job runs the traceability scan. The `candidate-ci` job selects a successful
+main-push or dispatched matrix for the candidate SHA and verifies all ten
+reports, including G0/G1/G2 source catalog coverage. The candidate matrix
+also runs the G7 invariants and M2/M3 catalog tests. The serial monitor latency
+checks run on Python 3.11 on both OSes and are included in those cells' JUnit.
+After source verification, `live-validation` fetches the three G3 JUnit assets,
+and `build` produces and tests the wheel and sdist. The local evidence JSON is
+a fourth, informational asset. The ten-cell G4 matrix tests the exact built
+distributions on Ubuntu and Windows with Python 3.11–3.15. `release-evidence`
+validates G3 and the digest-bound G4 reports, includes the verified source
+reports, and records `ci_run_url` in the evidence bundle.
 `publish` uses PyPI OIDC and runs only for a published release.
 
 To exercise the workflow without publishing, first run full-matrix CI on the

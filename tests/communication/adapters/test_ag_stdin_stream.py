@@ -21,7 +21,7 @@ from peerhub.extensions.adapters.common import EXCERPT_CHARS
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
 from peerhub.extensions.usage_normalization import unknown_usage
 from peerhub.extensions.ask import ask
-from peerhub.extensions.runtime_contract import PrespawnError
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTargetError
 from tests.communication.bridge_helpers import bseed, sql
 from tests.communication.test_provider_refusal import AG_QUOTA_EXIT_3_OUTPUT as Q_STDERR
 
@@ -40,9 +40,6 @@ UNICODE = "漢字 😀 שלום é  |  a\r\nb\rc\x00 end"
 def _real_detection(monkeypatch):
     monkeypatch.setattr(ag_transport, "_detect_ag_transport", REAL_DETECT)
     monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: 1.0)
-    ag_transport._AG_TRANSPORT_CACHE.clear()
-    yield
-    ag_transport._AG_TRANSPORT_CACHE.clear()
 
 
 def _lines(path: Path) -> list[dict]:
@@ -253,24 +250,31 @@ class Probes:
         return _probe_result(out)
 
 
-def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monkeypatch, tmp_path):
+def test_06_cache_skips_both_probes_until_expiry_or_replacement(monkeypatch, tmp_path):
     binary = tmp_path / "agy.exe"
     binary.write_bytes(b"one")
     probes = Probes()
     monkeypatch.setattr(common, "probe_cli", probes)
+    command = [str(binary)]
+    env = {"PEERHUB_CONFIG_HOME": str(tmp_path)}
 
     def detect():
-        return ag_transport._detect_ag_transport([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path)).transport
+        return ag_transport._detect_ag_transport(command, env, str(tmp_path))
 
-    assert detect() == detect() == "stream"
-    assert probes.calls == ["--version", "--help", "--version"]
+    assert detect() == detect() == ag_transport.AgTransport("stream", "help", "1.5.9")
+    assert probes.calls == ["--version", "--help"]
+    identity = ag_transport._transport_identity(command, env)
+    assert identity is not None
+    cache_file = ag_transport._transport_cache_path(identity, env)
+    expired = time.time() - ag_transport._AG_TRANSPORT_MAX_AGE_S - 1
+    os.utime(cache_file, (expired, expired))
     probes.version = b"agy 1.6.0\n"
-    assert detect() == "stream"
-    assert probes.calls[3:] == ["--version", "--help"]
+    assert detect() == ag_transport.AgTransport("stream", "help", "1.6.0")
+    assert probes.calls[2:] == ["--version", "--help"]
     binary.write_bytes(b"a different build")
     probes.help = b"usage: agy -p PROMPT\n"
-    assert detect() == "argv"
-    assert probes.calls[5:] == ["--version", "--help"]
+    assert detect() == ag_transport.AgTransport("argv", "help", "1.6.0")
+    assert probes.calls[4:] == ["--version", "--help"]
 
 
 def test_06_wrappers_sharing_executable_and_version_probe_help_independently(monkeypatch):
@@ -307,24 +311,20 @@ def test_06a_busy_version_timeout_retries_once_with_scaled_deadline(monkeypatch)
                          for arg in ("--version", "--version", "--help")]
 
 
-def test_06a_busy_detection_reuses_disk_cache_and_invalidates_it_on_replacement(monkeypatch, tmp_path):
+def test_06a_warm_detection_skips_the_load_sample(monkeypatch, tmp_path):
     binary = tmp_path / "agy.exe"
     binary.write_bytes(b"first build")
     probes = Probes()
     monkeypatch.setattr(common, "probe_cli", probes)
     args = ([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path))
     assert ag_transport._detect_ag_transport(*args).transport == "stream"
-    ag_transport._AG_TRANSPORT_CACHE.clear()
-    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: load_limits.BUSY_PROBE_TIMEOUT_FACTOR)
+    monkeypatch.setattr(ag_transport, "probe_timeout_factor", lambda: pytest.fail("warm cache sampled CPU"))
     assert ag_transport._detect_ag_transport(*args).version == "1.5.9"
-    assert probes.calls == ["--version", "--help", "--version"]
-    binary.write_bytes(b"a different build")
-    probes.help = b"usage: agy -p PROMPT"
-    assert ag_transport._detect_ag_transport(*args).transport == "argv"
-    assert probes.calls == ["--version", "--help", "--version", "--version", "--help"]
+    assert probes.calls == ["--version", "--help"]
 
 
-def test_busy_cache_checks_the_launcher_target_and_the_running_version(monkeypatch):
+def test_cache_checks_the_launcher_target(monkeypatch):
+    from contextlib import nullcontext
     from io import BytesIO
 
     launcher, executable = (Path.cwd() / name for name in ("agy.cmd", "agy.exe"))
@@ -340,8 +340,9 @@ def test_busy_cache_checks_the_launcher_target_and_the_running_version(monkeypat
     monkeypatch.setattr(Path, "open", open_script)
     monkeypatch.setattr(Path, "is_file", lambda p: True if p == executable else original_is_file(p))
     monkeypatch.setattr(ag_transport, "_fingerprint",
-                        lambda p: (str(p), 0, 0, build if p == executable else 0, 0, 0))
+                        lambda p: (str(p), str(p), 0, 0, build if p == executable else 0, 0, 0))
     monkeypatch.setattr(ag_transport, "_transport_cache_path", lambda identity, env: identity)
+    monkeypatch.setattr(ag_transport, "_transport_cache_lock", lambda *args: nullcontext(True))
     cache = {}
     monkeypatch.setattr(ag_transport, "_read_transport_cache", cache.get)
     monkeypatch.setattr(ag_transport, "_write_transport_cache", lambda key, v, t: cache.update({key: ag_transport.AgTransport(t, "help", v)}))
@@ -350,18 +351,48 @@ def test_busy_cache_checks_the_launcher_target_and_the_running_version(monkeypat
     monkeypatch.setattr(common, "probe_cli", probes)
 
     def detect():
-        ag_transport._AG_TRANSPORT_CACHE.clear()  # another process starts with only the disk cache
         return ag_transport._detect_ag_transport([str(launcher)], {}, str(launcher.parent)).transport
 
     assert detect() == detect() == "stream"
-    assert probes.calls == ["--version", "--help", "--version"]
-    probes.version = b"agy 1.7.0"
-    probes.help = b"usage: agy -p PROMPT"
-    assert detect() == "argv"  # Same file fingerprint, different observed version.
+    assert probes.calls == ["--version", "--help"]
     build += 1
-    probes.help = b"--input-format stream-json"
-    assert detect() == "stream"  # Same version and launcher, different executable.
-    assert probes.calls[3:] == ["--version", "--help", "--version", "--help"]
+    probes.help = b"usage: agy -p PROMPT"
+    assert detect() == "argv"  # Same version and launcher, different target fingerprint.
+    assert probes.calls[2:] == ["--version", "--help"]
+
+
+def test_concurrent_cold_detection_runs_one_pair_of_probes(monkeypatch, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    probing, waiting, release = (threading.Event() for _ in range(3))
+    probes = Probes()
+    try_lock = ag_transport._try_cache_lock
+
+    def lock(file):
+        acquired = try_lock(file)
+        if not acquired:
+            waiting.set()
+        return acquired
+
+    def probe(*args, **options):
+        probing.set()
+        assert release.wait(5)
+        return probes(*args, **options)
+
+    monkeypatch.setattr(ag_transport, "_try_cache_lock", lock)
+    monkeypatch.setattr(common, "probe_cli", probe)
+    args = ([PY], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path))
+    with ThreadPoolExecutor(2) as executor:
+        first = executor.submit(ag_transport._detect_ag_transport, *args)
+        second = None
+        try:
+            assert probing.wait(5)
+            second = executor.submit(ag_transport._detect_ag_transport, *args)
+            assert waiting.wait(5)
+        finally:
+            release.set()
+        assert first.result() == second.result() == ag_transport.AgTransport("stream", "help", "1.5.9")
+    assert probes.calls == ["--version", "--help"]
 
 
 def test_slow_preflight_renews_before_each_probe_and_retry(monkeypatch):
@@ -655,11 +686,18 @@ def test_18a_truncated_capture_is_uncertain(kit, bridge_h, stdout, max_bytes):
     assert (result.status, _error(result)) == ("uncertain", "ag stream incomplete (stdout_truncated) (exit 0); stderr: ")
 
 
-def test_18b_truncated_stdout_with_quota_stderr_never_claims_quota(kit, bridge_h):
-    result = _cycle(bridge_h, kit.replay(SYNTHETIC_QUOTA_ERROR, exit_code=3, stderr=Q_STDERR, max_bytes=128))
-    assert result.status == "uncertain"
-    assert _error(result).startswith("ag stream incomplete (stdout_truncated) (exit 3); stderr: ")
-    assert _provider_limit(_error(result)) is None
+def test_18b_truncated_stdout_with_quota_stderr_never_claims_quota():
+    payload = encode_user_line("prompt")
+    result = ProcessResult(
+        pid=1, returncode=3, stdout=_nd(_events()[:1]).encode("utf-8"), stderr=Q_STDERR.encode("utf-8"),
+        timed_out=False, output_exceeded=True, duration_s=0.0, output_truncated=True, stdout_truncated=True,
+        stdin_state="complete", stdin_bytes_written=len(payload),
+    )
+    with pytest.raises(RuntimeTargetError) as failure:
+        ag.stream_stdout(result, Sanitizer(), len(payload))
+    error = str(failure.value)
+    assert error == f"ag stream incomplete (stdout_truncated) (exit 3); stderr: {_flat_q()}"
+    assert _provider_limit(error) is None
 
 
 def _fixed(obj: dict, width: int) -> str:

@@ -1,26 +1,28 @@
 """Antigravity stdin transport discovery and caching."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import re
 import tempfile
-import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, cast
+from typing import Any, BinaryIO, Callable, Generator, Mapping, cast
 
-from peerhub.core.load_limits import probe_timeout_factor
+from peerhub.core.load_limits import BUSY_PROBE_TIMEOUT_FACTOR, probe_timeout_factor
 from peerhub.extensions.adapters import common
 from peerhub.extensions.adapters.process import DEFAULT_MAX_BYTES, ProcessResult, SpawnFailure, decode_stderr
 
 AG_TRANSPORT_ENV = "PEERHUB_AG_TRANSPORT"
 _AG_PROBE_TIMEOUT_S = 10.0
-_FileIdentity = tuple[str, int, int, int, int, int]
+_AG_TRANSPORT_MAX_AGE_S = 600.0
+_AG_CACHE_LOCK_POLL_S = .1
+_FileIdentity = tuple[str, str, int, int, int, int, int]
 _TransportIdentity = tuple[_FileIdentity, ...]
-_AG_TRANSPORT_CACHE: dict[tuple[_TransportIdentity, str], str] = {}
-_AG_TRANSPORT_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -52,7 +54,7 @@ def _transport_cache_path(identity: _TransportIdentity, env: Mapping[str, str]) 
 def _fingerprint(path: Path) -> _FileIdentity:
     real = os.path.normcase(str(path.resolve(strict=True)))
     st = os.stat(real)
-    return real, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns
+    return os.path.normcase(str(path)), real, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns
 
 
 _LAUNCHER_EXE = re.compile(r'^[ \t]*@?(?:call[ \t]+)?(?:"([^"\r\n]+\.exe)"|([^\s"]+\.exe))[ \t]+%\*[ \t]*\r?$',
@@ -64,6 +66,8 @@ def _transport_identity(base: list[str], env: Mapping[str, str]) -> _TransportId
     if len(base) != 1:
         return None  # a multi-argument command can run code independent of base[0]
     launcher = Path(base[0])
+    if not launcher.is_absolute():
+        return None  # PATH and child cwd can select a different file.
     identity = (_fingerprint(launcher),)
     if launcher.suffix.lower() not in (".cmd", ".bat"):
         return identity
@@ -89,6 +93,9 @@ def _transport_identity(base: list[str], env: Mapping[str, str]) -> _TransportId
 def _read_transport_cache(path: Path) -> AgTransport | None:
     try:
         with path.open(encoding="utf-8") as stream:
+            age = time.time() - os.fstat(stream.fileno()).st_mtime
+            if not 0 <= age < _AG_TRANSPORT_MAX_AGE_S:
+                return None
             content: object = json.loads(stream.read(512))
     except (OSError, ValueError):
         return None
@@ -98,6 +105,53 @@ def _read_transport_cache(path: Path) -> AgTransport | None:
         if isinstance(version, str) and common.VERSION_RE.fullmatch(version) and transport in ("stream", "argv"):
             return AgTransport(cast(str, transport), "help", version)
     return None
+
+
+def _try_cache_lock(file: BinaryIO) -> bool:
+    try:
+        if os.name == "nt":
+            import msvcrt
+            file.seek(0)
+            msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    except OSError as exc:
+        if os.name == "nt" and exc.errno in (errno.EACCES, errno.EDEADLK):
+            return False
+        raise
+    return True
+
+
+@contextmanager
+def _transport_cache_lock(path: Path, renew: Callable[[], None] | None) -> Generator[bool, None, None]:
+    """Serialize cold detection for one identity, including across CLI processes."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock = path.with_suffix(".lock").open("a+b")
+    except OSError:
+        yield False
+        return
+    with lock:
+        # Two probes and one shared retry. Keep the lease alive while another process probes.
+        deadline = time.monotonic() + 3 * _AG_PROBE_TIMEOUT_S * BUSY_PROBE_TIMEOUT_FACTOR
+        next_renewal = time.monotonic()
+        while True:
+            try:
+                acquired = _try_cache_lock(lock)
+            except OSError:
+                acquired = False
+                break
+            now = time.monotonic()
+            if acquired or now >= deadline:
+                break
+            if renew is not None and now >= next_renewal:
+                renew()
+                next_renewal = now + _AG_PROBE_TIMEOUT_S
+            time.sleep(min(_AG_CACHE_LOCK_POLL_S, deadline - now))
+        yield acquired
 
 
 def _write_transport_cache(path: Path, version: str, transport: str) -> None:
@@ -121,14 +175,38 @@ def _write_transport_cache(path: Path, version: str, transport: str) -> None:
 def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str, *,
                          renew: Callable[[], None] | None = None) -> AgTransport:
     """`stream` when `agy --help` documents stream-json input, `argv` when it lacks --input-format; else undetermined."""
+    try:
+        identity = _transport_identity(base, env)
+        path = _transport_cache_path(identity, env) if identity is not None else None
+    except (OSError, RuntimeError):
+        identity, path = None, None
+    if path is None:
+        return _probe_transport(base, env, cwd, renew)
+    if cached := _read_transport_cache(path):
+        return cached
+    with _transport_cache_lock(path, renew) as acquired:
+        try:
+            same_identity = _transport_identity(base, env) == identity
+        except (OSError, RuntimeError):
+            same_identity = False
+        if same_identity:
+            if cached := _read_transport_cache(path):
+                return cached
+        result = _probe_transport(base, env, cwd, renew)
+        if same_identity and acquired and result.version is not None and result.error is None:
+            try:
+                if _transport_identity(base, env) == identity:
+                    _write_transport_cache(path, result.version, result.transport)
+            except (OSError, RuntimeError):
+                pass  # The executable or launcher changed during detection.
+        return result
+
+
+def _probe_transport(base: list[str], env: Mapping[str, str], cwd: str,
+                     renew: Callable[[], None] | None) -> AgTransport:
     def undetermined(why: str, version: str | None = None) -> AgTransport:
         return AgTransport("undetermined", "help", version, f"cannot determine agy stdin support: {why}")
 
-    try:
-        identity = _transport_identity(base, env)
-        cache_path = _transport_cache_path(identity, env) if identity is not None else None
-    except (OSError, RuntimeError):
-        identity, cache_path = None, None
     factor = probe_timeout_factor()
     retry = True
 
@@ -155,16 +233,6 @@ def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str, *,
     if m is None:
         return undetermined("--version printed no version")
     version = m.group(0)
-    key = (identity, version) if identity is not None else None
-    if key is not None and len(base) == 1:  # multi-argument wrappers probe their own help
-        with _AG_TRANSPORT_LOCK:
-            cached = _AG_TRANSPORT_CACHE.get(key)
-        if cached is not None:
-            return AgTransport(cached, "help", version)
-    if cache_path is not None and factor > 1:
-        disk = _read_transport_cache(cache_path)
-        if disk is not None and disk.version == version:
-            return disk
     h = probe("--help")
     if isinstance(h, str):
         return undetermined(h, version)
@@ -175,11 +243,6 @@ def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str, *,
         transport = "stream"
     else:
         return undetermined("--help lists --input-format without stream-json", version)
-    if key is not None:
-        with _AG_TRANSPORT_LOCK:
-            _AG_TRANSPORT_CACHE[key] = transport
-    if cache_path is not None:
-        _write_transport_cache(cache_path, version, transport)
     return AgTransport(transport, "help", version)
 
 

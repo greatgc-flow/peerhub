@@ -34,7 +34,7 @@ def test_catch_up_prompt_preamble(history, truncated):
 
     assert_preamble(
         render,
-        "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n",
+        "Use the stream context below for the final request.\n\n",
         (4, "r4", "user", "first record", "first request"),
         (8, "r8", "other", "second record", "second request"),
     )
@@ -44,7 +44,7 @@ def test_catch_up_prompt_preamble(history, truncated):
 def test_catch_up_preamble_is_optional_at_the_transport_limit(monkeypatch, extra_bytes):
     target = CliRuntimeTarget("cx", Path.cwd())
     history = [SimpleNamespace(position=1, record_id="r1", author_peer_id="user", kind="prompt", body="first")]
-    prefix = "[1 r1 user prompt] first\n\n"
+    prefix = "[1 prompt] first\n\n"
     # A multibyte final request pins the limit in bytes, independent of character count.
     current = "é" + "x" * (MAX_PROMPT_BYTES - len(prefix) - 2 + extra_bytes)
 
@@ -85,8 +85,10 @@ def test_ca_stdin_prompt_preamble(monkeypatch):
         target._call(prompt)
         return rendered[-1]
 
-    assert_preamble(render, "PeerHub ask (text only, no tools, no files).\n\n",
-                    ("@first.txt\nRead these facts",), ("Check different facts",))
+    preamble = "PeerHub ask (text only, no tools, no files).\n\n"
+    prompt = "@first.txt\nRead these facts"
+    assert_preamble(render, preamble, (prompt,), ("Check different facts",))
+    assert rendered[0] == preamble + prompt
 
 
 @pytest.mark.parametrize("section,preamble", [

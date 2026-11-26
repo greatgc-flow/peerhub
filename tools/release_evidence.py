@@ -21,12 +21,14 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
-from tools.release_ci import matrix_junit_paths
+from tools.release_ci import CELLS, matrix_junit_paths
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST_SET = ROOT / "docs/m1_spec/06_GUIDES/TEST_SET"
 POLICY_REL = "docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json"
 GATES_REL = "docs/m1_spec/08_LIFECYCLE/release-gates.json"
+RELEASE_POLICY_REL = "docs/m1_impl/release-policy.json"
+VERSION_FILE = "peerhub/_version.py"
 PROP = "candidate."  # JUnit <property> namespace written by stamp_junit
 # Binding properties every candidate-bound JUnit must carry. `id` is the holistic identity hash: a JUnit stamped without package digests
 # (gates G0-G3, produced before the build) carries the id of the identity WITHOUT package_sha256 ("source scope"); a JUnit stamped with
@@ -34,6 +36,10 @@ PROP = "candidate."  # JUnit <property> namespace written by stamp_junit
 # scope and requires equality, so a stripped or edited property, a forged id or swapped wheels all fail. Tests of the package gate (G4)
 # only count from package-scoped files.
 PACKAGE_GATE = "G4"
+SOURCE_GATES = {"G0", "G1", "G2", "G7"}
+G4_MATRIX_PREFIX = "g4-matrix-"
+G4_MATRIX_MODULE = "tests.communication.package.test_rel_matrix"
+G4_MATRIX_SMOKES = ("test_rel_010_python_matrix_cell", "test_rel_011_os_matrix_cell_path_and_newline_smoke")
 REQUIRED_BINDING = ("source_revision", "stamped_at", "id", "gate")
 
 
@@ -42,16 +48,14 @@ def _sha(p: Path) -> str:
 
 
 def source_version(root: Path = ROOT) -> str:
-    m = re.search(r"""__version__\s*=\s*["']([^"']+)["']""", (root / "peerhub/_version.py").read_text(encoding="utf-8"))
+    return parse_source_version((root / VERSION_FILE).read_text(encoding="utf-8"))
+
+
+def parse_source_version(source: str) -> str:
+    m = re.search(r"""^[ \t]*__version__\s*=\s*["']([^"']+)["']""", source, re.MULTILINE)
     if not m:
         raise ValueError("cannot parse peerhub/_version.py")
     return m.group(1)
-
-
-def _test_ids(name: str, ids: list[str]) -> list[str]:
-    key_of = {i: i.lower().replace("-", "_") for i in ids}
-    low = name.lower()
-    return [i for i, k in key_of.items() if re.search(r"(?<![a-z0-9])" + re.escape(k) + r"(?![0-9])", low)]
 
 
 # accepted machine-readable skip reasons (live opt-in / provider availability / soak opt-in / CI-only); anything else is a plain skip
@@ -75,6 +79,9 @@ def _m23_test_ids(case: ET.Element, ids: set[str]) -> set[str]:
 def junit_outcomes(paths: list[Path], ids: list[str], m23_ids: set[str] | None = None) -> dict[str, str]:
     """Every observed case for a catalog ID must pass; skips never reconcile to passes."""
     m23_ids = m23_ids or set()
+    by_name = {i.lower().replace("-", "_"): i for i in ids if i not in m23_ids}
+    names = "|".join(re.escape(key) for key in by_name)
+    pattern = re.compile(rf"(?<![a-z0-9])(?:{names})(?![0-9])") if names else None
     seen: dict[str, list[str]] = {}
     for p in paths:
         for case in ET.parse(p).getroot().iter("testcase"):
@@ -86,7 +93,9 @@ def junit_outcomes(paths: list[Path], ids: list[str], m23_ids: set[str] | None =
             elif (skip := case.find("skipped")) is not None:
                 reason = (skip.get("message") or skip.text or "").strip()
                 outcome = "not_verified" if ALLOWED_SKIP.match(reason) else "skipped"
-            matched = set(_test_ids(case.get("name", ""), [i for i in ids if i not in m23_ids])) | _m23_test_ids(case, m23_ids)
+            matched = _m23_test_ids(case, m23_ids) if m23_ids else set()
+            if pattern is not None:
+                matched.update(by_name[key] for key in pattern.findall(case.get("name", "").lower()))
             for tid in matched:
                 seen.setdefault(tid, []).append("skipped" if tid in m23_ids and outcome == "not_verified" else outcome)
     out = {}
@@ -228,18 +237,68 @@ def assess_evidence(junit_paths: list[Path], cand: dict, ttl: int, skew: int, no
     return out
 
 
-def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, commit: str | None = None, candidate: bool = False,
-                   policy_path: Path | None = None, release_policy: Path | None = None, now: datetime | None = None) -> dict:
+def source_binding_errors(paths: list[Path], commit: str, policy: Path | None) -> list[str]:
+    bindings = assess_evidence(paths, candidate_fields(commit=commit, package_sha256=[]),
+                               *load_release_policy(policy), _now())
+    return [f"{b['file']}: {b['status']} ({b['scope']}): {b['reason']}"
+            for b in bindings if b["status"] != "accepted" or b["scope"] != "source"]
+
+
+def junit_passed(path: Path, *, allow_skips: bool = False,
+                 required_cases: tuple[tuple[str, str], ...] = ()) -> bool:
+    root = ET.parse(path).getroot()
+    cases = list(root.iter("testcase"))
+    summary = ("failures", "errors") if allow_skips else ("failures", "errors", "skipped")
+    return (bool(cases)
+            and (not required_cases or {(case.get("classname"), case.get("name")) for case in cases}.issuperset(required_cases))
+            and all(suite.get(count, "0") == "0" for suite in root.iter("testsuite") for count in summary)
+            and all(case.find("failure") is None and case.find("error") is None
+                    and (allow_skips or case.find("skipped") is None) for case in cases))
+
+
+def _g4_cell_passed(path: Path) -> bool:
+    os_name, _, version = path.stem.removeprefix(G4_MATRIX_PREFIX).rpartition("-py")
+    required = tuple((G4_MATRIX_MODULE, f"{test}[py{version}-{os_name}]") for test in G4_MATRIX_SMOKES)
+    return junit_passed(path, required_cases=required)
+
+
+def _source_report_errors(paths: list[Path]) -> list[str]:
+    return [f"{path.name}: expected a nonempty successful CI report"
+            for path in paths if not junit_passed(path, allow_skips=True)]
+
+
+def catalogs(repo_root: Path) -> tuple[list[str], list[str], set[str], dict[str, str]]:
     ts = Path(repo_root) / "docs/m1_spec/06_GUIDES/TEST_SET"
     catalog = json.loads((ts / "test-catalog.json").read_text(encoding="utf-8"))["tests"]
-    reqs = json.loads((ts / "requirements.json").read_text(encoding="utf-8"))["requirements"]
     gates = {e["test_id"]: e["primary_gate"] for e in json.loads((ts / "TEST_RELEASE_GATE_MAP.json").read_text(encoding="utf-8"))["entries"]}
     m23_catalog = [t for rel in ("docs/m2/test-catalog.m2.json", "docs/m3/test-catalog.m3.json")
                    for t in json.loads((Path(repo_root) / rel).read_text(encoding="utf-8"))["tests"]]
     m23_ids = {t["id"] for t in m23_catalog}
-    gates.update({i: "G2" for i in m23_ids})  # All M2/M3 catalog tests block in the deterministic verify gate.
+    gates.update({i: "G2" for i in m23_ids})
     ids = [t["id"] for t in catalog + m23_catalog]
     live_ids = [t["id"] for t in catalog if t.get("live_provider")]
+    return ids, live_ids, m23_ids, gates
+
+
+def candidate_ci_errors(directory: Path, commit: str, policy: Path, *, repo_root: Path | None = None) -> list[str]:
+    paths = matrix_junit_paths(directory)
+    errors = source_binding_errors(paths, commit, policy)
+    if errors or repo_root is None:
+        return errors
+    errors = _source_report_errors(paths)
+    ids, _, m23_ids, gates = catalogs(repo_root)
+    outcomes = junit_outcomes(paths, [i for i in ids if gates[i] in SOURCE_GATES], m23_ids)
+    errors.extend(f"blocking source test {i} (gate {gates[i]}) is {status}"
+                  for i, status in outcomes.items() if status != "passed")
+    return errors
+
+
+def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, commit: str | None = None, candidate: bool = False,
+                   policy_path: Path | None = None, release_policy: Path | None = None, now: datetime | None = None,
+                   workflow_ci_junit: list[Path] | None = None) -> dict:
+    ts = Path(repo_root) / "docs/m1_spec/06_GUIDES/TEST_SET"
+    reqs = json.loads((ts / "requirements.json").read_text(encoding="utf-8"))["requirements"]
+    ids, live_ids, m23_ids, gates = catalogs(repo_root)
     if commit is None:
         cp = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo_root), capture_output=True, text=True)
         commit = cp.stdout.strip() if cp.returncode == 0 and cp.stdout.strip() else "unknown"
@@ -259,11 +318,29 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
         action = str(pol.get("on_stale", "HOLD"))
         holds += [f"{action}: evidence {b['file']} is {b['status']}: {b['reason']}" for b in bindings if b["status"] != "accepted"]
         pkg_junit = [p for p, b in zip(used_junit, bindings) if b["status"] == "accepted" and b["scope"] == "package" and file_gate(p.name) == PACKAGE_GATE]
+        live_junit = [p for p, b in zip(used_junit, bindings) if b["status"] == "accepted" and b["scope"] == "source" and file_gate(p.name) == "G3"]
+        if workflow_ci_junit is not None:
+            holds += [f"HOLD: {p.name} must be stamped at {scope} scope"
+                      for p, b in zip(used_junit, bindings) if b["status"] == "accepted"
+                      and (scope := "package" if file_gate(p.name) == PACKAGE_GATE else "source") != b["scope"]]
         used_junit = [p for p, b in zip(used_junit, bindings) if b["status"] == "accepted"]
         if not pkg_junit:
             holds.append(f"HOLD: no current JUnit carries the package digests of the dist being released (gate {PACKAGE_GATE} evidence)")
-    outcomes = junit_outcomes(used_junit, ids, m23_ids)
-    if candidate:  # package-gate tests are evidence only from files bound to the released package digests
+    if candidate and workflow_ci_junit is not None:
+        ci_reports = [p for p in workflow_ci_junit if p in used_junit]
+        source_ids = [i for i in ids if gates[i] in SOURCE_GATES]
+        pkg_ids = [i for i in ids if gates[i] == PACKAGE_GATE]
+        outcomes = dict.fromkeys(ids, "missing")
+        outcomes.update(junit_outcomes(ci_reports, source_ids, m23_ids))
+        outcomes.update(junit_outcomes(live_junit, live_ids))
+        outcomes.update(junit_outcomes(pkg_junit, pkg_ids))
+        holds.extend(f"HOLD: {error}" for error in _source_report_errors(ci_reports))
+        holds.extend(f"HOLD: {p.name} must contain passing tests" for p in live_junit if not junit_passed(p))
+        holds.extend(f"HOLD: {p.name} must contain both passing G4 matrix smoke tests for its cell"
+                     for p in pkg_junit if p.name.startswith(G4_MATRIX_PREFIX) and not _g4_cell_passed(p))
+    else:
+        outcomes = junit_outcomes(used_junit, ids, m23_ids)
+    if candidate and workflow_ci_junit is None:  # package-gate tests must match the released package digests
         pkg_out = junit_outcomes(pkg_junit, ids, m23_ids)
         outcomes = {i: (pkg_out[i] if gates[i] == PACKAGE_GATE else outcomes[i]) for i in ids}
     blockers: list[str] = list(holds)
@@ -371,23 +448,25 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--release-policy", type=Path, default=None, help="repo-owned release policy with policy_ttl_seconds (required with --candidate)")
     ap.add_argument("--ci-junit-dir", type=Path, help="download directory for the ten candidate CI artifacts")
     ap.add_argument("--ci-run-url", help="URL of the validated candidate CI run")
+    ap.add_argument("--g4-matrix-dir", type=Path, help="require a digest-bound G4 support matrix report for every cell")
     ap.add_argument("--verify-ci-junit", type=Path, help="verify the ten downloaded candidate CI reports and exit")
+    ap.add_argument("--verify-source-catalog", action="store_true", help="also require passing source catalog coverage in --verify-ci-junit")
     ap.add_argument("--stamp-junit", type=Path, action="append", default=None,
                     help="bind this JUnit file to the candidate inputs (needs --commit; repeatable) and exit; a missing file is skipped with a warning")
     a = ap.parse_args(argv)
+    if a.verify_source_catalog and a.verify_ci_junit is None:
+        ap.error("--verify-source-catalog requires --verify-ci-junit")
     if a.verify_ci_junit is not None:
         if not a.commit or not re.fullmatch(r"[0-9a-f]{40}", a.commit) or a.release_policy is None:
             ap.error("--verify-ci-junit requires a full --commit SHA and --release-policy")
         try:
-            bindings = assess_evidence(matrix_junit_paths(a.verify_ci_junit),
-                                       candidate_fields(commit=a.commit, package_sha256=[]),
-                                       *load_release_policy(a.release_policy), _now())
+            errors = candidate_ci_errors(a.verify_ci_junit, a.commit, a.release_policy,
+                                         repo_root=ROOT if a.verify_source_catalog else None)
         except (ValueError, OSError, ET.ParseError) as e:
             ap.error(str(e))
-        invalid = [b for b in bindings if b["status"] != "accepted" or b["scope"] != "source"]
-        for b in invalid:
-            print(f"{b['file']}: {b['status']} ({b['scope']}): {b['reason']}", file=sys.stderr)
-        return 1 if invalid else 0
+        for error in errors:
+            print(error, file=sys.stderr)
+        return 1 if errors else 0
     if a.stamp_junit is not None:
         if not a.commit or not a.gate:
             ap.error("--stamp-junit requires --commit and --gate")
@@ -405,9 +484,14 @@ def main(argv: list[str] | None = None) -> int:
         if not (a.candidate and a.ci_junit_dir and a.ci_run_url):
             ap.error("--ci-junit-dir and --ci-run-url must be used together with --candidate")
         a.junit.extend(matrix_junit_paths(a.ci_junit_dir))
+    if a.g4_matrix_dir is not None:
+        if a.ci_junit_dir is None:
+            ap.error("--g4-matrix-dir requires --ci-junit-dir")
+        a.junit.extend(a.g4_matrix_dir / f"{G4_MATRIX_PREFIX}{os_name}-py{version}.xml" for os_name, version in CELLS)
     try:
         m = build_manifest(repo_root=ROOT, junit_paths=a.junit, dist_dir=a.dist, commit=a.commit, candidate=a.candidate, policy_path=a.policy_file,
-                           release_policy=a.release_policy)
+                           release_policy=a.release_policy,
+                           workflow_ci_junit=matrix_junit_paths(a.ci_junit_dir) if a.g4_matrix_dir is not None else None)
     except ValueError as e:
         ap.error(str(e))
     if a.ci_run_url:

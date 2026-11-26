@@ -13,6 +13,7 @@ import re
 import stat
 import sys
 from collections.abc import Callable, Mapping
+from collections import OrderedDict
 from typing import Any, cast
 
 from peerhub.extensions import process_tree
@@ -42,6 +43,8 @@ _open = os.open
 Probe = Callable[[int], object]
 Listing = tuple[str, list[str]]
 Read = tuple[bytes, int, float]
+_TAIL_CACHE_CAP = LEAD_DIRS_CAP * LEAD_FILES_CAP
+_tail_cache: OrderedDict[tuple[str, int, int, int, int], Read] = OrderedDict()
 
 
 class _Unreadable(Exception):
@@ -161,9 +164,21 @@ def _read(base: str, parts: tuple[str, ...], limit: int, *, tail: bool = False) 
     path = _confined(base, parts)
     if path is None:
         raise _Unreadable
+    before = None
     try:
-        if not stat.S_ISREG(_stat(path).st_mode):  # a FIFO or a device is never opened
+        path_info = _stat(path)
+        if not stat.S_ISREG(path_info.st_mode):  # a FIFO or a device is never opened
             raise _Unreadable
+        if tail:
+            before = (path, path_info.st_dev, path_info.st_ino, path_info.st_size, path_info.st_mtime_ns)
+            cached = _tail_cache.get(before)
+            if cached is not None:
+                _tail_cache.move_to_end(before)
+                # Confirm the path and its metadata remained stable while checking confinement/cache.
+                current = _stat(path)
+                if (_confined(base, parts) == path and
+                        (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns) == before[1:]):
+                    return cached
         fd = _open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
         return None
@@ -181,7 +196,13 @@ def _read(base: str, parts: tuple[str, ...], limit: int, *, tail: bool = False) 
         raise _Unreadable from exc
     if len(data) > limit or _confined(base, parts) != path:
         raise _Unreadable
-    return data, offset, info.st_mtime
+    result = (data, offset, info.st_mtime)
+    if tail and before is not None and (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) == before[1:]:
+        _tail_cache[before] = result
+        _tail_cache.move_to_end(before)
+        while len(_tail_cache) > _TAIL_CACHE_CAP:
+            _tail_cache.popitem(last=False)
+    return result
 
 
 def _mtime(path: str) -> float:

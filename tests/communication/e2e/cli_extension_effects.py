@@ -99,6 +99,22 @@ def ask_dry_run_effect(e):
     assert db.read_bytes() == before
 
 
+def ask_final_only_effect(e):
+    db = e.fresh(False)
+    response = "hello\nworld"
+    argv = ["ask", "cx", "prompt", "--request-id", "final-proof"]
+    runtime = FakeRuntimeTarget().script_deliver(("started", "exec"), ("terminal", {"response": response}))
+    with patch("peerhub.extensions.ask.CliRuntimeTarget", return_value=runtime), \
+         patch("peerhub.cli.monitor_refresh.refresh_dispatch_quota"):
+        code, out, err = e.run(db, *argv, "--final-only")
+        assert code == 0 and not err and len(out.splitlines()) == 1
+        first = json.loads(out)
+        full = e.j(db, *argv)
+    assert full["status"] == "recovered_terminal"
+    assert first == {"status": "delivered", "response": response, "requested_record_id": full["requested_record_id"],
+                     "session": full["session"]["handle"]}
+
+
 def diag_json(e):
     from peerhub.extensions.observation import ObservationStore
     db = e.fresh()
@@ -161,6 +177,14 @@ def diag_plan_filter_effect(e, option):
     if option == "--peer":
         result = e.j(db, "diag", "--plan", option, baseline["pools"][0]["peer"] + "-other")
         assert baseline["pools"] and result["pools"] == []
+        return
+    if option == "--compact":
+        compact = e.j(db, "diag", "--plan", "--compact")
+        (row,) = compact["pools"]
+        (full,) = baseline["pools"]
+        assert row["action"] == full["action"] and row["binding"] == full["binding"]
+        assert compact["load"]["active"] == baseline["load"]["active"]
+        assert "health" in full and "health" not in row
         return
 
     alternate = e.fresh()
@@ -697,6 +721,11 @@ def batch_effect(e, option):
     elif option == "--responses":  # a dry run ran nothing, so it has no replies to show
         code, out, err = e.run(db, *argv, "--responses")
         assert code == 0 and json.loads(out)["dry_run"] and "response" not in out and not err
+    elif option == "--response-task":
+        valid = e.j(db, *argv, "--response-task", "a")
+        invalid = e.j(db, *argv, "--response-task", "A", code=1)
+        assert valid["tasks"][0]["task_id"] == "a" and "response" not in valid["tasks"][0]
+        assert invalid["error"]["code"] == "invalid_manifest" and "'A'" in invalid["error"]["message"]
     else:
         first = e.j(db, *argv)
         argv[argv.index(option) + 1] = "other" if option == "--batch-id" else "3"
@@ -737,16 +766,17 @@ EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effec
 EFFECT.update({f"explain {option}": (lambda e, option=option: explain_effect(e, option))
                for option in ("code", "--json")})
 EFFECT.update({f"batch run {option}": (lambda e, option=option: batch_effect(e, option))
-               for option in ("manifest", "--batch-id", "--max-parallel", "--dry-run", "--json", "--responses")})
+               for option in ("manifest", "--batch-id", "--max-parallel", "--dry-run", "--json", "--responses", "--response-task")})
 EFFECT.update({f"account {action} {option}": (lambda e, action=action, option=option: account_effect(e, action, option))
                for action, options in (("bind", ("--peer", "--provider", "--alias", "--root", "--json")),
                                        ("list", ("--json", "--show-root")),
                                        ("show", ("--peer", "--json", "--show-root"))) for option in options})
 EFFECT["ask --dry-run"] = ask_dry_run_effect
+EFFECT["ask --final-only"] = ask_final_only_effect
 EFFECT["diag --json"] = diag_json
 EFFECT["diag --plan"] = diag_plan
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_plan_filter_effect(e, option))
-               for option in ("--peer", "--observation-db")})
+               for option in ("--peer", "--observation-db", "--compact")})
 EFFECT["diag quota --max-age-seconds"] = diag_quota_age_effect
 EFFECT["diag readiness --json"] = readiness_json
 EFFECT["diag running --json"] = running_json

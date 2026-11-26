@@ -1,10 +1,12 @@
 """Wave 4 CTX-001..004: bounded catch-up projection (TD-12/TD-22) and context/session loss recovery."""
 import json
+from pathlib import Path
 from typing import Any, Mapping
 
 import pytest
 from hypothesis import given, settings, strategies as st
 
+from peerhub.core.store import CoreStore
 from peerhub.extensions.bridge import Bridge
 from peerhub.extensions.bridge_ledger import PersistedRecord
 from peerhub.extensions.bridge_control import NOT_STARTED
@@ -383,85 +385,92 @@ def _insert_test_delivery(h: Any, stream: str, peer: str, gen: int, ext_sess: st
 
 
 # ------------------------------------------------------------------ CTX-004: bounded delta reads
+def _seed_paging_history(workspace: Path, n: int) -> BridgeHarness:
+    h = BridgeHarness(workspace, catch_up_budget=CatchUpBudget(max_records=15, max_bytes=5000))
+    (seed,) = bseed(h, n=1)
+    _insert_test_delivery(h, "s", "b", 1, "ext-local", seed.record_id, seed.position)
+    for i in range(1, n + 1):
+        if i % 3 == 0:
+            ctl(h, "control.redirect", f"rd{i}", body={"goal": "g", "instruction": f"r{i}"}, targets=["b"])
+        elif i % 5 == 0:
+            ctl(h, "control.redirect", f"rd_other{i}", body={"goal": "g", "instruction": f"r{i}"}, targets=["other"])
+        else:
+            appended = msg(h, f"m{i}")
+            if i == 1:
+                _insert_test_delivery(h, "s", "b", 2, "ext-other", appended.record_id, appended.position)
+    return h
+
+
+@pytest.fixture(scope="module")
+def paging_history(tmp_path_factory: pytest.TempPathFactory) -> BridgeHarness:
+    # The three paging paths only read this store. Each xdist worker gets its own.
+    return _seed_paging_history(tmp_path_factory.mktemp("ctx-paging") / "ws", 25)
+
+
 @pytest.mark.catalog_id("CTX-004")
 @pytest.mark.property
 @settings(max_examples=40, deadline=None)
 @given(
-    n=st.integers(3, 25),
     watermark=st.integers(0, 15),
-    pos_offset=st.integers(-4, 4),
+    data=st.data(),
     page=st.sampled_from([1, 2, 3, 7, 50]),
 )
-def test_ctx_004_paged_delta_projection_matches_unpaged_exactly(n, watermark, pos_offset, page):
-    import tempfile
-    from pathlib import Path
-    with tempfile.TemporaryDirectory() as td:
-        h = BridgeHarness(Path(td) / "ws", catch_up_budget=CatchUpBudget(max_records=15, max_bytes=5000))
-        bseed(h, n=1)
-        for i in range(1, n + 1):
-            if i % 3 == 0:
-                ctl(h, "control.redirect", f"rd{i}", body={"goal": "g", "instruction": f"r{i}"}, targets=["b"])
-            elif i % 5 == 0:
-                ctl(h, "control.redirect", f"rd_other{i}", body={"goal": "g", "instruction": f"r{i}"}, targets=["other"])
-            else:
-                msg(h, f"m{i}")
-        head = h.store.stream_head("s")
-        wm = min(watermark, max(0, head - 2))
-        # Generates interior boundary (current_pos <= head), at-head (== head), or exterior boundary (> head)
-        current_pos = max(wm + 1, min(head + 5, head + pos_offset))
-        cur = PersistedRecord("cur", current_pos)
+def test_ctx_004_paged_delta_projection_matches_unpaged_exactly(paging_history, watermark, data, page):
+    head = paging_history.store.stream_head("s")
+    current_pos = data.draw(st.integers(watermark + 1, head + 4), label="current position")
+    _assert_paging_matches_unpaged(paging_history, watermark, current_pos, page)
 
-        # 1. Native delta: paged vs actual old unpaged oracle
-        mapping = {
-            "peer_id": "b",
-            "stream_id": "s",
-            "context_watermark": wm,
-        }
-        paged = h.bridge._native_delta(mapping, cur, page=page)
-        old_native = _old_native_delta(h.bridge, mapping, cur)
 
-        assert [r.record_id for r in paged.records] == [r.record_id for r in old_native.records]
-        assert [r.position for r in paged.records] == [r.position for r in old_native.records]
-        assert paged.boundary() == old_native.boundary()
-        assert paged.truncated == old_native.truncated
-        assert paged.omitted_count == old_native.omitted_count
-        assert paged.used_bytes == old_native.used_bytes
+@pytest.mark.catalog_id("CTX-004")
+def test_ctx_004_paged_short_history_matches_unpaged_at_boundaries(tmp_path):
+    h = _seed_paging_history(tmp_path / "ws", 3)
+    head = h.store.stream_head("s")
+    # Put the upper bound at the intervening delivery, at the stream head,
+    # and beyond the stored rows.
+    for current_pos in (2, head, head + 2):
+        _assert_paging_matches_unpaged(h, 0, current_pos, 1)
 
-        # Strictly increasing ordering and bounded strictly before current record
-        pos = [r.position for r in paged.records]
-        assert pos == sorted(set(pos))
-        if pos:
-            assert pos[-1] < current_pos
-            assert pos[0] > wm
 
-        # 2. Unseen redirects: paged vs actual old unpaged oracle
-        red_paged = h.bridge._unseen_redirects("b", "s", cur, page=page)
-        red_old = _old_unseen_redirects(h.bridge, "b", "s", cur)
-        assert [r.record_id for r in red_paged] == [r.record_id for r in red_old]
-        for r in red_paged:
-            assert r.position < current_pos
+def _assert_paging_matches_unpaged(h: BridgeHarness, wm: int, current_pos: int, page: int) -> None:
+    cur = PersistedRecord("cur", current_pos)
 
-        # 3. Local history delta: paged vs actual old unpaged oracle
-        _insert_test_delivery(h, "s", "b", 1, "ext-local", "del_seed", 1, certainty="TERMINAL")
-        if head > 2:
-            _insert_test_delivery(h, "s", "b", 2, "ext-other", "del_interv", 2, certainty="TERMINAL")
-        local_mapping = {
-            "peer_id": "b",
-            "stream_id": "s",
-            "session_generation": 1,
-            "external_session_id": "ext-local",
-        }
-        local_paged = h.bridge._local_history_delta(local_mapping, cur, page=page)
-        local_old = _old_local_history_delta(h.bridge, local_mapping, cur)
-        if local_old is None:
-            assert local_paged is None
-        else:
-            assert local_paged is not None
-            assert [r.record_id for r in local_paged.records] == [r.record_id for r in local_old.records]
-            assert [r.position for r in local_paged.records] == [r.position for r in local_old.records]
-            assert local_paged.boundary() == local_old.boundary()
-            assert local_paged.truncated == local_old.truncated
-            assert local_paged.omitted_count == local_old.omitted_count
+    mapping = {"peer_id": "b", "stream_id": "s", "context_watermark": wm}
+    paged = h.bridge._native_delta(mapping, cur, page=page)
+    old_native = _old_native_delta(h.bridge, mapping, cur)
+
+    assert [r.record_id for r in paged.records] == [r.record_id for r in old_native.records]
+    assert [r.position for r in paged.records] == [r.position for r in old_native.records]
+    assert paged.boundary() == old_native.boundary()
+    assert paged.truncated == old_native.truncated
+    assert paged.omitted_count == old_native.omitted_count
+    assert paged.used_bytes == old_native.used_bytes
+
+    pos = [r.position for r in paged.records]
+    assert pos == sorted(set(pos))
+    assert all(wm < position < current_pos for position in pos)
+
+    red_paged = h.bridge._unseen_redirects("b", "s", cur, page=page)
+    red_old = _old_unseen_redirects(h.bridge, "b", "s", cur)
+    assert [r.record_id for r in red_paged] == [r.record_id for r in red_old]
+    assert all(r.position < current_pos for r in red_paged)
+
+    local_mapping = {
+        "peer_id": "b",
+        "stream_id": "s",
+        "session_generation": 1,
+        "external_session_id": "ext-local",
+    }
+    local_paged = h.bridge._local_history_delta(local_mapping, cur, page=page)
+    local_old = _old_local_history_delta(h.bridge, local_mapping, cur)
+    if local_old is None:
+        assert local_paged is None
+    else:
+        assert local_paged is not None
+        assert [r.record_id for r in local_paged.records] == [r.record_id for r in local_old.records]
+        assert [r.position for r in local_paged.records] == [r.position for r in local_old.records]
+        assert local_paged.boundary() == local_old.boundary()
+        assert local_paged.truncated == local_old.truncated
+        assert local_paged.omitted_count == local_old.omitted_count
 
 
 @pytest.mark.catalog_id("CTX-004")
@@ -507,7 +516,7 @@ def test_ctx_004_exact_session_overflow_rejection_and_automatic_fresh_fallback(t
 
 
 @pytest.mark.catalog_id("CTX-004")
-def test_ctx_004_delta_reads_bounded_over_20k_records(tmp_path):
+def test_ctx_004_delta_reads_bounded_over_20k_records(tmp_path, monkeypatch):
     h = BridgeHarness(tmp_path / "ws", catch_up_budget=CatchUpBudget(max_records=50, max_bytes=24_000))
     bseed(h, n=1)
     # Insert >20,000 records in a single transaction
@@ -525,15 +534,15 @@ def test_ctx_004_delta_reads_bounded_over_20k_records(tmp_path):
     head = h.store.stream_head("s")
     assert head >= 20_500
 
-    # Spy on read_records calls
+    # Spy on record pages read within the native delta snapshot.
     calls: list[tuple[int, int]] = []
-    real_read = h.store.read_records
+    real_read = CoreStore.read_records_from
 
-    def spy_read(stream_id: str, after_position: int = 0, limit: int = 100):
+    def spy_read(conn, stream_id: str, after_position: int, limit: int):
         calls.append((after_position, limit))
-        return real_read(stream_id, after_position, limit)
+        return real_read(conn, stream_id, after_position, limit)
 
-    h.store.read_records = spy_read
+    monkeypatch.setattr(CoreStore, "read_records_from", staticmethod(spy_read))
 
     watermark = 20_000
     current_pos = 20_501
@@ -546,7 +555,7 @@ def test_ctx_004_delta_reads_bounded_over_20k_records(tmp_path):
 
     # Bounded delta read: motivation = memory/stream size (no claim of constant time)
     proj = h.bridge._native_delta(mapping, cur)
-    assert calls, "store.read_records must have been called"
+    assert calls, "CoreStore.read_records_from must have been called"
     # Verify every call limit is bounded to page size (<= 200) and stops before current record
     for after_pos, limit in calls:
         assert limit <= 200, f"limit was {limit}, expected <= 200"

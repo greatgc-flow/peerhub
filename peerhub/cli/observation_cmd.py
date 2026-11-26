@@ -19,7 +19,8 @@ def register_observation_parser(subparsers: Subparsers) -> None:
     observation_sub = observation_parser.add_subparsers(dest="action", required=True)
     refresh = observation_sub.add_parser("refresh", help="Collect provider quota and account evidence into append-only Observations")
     refresh.add_argument("--peers", nargs="+", default=list(QUOTA_CAPABLE_PEERS),
-                         help=f"Peers to collect quota evidence for (default: {' '.join(QUOTA_CAPABLE_PEERS)})")
+                         help=f"Peers to collect quota evidence for (default: {' '.join(QUOTA_CAPABLE_PEERS)}). "
+                              "For batch planning, select providers whose quota could change the next wave.")
     refresh.add_argument("--system-dir", dest="sys_dir", type=Path, help="Explicit portable provider installation directory")
     refresh.add_argument("--timeout-seconds", type=float, default=15, help="Probe timeout in seconds (default %(default)s)")
 

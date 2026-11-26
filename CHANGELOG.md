@@ -8,6 +8,25 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.17] - 2026-11-26
+
+### Added
+
+- `batch run --response-task TASK_ID` (repeatable) includes only the selected completed replies; every task's status stays in the report.
+- `diag --plan --json --compact`: pool action, limiting gate, reset and live load only (about a fifth of the full JSON).
+- `ask --final-only`: one JSON object with the reply, status, ask ID and session handle; warnings and recovery hints stay on stderr.
+
+### Changed
+
+- Asks run faster in parallel: process liveness checks run outside the SQLite writer lock (lease expiry is rechecked inside it), delivery lookups use read snapshots, healthy store opens skip repair work and the full integrity scan (pending migrations still get it), and new indexes back sequence allocation, stream-target checks, monitor activity and quota attribution (monitor activity on a 50k-delivery stream: 120 ms -> 1.2 ms).
+- Quota refresh probes providers concurrently and commits each as it finishes; CLI version results are cached for 15 minutes per executable identity; the ag transport decision is reused across processes. A dispatch with stale quota no longer waits when another process is already refreshing.
+- batch run reuses a resource sample for up to one second and wakes the launch gate when a worker finishes.
+- Live monitor caches store discovery for the watch and rereads lead transcripts only when their file identity, size or mtime change.
+- Native resumes no longer resend the reply that the resumed provider session already produced; catch-up prompts label records by position and role (exact IDs stay in delivery evidence).
+- Shorter guidance: vote guidance asks for a new stream per voter, failure-site recovery hints keep the immediate action and retry constraint (details in `explain CODE`), `explain --json` keyword searches return IDs and titles, the guide keeps one discovery line, and the parallel-quota recipe refreshes only the peers the next wave may use.
+- Release cycle: version-bump pushes to main run the candidate matrix that release_flow adopts (no second dispatch on the same SHA), publish reuses the validated candidate reports for source gates (traceability, G3 live and digest-bound G4 checks stay), workflow edits use the targeted Windows inventory unless they change Windows execution or suite selection, release_flow --resume reuses fresh CI and completed live stages, and serial latency checks run on one cell per OS.
+- Faster tests: REL-005 reruns 10 representative offline cases, and the slowest ag, catch-up paging and fake-process tests no longer pay real setup or wall-clock waits.
+
 ### Fixed
 
 - ag quota refresh no longer fails as a whole when agy reports an unused pool with reset time 1970-01-01: the pool reads as a full window starting now, and one unusable bucket no longer drops the other pools' readings.

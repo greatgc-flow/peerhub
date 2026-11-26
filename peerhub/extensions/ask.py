@@ -19,6 +19,7 @@ from peerhub.extensions.adapters.api import API_TARGETS, ApiRuntimeTarget, Reque
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES, peer_kind
 from peerhub.extensions.bridge import Bridge
 from peerhub.extensions.bridge_control import MAY_HAVE_STARTED, NOT_STARTED, STARTED
+from peerhub.extensions.bridge_ledger import ASK_KEY_PREFIX as _ASK_KEY_PREFIX
 from peerhub.extensions.bridge_ledger import BridgeLedger, CycleResult, reap_dead_asks
 from peerhub.extensions.bridge_sessions import normalize_session_selector
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeTarget
@@ -31,7 +32,6 @@ from peerhub.core.workspace import Workspace
 
 
 _DEFAULT_AUTHOR = "user"
-_ASK_KEY_PREFIX = "ask:"
 
 
 class LegacySelectorUnsupported(ValueError):
@@ -206,12 +206,7 @@ def _packaged_cx_binding_change(saved: object, current: str, workspace: str | Pa
 
 
 def _check_stream_peer(conn: sqlite3.Connection, sid: str, peer_id: str) -> None:
-    for row_targets_json, row_meta_json, row_key in conn.execute(
-        "SELECT targets_json, metadata_json, idempotency_key FROM records WHERE stream_id=? AND kind='prompt'",
-        (sid,),
-    ):
-        if not (isinstance(row_key, str) and row_key.startswith(_ASK_KEY_PREFIX)):
-            continue
+    for row_targets_json, row_meta_json, _position in BridgeLedger.stream_peer_conflicts(conn, sid, peer_id):
         try:
             row_meta: Any = json.loads(row_meta_json or "{}")
             row_targets: Any = json.loads(row_targets_json or "[]")
@@ -451,7 +446,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             limits = DEFAULT_STREAM_BUDGET  # advisory settings cannot prevent an otherwise valid ask
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     lineage = Workspace(Path(db_path).resolve().parent)
-    store = CoreStore(db_path)
+    store = CoreStore(db_path, light_preflight=True)
     peer = store.get_peer(peer_id)
     if peer is None:
         store.register_peer(Peer(peer_id=peer_id, adapter_ref=kind or target.runtime_kind))
@@ -472,9 +467,9 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     def acquire(under_pressure: bool) -> ClaimToken | None:
         with storage_errors():
             reap_dead_asks(db)
+            busy = BridgeLedger.launch_check(claims) if under_pressure else None
         try:
-            return claims.acquire(peer_id, sid, bridge.owner_id, lease_sec, caller=caller,
-                                  busy=BridgeLedger.has_active_asks if under_pressure else None)
+            return claims.acquire(peer_id, sid, bridge.owner_id, lease_sec, caller=caller, busy=busy)
         except LaunchBusyError:
             return None
 

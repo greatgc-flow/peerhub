@@ -5,28 +5,66 @@ import argparse
 import os
 import subprocess
 import sys
+import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+CI_WORKFLOW = ".github/workflows/ci.yml"
+MAIN_REF = "refs/heads/main"
+
+
+def git_output(root: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True,
+                          encoding="utf-8", timeout=30).stdout
+
+
+def version_changed(base: str, head: str, *, repo: Path) -> bool:
+    from tools.release_evidence import VERSION_FILE, parse_source_version
+
+    if not base or set(base) == {"0"}:
+        return True
+    current = parse_source_version(git_output(repo, "show", f"{head}:{VERSION_FILE}"))
+    try:
+        previous = parse_source_version(git_output(repo, "show", f"{base}:{VERSION_FILE}"))
+    except (ValueError, subprocess.CalledProcessError):
+        return True  # a new or rewritten branch can lack the previous version
+    return previous != current
+
+
+def windows_workflow_settings(source: str) -> tuple:
+    import yaml
+
+    try:
+        workflow = yaml.load(source, Loader=yaml.BaseLoader)
+    except yaml.YAMLError as exc:
+        raise ValueError("invalid CI workflow YAML") from exc
+    jobs = workflow["jobs"]
+    return (workflow.get("env"), workflow.get("defaults"), workflow.get("permissions"), workflow["on"].get("pull_request"),
+            jobs["windows-platform"], jobs.get("plan"))
+
 
 def windows_suite(event: str, base: str, head: str, force_full: bool = False, *, ref: str = "", repo: Path | None = None) -> str:
-    if force_full or event == "schedule" or (event == "push" and ref in {"refs/heads/main", "main"}):
+    if force_full or event == "schedule" or (event == "push" and ref in {MAIN_REF, "main"}):
         return "full"
     if not base or set(base) == {"0"}:
         return "full"
     root = repo or Path.cwd()
     try:
-        proc = subprocess.run(["git", "diff", "--name-only", "-z", base, head], cwd=root,
-                              check=True, capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
+        paths = set(git_output(root, "diff", "--no-renames", "--name-only", "-z", base, head).split("\0")) - {""}
+        if paths & {"tools/ci_platform.py", "tests/conftest.py", "ci/platform_sensitive_tests.txt"}:
+            return "full"
+        if CI_WORKFLOW in paths and windows_workflow_settings(
+            git_output(root, "show", f"{base}:{CI_WORKFLOW}")
+        ) != windows_workflow_settings(git_output(root, "show", f"{head}:{CI_WORKFLOW}")):
+            return "full"
+        if "pyproject.toml" in paths:
+            before, after = (tomllib.loads(git_output(root, "show", f"{rev}:pyproject.toml")) for rev in (base, head))
+            if before.get("tool", {}).get("pytest") != after.get("tool", {}).get("pytest"):
+                return "full"
+    except (OSError, subprocess.SubprocessError, ImportError, ValueError, TypeError, KeyError, AttributeError):
         return "full"  # uncertainty escalates to the broader Windows suite
-    paths = [line.replace("\\", "/") for line in proc.stdout.split("\0") if line]
     if not paths:
         return "targeted"
-    # A CI workflow or its selector cannot validate itself with a narrower
-    # Windows suite: exercise the full deterministic inventory in its PR.
-    if any(p in {".github/workflows/ci.yml", "tools/ci_platform.py"} for p in paths):
-        return "full"
     def prose_doc(path: str) -> bool:
         lowered = path.lower()
         if lowered in {"readme.md", "contributing.md", "changelog.md"}:
@@ -36,6 +74,14 @@ def windows_suite(event: str, base: str, head: str, force_full: bool = False, *,
             for part in lowered.split("/")
         )
     return "skip" if all(prose_doc(path) for path in paths) else "targeted"
+
+
+def plan(event: str, ref: str, base: str, head: str, dispatch_matrix: bool, *, repo: Path) -> dict[str, str]:
+    candidate = ((event == "workflow_dispatch" and dispatch_matrix)
+                 or (event == "push" and ref == MAIN_REF and version_changed(base, head, repo=repo)))
+    full_matrix = event == "schedule" or candidate
+    suite = "skip" if full_matrix else windows_suite(event, base, head, ref=ref, repo=repo)
+    return {"candidate": str(candidate).lower(), "full_matrix": str(full_matrix).lower(), "windows_suite": suite}
 
 
 def verify_marker_inventory(inventory: Path, *, repo: Path | None = None) -> int:
@@ -110,6 +156,12 @@ def main(argv: list[str] | None = None) -> int:
     detect.add_argument("--head", default="HEAD")
     detect.add_argument("--force-full", action="store_true")
     detect.add_argument("--ref", default="")
+    route = sub.add_parser("plan")
+    route.add_argument("--event", required=True)
+    route.add_argument("--ref", required=True)
+    route.add_argument("--base", default="")
+    route.add_argument("--head", required=True)
+    route.add_argument("--dispatch-matrix", choices=("true", "false"), default="false")
     verify = sub.add_parser("verify-junit")
     verify.add_argument("junit", type=Path)
     verify.add_argument("--inventory", type=Path, default=Path("ci/platform_sensitive_tests.txt"))
@@ -129,7 +181,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"windows_suite={windows_suite(args.event, args.base, args.head, args.force_full, ref=args.ref)}")
         return 0
     try:
-        if args.command == "verify-junit":
+        if args.command == "plan":
+            for name, value in plan(args.event, args.ref, args.base, args.head,
+                                    args.dispatch_matrix == "true", repo=Path.cwd()).items():
+                print(f"{name}={value}")
+        elif args.command == "verify-junit":
             verify_junit(args.junit, args.inventory)
         elif args.command == "merge-junit":
             tree = ET.parse(args.parallel)
@@ -144,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
                        ("ubuntu-full", "compatibility-smoke", "windows-platform", "full-matrix", "pytest-oracle-compat")}
             verify_ci_results(args.event, args.run_full_matrix == "true", args.windows_suite,
                               {name: value for name, value in results.items() if value})
-    except (OSError, ET.ParseError, ValueError) as exc:
+    except (OSError, subprocess.SubprocessError, ET.ParseError, ValueError) as exc:
         print(f"{args.command} failed: {exc}", file=sys.stderr)
         return 1
     return 0

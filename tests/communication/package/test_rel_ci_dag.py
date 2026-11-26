@@ -1,5 +1,6 @@
 """Wave 7: REL-005 (deterministic CI needs no provider quota) and REL-006 (publish is causally gated by the live job)."""
 import copy
+import json
 import os
 import re
 import sys
@@ -15,6 +16,22 @@ from tests.communication.harness.pkg_env import REPO
 pytestmark = [pytest.mark.package, pytest.mark.release, pytest.mark.ci, pytest.mark.timeout(900)]
 
 PROVIDER_CLIS = ("claude", "claude.cmd", "codex", "codex.cmd", "agy", "agy.exe")
+
+# Keep the nested offline run focused on architecture boundaries, fake-peer
+# delivery and recovery, and Bridge failures that must preserve durable state.
+# The broad sweep also runs restart scenarios that need multiprocessing IPC.
+_REL005_CASES = (
+    "tests/communication/architecture/test_arch_core_boundary.py::test_arch_001_core_import_graph_forbids_extension_and_cli_dependencies",
+    "tests/communication/architecture/test_arch_core_boundary.py::test_arch_002_core_boots_with_extension_tables_absent",
+    "tests/communication/architecture/test_arch_extension_graph.py::test_extension_import_graph_matches_the_documented_allowlist",
+    "tests/communication/bridge/test_cert_certainty.py::test_cert_003_reconcile_retry_survives_restart_and_never_double_authorizes",
+    "tests/communication/e2e/test_cli_ask_bridge.py::test_uncertain_retry_never_spawns_again",
+    "tests/communication/e2e/test_e2e_core_only.py::test_e2e_009_core_remains_useful_with_all_extensions_disabled",
+    "tests/communication/e2e/test_e2e_fake_runtime.py::test_e2e_001_two_peers_one_adapter_one_stream",
+    "tests/communication/e2e/test_e2e_fake_runtime.py::test_e2e_006_lost_session_creates_new_generation_and_reconstructs_from_durable_records",
+    "tests/communication/e2e/test_e2e_fake_runtime.py::test_e2e_007_shared_pool_visible_in_diag_without_contaminating_core_peers",
+    "tests/communication/fault/test_flt_bridge.py::test_flt_007_claim_expiring_mid_execution_fences_stale_owner_finalize_and_offset",
+)
 
 
 def _wf(name):
@@ -138,7 +155,7 @@ def _no_provider_env(tmp_path):
     return env
 
 
-def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or_network(tmp_path):
+def _offline_pytest_nodeids(tmp_path, targets: tuple[str, ...]) -> set[str]:
     from _rel005_oracle import validate_pair
 
     env = _no_provider_env(tmp_path)
@@ -153,49 +170,81 @@ def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or
         print(found, net)
     """) % (PROVIDER_CLIS,)], cwd=REPO, env=env)
     assert probe.stdout.strip() == "[] blocked", probe.stdout + probe.stderr  # the sandbox itself is real
-    targets = ["tests/communication/architecture", "tests/communication/e2e",
-               "tests/communication/fault/test_flt_bridge.py"]
     marker_expression = "not slow and not e2e and not live and not canary and not soak"
     common = [sys.executable, "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider", "-p", "no:xdist",
               "-p", "_rel005_oracle", "-c", str(REPO / "pyproject.toml"), "--rootdir", str(REPO),
+              "--basetemp", str(tmp_path / "nested-pytest"),
               "-o", "addopts=", "-m", marker_expression, *targets]
     report_dir = tmp_path / "rel005-oracle"
     collect_file, execution_file = report_dir / "collection.json", report_dir / "execution.json"
     collect_nonce, execution_nonce = uuid.uuid4().hex, uuid.uuid4().hex
     collect_cmd = [*common, "--collect-only", "--rel005-report", str(collect_file),
                    "--rel005-nonce", collect_nonce]
-    collect = pkg_env.run(collect_cmd, cwd=REPO, env=env)
+    collect = pkg_env.run(collect_cmd, cwd=REPO, env=env, check=True)
     assert collect_file.is_file(), collect.stdout[-1000:] + collect.stderr[-1000:]
     execution_cmd = [*common, "--rel005-report", str(execution_file), "--rel005-nonce", execution_nonce]
-    execution = pkg_env.run(execution_cmd, cwd=REPO, env=env, timeout=900)
+    execution = pkg_env.run(execution_cmd, cwd=REPO, env=env, timeout=900, check=True)
     assert execution_file.is_file(), execution.stdout[-1500:] + execution.stderr[-1500:]
-    import json
-    validate_pair(json.loads(collect_file.read_text(encoding="utf-8")),
+    collection = json.loads(collect_file.read_text(encoding="utf-8"))
+    validate_pair(collection,
                   json.loads(execution_file.read_text(encoding="utf-8")),
                   expected_nonce=(collect_nonce, execution_nonce),
                   platform="windows" if os.name == "nt" else "posix",
                   collect_returncode=collect.returncode, execution_returncode=execution.returncode)
-    assert len(json.loads(collect_file.read_text(encoding="utf-8"))["item_nodeids"]) >= 30
+    return set(collection["item_nodeids"])
 
 
-def test_rel_005_live_and_soak_tests_are_deselected_by_the_default_command(tmp_path):
+def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or_network(tmp_path):
+    assert _offline_pytest_nodeids(tmp_path, _REL005_CASES) == set(_REL005_CASES)
+
+
+@pytest.mark.slow
+def test_rel_005_broad_offline_sweep(tmp_path):
+    targets = ("tests/communication/architecture", "tests/communication/e2e",
+               "tests/communication/fault/test_flt_bridge.py")
+    assert len(_offline_pytest_nodeids(tmp_path, targets)) >= 30
+
+
+def test_rel_005_live_and_soak_tests_are_deselected_by_the_default_command(tmp_path, monkeypatch):
     t = tmp_path / "t"
     t.mkdir()
     (t / "test_live_gate.py").write_text("import pytest\n\n@pytest.mark.live\ndef test_would_need_a_provider():\n    assert False, 'live test ran'\n\n"
                                          "@pytest.mark.soak\ndef test_would_soak():\n    assert False, 'soak test ran'\n", encoding="utf-8")
     (t / "test_plain.py").write_text("def test_plain():\n    assert True\n", encoding="utf-8")
-    base = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-c", str(REPO / "pyproject.toml"), "--rootdir", str(t), str(t)]
-    r = pkg_env.run(base, cwd=t, env=pkg_env.clean_env())
-    assert r.returncode == 0 and "1 passed" in r.stdout and "2 deselected" in r.stdout, r.stdout
-    live = pkg_env.run([*base, "-m", "live"], cwd=t, env=pkg_env.clean_env())  # positive control: the marker really selects it
-    assert live.returncode == 1 and "live test ran" in live.stdout
+    # Exercise the repository defaults even if the invoking shell overrides them.
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-q -m live")
+    env = pkg_env.clean_env({"PYTHONPATH": str(REPO / "tests")})
+    env.pop("PYTEST_ADDOPTS", None)
+    base = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:xdist",
+            "-p", "_rel005_oracle", "-c", str(REPO / "pyproject.toml"), "--rootdir", str(t), str(t)]
+
+    def run(label: str, *options: str):
+        report_file = tmp_path / f"{label}.json"
+        result = pkg_env.run([*base, "--rel005-report", str(report_file), "--rel005-nonce", label, *options],
+                             cwd=t, env=env)
+        assert report_file.is_file(), result.stdout + result.stderr
+        return result, json.loads(report_file.read_text(encoding="utf-8"))
+
+    plain_nodeid = "test_plain.py::test_plain"
+    live_nodeid = "test_live_gate.py::test_would_need_a_provider"
+    default, report = run("default")
+    assert default.returncode == 0, default.stdout + default.stderr
+    assert report["item_nodeids"] == [plain_nodeid]
+    assert sorted(report["deselected_nodeids"]) == sorted([live_nodeid, "test_live_gate.py::test_would_soak"])
+    assert [(row["nodeid"], row["when"], row["outcome"]) for row in report["test_reports"]] == [
+        (plain_nodeid, phase, "passed") for phase in ("setup", "call", "teardown")
+    ]
+
+    live, live_report = run("live", "-m", "live")
+    assert live_report["item_nodeids"] == [live_nodeid]
+    assert live.returncode == 1 and "live test ran" in live.stdout, live.stdout + live.stderr
 
 
 # ----------------------------------------------------------------------------- REL-006 (textual YAML mutations + gate DAG linkage)
 PUBLISH_TEXT = (REPO / ".github/workflows/publish.yml").read_text(encoding="utf-8")
-GATE_JOB = {"G0": "verify", "G1": "verify", "G2": "verify", "G3": "live-validation", "G4": "build",
-            "G5": "release-evidence", "G7": "verify"}  # release-gates.json blocking gate -> publish.yml job that provides it
-PUBLISH_NEEDS = "needs: [verify, live-validation, build, matrix, release-evidence]"
+GATE_JOB = {"G0": "candidate-ci", "G1": "candidate-ci", "G2": "candidate-ci", "G3": "live-validation", "G4": "build",
+            "G5": "release-evidence", "G7": "candidate-ci"}  # release-gates.json blocking gate -> publish.yml job that provides it
+PUBLISH_NEEDS = "needs: [verify, candidate-ci, live-validation, build, matrix, release-evidence]"
 
 
 def _mutate(text, how):
@@ -235,8 +284,6 @@ def test_rel_006_removed_live_job_leaves_publish_unrunnable_and_gate_linkage_fai
 
 
 def _gates():
-    import json
-
     return {g["id"]: g for g in json.loads((REPO / "docs/m1_spec/08_LIFECYCLE/release-gates.json").read_text(encoding="utf-8"))["gates"]}
 
 
@@ -267,8 +314,10 @@ def test_rel_006_every_blocking_gate_in_release_gates_json_maps_to_a_job_in_publ
     assert closure(wf, "publish") == {"verify", "candidate-ci", "live-validation", "build", "matrix", "release-evidence"}
     assert _needs(wf["jobs"]["verify"]) == []
     assert set(_needs(wf["jobs"]["live-validation"])) == {"verify", "candidate-ci"}
-    assert _needs(wf["jobs"]["build"]) == ["verify"]
-    # G0/G1/G2/G7 now share a job; their success jointly gates downstream evidence.
+    assert set(_needs(wf["jobs"]["build"])) == {"verify", "candidate-ci"}
+    assert {"matrix", "verify"} <= set(_needs(wf["jobs"]["publish"]))
+    assert {"candidate-ci", "live-validation", "build", "matrix", "verify"} <= closure(wf, "release-evidence")
+    # The candidate matrix provides G0/G1/G2 and the G7 invariants before release evidence is assembled.
     for g in ("G3", "G4", "G5"):
         for dep in gates[g]["depends_on"]:
             assert GATE_JOB[dep] in closure(wf, GATE_JOB[g]), f"{g} must wait for {dep}"
@@ -277,6 +326,9 @@ def test_rel_006_every_blocking_gate_in_release_gates_json_maps_to_a_job_in_publ
     for g in blocking:
         for bad in ("failure", "cancelled", "skipped"):
             assert runs(wf, "publish", {**ok, GATE_JOB[g]: bad}) is False, (g, bad)
+    for job in ("verify", "matrix"):
+        for bad in ("failure", "cancelled", "skipped"):
+            assert runs(wf, "publish", {**ok, job: bad}) is False, (job, bad)
 
 
 @pytest.mark.parametrize("gate", sorted(GATE_JOB))
@@ -326,31 +378,34 @@ def test_rel_006_live_job_selects_the_six_m1_live_tests_with_opt_in():
 def test_rel_006_publish_evidence_job_runs_the_release_evidence_tool_over_every_gate_junit():
     wf = yaml.safe_load(PUBLISH_TEXT)
     run = next(st["run"] for st in wf["jobs"]["release-evidence"]["steps"] if "release_evidence" in st.get("run", ""))
-    for g in ("g0", "g1", "g2", "g3", "g4"):
-        assert f"junit/{g}.xml" in run
+    for report in ("g3", "g3-slow", "g3-e2e", "g4"):
+        assert f"--junit junit/{report}.xml" in run
+    assert '--ci-junit-dir ci-junit --ci-run-url "$CI_RUN_URL"' in run
+    assert "--g4-matrix-dir junit" in run
     ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    assert "pytest" in yaml.safe_dump(ci["jobs"]["ubuntu-full"]) and not ci["jobs"]["ubuntu-full"].get("continue-on-error")  # CI runner is blocking
+    matrix = ci["jobs"]["full-matrix"]
+    assert not _bypass(matrix)  # CI runner is blocking
+    suite = next(step for step in matrix["steps"] if "pytest -q -n auto" in step.get("run", ""))
+    assert "g2-rc-matrix-" in suite["run"]
 
 
-def test_rel_006_verify_runs_the_same_gate_selections_sequentially_without_providers():
+def test_rel_006_verify_reuses_source_catalog_evidence_and_scans_traceability_without_providers():
     wf = _wf("publish.yml")
     assert set(wf["jobs"]) == {"verify", "candidate-ci", "live-validation", "build", "matrix", "release-evidence", "publish"}
     verify = wf["jobs"]["verify"]
     assert _needs(verify) == []
-    runs = [step["run"] for step in verify["steps"] if "run" in step]
-    tests = [run for run in runs if "pytest" in run]
-    assert tests == [
-        "python -u -m pytest -q -n auto --junitxml=junit/g0.xml tests/communication/architecture tests/communication/schema tests/communication/unit tests/communication/property tests/communication/meta tests/communication/security",
-        "python -u -m pytest -q -n auto --junitxml=junit/g1.xml tests/communication/core tests/communication/migration tests/communication/concurrency tests/communication/fault tests/communication/integration",
-        "python -u -m pytest -q -n auto --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e tests/continuity tests/collaboration",
-        "python -u -m pytest -q -m serial_timing --junitxml=junit/monitor-timing.xml -o junit_suite_name=monitor-timing "
-        "tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py",
-    ]
-    g2, timing = (next(step for step in verify["steps"] if step.get("run") == run) for run in tests[2:])
-    assert g2["env"]["PEERHUB_CI_SERIAL_TIMING"] == "1"
-    assert "PEERHUB_CI_SERIAL_TIMING" not in timing.get("env", {})
-    assert not timing.get("if") and not timing.get("continue-on-error")
-    assert runs.index("python -m tools.traceability") > runs.index(tests[3]) > runs.index(tests[2])
+    scans = [step for step in verify["steps"] if "run" in step]
+    assert [step["run"] for step in scans] == ["python -m tools.traceability"]
+    assert not scans[0].get("if") and not scans[0].get("continue-on-error")
+    candidate = wf["jobs"]["candidate-ci"]["steps"]
+    select = next(step for step in candidate if step.get("id") == "candidate-ci")
+    download = next(step for step in candidate if step.get("with", {}).get("pattern") == "junit-g2-rc-matrix-*")
+    check = next(step for step in candidate if "--verify-ci-junit" in step.get("run", ""))
+    assert 'tools.release_ci --repo "$GITHUB_REPOSITORY" --commit "$candidate_sha"' in select["run"]
+    assert download["with"]["run-id"] == "${{ steps.candidate-ci.outputs.run-id }}"
+    assert '--verify-ci-junit ci-junit --verify-source-catalog --commit "$GITHUB_SHA"' in check["run"]
+    assert candidate.index(select) < candidate.index(download) < candidate.index(check)
+    assert all(not step.get("if") and not step.get("continue-on-error") for step in (select, download, check))
     package = next(step["run"] for step in wf["jobs"]["build"]["steps"] if "--junitxml=junit/g4.xml" in step.get("run", ""))
     assert "pytest -q -n auto" in package
     for job in wf["jobs"].values():

@@ -23,8 +23,35 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      candidate: ${{ steps.route.outputs.candidate }}
+      full_matrix: ${{ steps.route.outputs.full_matrix }}
+      windows_suite: ${{ steps.route.outputs.windows_suite }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.11"
+      - name: Install workflow parser
+        if: github.event_name == 'pull_request'
+        run: python -m pip install PyYAML
+      - name: Select the CI lanes
+        id: route
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DISPATCH_MATRIX: ${{ inputs.full_matrix || false }}
+        run: |
+          python -m tools.ci_platform plan --event "$GITHUB_EVENT_NAME" --ref "$GITHUB_REF" --base "$BASE_SHA" --head "$GITHUB_SHA" --dispatch-matrix "$DISPATCH_MATRIX" >> "$GITHUB_OUTPUT"
+
   ubuntu-full:
-    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.full_matrix) && (github.ref == 'refs/heads/main' || github.event_name != 'push')
+    needs: plan
+    if: needs.plan.outputs.full_matrix == 'false' && (github.ref == 'refs/heads/main' || github.event_name != 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -64,45 +91,35 @@ jobs:
           overwrite: true
 
   windows-platform:
-    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.full_matrix) && (github.ref == 'refs/heads/main' || github.event_name != 'push')
+    needs: plan
+    if: needs.plan.outputs.full_matrix == 'false' && (github.ref == 'refs/heads/main' || github.event_name != 'push')
     runs-on: windows-latest
     # Full main-push Windows pytest exceeded 35 min in run #41209722632.
     # Keep the exact suite; align the ceiling with the 60 min full-matrix lane.
     timeout-minutes: 60
     outputs:
-      windows_suite: ${{ steps.suite.outputs.windows_suite }}
+      windows_suite: ${{ needs.plan.outputs.windows_suite }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Select Windows suite
-        id: suite
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.sha }}
-          TARGET_REF: ${{ github.ref }}
-        shell: pwsh
-        run: |
-          $selection = python -m tools.ci_platform detect-windows-suite --event "$env:GITHUB_EVENT_NAME" --ref "$env:TARGET_REF" --base "$env:BASE_SHA" --head "$env:HEAD_SHA"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Add-Content -Path $env:GITHUB_OUTPUT -Value $selection
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        if: steps.suite.outputs.windows_suite != 'skip'
+        if: needs.plan.outputs.windows_suite != 'skip'
         with:
           python-version: "3.11"
           cache: pip
       - name: Install dependencies
-        if: steps.suite.outputs.windows_suite != 'skip'
+        if: needs.plan.outputs.windows_suite != 'skip'
         run: python -m pip install -e ".[dev]"
       - name: Run full Windows suite for platform-sensitive changes
-        if: steps.suite.outputs.windows_suite == 'full'
+        if: needs.plan.outputs.windows_suite == 'full'
         env:
           PEERHUB_CI_SERIAL_TIMING: "1"
         run: python -u -m pytest -q -n auto --durations=25 --junitxml=junit/windows-full.xml
       - name: Run the monitor latency checks serially
         id: monitor-timing
-        if: steps.suite.outputs.windows_suite == 'full'
+        if: needs.plan.outputs.windows_suite == 'full'
         run: >-
           python -u -m pytest -q -m serial_timing --junitxml=junit/monitor-timing.xml -o junit_suite_name=monitor-timing
           tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py
@@ -110,22 +127,23 @@ jobs:
         if: ${{ !cancelled() && (steps.monitor-timing.outcome == 'success' || steps.monitor-timing.outcome == 'failure') }}
         run: python -m tools.ci_platform merge-junit junit/windows-full.xml junit/monitor-timing.xml
       - name: Run reviewed Windows platform-sensitive inventory
-        if: steps.suite.outputs.windows_suite == 'targeted'
+        if: needs.plan.outputs.windows_suite == 'targeted'
         run: python -u -m pytest -q -m platform_sensitive --junitxml=junit/windows-platform.xml -rs
       - name: Verify platform-sensitive inventory and reject skips
-        if: steps.suite.outputs.windows_suite == 'targeted'
+        if: needs.plan.outputs.windows_suite == 'targeted'
         run: python -m tools.ci_platform verify-junit junit/windows-platform.xml --inventory ci/platform_sensitive_tests.txt
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
-          name: junit-windows-${{ steps.suite.outputs.windows_suite }}-${{ github.sha }}-${{ github.run_id }}
+          name: junit-windows-${{ needs.plan.outputs.windows_suite }}-${{ github.sha }}-${{ github.run_id }}
           path: junit/windows-*.xml
           if-no-files-found: warn
           retention-days: 7
           overwrite: true
 
   compatibility-smoke:
-    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.full_matrix)
+    needs: plan
+    if: needs.plan.outputs.full_matrix == 'false'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -162,13 +180,13 @@ jobs:
 
   full-matrix:
     name: full-matrix (${{ matrix.os }}, ${{ matrix.python-version }})
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_matrix)
+    needs: plan
+    if: needs.plan.outputs.full_matrix == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      # This is the declared support cross-product. It runs full only weekly or
-      # when explicitly requested against the selected release-candidate ref.
+      # The declared support cross-product runs weekly and for release candidates.
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
@@ -183,6 +201,9 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -e ".[dev]"
+      - name: Verify platform-sensitive marker inventory
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        run: python -m tools.ci_platform verify-marker-inventory --inventory ci/platform_sensitive_tests.txt
       - name: Run pyright
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python -m pyright
@@ -192,6 +213,7 @@ jobs:
         run: python -u -m pytest -q -n auto --junitxml="junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml"
       - name: Run the monitor latency checks serially
         id: monitor-timing
+        if: matrix.python-version == '3.11'
         run: >-
           python -u -m pytest -q -m serial_timing --junitxml=junit/monitor-timing.xml -o junit_suite_name=monitor-timing
           tests/communication/diag/test_diag_monitor_read_model.py tests/communication/diag/test_monitor_activity.py
@@ -199,13 +221,21 @@ jobs:
         if: ${{ !cancelled() && (steps.monitor-timing.outcome == 'success' || steps.monitor-timing.outcome == 'failure') }}
         run: python -m tools.ci_platform merge-junit "junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml" junit/monitor-timing.xml
       - name: Stamp candidate CI evidence
-        if: github.event_name == 'workflow_dispatch' && inputs.full_matrix
+        if: needs.plan.outputs.candidate == 'true'
         shell: bash
         run: python -m tools.release_evidence --stamp-junit "junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml" --gate G2 --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: github.event_name == 'workflow_dispatch' && inputs.full_matrix
+        if: needs.plan.outputs.candidate == 'true'
         with:
           name: junit-g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: github.event_name == 'schedule' && steps.monitor-timing.outcome == 'success'
+        with:
+          name: junit-monitor-timing-${{ matrix.os }}-py${{ matrix.python-version }}
           path: junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml
           if-no-files-found: error
           retention-days: 7
@@ -241,7 +271,7 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [ubuntu-full, windows-platform, compatibility-smoke, full-matrix, pytest-oracle-compat]
+    needs: [plan, ubuntu-full, windows-platform, compatibility-smoke, full-matrix, pytest-oracle-compat]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -253,19 +283,21 @@ jobs:
       - name: Verify required CI lanes
         env:
           EVENT_NAME: ${{ github.event_name }}
-          RUN_FULL_MATRIX: ${{ inputs.full_matrix || false }}
-          WINDOWS_SUITE: ${{ needs.windows-platform.outputs.windows_suite || 'skip' }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          RUN_FULL_MATRIX: ${{ needs.plan.outputs.full_matrix }}
+          WINDOWS_SUITE: ${{ needs.plan.outputs.windows_suite }}
           UBUNTU_RESULT: ${{ needs.ubuntu-full.result }}
           WINDOWS_RESULT: ${{ needs.windows-platform.result }}
           SMOKE_RESULT: ${{ needs.compatibility-smoke.result }}
           MATRIX_RESULT: ${{ needs.full-matrix.result }}
           PYTEST_ORACLE_RESULT: ${{ needs.pytest-oracle-compat.result }}
-        run: >-
-          python -m tools.ci_platform verify-ci-results
-          --event "$EVENT_NAME" --run-full-matrix "$RUN_FULL_MATRIX"
-          --windows-suite "$WINDOWS_SUITE"
-          --ubuntu-full-result "$UBUNTU_RESULT"
-          --windows-platform-result "$WINDOWS_RESULT"
-          --compatibility-smoke-result "$SMOKE_RESULT"
-          --full-matrix-result "$MATRIX_RESULT"
+        run: |
+          test "$PLAN_RESULT" = success
+          python -m tools.ci_platform verify-ci-results \
+          --event "$EVENT_NAME" --run-full-matrix "$RUN_FULL_MATRIX" \
+          --windows-suite "$WINDOWS_SUITE" \
+          --ubuntu-full-result "$UBUNTU_RESULT" \
+          --windows-platform-result "$WINDOWS_RESULT" \
+          --compatibility-smoke-result "$SMOKE_RESULT" \
+          --full-matrix-result "$MATRIX_RESULT" \
           --pytest-oracle-compat-result "$PYTEST_ORACLE_RESULT"

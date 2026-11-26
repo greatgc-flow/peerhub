@@ -183,7 +183,8 @@ def _profile_fingerprints(workspace: Path) -> tuple[tuple[str, str, int, int], .
 def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                         height: int | None, color: bool, expand: bool = False,
                         show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT,
-                        links: bool = False) -> str:
+                        links: bool = False,
+                        nearest_store: str | None = None) -> str:
     from peerhub.cli.monitor_links import file_link_url, monitor_links_enabled
     from peerhub.cli.monitor_layout import FRAME_TRAILING_ROWS
     from peerhub.cli.monitor_view import render_grouped_frame
@@ -205,9 +206,10 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                             if (url := urls.get(profile.get("_definition_layer") or ""))}
     except (OSError, ValueError):
         profiles = []
-    nearest = select_store(DEFAULT_DB_PATH, use_env=False)
+    nearest = select_store(DEFAULT_DB_PATH, use_env=False) if nearest_store is None else None
     payload = {**payload, "configured_profiles": profiles, "_profile_urls": profile_urls,
-               "_nearest_store_path": nearest.path if nearest.source == "discovered" else None,
+               "_nearest_store_path": (nearest.path if nearest is not None and nearest.source == "discovered"
+                                        else nearest_store),
                "_store_note": env_override_note(str(store_path), selection.get("source"))}
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
                                 color=color, unicode=unicode_ok, width=width,
@@ -277,6 +279,17 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     is_explicit = db_source in ("explicit", "env")
     if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5
+    nearest_store: str | None = None
+    nearest_store_resolved = False
+
+    def get_nearest_store() -> str | None:
+        nonlocal nearest_store, nearest_store_resolved
+        if not nearest_store_resolved:
+            from peerhub.cli.store_select import DEFAULT_DB_PATH, select_store
+            nearest = select_store(DEFAULT_DB_PATH, use_env=False, allow_process=False)
+            nearest_store = nearest.path if nearest.source == "discovered" else None
+            nearest_store_resolved = True
+        return nearest_store
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.extensions.monitor_alerts import merge_activity_frame
     from peerhub.core.schema_version import SchemaVersionError
@@ -334,7 +347,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             output.write(_render_human_frame(payload, view=effective_view, width=width,
                                              height=_live_rows(height, alternate=output.alt_screen) if output.live else None,
                                              color=color,
-                                             expand=expand, show_quota_notes=show_quota_notes, links=links))
+                                             expand=expand, show_quota_notes=show_quota_notes, links=links,
+                                             nearest_store=get_nearest_store()))
         return read_code(payload)
 
     def redraw(state: str | None = None, next_in: float | None = None, *, live_refresh: dict[str, Any] | None = None) -> None:
@@ -353,7 +367,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         output.write(_render_human_frame(display, view=effective_view, width=width,
                                          height=_live_rows(height, alternate=output.alt_screen) if output.live else None,
                                          color=color,
-                                         expand=expand, show_quota_notes=show_quota_notes, links=links))
+                                         expand=expand, show_quota_notes=show_quota_notes, links=links,
+                                         nearest_store=get_nearest_store()))
 
     def watch_live() -> int:
         nonlocal last_payload

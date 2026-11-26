@@ -29,6 +29,7 @@ from peerhub.extensions.process_tree import creation_ticks as _creation_time, ki
 
 DEFAULT_TIMEOUT_S = 600.0
 RESOURCE_POLL_SECONDS = 3.0
+RESOURCE_SAMPLE_MAX_AGE_SECONDS = 1.0
 STDOUT_CAP = 4 * 1024 * 1024
 STDERR_CAP = 64 * 1024
 PROMPT_FILE_CAP = 1024 * 1024
@@ -397,6 +398,7 @@ def _launch_flags() -> dict[str, Any]:
 
 def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: str, argv_builder: ArgvBuilder = default_argv_builder,
               cancel: threading.Event | None = None, grace_s: float = 30.0, responses: bool = False,
+              response_tasks: frozenset[str] = frozenset(),
               resource_reader: Callable[[], ResourceSample] | None = None) -> dict[str, Any]:
     check_max_parallel(max_parallel)
     cancel = cancel or threading.Event()
@@ -461,7 +463,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
         explain = cast(dict[str, Any], guidance).get("explain_cmd") if isinstance(guidance, dict) else None
         if status != "COMPLETED" and isinstance(explain, str) and explain:
             out_row["next"] = [explain]
-        if responses and status == "COMPLETED" and result is not None:
+        if (responses or t.task_id in response_tasks) and status == "COMPLETED" and result is not None:
             out_row["response"] = result["response"]  # the stored reply, as printed by `ask --json`
         return out_row
 
@@ -492,6 +494,8 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
     scratch.mkdir(parents=True, exist_ok=True)
     workers = max(1, min(max_parallel, len(tasks)))
     waiting_reported = False
+    sample_expires = -math.inf
+    warnings: list[str] = []
     with (tempfile.TemporaryDirectory(prefix="peerhub-batch-", dir=scratch) as d,
           ThreadPoolExecutor(max_workers=workers) as executor):
         tmp = Path(d)
@@ -502,7 +506,9 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             # Low resources hold further launches while asks run; with none running the task starts (with the
             # warning), so a machine that never recovers cannot stall the batch forever.
             while not cancel.is_set():
-                warnings = load_limits.load_warnings(resource_reader().facts())
+                if time.monotonic() >= sample_expires:
+                    warnings = load_limits.load_warnings(resource_reader().facts())
+                    sample_expires = time.monotonic() + RESOURCE_SAMPLE_MAX_AGE_SECONDS
                 in_flight = {future for future in in_flight if not future.done()}
                 if not warnings or not in_flight:
                     if warnings:
@@ -511,7 +517,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
                 if not waiting_reported:
                     print(f"batch: waiting for machine resources ({'; '.join(warnings)})", file=sys.stderr, flush=True)
                     waiting_reported = True
-                cancel.wait(RESOURCE_POLL_SECONDS)
+                _, in_flight = wait(in_flight, timeout=RESOURCE_POLL_SECONDS, return_when=FIRST_COMPLETED)
             if cancel.is_set():
                 rows[task.task_id] = blocked(task, "cancelled")
             else:

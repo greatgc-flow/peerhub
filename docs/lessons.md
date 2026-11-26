@@ -48,7 +48,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: ask, basics, example, request-id, foreground, tiers, transport, blocks
 - Symptom: A caller needs the reuse pattern, the tier choice, the long-ask behaviour or the transport options that the short guide states only as decisions.
-- Fix: Reuse the stream within one task with a separate request ID per turn. Use a new stream for a new task and the lowest tier that fits. Use --dry-run to preview the ask. See [docs/commands.md#ask](commands.md#ask) for flags, transport and timeouts.
+- Fix: Use the same stream for follow-up turns in one task, with a new request ID per turn; start a new stream for a new task or each independent vote. Use --dry-run to preview the ask. See [docs/commands.md#ask](commands.md#ask) for flags, transport and timeouts.
 - Issue: 0.25.0 plan D5
 
 ## Ask receipts, outcomes, and profile measurements (`ask-metrics`)
@@ -139,7 +139,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: peer, vote, votes, author, independent, unanimity, review, self-vote, batch, responses, verdict, fresh, consequential
 - Symptom: A document author votes AGREE on their own work and the result is treated as unanimous approval, votes are collected one ask at a time, or a routine check is sent to three peers or to a named stream.
-- Fix: Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Routine checks and all three consequential votes always run FRESH, even when a stream name is given: a named stream is for review rounds on one diff only. Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. There is no `vote` command: votes and reviews run in one command, peerhub batch run votes.json --batch-id ID --max-parallel n --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Verdict template for every voter, one reply of <= 300 tokens: VERDICT / BLOCKERS / NITS (VERDICT: AGREE or DISAGREE; BLOCKERS: each with file:line and the exact fix, or none; NITS: optional, one line each).
+- Fix: Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Use a new stream per voter: --fresh on a used stream can still include up to 100 earlier records (24 KB), even when a stream name is given. A named stream is for review rounds on one diff only. Require voters did not author the document. There is no `vote` command: run peerhub batch run votes.json --batch-id ID --max-parallel n --responses. cc/cx use the repository workspace, not writable; ag uses a private empty directory as workspace (always writable). Keep prompts inline. Reply VERDICT / BLOCKERS / NITS (<= 300 tokens). See [docs/commands.md#ask](commands.md#ask).
 - Issue: #297, #366, 0.25.0 plan D6
 
 ## Installed vs checkout mismatch (`installed-vs-checkout`)
@@ -223,7 +223,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: parallel, quota, pace, pools, batch, loop, distribute, minimal, ram, free, memory, slots, load, diag, plan, resource, resources
 - Symptom: Several tasks can run at once and the caller wants them spread over the pools with the most spare quota, spending as little as possible.
-- Fix: Read peerhub diag --plan and choose usable pools by lowest 7D PACE first. Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Refresh quota and read the plan after each wave. See [docs/batch.md#parallel-work-over-the-least-quota](batch.md#parallel-work-over-the-least-quota).
+- Fix: Read peerhub diag --plan and choose usable pools by lowest 7D PACE first. Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Refresh only the peers the next wave may use (peerhub observation refresh --peers cx ag) and read the plan after each wave. See [docs/batch.md#parallel-work-over-the-least-quota](batch.md#parallel-work-over-the-least-quota).
 - Issue: owner decisions 2026-11-22 and 2026-11-25
 
 ## Peer sub-agents inside one ask (`peer-subagents`)
@@ -285,8 +285,8 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 ## Stream reuse cost: reuse within one task only (`stream-reuse-cost`)
 
 - Keywords: stream, reuse, resume, session, context, tokens, quota, cost, vote
-- Symptom: Quota drains fast although prompts are short: a long-lived --stream is reused across many tasks, so every ask re-sends the whole earlier conversation (on every model turn).
-- Fix: Reuse only within one task. Move a new task to a new stream and send votes fresh with facts inline. See [docs/commands.md#ask](commands.md#ask).
+- Symptom: Quota drains fast although prompts are short: a long-lived --stream is reused across many tasks, so later asks can resend earlier context.
+- Fix: Reuse only within one task. Move a new task to a new stream. See [docs/commands.md#ask](commands.md#ask).
 - Issue: #340
 
 ## Recommend a profile and ask command (`suggest`)

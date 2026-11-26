@@ -15,20 +15,20 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from shutil import rmtree
 from tempfile import NamedTemporaryFile
 from typing import Any, Protocol
+from uuid import uuid4
 from xml.etree.ElementTree import ParseError
 
-from tools.live_gate import EVIDENCE_DIR, ROOT, STAGES
-from tools.release_ci import REQUIRED_JOBS
-from tools.release_evidence import _bound_props, source_version
+from tools.live_gate import EVIDENCE_DIR, ROOT, STAGES, checkpoint_evidence, evidence_json_name, file_digest
+from tools.release_ci import BRANCH, DISPATCH, REPORT_PATTERN, REQUIRED_JOBS, WORKFLOW, candidate_runs_endpoint, is_candidate_run
+from tools.release_evidence import RELEASE_POLICY_REL, candidate_ci_errors, source_binding_errors, source_version
 from tools.release_notes import release_notes
 
-WORKFLOW = "ci.yml"
-EVENT = "workflow_dispatch"
-BRANCH = "main"
 JUNIT_NAMES = tuple(name for _, _, name in STAGES)
 POLL_SECONDS = 10
+PUSH_DISCOVERY_POLLS = 3
 LIVE_WAIT_SECONDS = 1
 LIVE_STOP_SECONDS = 30
 RETRY_POLLS = 18
@@ -92,6 +92,7 @@ class State:
     live_status: str = "pending"
     evidence_sha256: dict[str, str] = field(default_factory=dict)
     retry_requested: bool = False
+    initial_ci_attempt: int = 1
 
 
 class ReleaseFlow:
@@ -103,6 +104,7 @@ class ReleaseFlow:
         self.evidence_dir = root / EVIDENCE_DIR.relative_to(ROOT)
         self.state_path = self.evidence_dir.with_name("release-flow") / f"state-{version}.json"
         self.lock_path = self.state_path.with_name(f"lock-{version}")
+        self.live_checkpoint = self.state_path.with_name(f"live-{version}.json")
         self.live_log = self.evidence_dir / "release-flow-live.log"
         self.run = runner
         self.sleep = sleep
@@ -229,16 +231,15 @@ class ReleaseFlow:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
 
-    def ci_run(self, run_id: int) -> dict[str, Any]:
+    def ci_run(self, run_id: int, *, event: str | None = None) -> dict[str, Any]:
         row = self.api(f"actions/runs/{run_id}")
         if row["head_sha"] != self.head:
             raise FlowError(f"CI run {run_id} head SHA {row['head_sha']} differs from HEAD {self.head}")
-        if row["event"] != EVENT:
-            raise FlowError(f"CI run {run_id} event {row['event']!r}; expected {EVENT}")
+        if event is not None and row["event"] != event:
+            raise FlowError(f"CI run {run_id} event {row['event']!r}; expected {event}")
         if (row["id"] != run_id or row["head_branch"] != BRANCH
                 or row["path"].partition("@")[0] != f".github/workflows/{WORKFLOW}"
-                or any((row.get(key) or {}).get("full_name", "").casefold() != self.repo.casefold()
-                       for key in ("repository", "head_repository"))):
+                or not is_candidate_run(row, self.repo, self.head)):
             raise FlowError(f"CI run {run_id} identity mismatch for {self.repo} {WORKFLOW} on {BRANCH}")
         return row
 
@@ -255,8 +256,31 @@ class ReleaseFlow:
         run_id = int(urls[0])
         self.fetch_main()
         self.check_main()
-        self.ci_run(run_id)
+        self.ci_run(run_id, event=DISPATCH)
         return run_id
+
+    def select_ci(self, explicit_run: int | None) -> State:
+        if explicit_run is not None:
+            return State(self.head, explicit_run, initial_ci_attempt=self.ci_run(explicit_run)["run_attempt"])
+        for poll in range(PUSH_DISCOVERY_POLLS):
+            pages = self.api(candidate_runs_endpoint(self.head), "--paginate", "--slurp")
+            pushes = [row for page in pages for row in page["workflow_runs"]
+                      if row.get("event") == "push" and is_candidate_run(row, self.repo, self.head)]
+            for row in pushes:
+                run_id = row["id"]
+                run = self.ci_run(run_id, event="push")
+                attempt = run["run_attempt"]
+                if run["status"] == "completed":
+                    jobs = self.jobs(run_id, attempt)
+                    if not (REQUIRED_JOBS - {"ci-pass"}) & jobs.keys():
+                        # Ordinary push CI (including runs from before push routing).
+                        continue
+                return State(self.head, run_id, initial_ci_attempt=attempt)
+            if pushes:
+                break
+            if poll + 1 < PUSH_DISCOVERY_POLLS:
+                self.sleep(POLL_SECONDS)
+        return State(self.head, self.dispatch())
 
     def jobs(self, run_id: int, attempt: int) -> dict[str, str]:
         latest: dict[str, str] = {}
@@ -288,10 +312,11 @@ class ReleaseFlow:
             attempt = row["run_attempt"]
             if type(attempt) is not int or attempt < 1:
                 raise FlowError(f"CI run {run_id} has invalid attempt {attempt!r}")
-            if attempt > 2 or (attempt == 2 and not state.retry_requested):
+            expected = state.initial_ci_attempt + int(state.retry_requested)
+            if attempt != expected and not (state.retry_requested and attempt == state.initial_ci_attempt):
                 raise FlowError(f"CI run {run_id} attempt {attempt} not started by this flow")
-            if state.retry_requested and attempt == 1:
-                # The API can still show attempt 1 just after accepting the rerun.
+            if state.retry_requested and attempt == state.initial_ci_attempt:
+                # The API can still show the earlier attempt just after accepting the rerun.
                 waiting_for_retry += 1
                 if waiting_for_retry > RETRY_POLLS:
                     raise FlowError(f"CI run {run_id} never started the requested retry")
@@ -300,17 +325,18 @@ class ReleaseFlow:
                 missing = REQUIRED_JOBS - jobs.keys()
                 green = not missing and all(jobs[name] == "success" for name in REQUIRED_JOBS)
                 if row["conclusion"] == "success" and green:
+                    self.verify_ci_reports(run_id)
                     print(f"CI run {run_id} is green on {self.head}.", flush=True)
                     return attempt
                 problems = [f"{name}={conclusion}" for name, conclusion in sorted(jobs.items())
                             if conclusion != "success"]
                 problems.extend(f"{name}=missing" for name in sorted(missing))
                 detail = ", ".join(problems) or "all reported jobs succeeded"
-                if (row["conclusion"] not in {"failure", "cancelled"} or attempt != 1 or state.retry_requested
+                if (row["conclusion"] not in {"failure", "cancelled"} or state.retry_requested
                         or missing or not retry_is_safe(jobs)):
                     raise FlowError(f"CI run {run_id} attempt {attempt} concluded {row['conclusion']}: {detail}")
                 latest = self.ci_run(run_id)
-                if latest["run_attempt"] != 1 or latest["status"] != "completed":
+                if latest["run_attempt"] != attempt or latest["status"] != "completed":
                     raise FlowError(f"CI run {run_id} changed before retry: attempt {latest['run_attempt']}, "
                                     f"status {latest['status']}")
                 print(f"WARNING: rerunning failed jobs ONCE for CI run {run_id}: {detail}", flush=True)
@@ -321,24 +347,28 @@ class ReleaseFlow:
                 raise FlowError(f"CI run {run_id} has unknown status {row['status']!r}")
             self.sleep(POLL_SECONDS)
 
-    def is_evidence_json(self, name: str) -> bool:
-        return re.fullmatch(rf"[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}-{re.escape(self.tag)}\.json", name) is not None
+    def verify_ci_reports(self, run_id: int) -> None:
+        parent = self.state_path.parent.resolve()
+        directory = parent / f"candidate-ci-{run_id}-{uuid4().hex}"
+        directory.mkdir(mode=0o750)
+        try:
+            self.checked(self.gh("run", "download", str(run_id), "--pattern", REPORT_PATTERN, "--dir", str(directory)))
+            errors = candidate_ci_errors(directory, self.head, self.root / RELEASE_POLICY_REL, repo_root=self.root)
+            if errors:
+                raise FlowError(f"CI run {run_id} has invalid candidate evidence:\n" + "\n".join(errors))
+        finally:
+            if directory.resolve() == directory:
+                rmtree(directory)
 
     def digest(self, name: str) -> str:
         path = self.evidence_dir / name
         if not path.is_file():
             raise FlowError(f"evidence file missing: {name}")
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        return file_digest(path)
 
-    def json_names(self) -> list[str]:
-        return sorted(path.name for path in self.evidence_dir.glob(f"*-{self.tag}.json")
-                      if path.is_file() and self.is_evidence_json(path.name))
-
-    def start_live(self) -> tuple[LiveProcess, dict[str, str]]:
+    def start_live(self, resume: bool) -> LiveProcess:
         self.check_checkout()
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
-        before = {name: self.digest(name) for name in (*JUNIT_NAMES, *self.json_names())
-                  if (self.evidence_dir / name).is_file()}
         print(f"Running the live gate (spends provider quota). Log: {self.live_log}", flush=True)
         # Ctrl+C between Popen and the registration would leave the gate running with no owner: hold it until the
         # child is registered for cleanup, then raise it.
@@ -348,7 +378,10 @@ class ReleaseFlow:
         if main:
             signal.signal(signal.SIGINT, lambda *_: interrupted.append(True))
         try:
-            process = self.run([sys.executable, "-m", "tools.live_gate", "--yes"], cwd=self.root, log=self.live_log)
+            args = [sys.executable, "-m", "tools.live_gate", "--yes", "--checkpoint", str(self.live_checkpoint)]
+            if resume:
+                args.append("--resume")
+            process = self.run(args, cwd=self.root, log=self.live_log)
             if isinstance(process, subprocess.CompletedProcess):
                 raise TypeError("expected an asynchronous live-gate process")
             self.live_process = process
@@ -357,7 +390,7 @@ class ReleaseFlow:
                 signal.signal(signal.SIGINT, previous)  # type: ignore[arg-type]
         if interrupted:
             raise KeyboardInterrupt
-        return process, before
+        return process
 
     def stop_live(self, live: LiveProcess) -> None:
         self.keep_lock = True
@@ -394,33 +427,21 @@ class ReleaseFlow:
                 break
             self.keep_lock = terminate_failed
 
-    def live_evidence(self, before: dict[str, str], returncode: int) -> dict[str, str]:
+    def live_evidence(self, returncode: int) -> dict[str, str]:
         if returncode:
             raise FlowError(f"live gate exited {returncode}; see {self.live_log}")
         self.check_checkout()
-        evidence: dict[str, str] = {}
-        for name in JUNIT_NAMES:
-            digest = self.digest(name)
-            if digest == before.get(name):
-                raise FlowError(f"live gate did not rewrite {name}")
-            props = _bound_props(self.evidence_dir / name) or {}
-            if props.get("source_revision") != self.head or props.get("gate") != "G3":
-                raise FlowError(f"{name} must be stamped for HEAD {self.head} and gate G3")
-            evidence[name] = digest
-        # The live JSON has no revision field. Bind the JSON written during this run
-        # to the same checkout as the three stamped reports.
-        changed = {name: digest for name in self.json_names()
-                   if (digest := self.digest(name)) != before.get(name)}
-        if len(changed) != 1:
-            names = ", ".join(changed) or "none"
-            raise FlowError(f"expected one new or updated <date>-{self.tag}.json from the live gate; found {names}")
-        return evidence | changed
+        evidence = checkpoint_evidence(self.live_checkpoint, self.evidence_dir, self.evidence_dir,
+                                       self.head, self.version, self.root / RELEASE_POLICY_REL)
+        if not set(JUNIT_NAMES) <= evidence.keys():
+            raise FlowError("live gate did not complete all three stages")
+        return evidence
 
     def check_hashes(self, state: State) -> list[str]:
         hashes = state.evidence_sha256
         if not isinstance(hashes, dict):
             raise FlowError("state evidence_sha256 must map evidence names to their SHA-256")
-        json_names = [name for name in hashes if self.is_evidence_json(name)]
+        json_names = [name for name in hashes if evidence_json_name(name, self.version)]
         if missing := set(JUNIT_NAMES) - hashes.keys():
             raise FlowError(f"state SHA-256 missing for {', '.join(sorted(missing))}")
         if len(json_names) != 1 or len(hashes) != len(JUNIT_NAMES) + 1:
@@ -429,6 +450,9 @@ class ReleaseFlow:
         for name in names:
             if (actual := self.digest(name)) != hashes[name]:
                 raise FlowError(f"SHA-256 mismatch for {name}: expected {hashes[name]}, got {actual}")
+        if errors := source_binding_errors([self.evidence_dir / name for name in JUNIT_NAMES],
+                                           self.head, self.root / RELEASE_POLICY_REL):
+            raise FlowError("\n".join(errors))
         return names
 
     def resume_state(self) -> State:
@@ -439,23 +463,29 @@ class ReleaseFlow:
             raise FlowError(f"state CI run ID is invalid: {state.ci_run_id!r}")
         if type(state.retry_requested) is not bool:
             raise FlowError("state retry_requested must be true or false")
+        if type(state.initial_ci_attempt) is not int or state.initial_ci_attempt < 1:
+            raise FlowError("state initial_ci_attempt must be a positive integer")
         self.ci_run(state.ci_run_id)
-        if state.live_status != "passed":
-            raise FlowError(f"state live gate status is {state.live_status!r}; expected 'passed'")
-        self.check_hashes(state)
+        if state.live_status == "passed":
+            self.check_hashes(state)
+        elif state.live_status not in {"pending", "running", "failed"} or state.evidence_sha256:
+            raise FlowError(f"state has invalid live gate status or evidence: {state.live_status!r}")
+        elif self.live_checkpoint.exists():
+            checkpoint_evidence(self.live_checkpoint, self.evidence_dir, self.evidence_dir,
+                                self.head, self.version, self.root / RELEASE_POLICY_REL)
         return state
 
-    def validate(self, state: State, ci_first: bool) -> int:
+    def validate(self, state: State, ci_first: bool, *, resume: bool = False) -> int:
         attempt = self.wait_for_ci(state) if ci_first else None
         live: LiveProcess | None = None
         try:
             state.live_status = "running"
             self.save_state(state)
-            process, before = self.start_live()
+            process = self.start_live(resume)
             live = process
 
             def collect(returncode: int) -> None:
-                state.evidence_sha256 = self.live_evidence(before, returncode)
+                state.evidence_sha256 = self.live_evidence(returncode)
                 state.live_status = "passed"
                 self.save_state(state)
 
@@ -561,19 +591,23 @@ def main(argv: list[str] | None = None, *, runner: Runner = run, root: Path = RO
     command = parser.add_subparsers(dest="command", required=True).add_parser("run")
     command.add_argument("--version", required=True, metavar="X.Y.Z")
     command.add_argument("--dry-run", action="store_true", help="print the plan without executing it")
+    command.add_argument("--ci-run-id", type=int, help="use an exact-HEAD main CI run, such as a recovery dispatch")
     mode = command.add_mutually_exclusive_group()
     mode.add_argument("--resume", action="store_true", help="reuse recorded CI and evidence and repair partial draft uploads")
     mode.add_argument("--ci-first", action="store_true", help="wait for green matrix CI before spending provider quota")
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.version):
         command.error("--version must be X.Y.Z")
+    if args.ci_run_id is not None and (args.ci_run_id < 1 or args.resume):
+        command.error("--ci-run-id must be positive and cannot be combined with --resume")
     if args.dry_run:
         print(f"1. Fetch origin and preflight v{args.version} on clean origin/{BRANCH}.")
         if args.resume:
-            print("2. Check the recorded SHA, CI run, and SHA-256 of the four live evidence files.")
-            print("3. Wait for the recorded CI matrix.")
+            print("2. Validate the recorded SHA, CI run, and completed live evidence hashes.")
+            print("3. Wait for the recorded CI matrix and run any remaining live stages.")
         else:
-            print(f"2. Dispatch {WORKFLOW} with full_matrix=true and bind the run to HEAD.")
+            print(f"2. Bind CI run {args.ci_run_id} to HEAD." if args.ci_run_id is not None else
+                  f"2. Reuse the main-push candidate matrix or dispatch {WORKFLOW} with full_matrix=true on HEAD.")
             print("3. Wait for green CI, then run the live gate."
                   if args.ci_first else "3. Wait for CI while the local live gate runs.")
         print("4. Prepare and verify the draft. Publishing is manual.")
@@ -584,9 +618,11 @@ def main(argv: list[str] | None = None, *, runner: Runner = run, root: Path = RO
             flow.preflight(args.resume)
             if args.resume:
                 state = flow.resume_state()
-                attempt = flow.wait_for_ci(state)
+                attempt = (flow.wait_for_ci(state) if state.live_status == "passed"
+                           else flow.validate(state, ci_first=True, resume=True))
             else:
-                state = State(flow.head, flow.dispatch())
+                state = flow.select_ci(args.ci_run_id)
+                flow.live_checkpoint.unlink(missing_ok=True)
                 flow.save_state(state)
                 print(f"Bound CI run {state.ci_run_id} to {state.head}.", flush=True)
                 attempt = flow.validate(state, args.ci_first)

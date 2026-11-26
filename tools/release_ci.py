@@ -1,4 +1,4 @@
-"""Select the exact candidate's successful CI matrix dispatch for publishing."""
+"""Select the exact candidate's successful CI matrix for publishing."""
 from __future__ import annotations
 
 import argparse
@@ -12,6 +12,10 @@ CELLS = [(os_name, version) for os_name in ("ubuntu-latest", "windows-latest")
          for version in ("3.11", "3.12", "3.13", "3.14", "3.15")]
 REQUIRED_JOBS = {"ci-pass", *(f"full-matrix ({os_name}, {version})" for os_name, version in CELLS)}
 REPORT_NAMES = [f"g2-rc-matrix-{os_name}-py{version}" for os_name, version in CELLS]
+REPORT_PATTERN = "junit-g2-rc-matrix-*"
+WORKFLOW = "ci.yml"
+BRANCH = "main"
+DISPATCH = "workflow_dispatch"
 
 
 def matrix_junit_paths(root: Path) -> list[Path]:
@@ -24,23 +28,37 @@ def github_rows(endpoint: str, key: str) -> list[dict[str, Any]]:
     return [row for page in json.loads(result.stdout) for row in page[key]]
 
 
+def candidate_runs_endpoint(commit: str) -> str:
+    return f"actions/workflows/{WORKFLOW}/runs?head_sha={commit}"
+
+
+def is_candidate_run(run: dict[str, Any], repo: str, commit: str) -> bool:
+    return (run.get("head_sha") == commit
+            and (run.get("event") == DISPATCH or (run.get("event") == "push" and run.get("head_branch") == BRANCH))
+            and all((run.get(key) or {}).get("full_name", "").casefold() == repo.casefold()
+                    for key in ("repository", "head_repository")))
+
+
 def find_candidate_run(repo: str, commit: str) -> int:
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("The candidate commit must be a full Git SHA")
     actions = f"repos/{repo}/actions"
-    runs = github_rows(f"{actions}/workflows/ci.yml/runs?event=workflow_dispatch&head_sha={commit}", "workflow_runs")
+    runs = github_rows(f"repos/{repo}/{candidate_runs_endpoint(commit)}", "workflow_runs")
     for run in runs:
-        if (run["head_sha"] != commit or run["event"] != "workflow_dispatch"
-                or run["status"] != "completed" or run["conclusion"] != "success"
-                or any((run.get(key) or {}).get("full_name") != repo for key in ("repository", "head_repository"))):
+        if not is_candidate_run(run, repo, commit) or run["status"] != "completed" or run["conclusion"] != "success":
             continue
         run_id = run["id"]
         latest = {}
         # A failed-only rerun leaves successful jobs in earlier attempts.
         for attempt in range(run["run_attempt"], 0, -1):
+            seen = set()
             for job in github_rows(f"{actions}/runs/{run_id}/attempts/{attempt}/jobs", "jobs"):
-                if job["name"] in REQUIRED_JOBS:
-                    latest.setdefault(job["name"], job)
+                name = job["name"]
+                if name in REQUIRED_JOBS:
+                    if name in seen:
+                        raise ValueError(f"CI run {run_id} has duplicate job {name} in attempt {attempt}")
+                    seen.add(name)
+                    latest.setdefault(name, job)
             if latest.keys() == REQUIRED_JOBS:
                 break
         if latest.keys() == REQUIRED_JOBS and all(
@@ -49,7 +67,8 @@ def find_candidate_run(repo: str, commit: str) -> int:
             for job in latest.values()
         ):
             return run_id
-    raise ValueError(f"No successful ci.yml dispatch for {commit} with ci-pass and all ten full-matrix cells; dispatch with full_matrix=true on the candidate ref")
+    raise ValueError(f"No successful {WORKFLOW} candidate run for {commit} with ci-pass and all ten full-matrix cells; "
+                     "dispatch with full_matrix=true on the candidate ref")
 
 
 def main() -> None:

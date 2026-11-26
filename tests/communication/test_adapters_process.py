@@ -394,15 +394,15 @@ class _BlockedPipe:
 
     def __init__(self, name: str, release: threading.Event, violations: list[str]) -> None:
         self.name, self.release, self.violations = name, release, violations
-        self.busy = False
+        self.entered = threading.Event()
         self.raw = self
 
     def _block(self) -> None:
-        self.busy = True
+        self.entered.set()
         try:
             self.release.wait()
         finally:
-            self.busy = False
+            self.entered.clear()
 
     def read1(self, n: int) -> bytes:
         self._block()
@@ -413,7 +413,7 @@ class _BlockedPipe:
         raise BrokenPipeError("released")
 
     def close(self) -> None:
-        if self.busy:
+        if self.entered.is_set():
             self.violations.append(self.name)
 
 
@@ -426,6 +426,8 @@ class _StuckPopen:
         return self.returncode
 
     def wait(self, timeout=None):
+        for pipe in (self.stdin, self.stdout, self.stderr):
+            assert pipe.entered.wait(timeout=5), f"{pipe.name} worker never blocked"
         if self.returncode is None:
             raise subprocess.TimeoutExpired("stuck", timeout)
         return self.returncode
@@ -439,29 +441,55 @@ def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pi
 
     The kill always reports failure; `after_kill` is the exit code the main process then has (None: still running).
     """
-    import peerhub.extensions.adapters.process as proc_module
-
     def failed_kill(p):
         p.returncode = after_kill
         return False
 
     release, violations = threading.Event(), []
-    monkeypatch.setattr(proc_module.subprocess, "Popen", lambda *a, **k: _StuckPopen(returncode, release, violations))
-    monkeypatch.setattr(proc_module, "kill_process_tree", failed_kill)
+    monkeypatch.setattr(process.subprocess, "Popen", lambda *a, **k: _StuckPopen(returncode, release, violations))
+    monkeypatch.setattr(process, "kill_process_tree", failed_kill)
+    simulated_drain_s = 0.0
+    monkeypatch.setattr(process, "time", SimpleNamespace(
+        monotonic=lambda: time.monotonic() + simulated_drain_s, sleep=time.sleep,
+    ))
+
+    def simulate_wait(wait):
+        def short_wait(timeout: float):
+            nonlocal simulated_drain_s
+            assert 0 <= timeout < float("inf")
+            simulated_drain_s += timeout
+            return wait(timeout=0)
+
+        return short_wait
+
+    start = BoundedProcess.start
+
+    def start_with_short_drain(proc, *, suspended=False):
+        start(proc, suspended=suspended)
+        # The workers stay blocked until cleanup. Advance only the runner's
+        # clock so its shared deadline expires without waiting for it in real time.
+        for worker in proc._drain_threads:
+            monkeypatch.setattr(worker, "join", simulate_wait(worker.join))
+        monkeypatch.setattr(proc._stdin_done, "wait", simulate_wait(proc._stdin_done.wait))
+        return proc
+
+    monkeypatch.setattr(BoundedProcess, "start", start_with_short_drain)
     # Popen is a fake, so there is no launcher PID or child reading the approval pipe.
     monkeypatch.setattr(cli_runtime, "process_created", lambda pid: 123.0)
     monkeypatch.setattr(cli_runtime, "capture_process_identity",
                         lambda pid: "linux:fake-boot:1" if sys.platform.startswith("linux") else None)
     approve = Mock()
     monkeypatch.setattr(BoundedProcess, "release_launch", approve)
-    timeout_s = 0.5
-    bound = timeout_s + 10 + 5 + 2
+    timeout_s = 0.1
+    max_drain_s = 5.0
+    bound = timeout_s + 10 + max_drain_s + 2
     ws = tmp_path / "ws_stuck"
     ws.mkdir()
     try:
         t0 = time.monotonic()
         res = BoundedProcess([PY, "-c", "pass"], stdin=b"prompt bytes", cwd=str(ws), env={}, timeout_s=timeout_s).start().wait()
         assert time.monotonic() - t0 <= bound
+        assert 0 < simulated_drain_s <= max_drain_s
         assert res.drain_timed_out is True
         assert res.timed_out is (returncode is None)
         # A kill was attempted and failed: never confirmed, whether or not the main process then exited.
@@ -470,9 +498,11 @@ def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pi
 
         target = CliRuntimeTarget("cc", ws, command=[PY, "-c", "pass"], timeout_s=timeout_s)
         (rec,) = bseed(bridge_h)
+        before_drain_s = simulated_drain_s
         t0 = time.monotonic()
         result = bridge_h.delivery_cycle("b", "s", target)
         assert time.monotonic() - t0 <= bound
+        assert 0 < simulated_drain_s - before_drain_s <= max_drain_s
         assert (result.status, result.certainty) == ("uncertain", "STARTED")
         assert approve.call_count == (0 if sys.platform == "win32" else 1)
         details = [e["detail"] for e in bridge_h.execution_evidence(rec.record_id, "b")["events"]

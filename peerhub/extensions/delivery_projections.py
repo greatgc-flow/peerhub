@@ -99,9 +99,12 @@ CERTAINTY_COLUMNS = {
 def _ensure_delivery_scope(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row,
                            certainty: str) -> None:
     stream, peer, seq = str(delivery["stream_id"]), str(delivery["peer_id"]), int(delivery["seq"])
+    if conn.execute("SELECT 1 FROM bridge_monitor_delivery_scope WHERE stream_id=? AND peer_id=?",
+                    (stream, peer)).fetchone() is not None:
+        return
     column = CERTAINTY_COLUMNS[certainty]
-    prior = int(conn.execute("SELECT COUNT(*) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND seq<?",
-                             (stream, peer, seq)).fetchone()[0])
+    complete = int(conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND seq<? LIMIT 1",
+                                (stream, peer, seq)).fetchone() is None)
     conn.execute(
         "INSERT OR IGNORE INTO bridge_monitor_delivery_scope(stream_id,peer_id,not_started_count,may_have_started_count,"
         "started_count,terminal_count,measured_count,absent_count,unsupported_count,unknown_count,missing_count,"
@@ -111,15 +114,19 @@ def _ensure_delivery_scope(conn: sqlite3.Connection, delivery: Mapping[str, Any]
         f"VALUES (?,?,{','.join('?' for _ in range(22))})",
         (stream, peer, int(column == "not_started_count"), int(column == "may_have_started_count"),
          int(column == "started_count"), int(column == "terminal_count"), 0, 0, 0, 0, 0,
-         seq, seq, int(prior == 0), 0, 0, int(prior == 0), 0, 0, 0, 0, 0, 0, 1),
+         seq, seq, complete, 0, 0, complete, 0, 0, 0, 0, 0, 0, 1),
     )
 
 
 def record_delivery_created(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row) -> None:
     """Start the scope projection at the immutable delivery insertion boundary."""
-    _ensure_delivery_scope(conn, delivery, "NOT_STARTED")
-    conn.execute("UPDATE bridge_monitor_delivery_scope SET delivery_high_water_seq=MAX(delivery_high_water_seq,?) "
-                 "WHERE stream_id=? AND peer_id=?", (delivery["seq"], delivery["stream_id"], delivery["peer_id"]))
+    updated = conn.execute(
+        "UPDATE bridge_monitor_delivery_scope SET not_started_count=not_started_count+1,"
+        "delivery_high_water_seq=MAX(delivery_high_water_seq,?) WHERE stream_id=? AND peer_id=?",
+        (delivery["seq"], delivery["stream_id"], delivery["peer_id"]),
+    )
+    if updated.rowcount == 0:
+        _ensure_delivery_scope(conn, delivery, "NOT_STARTED")
 
 
 def record_delivery_transition(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row,

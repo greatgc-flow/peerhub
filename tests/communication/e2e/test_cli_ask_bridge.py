@@ -20,8 +20,8 @@ def test_cli_ask_dispatches_despite_quota_refresh_value_error(tmp_path, monkeypa
     runtime = FakeRuntimeTarget()
     runtime.script_deliver(("started", "exec-1"), ("terminal", {"response": "answer"}))
     monkeypatch.setattr(module, "CliRuntimeTarget", lambda *a, **kw: runtime)
-    monkeypatch.setattr(diag_quota, "quota_items", lambda *a, **kw: [])
-    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr(diag_quota, "has_recent_quota", lambda *a: False)
+    monkeypatch.setattr(quota_capture, "quota_refresh_lock", lambda db, **kw: nullcontext(True))
     calls = []
 
     def fail(*args, **kwargs):
@@ -160,6 +160,46 @@ def test_cli_usage_is_json_only(tmp_path, monkeypatch, capsys, json_output):
     else:
         assert output.out.startswith("answer\nsession: sess_")
         assert output.out.endswith(" fresh gen1 reason=no_prior\n")
+
+
+@pytest.mark.parametrize("status", ["delivered", "recovered_terminal", "uncertain"])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_final_only_disables_live_output_and_prints_one_result(monkeypatch, capsys, status, json_output):
+    from peerhub import cli
+    from peerhub.extensions import ask as module
+
+    response = None if status == "uncertain" else "final\nreply"
+
+    def fake_ask(*args, on_output, notice_alias, **kwargs):
+        assert on_output is None and not notice_alias
+        return {"status": status, "response": response, "display_truncated": True,
+                "requested_record_id": "ask-1", "session": {"handle": "sess_1"}, "usage": {"input_tokens": 120}}
+
+    monkeypatch.setattr(module, "ask", fake_ask)
+    argv = ["--db", "unused.db", "ask", "cx", "hello", "--final-only"]
+    assert cli.main(argv + (["--json"] if json_output else [])) == (1 if status == "uncertain" else 0)
+    output = capsys.readouterr()
+    assert len(output.out.splitlines()) == 1
+    assert json.loads(output.out) == {
+        "status": status, "response": response, "requested_record_id": "ask-1", "session": "sess_1",
+    }
+    assert ("peerhub explain" in output.err) is (status == "uncertain")
+
+
+def test_final_only_reports_ask_exception_and_preserves_exit_code(monkeypatch, capsys):
+    from peerhub import cli
+    from peerhub.extensions import ask as module
+
+    def invalid(*args, **kwargs):
+        raise ValueError("invalid prompt")
+
+    monkeypatch.setattr(module, "ask", invalid)
+    assert cli.main(["--db", "unused.db", "ask", "cx", "hello", "--final-only"]) == 2
+    output = capsys.readouterr()
+    assert json.loads(output.out) == {
+        "status": "error", "response": None, "requested_record_id": None, "session": None,
+    }
+    assert "[ask_unexpected_failure]" in output.err and "invalid prompt" in output.err
 
 
 def test_prespawn_is_retryable_without_new_prompt(tmp_path):

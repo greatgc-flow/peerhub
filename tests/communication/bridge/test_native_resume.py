@@ -1,10 +1,17 @@
 """Default native continuity, tested through durable Records and independent SQL oracles."""
 import json
+import sqlite3
+from contextlib import closing
 
 import pytest
 
+from peerhub.core.migrations import _baseline
+from peerhub.core.models import json_digest
 from peerhub.extensions.ask import ask
+from peerhub.extensions.bridge import Bridge
 from peerhub.extensions.bridge_claims import StaleClaimError
+from peerhub.extensions.bridge_ledger import PersistedRecord
+from peerhub.extensions.bridge_schema import _DDL
 from peerhub.extensions.catchup import CatchUpBudget
 from tests.communication.bridge_helpers import bseed, sql, downgrade_registry
 from tests.communication.control_helpers import ctl
@@ -46,8 +53,8 @@ def test_restart_persists_mapping_and_watermark(tmp_path):
     rt = NativeRuntimeTarget()
     result = h.delivery_cycle("b", "s", rt)
     assert result.session_generation == 1 and rt.vendor_ids == ["native-ext-1"]
-    assert rt.count("create") == 0 and rt.catch_ups == [[first.response_record_id]]
-    assert details(h, result) == {"effective_mode": "resumed", "fallback_reason": None, "injected_record_ids": [first.response_record_id]}
+    assert rt.count("create") == 0 and rt.catch_ups == [[]]
+    assert details(h, result) == {"effective_mode": "resumed", "fallback_reason": None, "injected_record_ids": []}
     evidence = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='terminal'")
     assert evidence and all("native-ext-1" not in row[0] for row in evidence)
 
@@ -85,16 +92,17 @@ def test_delta_contains_all_new_records_once_and_addressed_redirects(tmp_path):
     first = h.delivery_cycle("b", "s", rt)
     redirect = ctl(h, "control.redirect", "redirect", body={"instruction": "re-read files"})
     other = ctl(h, "control.redirect", "other", targets=["a"], body={"instruction": "for a"})
-    own = add(h, "own", author="b", kind="response")
+    own = add(h, "own", author="b", kind="response", reply_to=first.record_id, metadata={"delivery_id": first.delivery_id})
     context = add(h, "context", kind="control.reconcile")
     current = add(h, "second")
     result = h.delivery_cycle("b", "s", rt)
     assert result.record_id == current.record_id
-    assert rt.catch_ups[-1] == [first.response_record_id, redirect.record_id, own.record_id, context.record_id]
+    expected = [redirect.record_id, own.record_id, context.record_id]
+    assert rt.catch_ups[-1] == details(h, result)["injected_record_ids"] == expected
     assert other.record_id not in rt.catch_ups[-1]
     add(h, "third")
-    h.delivery_cycle("b", "s", rt)
-    assert rt.catch_ups[-1] == [result.response_record_id]
+    third = h.delivery_cycle("b", "s", rt)
+    assert rt.catch_ups[-1] == details(h, third)["injected_record_ids"] == []
 
 
 @pytest.mark.parametrize("truncated_bootstrap", [False, True])
@@ -233,9 +241,78 @@ def test_ask_default_reuses_current_slot_and_exposes_provenance(tmp_path):
     first = ask(db, "cx", "first", runtime=NativeRuntimeTarget())
     assert first["effective_mode"] == "fresh" and first["fallback_reason"] is None
     second = ask(db, "cx", "second", runtime=NativeRuntimeTarget())
-    assert second["effective_mode"] == "resumed" and second["injected_record_ids"] == [first["response_record_id"]]
+    assert second["effective_mode"] == "resumed" and second["injected_record_ids"] == []
     third = ask(db, "cx", "third", runtime=NativeRuntimeTarget(binding="other"))
     assert third["effective_mode"] == "fresh"
+    assert third["injected_record_ids"] == [first["requested_record_id"], first["response_record_id"],
+                                            second["requested_record_id"], second["response_record_id"]]
+
+
+def test_proven_large_reply_does_not_overflow_resume_preview_or_dispatch(tmp_path):
+    class PreviewRuntime(NativeRuntimeTarget):
+        def session_binding(self):
+            return {}
+
+    db = tmp_path / "ask.db"
+    rt = PreviewRuntime()
+    response = "x" * 25_000
+    rt.script_deliver(("started", "first"), ("terminal", {"response": response, "vendor_session": {"id": "native-ext-1"}}))
+    first = ask(db, "cx", "first", runtime=rt)
+    handle = first["session"]["handle"]
+    assert first["status"] == "delivered" and first["response"] == response
+    for selector in ({}, {"session": handle}):
+        preview = ask(db, "cx", "next", runtime=rt, dry_run=True, **selector)
+        assert preview["session_handle"] == handle and preview["session_mode"] == "resumed"
+    result = ask(db, "cx", "next", runtime=rt, session=handle)
+    assert result["session"]["handle"] == handle and result["session"]["mode"] == "resumed"
+    assert result["injected_record_ids"] == rt.catch_ups[-1] == []
+
+
+@pytest.mark.parametrize("proof", ["exact", "another_generation", "another_vendor", "unreported_vendor",
+                                  "no_receipt", "mismatched_receipt"])
+def test_native_delta_requires_exact_terminal_reply_proof(proof):
+    vendor_id = "thread-1"
+    mapping = dict(stream_id="s", peer_id="b", session_generation=7, external_session_id="ext-1",
+                   vendor_session_id=vendor_id, context_watermark=1, binding="model", adapter_fingerprint="adapter")
+    reported_id = "other-thread" if proof == "another_vendor" else vendor_id
+    result = {"response": "x" * 2_000}
+    if proof != "unreported_vendor":
+        result["vendor_session"] = {"id": reported_id}
+    generation = 6 if proof == "another_generation" else 7
+    digest = json_digest(result, strict=False)
+    receipt = {"digest": digest, "session_bound": {
+        "vendor_session_digest": json_digest(reported_id, strict=False), "watermark": 1,
+        "binding": "model", "adapter_fingerprint": "adapter", "session_generation": generation,
+        "execution_id": "different-execution" if proof == "mismatched_receipt" else "x1",
+    }}
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.row_factory = sqlite3.Row
+        _baseline(conn)
+        for statement in _DDL:
+            if statement.startswith(("CREATE TABLE IF NOT EXISTS bridge_deliveries ", "CREATE TABLE IF NOT EXISTS bridge_evidence ")):
+                conn.execute(statement)
+        conn.execute("INSERT INTO bridge_deliveries (delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,"
+                     "claim_generation,external_session_id,session_generation,execution_id,result_json,result_digest,response_record_id) "
+                     "VALUES ('d1',1,'s','b','first',1,1,'TERMINAL',1,'ext-1',?,'x1',?,?,'true-reply')",
+                     (generation, json.dumps(result), digest))
+        if proof != "no_receipt":
+            conn.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                         "VALUES ('d1','s','b','terminal','TERMINAL',?)", (json.dumps(receipt),))
+        timestamp = "2026-10-01T00:00:00Z"
+        for position, record_id, body in [(2, "intervening", "keep this"), (3, "true-reply", result["response"])]:
+            conn.execute("INSERT INTO records (record_id,stream_id,position,author_peer_id,kind,body_json,reply_to,"
+                         "metadata_json,idempotency_key,payload_digest,created_at,appended_at) "
+                         "VALUES (?,'s',?,'b','response',?,'first','{\"delivery_id\":\"d1\"}',?,?,?,?)",
+                         (record_id, position, json.dumps(body), record_id, f"sha256:{digest}", timestamp, timestamp))
+        current = PersistedRecord("current", 4)
+        delta = Bridge._project_native_delta(conn, CatchUpBudget(), mapping, current, page=1)
+        if proof == "exact":
+            assert [r.record_id for r in delta.records] == ["intervening"]
+            bounded = Bridge._project_native_delta(conn, CatchUpBudget(max_bytes=500), mapping, current, page=1)
+            assert bounded.records == delta.records and not bounded.truncated
+        else:
+            assert [r.record_id for r in delta.records] == ["intervening", "true-reply"]
+        assert delta.after_position == 1 and delta.before_position == 4 and not delta.truncated
 
 
 def test_legacy_rows_migrate_with_null_native_columns_idempotently(tmp_path):
@@ -338,7 +415,7 @@ def test_concurrent_record_between_prompt_and_response_is_not_skipped(tmp_path):
     add(h, "next")
     second = h.delivery_cycle("b", "s", rt)
     assert second.session_generation == first.session_generation
-    assert rt.catch_ups[-1] == [intervening[0].record_id, first.response_record_id]
+    assert rt.catch_ups[-1] == details(h, second)["injected_record_ids"] == [intervening[0].record_id]
 
 
 @pytest.mark.parametrize("kind", ["cc", "cx", "ag", "custom-native"])
@@ -432,7 +509,7 @@ def test_upgrade_reconstructs_only_exact_consumed_prompt_evidence(tmp_path, kind
     add(h, "next")
     second = h.delivery_cycle("b", "s", rt)
     assert second.session_generation == 1 and rt.vendor_ids == ["native-ext-1"]
-    assert rt.catch_ups[-1] == [first.response_record_id]
+    assert rt.catch_ups[-1] == []
 
 
 def test_upgrade_rejects_a_chain_that_skipped_intervening_context(tmp_path):

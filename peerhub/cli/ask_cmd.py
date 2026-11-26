@@ -50,6 +50,8 @@ def register_ask_parser(subparsers: Subparsers) -> None:
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000,
                             help="Stop collecting reply output after this many bytes (default %(default)s)")
     ask_parser.add_argument("--dry-run", action="store_true", help="Print the resolved ask without contacting a provider or writing the store")
+    ask_parser.add_argument("--final-only", action="store_true",
+                            help="Print only the final response, status, ask ID and session handle as compact JSON (execution only)")
     ask_parser.add_argument("--json", action="store_true")
 
 
@@ -68,6 +70,8 @@ def validate_ask_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
     normalize_session_selector(fresh=args.fresh, session=args.session)
     if (args.prompt is None) == (args.query_file is None):
         parser.error(f"ask requires exactly one of prompt or {ASK_QUERY_FILE_OPTIONS[0]}")
+    if args.final_only and args.dry_run:
+        parser.error("ask --final-only applies to execution; remove --dry-run to use it")
 
 
 def report_ask_parse_error(exc: SystemExit) -> int:
@@ -101,7 +105,9 @@ def report_ask_error(
             sid = default_stream(args.peer, getattr(args, "request_id", None), stateless=resolve_peer_kind(db_arg, args.peer, offline=getattr(args, "dry_run", False)) in API_TARGETS)
         except Exception:  # any failure the lookup itself does not handle: the error being reported wins, and no stream is named
             sid = None
-    if args.json:
+    if args.final_only:
+        _print_final_result({"status": "error", "session": session})
+    elif args.json:
         payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
         if guidance_code:
             guidance = make_guidance_payload(guidance_code, db_path=db_arg, stream_id=sid)
@@ -120,7 +126,7 @@ def report_ask_error(
         print(json.dumps(payload, ensure_ascii=True))
     hint = render_exception_guidance_hint(guidance_code or code, exception)
     error_line(guidance_code or code, message, hint)
-    if not args.json:
+    if not (args.json or args.final_only):
         if session is not None:
             print(_session_trailer(session))
 
@@ -179,6 +185,17 @@ def _session_trailer(session: dict[str, Any]) -> str:
     return f"session: {session['handle']} {session['mode']} gen{session['generation']}{suffix}"
 
 
+def _print_final_result(result: dict[str, Any]) -> None:
+    session: object = result.get("session")
+    payload = {
+        "response": result.get("response"),
+        "status": result["status"],
+        "requested_record_id": result.get("requested_record_id"),
+        "session": cast("dict[str, Any]", session).get("handle") if isinstance(session, dict) else None,
+    }
+    print(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
+
+
 def _wait_for_ask_resources(
     acquire: Callable[[bool], ClaimToken | None],
     *,
@@ -221,7 +238,8 @@ def run_ask(args: argparse.Namespace) -> int:
             print("Warning: inlined query file exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
     else:
         prompt = args.prompt
-    terminal_notices = not args.dry_run and not args.json and sys.stderr.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1"
+    text_output = not (args.json or args.final_only)
+    terminal_notices = not args.dry_run and text_output and sys.stderr.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1"
     has_streamed = False
     output_has_newline = False
     def show_output(text: str) -> None:
@@ -251,11 +269,11 @@ def run_ask(args: argparse.Namespace) -> int:
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                      fresh=args.fresh, session=args.session, query_file=args.query_file,
-                     on_output=None if args.json else show_output, on_stream_budget=show_budget_warning,
+                     on_output=show_output if text_output else None, on_stream_budget=show_budget_warning,
                      launch_gate=_wait_for_ask_resources, before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices,
                      dry_run=bool(args.dry_run))
     except Exception:
-        if has_streamed and not args.json and not output_has_newline:
+        if has_streamed and not output_has_newline:
             print()
         if not args.dry_run:
             show_receipt({})
@@ -304,7 +322,9 @@ def run_ask(args: argparse.Namespace) -> int:
                                                        ag_command_denied=ag_command_denied)
             guidance_entry = get_guidance(guidance_code, db_path=args.db, stream_id=sid,
                                           ag_command_denied=ag_command_denied)
-    if args.json:
+    if args.final_only:
+        _print_final_result(result)
+    elif args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
         if result["response"] == "":
@@ -339,7 +359,7 @@ def run_ask(args: argparse.Namespace) -> int:
                       + "; the stream may remain quota-blocked after reset; check the workspace for partial edits and follow uncertain-stream recovery")
         error_line(code, str(detail), hint)
     session = result.get("session")
-    if not args.json and isinstance(session, dict):
+    if text_output and isinstance(session, dict):
         session = cast("dict[str, Any]", session)
         if has_streamed and not output_has_newline and result["status"] not in ("delivered", "recovered_terminal"):
             print()

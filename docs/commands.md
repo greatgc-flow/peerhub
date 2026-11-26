@@ -41,6 +41,7 @@ Read from position 0 to start at the beginning. Advance to the position you actu
 - **Execution.** `--workspace` (or `-w`) sets the provider's working directory. `--writable` is off by default. Native `ag` requires explicit write consent, including for review asks. See [adapter limits](adapters/peer-cli-reference.md#sandbox-and-event-limits). See [guidance](guidance-reference.md#ask_uncertain) before retrying after a timeout. `--timeout-seconds` defaults to 600. `--silence-timeout-seconds` is optional and `--max-output-bytes` defaults to 1,000,000. `--author-peer` sets the recorded prompt author.
 - **Waiting.** An ask waits for the peer to finish and prints the reply and session line. For long implementation or review asks, set 1800–3600 seconds, or up to 7200 for ag. Agy can stay silent until completion. Leave the silence timeout unset or set it at least as high as the total timeout.
 - **Receipt.** Text asks print a receipt to stderr on a terminal unless `PEERHUB_NO_RECEIPT=1`. Use `--json` for fields such as `requested_record_id`, `session` and `error`. Use the request record ID with `peerhub outcome ASK_ID accepted|rejected|retried` to annotate the [stored measurements](config-hierarchy.md#profile-measurements-and-stream-budgets).
+- **Final result.** Add `--final-only` to print one compact JSON object when the ask finishes, with `response`, `status`, `requested_record_id` and the `session` handle. Unavailable values are null. This mode skips live reply output and the terminal receipt. Warnings and recovery hints still go to stderr. It takes precedence over `--json` and requires an executing ask.
 
 CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota when evidence is missing or older than 15 minutes. It waits at most one second for the refresh.
 
@@ -59,12 +60,14 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. These commands exit 5 if the observation store is missing. Without an override, the selected store supplies observations. With an existing observation store and a missing selected store, `diag --plan` still reports the observations and shows the active ask count as unknown (`load.active: null` in JSON). See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing.
 
+Use `diag --plan --json --compact` for repeated plan reads. Each pool includes its identity, action, limiting pool (`binding`), reason, own reset and effective reset after parent limits. The top-level `load` still includes lease-active asks and current machine resources.
+
 | Command | Purpose |
 |---|---|
 | `observation` | Collect provider evidence. |
 | `observation refresh` | Write refreshed quota and account evidence. This may contact providers. |
 
-Use `peerhub observation refresh --peers cx cc ag` to select the peers explicitly. `--system-dir PATH` points to a portable provider installation. The probe timeout defaults to 15 seconds and doubles at 80% CPU load or higher. See [what each probe consumes](implementation/OBSERVATION_PROBES.md).
+Use `peerhub observation refresh --peers cx` to refresh a single provider's evidence. Before launching a wave, select the providers whose quota readings could change your launch decision. `--system-dir PATH` points to a portable provider installation. The probe timeout defaults to 15 seconds and doubles at 80% CPU load or higher. See [what each probe consumes](implementation/OBSERVATION_PROBES.md).
 
 ## Monitor
 
@@ -114,6 +117,8 @@ commands, code, and documentation.
 | `batch` | Manage [parallel asks](batch.md). |
 | `batch run` | Run a flat manifest or validate it with `--dry-run`. Execution spends quota. |
 | `suggest` | Recommend a profile and print an ask command. See [suggest an ask](batch.md#suggest-an-ask) for eligibility and refresh costs. |
+
+Add `--response-task TASK_ID` to include the reply for a completed task in the batch report. Repeat it to select multiple case-sensitive task IDs, or use `--responses` to include every completed reply. Dry runs show no replies.
 
 ## Guide and explain
 

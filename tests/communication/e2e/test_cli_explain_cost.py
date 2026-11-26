@@ -34,9 +34,14 @@ def test_one_match_is_the_full_text(capsys):
     assert "Symptom:" in out and "Fix:" in out
 
 
-def test_json_keeps_every_match_in_full(capsys):
+def test_json_keyword_matches_are_summaries_and_exact_id_is_full(capsys):
     data = json.loads(_explain(capsys, "vote", as_json=True))
-    assert len(data["lessons"]) > 1 and all("fix" in lesson for lesson in data["lessons"])
+    assert len(data["lessons"]) > 1
+    assert all(set(lesson) == {"id", "title"} for lesson in data["lessons"])
+
+    exact = json.loads(_explain(capsys, data["lessons"][0]["id"], as_json=True))
+    assert len(exact["lessons"]) == 1
+    assert {"symptom", "fix"} <= set(exact["lessons"][0])
 
 
 @pytest.mark.parametrize("words,topic", [

@@ -871,12 +871,11 @@ def test_scale_one_scope_with_a_long_delivery_history(activity_scale_store):
     small, rows_small, _ = steps(small_db)
     big, rows_big, plan = steps(big_db)
     assert rows_small == rows_big == 151
-    # The scope prefix of an index, never a table scan. Both scope indexes start with (stream_id, peer_id); since #330 added
-    # idx_bd_scope_claim_generation the planner may take either for this prefix-only search.
-    assert re.search(r"SEARCH d USING INDEX idx_bd_scope_(claim_)?generation \(stream_id=\? AND peer_id=\?\)", plan), plan
-    # The statement reads every delivery of each scope active in the last 24 hours (the cost class of #330): linear in that history.
+    assert re.search(r"SEARCH d USING INDEX idx_bd_scope_seq \(stream_id=\? AND peer_id=\?\)", plan), plan
+    assert re.search(r"SEARCH d USING INDEX idx_bd_scope_unresolved \(stream_id=\? AND peer_id=\?\)", plan), plan
+    # Growing settled history by 60x leaves work bounded by selected scopes and unresolved deliveries.
     print(f"activity statement VM steps: history 150 -> {small}, history 9000 -> {big}")
-    assert big < small * 120
+    assert big < small * 1.1
     assert len(data(big_db)["asks"]) == 151
 
 

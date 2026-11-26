@@ -173,6 +173,37 @@ def test_json_shape():
     json.dumps(data)
 
 
+def test_compact_plan_preserves_advice_resets_live_load_and_peer_filter():
+    report = _report(_item("cc", "F-7D", .84, span=7 * DAY, elapsed=2 * DAY),
+                     _item("cc", "C-7D", 0.0, span=7 * DAY, elapsed=4 * DAY),
+                     _item("cx", "X-7D", 0.0, span=7 * DAY, elapsed=4 * DAY))
+    store = {"path": "p", "source": "env"}
+    load = load_snapshot({"cc": 2, "cx": 1}, ResourceSample(cpu_busy_pct=31))
+    profiles = {"C-7D": ["cc.standard", "cc.fable"], "F-7D": ["cc.fable"]}
+    full = plan_data(report, store, load, profiles)
+    compact = plan_data(report, store, load, profiles, peers=frozenset({"cc"}), compact=True)
+    assert set(compact) == {"schema_version", "status", "read_at", "store_selection", "pools", "load"}
+    assert compact["store_selection"] == store and compact["load"] == load
+    fields = ("peer", "pool", "resource_pool_ref", "action", "binding", "reason", "resets_in_seconds")
+    assert compact["pools"] == [
+        {**{field: row[field] for field in fields},
+         "effective_reset_in_seconds": row["health"]["effective_reset_in_seconds"]}
+        for row in full["pools"] if row["peer"] == "cc"
+    ]
+    child = next(row for row in compact["pools"] if row["pool"] == "F-7D")
+    assert (child["action"], child["binding"]) == ("blocked", "C-7D")
+    assert child["resets_in_seconds"] != child["effective_reset_in_seconds"]
+    assert len(json.dumps(compact["pools"][0])) < len(json.dumps(full["pools"][0])) / 2
+
+
+@pytest.mark.parametrize("args", [["--compact"], ["--json", "--compact"], ["--plan", "--compact"]])
+def test_compact_plan_requires_plan_and_json(args, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["--db", "unused.db", "diag", *args])
+    assert exc.value.code == 2
+    assert "--compact requires --plan --json" in capsys.readouterr().err
+
+
 def test_plain_table_columns_and_legend():
     out = render_plan(_report(_item("cx", "X-7D", .15, span=7 * DAY, elapsed=4 * DAY)), width=120,
                       store_path="D:/w/.peerhub/core.db", store_source="explicit")

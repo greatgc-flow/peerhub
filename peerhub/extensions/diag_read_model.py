@@ -496,13 +496,20 @@ def plan_gaps(pools: list[_PlanPool]) -> PaceGaps:
 
 def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
               load: Mapping[str, object] | None = None,
-              profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset()) -> dict[str, object]:
-    """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
+              profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset(),
+              compact: bool = False) -> dict[str, object]:
+    """Project the full or compact JSON plan from the same stored snapshot."""
     pools = [pool for pool in plan_pools(report, profiles_by_pool=profiles_by_pool)
              if not peers or pool[0] in peers]
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
-                               "store_selection": dict(store_selection), "legend": PLAN_LEGEND,
-                               "pools": [row for _, row, _ in pools], "gaps": plan_gaps(pools)}
+                               "store_selection": dict(store_selection)}
+    if compact:
+        fields = ("peer", "pool", "resource_pool_ref", "action", "binding", "reason", "resets_in_seconds")
+        data["pools"] = [{**{field: row[field] for field in fields},
+                          "effective_reset_in_seconds": health["reset_in_seconds"]}
+                         for _, row, health in pools]
+    else:
+        data.update(legend=PLAN_LEGEND, pools=[row for _, row, _ in pools], gaps=plan_gaps(pools))
     if load is not None:
         data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
     return data

@@ -118,7 +118,7 @@ def test_guide_states_the_decisions(capsys, monkeypatch, tmp_path):
     assert re.search(r"(?m)^Batch: ", out) and "peerhub batch run" in out
     assert re.search(r"(?m)^Timeout: ", out) and "--timeout-seconds 1800-3600" in out and "7200" in out
     assert re.search(r"(?m)^Uncertain", out) and "never blind-retry" in flat and "new stream" in flat  # uncertain handling
-    assert re.search(r"(?m)^More: .*peerhub profile list", out) and "peerhub explain <topic>" in out  # the pointer line
+    assert re.search(r"(?m)^More: .*peerhub profile list", out) and "peerhub explain lessons" in out
     assert "peerhub explain lessons" in out
 
 
@@ -259,10 +259,10 @@ def test_independent_peer_votes_is_extended_not_duplicated():
     text = _explained("independent-peer-votes")
     for needle in ("routine check = ONE reviewer, FRESH", "consequential (release, schema, deletion, public API)",
                    "3 independent peers, unanimity", "even when a stream name is given",
-                   "a named stream is for review rounds on one diff only", "VERDICT / BLOCKERS / NITS", "<= 300 tokens",
+                   "up to 100 earlier records", "24 KB", "VERDICT / BLOCKERS / NITS", "<= 300 tokens",
                    "no `vote` command", "--max-parallel n --responses",
                    # the earlier facts stay
-                   "did not author it", "not writable", "private empty directory"):
+                   "Require voters did not author the document", "not writable", "private empty directory"):
         assert needle in text, needle
     assert "11 s" not in text
     observations = Path("docs/history/observations.md").read_text(encoding="utf-8")

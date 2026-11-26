@@ -163,13 +163,37 @@ def test_exhausted_candidates_are_visible_when_suggest_is_unavailable(quota, cap
 
 
 @pytest.mark.parametrize("age,refreshed", [(QUOTA_MAX_AGE_SECONDS, False), (QUOTA_MAX_AGE_SECONDS + 1, True), (None, True)])
-def test_dispatch_only_refreshes_an_expired_or_missing_snapshot(quota, age, refreshed):
+def test_dispatch_only_refreshes_an_expired_or_missing_snapshot(tmp_path, monkeypatch, age, refreshed):
+    from types import SimpleNamespace
+
     from peerhub.cli.monitor_refresh import refresh_dispatch_quota
-    items, _, calls = quota
+    from peerhub.extensions import diag_quota, quota_capture
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool, epoch_to_iso
+
+    db = tmp_path / "core.db"
+    store = ObservationStore(db)
+
+    def seed(peer, age_seconds):
+        pool = f"quota:{peer}:{WINDOWS[peer][0]}-7D"
+        store.register_resource_pool(ResourcePool(resource_pool_id=pool, provider=peer, kind="QUOTA"))
+        store.persist(Observation(observation_id=f"{peer}-quota", subject_ref=peer, resource_pool_ref=pool,
+                                  kind="quota", source="offline", state=EvidenceState.MEASURED,
+                                  payload={"remaining_fraction": .60}, observed_at=epoch_to_iso(NOW - age_seconds)))
+
+    seed("ag", 0)
     if age is not None:
-        items.extend(readings("cx", age=age))
-    items.extend(readings("ag"))
-    refresh_dispatch_quota(Path(__file__), "cx")
+        seed("cx", age)
+    monkeypatch.setattr(diag_quota, "time", SimpleNamespace(time=lambda: NOW))
+    calls = []
+
+    def refresh(db_path, peers, **options):
+        assert db_path == db
+        calls.append(list(peers))
+        return {"status": "OK"}
+
+    monkeypatch.setattr(quota_capture, "refresh_quota", refresh)
+    refresh_dispatch_quota(db, "cx")
     assert calls == ([["cx"]] if refreshed else [])
 
 

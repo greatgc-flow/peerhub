@@ -128,12 +128,15 @@ def test_explain_help_advertises_the_index(capsys):
 
 
 def test_explain_json_envelope_is_the_same_for_index_and_keyword_lookup(capsys):
-    """#366 F3: `explain lessons --json` and a keyword lookup share one {"lessons": [...]} envelope."""
+    """Discovery JSON is IDs and titles; exact-ID JSON remains the full lesson."""
     for query in (["lessons"], ["ag", "silence"]):
         assert main(["explain", *query, "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         assert list(payload) == ["lessons"] and isinstance(payload["lessons"], list) and payload["lessons"]
-        assert all({"id", "title"} <= set(item) for item in payload["lessons"])
+        assert all(set(item) == {"id", "title"} for item in payload["lessons"])
+    assert main(["explain", "ag-silence-long-asks", "--json"]) == 0
+    full = json.loads(capsys.readouterr().out)["lessons"][0]
+    assert {"id", "title", "symptom", "fix", "issue"} <= set(full)
 
 
 def test_review_recipe_merges_review_loop_and_scores_to_100(capsys):

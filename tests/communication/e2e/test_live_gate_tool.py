@@ -1,7 +1,11 @@
 """The live gate spends real provider quota: it must refuse to run without consent, in CI, or without the provider CLIs."""
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
+from shutil import rmtree
+from tempfile import gettempdir
+from uuid import uuid4
 
 import pytest
 
@@ -159,3 +163,62 @@ def test_peer_filter_requires_live_or_canary_stage():
     with pytest.raises(SystemExit) as exc:
         live_gate.main(["--yes", "--peer", "cc"])
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("corrupt", [None, "junit", "json", "sha", "stale"])
+def test_checkpoint_reuses_only_verified_completed_live_stages(monkeypatch, capsys, corrupt):
+    from tools import release_evidence
+
+    sha = "a" * 40
+    version = live_gate.source_version(live_gate.ROOT)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(live_gate.shutil, "which", lambda name: name)
+    monkeypatch.setattr(live_gate.subprocess, "check_output", lambda cmd, **k: sha if "rev-parse" in cmd else "")
+    out = Path(gettempdir()).resolve() / f"peerhub-live-checkpoint-test-{uuid4().hex}"
+    out.mkdir()
+    try:
+        monkeypatch.setattr(live_gate, "EVIDENCE_DIR", out)
+        checkpoint = out / "checkpoint.json"
+        evidence = out / f"2026-11-14-v{version}.json"
+        args = ["--yes", "--out", str(out), "--checkpoint", str(checkpoint)]
+        calls = []
+        fail_at = "g3-slow.xml"
+
+        def fake_call(cmd, **kwargs):
+            junit = Path(next(arg.split("=", 1)[1] for arg in cmd if arg.startswith("--junitxml=")))
+            calls.append(junit.name)
+            if junit.name == fail_at:
+                junit.write_text('<testsuite><testcase name="failed"><failure/></testcase></testsuite>', encoding="utf-8")
+                return 1
+            junit.write_text('<testsuite><testcase name="passed"/></testsuite>', encoding="utf-8")
+            if junit.name == "g3.xml":
+                evidence.write_text('{"providers": {}}\n', encoding="utf-8")
+            return 0
+
+        monkeypatch.setattr(live_gate.subprocess, "call", fake_call)
+        assert live_gate.main(args) == 1
+        assert calls == ["g3.xml", "g3-slow.xml"]
+        assert not (out / "g3-e2e.xml").exists()
+        digest = live_gate.file_digest(out / "g3.xml")
+        if corrupt == "junit":
+            (out / "g3.xml").write_text("changed", encoding="utf-8")
+        elif corrupt == "json":
+            evidence.write_text("changed", encoding="utf-8")
+        elif corrupt == "sha":
+            checkpoint.write_text(checkpoint.read_text(encoding="utf-8").replace(sha, "b" * 40), encoding="utf-8")
+        elif corrupt == "stale":
+            ttl, _ = release_evidence.load_release_policy(live_gate.ROOT / live_gate.RELEASE_POLICY_REL)
+            later = release_evidence._now() + timedelta(seconds=ttl + 1)
+            monkeypatch.setattr(release_evidence, "_now", lambda: later)
+        calls.clear()
+        fail_at = None
+        assert live_gate.main([*args, "--resume"]) == int(corrupt is not None)
+        if corrupt:
+            assert calls == []
+            assert ("stale" if corrupt == "stale" else "checkpoint") in capsys.readouterr().err
+        else:
+            assert calls == ["g3-slow.xml", "g3-e2e.xml"]
+            assert live_gate.file_digest(out / "g3.xml") == digest
+    finally:
+        if out.resolve() == out:
+            rmtree(out)
