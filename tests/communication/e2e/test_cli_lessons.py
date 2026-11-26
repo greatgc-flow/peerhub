@@ -1,4 +1,6 @@
 """Offline lessons lookup and generated documentation parity (#117)."""
+import ast
+import inspect
 from pathlib import Path
 import json
 import re
@@ -9,8 +11,10 @@ from peerhub.cli.app import main
 from peerhub.cli.guide import render_guide
 from peerhub.cli.lessons import lesson_by_id, load_lessons, lookup_lessons, render_lesson, render_lessons_reference
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
+from peerhub.extensions import monitor_alerts
 
 pytestmark = [pytest.mark.unit]
+MONITOR_ALERTS_LESSON = "monitor-alerts"
 
 
 @pytest.mark.parametrize(("query", "expected"), [
@@ -28,7 +32,7 @@ pytestmark = [pytest.mark.unit]
     ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-requires-writable", "ag-silence-long-asks", "multi-peer-quota-shaping", "plan-windows"]),
     ("cc allow rules", ["cc-allow-rules"]),
     ("fable haiku", ["cc-allow-rules"]),
-    ("monitor", ["monitor-accounts", "monitor-states", "monitor-view", "plan-windows"]),
+    ("monitor", ["monitor-accounts", MONITOR_ALERTS_LESSON, "monitor-states", "monitor-view", "plan-windows"]),
     ("monitor-view", ["monitor-view"]),
     ("order", ["monitor-view"]),
     ("glyph", ["monitor-view"]),
@@ -139,7 +143,7 @@ def test_explain_json_envelope_is_the_same_for_index_and_keyword_lookup(capsys):
     assert {"id", "title", "symptom", "fix", "issue"} <= set(full)
 
 
-def test_review_recipe_merges_review_loop_and_scores_to_100(capsys):
+def test_review_recipe_keeps_legacy_aliases_and_links_to_the_release_bar(capsys):
     """#366 A5: one review recipe with a pasteable brief; the old ids still find it."""
     ids = {lesson["id"] for lesson in load_lessons()}
     assert "review-recipe" in ids and not {"review-loop", "review-scores-to-100"} & ids
@@ -148,10 +152,33 @@ def test_review_recipe_merges_review_loop_and_scores_to_100(capsys):
         assert capsys.readouterr().out.splitlines()[0].startswith("review-recipe:")
     fix = next(lesson for lesson in load_lessons() if lesson["id"] == "review-recipe")["fix"]
     for needle in ("Score each item 0-100", "violates a documented contract", "reachable from supported inputs",
-                   "recommendation", "exact fix", "Re-score until 100", "re-review the exact shipped tag",
+                   "recommendation", "exact fix", "CONTRIBUTING.md#release-lessons", "Re-review the exact shipped tag",
                    "another model family", "full suite once", "only targeted tests", "two rounds",
-                   "narrow its contract (fail closed)", "Never `git add -A`", "agent worktrees"):
+                   "narrow its contract (fail closed)", "`git add -A`", "agent worktrees"):
         assert needle in fix, needle
+
+
+def test_instruction_diet_points_agents_to_the_planning_view(capsys):
+    assert main(["explain", "instruction-diet"]) == 0
+    assert "peerhub diag --plan each turn" in capsys.readouterr().out
+
+
+def test_explain_covers_emitted_monitor_alert_codes(capsys):
+    emitted: set[str] = set()
+    for node in ast.walk(ast.parse(inspect.getsource(monitor_alerts))):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_alert":
+            code = node.args[0]
+            assert isinstance(code, ast.Constant) and isinstance(code.value, str)
+            emitted.add(code.value)
+    (lesson,) = lesson_by_id(MONITOR_ALERTS_LESSON)
+    documented = set(re.findall(r"^- (\w+) ", lesson["fix"], re.MULTILINE))
+    assert emitted and emitted <= documented
+    for topic in sorted(documented):
+        assert main(["explain", topic]) == 0, topic
+        out = capsys.readouterr().out
+        assert out.startswith(f"{MONITOR_ALERTS_LESSON}:")
+        assert "docs/monitor.md#alerts" in out
+        assert sum(line.strip().startswith(f"- {topic} ") for line in out.splitlines()) == 1
 
 
 def test_lessons_without_peerhub_mechanism_are_deleted():
@@ -340,8 +367,10 @@ def test_catalog_and_rendering():
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & ids
     for lesson in lessons:
         assert all(lesson.values())
-        assert len(render_lesson(lesson).splitlines()) <= 5
-        assert lesson["issue"] in render_lesson(lesson)
+        rendered = render_lesson(lesson)
+        if lesson["id"] != MONITOR_ALERTS_LESSON:
+            assert len(rendered.splitlines()) <= 5
+        assert lesson["issue"] in rendered
 
 
 def test_caller_ownership_explain_matches_reference_and_is_indexed(capsys):

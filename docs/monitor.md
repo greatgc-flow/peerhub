@@ -104,7 +104,7 @@ of 0 pp. The design rejected per-pool targets in `[pool_targets]` and `[pools.<I
 The legend under the gap line reads:
 
 ```text
-PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | MARGIN=EXH-RESET, - = early | EVN=even-burn remaining
+PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | MARGIN=EXH-RESET, - = early | ? = too little data | EVN=even-burn left
 ```
 
 <a id="state-words"></a>

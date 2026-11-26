@@ -170,8 +170,11 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
     if profile_groups:
         lines.extend(_wrap(strip_controls("profiles: " + " | ".join(profile_groups)), width))
     gaps = plan_gaps(pools)["pools"]
-    values = ", ".join(f"{name} {format_pool_pace(pace, unicode=unicode)}" for name, pace in gaps.items())
-    lines.extend(_wrap(f"gap: vs {PACE_GAP_BASELINE} (pp): {values}", width))
+    paced_pools = {str(row["pool"]) for _, row, health in pools if health["pace_pt"] is not None}
+    values = ", ".join(f"{name} {format_pool_pace(pace, unicode=unicode)}"
+                       for name, pace in gaps.items() if name in paced_pools)
+    if values:
+        lines.extend(_wrap(f"gap: vs {PACE_GAP_BASELINE} (pp): {values}", width))
     if load is not None:
         from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, format_load
         if separate_observation_store:

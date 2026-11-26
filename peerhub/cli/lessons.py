@@ -62,10 +62,11 @@ def lookup_lessons(query: str) -> list[Lesson]:
 
 
 def render_lesson(lesson: Lesson) -> str:
+    fix = lesson["fix"].replace("\n", "\n       ")
     return "\n".join([
         f"{lesson['id']}: {lesson['title']}",
         f"  Symptom: {lesson['symptom']}",
-        f"  Fix: {lesson['fix']}",
+        f"  Fix: {fix}",
         f"  Issue: {lesson['issue']}",
     ])
 
@@ -87,6 +88,7 @@ def render_lessons_reference() -> str:
     doc_path = re.compile(r"(?<![\w/])(?:docs/[\w./-]+|README|CONTRIBUTING)\.md(?:#[\w-]+)?")
     for lesson in load_lessons():
         fix = doc_path.sub(lambda m: f"[{m[0]}]({m[0][5:] if m[0].startswith('docs/') else '../' + m[0]})", lesson["fix"])
+        fix = fix.replace("\n", "\n  ")
         lines.extend([
             "", f"## {lesson['title']} (`{lesson['id']}`)", "",
             f"- Keywords: {', '.join(lesson['keywords'])}",

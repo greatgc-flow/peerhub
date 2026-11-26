@@ -8,8 +8,23 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.19] - 2026-11-26
+
+### Added
+
+- `docs/requirements.md`: a requirements registry. Each durable requirement names the regression test that pins it, and `test_requirements_registry.py` fails when a row names a missing test. A bug fix adds or names its regression test (CONTRIBUTING).
+- `peerhub explain a1` .. `a6` explain the monitor alert codes; a test derives the codes from `monitor_alerts.py`.
+
+### Changed
+
+- The release bar in CONTRIBUTING is no functional defect and a mean review score of at least 80; the `review-recipe` lesson refers to it.
+- The `instruction-diet` lesson tells AI agents to read `peerhub diag --plan` each turn (the monitor is the human screen).
+- The monitor legend explains `?` in MARGIN and EXH/RESET (too little data to project).
+
 ### Fixed
 
+- Monitor: an unknown API billing state no longer prints a compact-only line above POOLS; an informative billing line (evidence, unreconciled, read error) now appears in the same place in compact and expand.
+- `diag --plan`: the `gap:` line omits pools without PACE (n/a pools), matching the monitor.
 - `tools.release_flow` polls the releases list for a few seconds after `gh release create` before verifying the draft, so a list that lags the create call no longer stops a correct release (#486).
 
 ## [0.26.18] - 2026-11-26

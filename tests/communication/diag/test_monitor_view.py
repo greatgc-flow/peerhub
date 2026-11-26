@@ -463,8 +463,11 @@ def test_plain_ascii_monitor_replaces_middle_dot_cleanly_without_question_marks(
     assert "1.50s avg | 2 samples" in rendered
     assert "Schema 7 | database" in rendered
     # Ensure no ? is produced from middle dot replacement
+    from peerhub.cli.monitor_legend import POOL_LEGEND
+
     for line in rendered.splitlines():
-        if "cx 5h" not in line:  # G/M5: an unknown family is a real fact.
+        # G/M5: an unknown family is a real fact; the legend explains the `?` cell on purpose.
+        if "cx 5h" not in line and line.strip() not in POOL_LEGEND:
             assert " ? " not in line
 
 

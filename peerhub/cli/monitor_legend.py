@@ -12,7 +12,7 @@ POOL_MARGIN_LEGEND = f"{POOL_MARGIN_COLUMN}=EXH-RESET, - = early"
 POOL_LEGEND = (
     "PACE(pp)=EVN-LEFT, 0=even burn (|), "
     f"<=-{PLAN_SPEND_PACE_PT:g} spend, >+{PLAN_REST_PACE_PT:g} rest! | EXH/RESET ! = early"
-    f" | {POOL_MARGIN_LEGEND} | EVN=even-burn remaining"
+    f" | {POOL_MARGIN_LEGEND} | ? = too little data | EVN=even-burn left"
 )
 
 MONITOR_LEGEND = (

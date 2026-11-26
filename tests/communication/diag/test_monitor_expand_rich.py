@@ -350,7 +350,7 @@ def test_quota_hides_the_window_after_reset_and_names_it_in_notes(elapsed):
 
 def test_g_one_even_burn_legend_follows_pools_and_gap():
     for view in ("plain", "rich"):
-        screen = render_grouped_frame(detail_payload(), view=view, width=140, expand=True)
+        screen = " ".join(render_grouped_frame(detail_payload(), view=view, width=140, expand=True).split())
         assert screen.index("gap vs ") < screen.index(monitor_legend.POOL_LEGEND) < screen.index("suggest:")
         assert "FORECAST" not in screen
 

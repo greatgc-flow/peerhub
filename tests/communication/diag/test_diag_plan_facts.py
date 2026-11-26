@@ -312,14 +312,21 @@ def test_plan_formats_pace_exhaustion_and_gaps_from_health():
     def item(peer, pool, pace):
         return _item(peer, pool, HALF, span=WEEK, elapsed=WEEK * (HALF - pace / 100), age=0)
 
+    absent = _item("ag", "A-7D", None, span=WEEK, elapsed=HOUR, state="ABSENT",
+                   reason="not reported by provider")
+    unknown = _item("ag", "3P-7D", .5, span=WEEK, elapsed=HOUR)
+    del unknown["payload"]["window_started_at"]
     report = _report(item("ag", "G-7D", PLAN_REST_PACE_PT + OVER_BOUNDARY),
                      item("cx", "X-7D", -OVER_BOUNDARY),
-                     item("cc", "C-7D", PLAN_REST_PACE_PT))
+                     item("cc", "C-7D", PLAN_REST_PACE_PT), absent, unknown)
     gaps = plan_data(report, {})["gaps"]
     assert gaps["baseline"] == "X-7D"
+    assert gaps["pools"]["A-7D"] is None and gaps["pools"]["3P-7D"] is None
     lines = render_plan(report, width=100).splitlines()
-    assert "gap: vs X-7D (pp): C-7D +20.00, G-7D +20.00, A-7D —, 3P-7D —" in lines
+    assert "gap: vs X-7D (pp): C-7D +20.00, G-7D +20.00" in lines
     table = {line.split()[1]: line.split() for line in lines if line[:2] in {"ag", "cc", "cx"}}
+    assert table["A-7D"][2:7] == ["-"] * 5
+    assert table["3P-7D"][2:4] == ["50%", "—"]
     assert table["G-7D"][3:5] == ["+20.00!", "2d02h/4d21h!"]
     assert table["C-7D"][3] == "+20.00"
     assert table["X-7D"][3] == format_pace(0)

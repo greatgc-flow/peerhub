@@ -153,7 +153,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: instruction, diet, memory, quota, observation, refresh, snapshot, profile, ladder, pytest, launcher, allow, headless, cc, tokens, global, workspace, votes, deepthink
 - Symptom: Every peer ask re-reads a large memory index or instruction file, a per-turn observation refresh burns quota, headless cc cannot run pytest, or 60-word votes run on the heaviest profile.
-- Fix: Headless cc: run pytest through one repo-local launcher (for example pt.py, which sets the environment and forwards its arguments to pytest) and allow that single command, because prefix rules miss env-prefixed commands. Refresh observation every 30-60 minutes and use peerhub monitor --snapshot each turn. Keep peer-loaded memory and instructions tiny and workspace-scoped; global files hold only generic rules. Profile ladder: bulk/votes -> standard, code -> effort, review/design -> deepthink.
+- Fix: For headless cc, allow a single repo-local pytest launcher that sets the environment and forwards arguments. Prefix rules miss environment-prefixed commands. Refresh observations every 30-60 minutes. AI agents use peerhub diag --plan each turn. People use peerhub monitor. Keep peer memory and instructions small and workspace-scoped. Keep global rules generic. Use standard for bulk work and votes, effort for code, and deepthink for review and design.
 - Issue: #337
 
 ## invalid_arguments CLI input (`invalid-arguments`)
@@ -169,6 +169,19 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 - Symptom: The monitor ACCOUNTS --expand rows or JSON capacity.accounts need explanation (plan, login state, token expiry, ?, n/a, aged, plan changed).
 - Fix: Read ACCOUNTS in --expand or JSON capacity.accounts for the plan, login and token expiry. See [docs/monitor.md#accounts](monitor.md#accounts).
 - Issue: #329
+
+## Monitor alert codes (`monitor-alerts`)
+
+- Keywords: alerts, a1, a2, a3, a4, a5, a6
+- Symptom: The monitor shows a short alert code.
+- Fix: See the table in [docs/monitor.md#alerts](monitor.md#alerts).
+  - a1 Ask ended badly.
+  - a2 Ask is gone, orphaned or overdue.
+  - a3 Quota pool is exhausted.
+  - a4 Reserved.
+  - a5 Account is logged out or its token has expired or is expiring.
+  - a6 A group read failed or model facts need a recheck.
+- Issue: Monitor alert table
 
 ## DRIFT peers (`monitor-drift`)
 
@@ -254,11 +267,11 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 - Fix: Check for an existing report. Include peerhub --version, the OS, the exact command, the outcome or exit code, and any workaround. See [CONTRIBUTING.md#reporting-issues-and-requesting-features](../CONTRIBUTING.md#reporting-issues-and-requesting-features).
 - Issue: 0.25.0 plan D5
 
-## Review recipe: scores that converge on 100 (`review-recipe`)
+## Review recipe for release candidates (`review-recipe`)
 
-- Keywords: review, review-loop, review-scores-to-100, loop, score, 100, round, brief, materiality, contract, narrow, defects, deduction, unverified, suite, targeted, ports, WinError, worktree, cross-family, final, tag, gitlink
-- Symptom: Review rounds repeat or oscillate (99.86, 99.79, 99.67): a reviewer scores 95-97 without naming a defect, deducts for checks it could not run, keeps finding edge cases in the same new component, or parallel full suites exhaust Windows ports (WinError 10048).
-- Fix: Paste this reviewer brief: "Score each item 0-100. Deduct only for a defect that violates a documented contract or is reachable from supported inputs; label anything else a recommendation. For every score below 100 give the exact fix (file:line + change). Report checks you could not run as NOT RUN instead of deducting. Re-score until 100." Score each deliverable item separately and re-review the exact shipped tag; confirm the final candidate with a reviewer from another model family. The coordinator runs the full suite once and passes the result on; reviewers run only targeted tests (give them allow rules for the read/test commands they need; run any they could not run yourself). Every live measurement is recorded with the commit it ran on and its time. After two rounds that find new defects in the same new component, narrow its contract (fail closed) instead of patching it again. Never `git add -A` in a checkout that contains agent worktrees: they are committed as gitlinks.
+- Keywords: review, review-loop, review-scores-to-100, loop, score, round, brief, materiality, contract, narrow, defects, deduction, unverified, suite, targeted, ports, WinError, worktree, cross-family, final, tag, gitlink
+- Symptom: Reviewers deduct without naming a defect, penalize unrun checks or keep finding defects in one new component. Parallel full suites can exhaust Windows ports (WinError 10048).
+- Fix: Use the release bar in [CONTRIBUTING.md#release-lessons](../CONTRIBUTING.md#release-lessons). Paste this reviewer brief: "Score each item 0-100. Deduct only for a defect that violates a documented contract or is reachable from supported inputs. Label other findings as recommendations. For each deduction give the exact fix (file:line + change). Report unrun checks as NOT RUN." Re-review the exact shipped tag and confirm the final candidate with a reviewer from another model family. The coordinator runs the full suite once and shares the result. Reviewers run only targeted tests. Give them allow rules and run checks they could not. Record the commit and time for each live measurement. After two rounds finding new defects in one new component, narrow its contract (fail closed). Avoid `git add -A` in a checkout with agent worktrees because it stages them as gitlinks.
 - Issue: #345; 2026-11-10 (0.24.5/0.24.6 review rounds)
 
 ## Setup: what each peer needs (tool, sign-in or API key) (`setup`)
