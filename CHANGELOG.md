@@ -14,10 +14,18 @@ they do not claim new validation or publication evidence.
 - `peerhub ask` accepts repeated `--query-file` flags and joins the files in command-line order with one blank line between them.
 - Both terminal monitor layouts list copyable record-read commands for running asks, including inline prompts.
 
+### Changed
+
+- `peerhub explain` consolidates monitor, ag, parallel quota, cc/cx hazards and review lessons. Old topic names open their cluster as aliases.
+
 ### Fixed
 
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
 - The release-flow test fixture uses pytest-managed scratch space (#492).
+
+### Removed
+
+- Removed `peerhub explain handoff`. Follow [AGENTS.md](AGENTS.md) to [NOW.md](NOW.md) and use the [query-file example](docs/commands.md#ask) for ag inline context.
 
 ## [0.26.19] - 2026-11-26
 

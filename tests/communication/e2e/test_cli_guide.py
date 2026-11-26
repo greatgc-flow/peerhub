@@ -25,7 +25,7 @@ from tools.release_notes import release_notes
 pytestmark = [pytest.mark.unit]
 
 REPO = Path(__file__).resolve().parents[3]
-TOPICS = ("ask-basics", "writes-and-uncertain", "store-and-upgrade", "batch-and-load", "discovery-commands", "report-issues")
+TOPICS = ("ask-basics", "writes-and-uncertain", "store-and-upgrade", "discovery-commands", "report-issues")
 
 
 def _guide(capsys, monkeypatch=None, tmp_path=None) -> str:
@@ -165,7 +165,7 @@ def test_guide_example_commands_parse_via_real_argparse(capsys):
 def test_every_pointer_topic_resolves_to_its_own_lesson(capsys):
     out = _guide(capsys)
     topics = _topics_named_by(out)
-    assert {*TOPICS, "setup"} <= set(topics)
+    assert {*TOPICS, "parallel-quota", "setup"} <= set(topics)
     ids = {lesson["id"] for lesson in load_lessons()}
     for topic in dict.fromkeys(topics):
         assert topic in ids or topic == "lessons", topic
@@ -229,7 +229,7 @@ FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
     "ask-basics": ("--dry-run", "docs/commands.md#ask"),
     "writes-and-uncertain": ("partial edits", "same request ID", "docs/guidance-reference.md#ask_uncertain"),
     "store-and-upgrade": ("peerhub update --plan", "Back up the store", "README.md#upgrade"),
-    "batch-and-load": ("--max-parallel n --dry-run", "Execution spends quota", "docs/batch.md"),
+    "parallel-quota": ("--max-parallel n --dry-run", "Execution spends quota", "docs/batch.md"),
     "discovery-commands": ("peerhub explain lessons", "peerhub diag --plan", "peerhub profile list", "docs/commands.md"),
     "report-issues": ("peerhub --version", "exact command", "CONTRIBUTING.md#reporting-issues-and-requesting-features"),
     "api-peers": ("--query-file", "one ask per stream", "API credits", "docs/api-credits.md"),
@@ -243,12 +243,6 @@ def test_former_guide_facts_are_reachable_through_explain(topic, capsys):
     assert not missing, missing
     assert main(["explain", topic]) == 0
     assert capsys.readouterr().out.splitlines()[0].startswith(f"{topic}:")
-
-
-def test_old_ag_recipe_and_store_missing_pointers_still_resolve(capsys):
-    for topic in ("ag-recipe", "store-missing", "monitor-states", "peer-subagents", "setup", "ask-timeouts", "stream-reuse-cost", "suggest"):
-        assert main(["explain", topic]) == 0
-        assert capsys.readouterr().out.splitlines()[0].startswith(f"{topic}:")
 
 
 # ---- D6 text in the existing explain topic -----------------------------------------------------------------------

@@ -15,6 +15,7 @@ class Lesson(TypedDict):
     fix: str
     issue: str
     guide_order: NotRequired[int]
+    aliases: NotRequired[list[str]]
 
 
 def load_lessons() -> list[Lesson]:
@@ -43,9 +44,10 @@ def _tokens(text: str) -> set[str]:
 
 
 def lesson_by_id(query: str) -> list[Lesson]:
-    """Exact (case-insensitive) lesson ID lookup: its own step in `explain`, after guidance codes and before keyword search."""
+    """Match an exact lesson ID or alias, case-insensitively."""
     wanted = query.strip().casefold()
-    return [lesson for lesson in load_lessons() if lesson["id"] == wanted]
+    return [lesson for lesson in load_lessons()
+            if wanted == lesson["id"] or wanted in lesson.get("aliases", ())]
 
 
 def lookup_lessons(query: str) -> list[Lesson]:
@@ -83,7 +85,7 @@ def render_lessons_reference() -> str:
         "```",
         "",
         "Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.",
-        "Guidance codes and result labels take priority, followed by exact profile IDs (for example `cc.effort`), the index (bare `peerhub explain`, `lessons` or `list`), exact lesson IDs, and keyword lookup. Keyword matches list recipes first, then sort by ID. A single match prints in full. Open one of several matches with `peerhub explain <id>`.",
+        "Guidance codes and result labels take priority, followed by exact profile IDs (for example `cc.effort`), the index (bare `peerhub explain`, `lessons` or `list`), exact lesson IDs and aliases, and keyword lookup. Each alias opens its lesson in full. Keyword matches list recipes first, then sort by ID. A single match prints in full. Open one of several matches with `peerhub explain <id>`.",
     ]
     doc_path = re.compile(r"(?<![\w/])(?:docs/[\w./-]+|README|CONTRIBUTING)\.md(?:#[\w-]+)?")
     for lesson in load_lessons():
@@ -91,6 +93,10 @@ def render_lessons_reference() -> str:
         fix = fix.replace("\n", "\n  ")
         lines.extend([
             "", f"## {lesson['title']} (`{lesson['id']}`)", "",
+        ])
+        if aliases := lesson.get("aliases"):
+            lines.append("- Aliases: " + ", ".join(f"`{alias}`" for alias in aliases))
+        lines.extend([
             f"- Keywords: {', '.join(lesson['keywords'])}",
             f"- Symptom: {lesson['symptom']}",
             f"- Fix: {fix}",
