@@ -32,6 +32,8 @@ PUSH_DISCOVERY_POLLS = 3
 LIVE_WAIT_SECONDS = 1
 LIVE_STOP_SECONDS = 30
 RETRY_POLLS = 18
+DRAFT_READ_POLLS = 6  # a just-created draft can be missing from the releases list for a few seconds (#486)
+DRAFT_READ_SECONDS = 5
 
 
 def retry_is_safe(jobs: dict[str, str]) -> bool:
@@ -157,6 +159,16 @@ class ReleaseFlow:
         if len(matches) > 1:
             raise FlowError(f"multiple GitHub releases match {self.tag}")
         return matches[0] if matches else None
+
+    def created_draft(self) -> dict[str, Any] | None:
+        """Read the draft just created: the releases list can lag the create call, so poll before verifying."""
+        for poll in range(DRAFT_READ_POLLS):
+            draft = self.release()
+            if draft is not None and draft.get("draft") is True and draft.get("target_commitish") == self.head:
+                return draft
+            if poll + 1 < DRAFT_READ_POLLS:
+                self.sleep(DRAFT_READ_SECONDS)
+        return draft
 
     def check_remote_tag(self) -> None:
         if self.git("ls-remote", "--tags", "origin", f"refs/tags/{self.tag}"):
@@ -577,7 +589,7 @@ class ReleaseFlow:
             names = self.check_hashes(state)
             self.checked(self.gh("release", "create", self.tag, "--draft", "--target", self.head,
                                  "--title", self.tag, "--notes-file", "notes.md", *names, cwd=self.evidence_dir))
-            self.inspect_draft(self.release(), state, names)
+            self.inspect_draft(self.created_draft(), state, names)
         else:
             self.repair_draft(draft, state, self.check_hashes(state))
         self.check_remote_tag()

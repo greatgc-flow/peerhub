@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- `tools.release_flow` polls the releases list for a few seconds after `gh release create` before verifying the draft, so a list that lags the create call no longer stops a correct release (#486).
+
 ## [0.26.18] - 2026-11-26
 
 ### Changed

@@ -98,6 +98,7 @@ class Fake:
         self.remote_tag_on_read = 1
         self.release = None
         self.created_release = draft()
+        self.hidden_release_reads = 0  # #486: list reads that do not show a just-created draft yet
         self.create_exit = 0
         self.omit_digests = set()
         self.initial_upload_bytes = {}
@@ -234,7 +235,10 @@ class Fake:
         base = f"repos/{REPO}/actions/runs/{RUN_ID}"
         if cmd[-1] == f"repos/{REPO}/releases":
             assert cmd[4:-1] == ["--paginate", "--slurp"]
-            out = [[draft(tag="v1.2.2", is_draft=False)], [self.release] if self.release is not None else []]
+            visible = self.release is not None and not (self.release["draft"] and self.hidden_release_reads)
+            if self.release is not None and self.release["draft"] and self.hidden_release_reads:
+                self.hidden_release_reads -= 1
+            out = [[draft(tag="v1.2.2", is_draft=False)], [self.release] if visible else []]
         elif cmd[-1] == f"repos/{REPO}/{candidate_runs_endpoint(SHA)}":
             assert cmd[4:-1] == ["--paginate", "--slurp"]
             self.discovery_reads += 1
@@ -743,6 +747,22 @@ def test_resume_refuses_sha_mismatches(fake, capsys, mismatch, message):
     output = capsys.readouterr()
     assert message in output.err
     assert PUBLISH not in output.out
+
+
+def test_a_draft_missing_from_the_first_reads_after_create_is_still_verified(fake, capsys):
+    # #486: the releases list lagged `gh release create` and a correct draft failed verification.
+    fake.hidden_release_reads = 2
+    assert fake.invoke("--ci-first") == 0
+    assert PUBLISH in capsys.readouterr().out
+    assert fake.sleeps.count(release_flow.DRAFT_READ_SECONDS) == 2
+
+
+def test_a_draft_that_never_appears_fails_after_bounded_reads(fake, capsys):
+    fake.hidden_release_reads = release_flow.DRAFT_READ_POLLS
+    assert fake.invoke("--ci-first") == 1
+    output = capsys.readouterr()
+    assert "draft verification failed" in output.err and PUBLISH not in output.out
+    assert fake.sleeps.count(release_flow.DRAFT_READ_SECONDS) == release_flow.DRAFT_READ_POLLS - 1
 
 
 @pytest.mark.parametrize("created", [draft(names=NAMES[:-1]), draft("main"), draft(is_draft=False)])
