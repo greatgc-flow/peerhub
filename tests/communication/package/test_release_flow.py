@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import pytest
 
-from tools import live_gate, release_evidence, release_flow
+from tools import ci_platform, live_gate, release_evidence, release_flow
 from tools.release_ci import REPORT_PATTERN, REQUIRED_JOBS, candidate_runs_endpoint, matrix_junit_paths
 from tools.release_evidence import RELEASE_POLICY_REL, stamp_junit
 
@@ -85,6 +85,7 @@ class FakeLive:
 class Fake:
     def __init__(self, root):
         self.root = root
+        self.previous_version = "1.2.2"
         self.evidence = root / release_flow.EVIDENCE_DIR.relative_to(release_flow.ROOT)
         self.state_path = self.evidence.with_name("release-flow") / f"state-{VERSION}.json"
         self.checkpoint = self.state_path.with_name(f"live-{VERSION}.json")
@@ -200,6 +201,14 @@ class Fake:
                 hashes[JSON_NAME] = live_gate.file_digest(self.evidence / JSON_NAME)
             live_gate.write_checkpoint(self.checkpoint, SHA, hashes)
 
+    def git_output(self, cwd, *args):
+        assert cwd == self.root
+        versions = {f"{SHA}:peerhub/_version.py": VERSION,
+                    f"{SHA}^:peerhub/_version.py": self.previous_version}
+        command, rev = args
+        assert command == "show"
+        return f'__version__ = "{versions[rev]}"\n'
+
     def git(self, cmd, cwd):
         assert cwd == self.root
         match cmd[1:]:
@@ -267,6 +276,9 @@ class Fake:
                    "repository": {"full_name": REPO}, "head_repository": {"full_name": REPO},
                    "run_attempt": self.attempt, "status": "completed",
                    "conclusion": self.conclusions[self.attempt], **self.run_overrides.get(self.run_reads, {})}
+        elif (push := next((row for row in self.listed_runs
+                           if cmd[-1] == f"repos/{REPO}/actions/runs/{row['id']}"), None)) is not None:
+            out = push
         else:
             attempt = next(number for number in self.jobs if cmd[-1] == f"{base}/attempts/{number}/jobs")
             assert cmd[4:-1] == ["--paginate", "--slurp"]
@@ -368,7 +380,9 @@ def fake(monkeypatch):
             path = root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(contents, encoding="utf-8")
-        yield Fake(root)
+        flow_fake = Fake(root)
+        monkeypatch.setattr(ci_platform, "git_output", flow_fake.git_output)
+        yield flow_fake
     finally:
         assert root.resolve().parent == base
         rmtree(root)
@@ -1114,6 +1128,19 @@ def test_adopts_exact_main_push_without_dispatch(fake, status):
     assert fake.discovery_reads == 2
     assert fake.state()["ci_run_id"] == RUN_ID
     assert fake.called("gh", "run", "download")
+
+
+def test_dispatches_full_matrix_for_non_candidate_push(fake):
+    fake.previous_version = VERSION
+    fake.listed_runs = [{"id": RUN_ID + 1, "event": "push", "head_sha": SHA, "head_branch": "main",
+                         "repository": {"full_name": REPO}, "head_repository": {"full_name": REPO},
+                         "path": ".github/workflows/ci.yml", "run_attempt": 1, "status": "in_progress"}]
+    flow = release_flow.ReleaseFlow(VERSION, fake.root, fake, fake.sleeps.append)
+    with flow.lock():
+        flow.preflight(resume=False)
+        assert flow.select_ci(None).ci_run_id == RUN_ID
+    assert fake.dispatched
+    assert fake.discovery_reads == 0
 
 
 def test_explicit_recovery_run_reuses_verified_rerun(fake):

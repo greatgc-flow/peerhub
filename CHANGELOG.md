@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
+
 ## [0.26.19] - 2026-11-26
 
 ### Added

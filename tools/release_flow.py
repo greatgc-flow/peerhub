@@ -21,6 +21,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 from xml.etree.ElementTree import ParseError
 
+from tools.ci_platform import version_changed
 from tools.live_gate import EVIDENCE_DIR, ROOT, STAGES, checkpoint_evidence, evidence_json_name, file_digest
 from tools.release_ci import BRANCH, DISPATCH, REPORT_PATTERN, REQUIRED_JOBS, WORKFLOW, candidate_runs_endpoint, is_candidate_run
 from tools.release_evidence import RELEASE_POLICY_REL, candidate_ci_errors, source_binding_errors, source_version
@@ -274,6 +275,8 @@ class ReleaseFlow:
     def select_ci(self, explicit_run: int | None) -> State:
         if explicit_run is not None:
             return State(self.head, explicit_run, initial_ci_attempt=self.ci_run(explicit_run)["run_attempt"])
+        if not version_changed(f"{self.head}^", self.head, repo=self.root):
+            return State(self.head, self.dispatch())
         for poll in range(PUSH_DISCOVERY_POLLS):
             pages = self.api(candidate_runs_endpoint(self.head), "--paginate", "--slurp")
             pushes = [row for page in pages for row in page["workflow_runs"]
