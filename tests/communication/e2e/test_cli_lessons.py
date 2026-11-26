@@ -415,3 +415,8 @@ def test_monitor_view_explains_guide_trailer_and_matches_reference(capsys):
     assert all(word in guide_rule for word in ("OSC 8", "Guide:", "fits"))
     reference = Path("docs/lessons.md").read_text(encoding="utf-8")
     assert guide_rule in reference and "[docs/monitor.md](monitor.md)" in reference
+
+
+def test_lesson_ids_and_aliases_match_case_insensitively():
+    assert [lesson["id"] for lesson in lesson_by_id("AG-REQUIRES-WRITABLE")] == ["ag-recipe"]
+    assert [lesson["id"] for lesson in lesson_by_id("Ag-Recipe")] == ["ag-recipe"]

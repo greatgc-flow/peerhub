@@ -208,32 +208,33 @@ def _wait_for_ask_resources(
 ) -> ClaimToken:
     resource_reader = resource_reader or load_limits.read_resources
     deadline: float | None = None
-    warned = False
+    warned: set[str] = set()
     while True:
         facts = resource_reader().facts()
         warnings = load_limits.load_warnings(facts)
-        low_ram = facts["ram_ok"] is False
+        low_ram = facts.get("ram_ok") is False
+        new_warnings = [w for w in warnings if ("cpu" if w.startswith("CPU ") else "ram") not in warned]
         token = acquire(low_ram)
         if token is not None:
-            if warnings and not warned:
-                print(f"Warning: {'; '.join(warnings)}. Starting ask.", file=sys.stderr, flush=True)
+            if new_warnings:
+                print(f"Warning: {'; '.join(new_warnings)}. Starting ask.", file=sys.stderr, flush=True)
             return token
         now = monotonic()
         if deadline is None:
             deadline = now + ASK_RESOURCE_WAIT_SECONDS
         remaining = deadline - now
-        if not warned and warnings:
-            print(
-                f"Warning: {'; '.join(warnings)}; waiting up to {ASK_RESOURCE_WAIT_SECONDS:g}s for active asks.",
-                file=sys.stderr,
-                flush=True,
-            )
-            warned = True
         if remaining <= 0:
             token = acquire(False)
             assert token is not None
             print(f"Warning: {'; '.join(warnings)}. Starting ask.", file=sys.stderr, flush=True)
             return token
+        if new_warnings:
+            print(
+                f"Warning: {'; '.join(new_warnings)}; waiting up to {ASK_RESOURCE_WAIT_SECONDS:g}s for active asks.",
+                file=sys.stderr,
+                flush=True,
+            )
+            warned.update("cpu" if w.startswith("CPU ") else "ram" for w in new_warnings)
         sleep(min(ASK_RESOURCE_POLL_SECONDS, remaining))
 
 

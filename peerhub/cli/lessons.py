@@ -47,7 +47,8 @@ def lesson_by_id(query: str) -> list[Lesson]:
     """Match an exact lesson ID or alias, case-insensitively."""
     wanted = query.strip().casefold()
     return [lesson for lesson in load_lessons()
-            if wanted == lesson["id"] or wanted in lesson.get("aliases", ())]
+            if wanted == lesson["id"].casefold()
+            or wanted in (alias.casefold() for alias in lesson.get("aliases", ()))]
 
 
 def lookup_lessons(query: str) -> list[Lesson]:

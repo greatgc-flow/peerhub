@@ -59,3 +59,21 @@ def test_plain_running_footer_uses_path_placeholder_when_plain_conversion_would_
     output = render_grouped_frame(payload, expand=expand, view="plain", unicode=False, width=100)
     assert "peerhub --db PATH monitor open ID" in output.splitlines()
     assert not any(line.startswith("peerhub --db D:/caf") for line in output.splitlines())
+
+
+def test_open_accepts_json_after_id_and_reports_future_schema(db, capsys):
+    store = CoreStore(db)
+    store.register_peer(Peer(peer_id="user"))
+    store.create_stream(Stream(stream_id="s"))
+    record = store.append_record(stream_id="s", author_peer_id="user", kind="prompt", body="inspect",
+                                 created_at="2026-11-27T00:00:00Z", idempotency_key="k")
+    short_id = record.record_id.removeprefix("rec-")
+    assert main(["--db", str(db), "monitor", "open", short_id, "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"id": short_id, "prompt": "inspect"}
+    assert main(["--db", str(db), "--json", "monitor", "open", short_id]) == 0
+    assert json.loads(capsys.readouterr().out)["prompt"] == "inspect"
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("PRAGMA user_version=999")
+        conn.commit()
+    assert main(["--db", str(db), "monitor", "open", short_id]) == 6
+    assert "[schema_version_error]" in capsys.readouterr().err

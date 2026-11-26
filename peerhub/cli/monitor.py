@@ -75,6 +75,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     actions = p.add_subparsers(dest="monitor_action")
     inspect = actions.add_parser("open", help="Read the stored prompt for a RUNNING ask ID")
     inspect.add_argument("id", help="Ask ID shown in the RUNNING row")
+    inspect.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     repair = actions.add_parser("repair", help="Release dead asks and rebuild monitor projections from durable evidence")
     repair.add_argument("--chunk-size", type=int, default=500, help="Bounded delivery read chunk (1-5000)")
     repair.add_argument("--json", action="store_true")
@@ -424,7 +425,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 next_deadline += args.interval
     except KeyboardInterrupt:
         return 0
-    except (FileNotFoundError, sqlite3.OperationalError):
+    except (FileNotFoundError, sqlite3.Error):
         if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
             return 5
         raise
@@ -526,22 +527,25 @@ def run_monitor_command(args: argparse.Namespace, parser: argparse.ArgumentParse
         return run_monitor_repair(args)
     if args.monitor_action == "open":
         from peerhub.cli.store_select import report_missing_store
+        from peerhub.core.schema_version import SchemaVersionError
         from peerhub.extensions.monitor_queries import read_ask_prompt
 
-        if report_missing_store(args.db, json_output=args.json, selected=args.db_source in ("explicit", "env"),
-                                source=args.db_source):
+        db_source = getattr(args, "db_source", None)
+        is_explicit = db_source in ("explicit", "env")
+        if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
             return 5
         try:
             prompt = read_ask_prompt(args.db, args.id)
-        except sqlite3.Error as exc:
+            payload = {"id": args.id, "prompt": json.loads(prompt)} if args.json and prompt is not None else None
+        except SchemaVersionError:
+            error_line("schema_version_error", "Unsupported database schema", "peerhub guide")
+            return 6
+        except (sqlite3.Error, ValueError) as exc:
             error_line("diag_unavailable", f"Could not read the stored prompt ({type(exc).__name__})", "peerhub diag health")
             return 4
         if prompt is None:
             error_line("invalid_arguments", "Ask ID has no stored prompt", "peerhub monitor --snapshot")
             return 1
-        if args.json:
-            print(json.dumps({"id": args.id, "prompt": json.loads(prompt)}, ensure_ascii=True))
-        else:
-            print(prompt)
+        print(json.dumps(payload, ensure_ascii=True) if args.json else prompt)
         return 0
     return run_monitor(args, parser)

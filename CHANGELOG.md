@@ -24,7 +24,7 @@ Breaking: removes CLI options listed under Removed, following the [scope decisio
 
 ### Fixed
 
-- `monitor` returns exit code 4 (storage read failure, as documented) for an unreadable or corrupt store; it returned 1.
+- `monitor` returns exit code 4 (storage read failure, as documented) for a corrupt store; it returned 1.
 - The plain RUNNING footer prints the `PATH` placeholder when a non-ASCII store path cannot be shown unchanged.
 
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.

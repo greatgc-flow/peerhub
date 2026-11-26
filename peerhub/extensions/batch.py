@@ -398,7 +398,6 @@ def _launch_flags() -> dict[str, Any]:
 
 def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: str, argv_builder: ArgvBuilder = default_argv_builder,
               cancel: threading.Event | None = None, grace_s: float = 30.0, responses: bool = False,
-              response_tasks: frozenset[str] = frozenset(),
               resource_reader: Callable[[], ResourceSample] | None = None) -> dict[str, Any]:
     check_max_parallel(max_parallel)
     cancel = cancel or threading.Event()
@@ -463,7 +462,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
         explain = cast(dict[str, Any], guidance).get("explain_cmd") if isinstance(guidance, dict) else None
         if status != "COMPLETED" and isinstance(explain, str) and explain:
             out_row["next"] = [explain]
-        if (responses or t.task_id in response_tasks) and status == "COMPLETED" and result is not None:
+        if responses and status == "COMPLETED" and result is not None:
             out_row["response"] = result["response"]  # the stored reply, as printed by `ask --json`
         return out_row
 

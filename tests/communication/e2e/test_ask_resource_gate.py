@@ -128,3 +128,16 @@ def test_two_busy_asks_on_distinct_streams_cannot_both_reserve_the_store():
         assert claims.acquire("cx", waiting_stream, waiting_stream, 60, caller=identity).stream_id == waiting_stream
     finally:
         db.unlink()
+
+
+def test_cpu_warning_survives_an_earlier_ram_warning(capsys):
+    token = ClaimToken("workspace", 1, "owner", "cx", "stream")
+    sleeps = []
+    samples = iter([load_limits.ResourceSample(ram_available_bytes=1),
+                    load_limits.ResourceSample(cpu_busy_pct=99.0)])
+    assert ask_cmd._wait_for_ask_resources(
+        lambda under_pressure: None if under_pressure else token,
+        resource_reader=lambda: next(samples), monotonic=lambda: sum(sleeps), sleep=sleeps.append,
+    ) == token
+    err = capsys.readouterr().err
+    assert "free RAM" in err and "CPU load 99.0%" in err
