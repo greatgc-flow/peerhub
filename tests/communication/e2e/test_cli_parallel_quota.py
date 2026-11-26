@@ -114,7 +114,11 @@ def test_batch_guide_covers_inflight_spend_mid_wave_refusal_and_replay():
     text = _batch_guide()
     assert "in-flight" in text and "margin" in text
     assert "refused" in text and "still run" in text and "same batch ID replays" in text
-    assert text.index("After each wave run `peerhub observation refresh`") > text.index("--max-parallel n")
+    after_wave = text.split("5. After each wave", 1)[1].split("6.", 1)[0]
+    assert "whose pools you used or whose freshness could change the next launch" in after_wave
+    assert "peerhub observation refresh --peers cx" in after_wave
+    assert "Read `peerhub diag --plan` again" in after_wave
+    assert text.index("5. After each wave") > text.index("--max-parallel n")
 
 
 def test_help_start_line_and_batch_doc_point_to_the_one_recipe(capsys):

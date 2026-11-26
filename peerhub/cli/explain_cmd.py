@@ -91,10 +91,15 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
             print(json.dumps({"lessons": index}, indent=2, ensure_ascii=True) if json_output
                   else "\n".join(f"{item['id']}: {item['title']}" for item in index))
             return 0
-        matches = lessons.lesson_by_id(code) or lessons.lookup_lessons(code)
+        exact_lesson = lessons.lesson_by_id(code)
+        matches = exact_lesson or lessons.lookup_lessons(code)
         if matches:
             if json_output:
-                print(json.dumps({"lessons": matches}, indent=2, ensure_ascii=True))
+                if exact_lesson:
+                    print(json.dumps({"lessons": matches}, indent=2, ensure_ascii=True))
+                else:
+                    print(json.dumps({"lessons": [{"id": lesson["id"], "title": lesson["title"]}
+                                                   for lesson in matches]}, indent=2, ensure_ascii=True))
             else:
                 # One match: the full text. Several: one `id: title` line each (an AI pays only for what it opens).
                 print(render_lesson(matches[0]) if len(matches) == 1 else

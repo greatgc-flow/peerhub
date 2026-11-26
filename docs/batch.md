@@ -52,8 +52,8 @@ Every ag task is writable, even if the manifest says otherwise (#140).
 If either task writes, equal or nested workspaces reject the entire batch.
 Streams and request IDs derive from the batch/task IDs; no stream override exists.
 
-Reports contain identities, sessions, elapsed seconds and statuses. Replies are
-included only with `--responses` (see below):
+Reports contain identities, sessions, elapsed seconds and statuses. Use
+`--responses` or `--response-task TASK_ID` to include replies.
 
 | Status | Meaning |
 | --- | --- |
@@ -66,12 +66,14 @@ included only with `--responses` (see below):
 Exit 0 requires every task COMPLETED; exit 1 covers other statuses and invalid
 manifests/options. Argparse syntax errors exit 2. Omit `--json` for a compact table.
 
-`--responses` (opt-in, since 0.24.13) adds each COMPLETED task's reply: a `response`
-field with `--json`, or a `--- TASK reply ---` block after the table. Failed, uncertain
-and other non-COMPLETED tasks get no reply text; `--dry-run --responses` shows none.
-A reply may itself contain a `--- ... reply ---` line, so use `--json` for machine parsing.
-Without the flag the output is unchanged; read a reply with
-`peerhub record read --stream <stream> --json`.
+`--responses` adds every COMPLETED task's reply. To select replies, repeat
+`--response-task TASK_ID` for each task you want. IDs are case-sensitive and must
+appear in the manifest. For example, use `--response-task summary --response-task review`.
+Use either option on a run. JSON adds a `response` field to each included task. Text
+adds a `--- TASK reply ---` block after the table, in manifest order. Replies can
+contain separator lines themselves, so use `--json` for machine parsing. Dry runs
+and tasks with other outcomes have no reply text. To read a stored reply later,
+use `peerhub record read --stream <stream> --json`.
 
 **Votes and reviews in one command**
 
@@ -203,12 +205,12 @@ If a provider throttles, reduce concurrency; do not reroute the same work to ano
 
 Rule H ranks candidates for a single ask. Use the stored quota facts to order the pools and the load line to size the wave.
 
-1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. For old or `(stale)` evidence, run `peerhub observation refresh`, then read again. See [probe costs](implementation/OBSERVATION_PROBES.md) for when agy can consume model tokens.
+1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. If old or `(stale)` readings could change your choice, refresh their providers with `peerhub observation refresh --peers PEER ...`, then read again. See [probe costs](implementation/OBSERVATION_PROBES.md) for when agy can consume model tokens.
    A parent-limited child uses effective quota and time to reset for its displayed `BUDGET%/h`. Advice ranks the pool's own action, its effective parent action, and applicable gates for the same profile on the same account in order of `spend`, `hold`, `rest`, and `blocked`. The most restrictive action wins. A fresh zero for a shared pool can gate other configured pools on the same account even when another reporter supplied the displayed reading. When a gate wins, the reason and JSON `binding` name its pool, and an exhausted gate reports `gate: <pool> out`. A stale zero keeps its refresh reason. In JSON, `target_pct_per_hour`, `left_pct`, `pace_pt` and `resets_in_seconds` describe the child's own window, and `health` carries its effective state, pace and reset.
 2. Order usable pools by 7D PACE, lowest first; rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. JSON rows also include profiles, age_seconds, ttl_seconds, fast, family, and parent. A profile listed under several pools spends each of them.
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
 4. Start with the usable pools in order. Choose `n` based on their quota and the available machine resources, then run `peerhub batch run tasks.json --batch-id ID --max-parallel n`.
-5. After each wave run `peerhub observation refresh`, then `peerhub diag --plan` again; asks still running are in-flight spend the readings do not show yet, so keep a margin; a task refused for quota is reported per task and the rest of that manifest still runs (one wave per manifest); the same batch ID replays settled tasks; a pool that turned `rest` or `blocked` drops out. No usable pool: defer.
+5. After each wave, refresh only the providers whose pools you used or whose freshness could change the next launch. For a wave that used only Codex, run `peerhub observation refresh --peers cx` if you need a fresh reading. Read `peerhub diag --plan` again to check the next wave. Keep a margin for in-flight spend the readings do not show yet. A task refused for quota is reported per task and the rest of that manifest still runs. The same batch ID replays settled tasks. Drop pools that turn `rest` or `blocked` and defer if no usable pools remain.
    Parallel ag asks were seen to spike G-5H, so watch G-5H after each wave.
    The load line lists in-flight counts for pools with applicable table rows. Its
    `n/a pools` clause lists other mapped in-flight pools, with `+K` for any names

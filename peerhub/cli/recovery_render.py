@@ -83,12 +83,16 @@ def make_guidance_payload(
     entry = get_guidance(code, db_path=db_path, stream_id=stream_id, ag_command_denied=ag_command_denied)
     if entry is None:
         return {}
-    next_action = entry.recover[0]["purpose"] if entry.recover else "Inspect diagnostics"
+    first_recover = entry.recover[0] if entry.recover else None
+    next_action = first_recover["purpose"] if first_recover else "Inspect diagnostics"
+    action = f"Next: {next_action} ({shlex.join(first_recover['argv'])})" if first_recover else next_action
+    # Preserve the structured first action consumed by existing scripts. Detailed
+    # alternate steps remain available from `peerhub explain CODE`.
     return {
         "code": entry.code,
         "explain_cmd": f"peerhub explain {entry.code}",
-        "summary": f"{entry.meaning} Next: {next_action}. {entry.avoid}",
-        "recover": entry.recover,
+        "summary": f"{action}. {entry.avoid}",
+        "recover": [first_recover] if first_recover else [],
     }
 
 
@@ -96,7 +100,8 @@ def render_guidance_hint(entry: GuidanceEntry) -> str:
     """Format concise human stderr hint."""
     first_recover = entry.recover[0] if entry.recover else None
     action_text = f"{first_recover['purpose']} ({shlex.join(first_recover['argv'])})" if first_recover else "Inspect diagnostics."
-    return f"{action_text}; {entry.avoid}; details: peerhub explain {entry.code}"
+    retry = " Do not retry this stream." if "Do not retry" in entry.avoid else ""
+    return f"{action_text}.{retry} Details: peerhub explain {entry.code}"
 
 
 def render_exception_guidance_hint(code: str, exception: BaseException | None) -> str:

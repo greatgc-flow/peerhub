@@ -13,10 +13,11 @@ from __future__ import annotations
 from peerhub.extensions.schema_guard import refuse_future_schema
 
 import json
+import re
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -112,6 +113,12 @@ _TRIGGERS = (
     "CREATE TRIGGER resource_pools_no_delete BEFORE DELETE ON resource_pools BEGIN SELECT RAISE(ABORT, 'resource pools are immutable'); END",
 )
 _TRIGGER_OWNERS = ("observations", "resource_pools")
+_DDL_STATEMENTS = tuple(stmt.strip() for stmt in _DDL.split(";") if stmt.strip())
+_REQUIRED_OBJECTS = {
+    (match[1].lower(), match[2]) for stmt in _DDL_STATEMENTS
+    if (match := re.match(r"CREATE (TABLE|INDEX) IF NOT EXISTS (\w+)", stmt))
+}
+_EXPECTED_TRIGGERS = {statement.split()[2]: statement for statement in _TRIGGERS}
 _SELECT = ("SELECT capture_seq, observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, observed_at, captured_at "
            "FROM observations")
 _ORDER_LATEST = " ORDER BY effective_at_us DESC, capture_seq DESC"
@@ -184,18 +191,31 @@ class ObservationStore:
         with self._read() as conn:
             yield conn
 
+    @staticmethod
+    def _schema_state(conn: sqlite3.Connection) -> tuple[set[tuple[str, str]], dict[str, str]]:
+        objects: set[tuple[str, str]] = set()
+        triggers: dict[str, str] = {}
+        for kind, name, table, sql in conn.execute("SELECT type,name,tbl_name,sql FROM sqlite_master"):
+            objects.add((kind, name))
+            if kind == "trigger" and table in _TRIGGER_OWNERS:
+                triggers[name] = sql
+        return objects, triggers
+
     def _init_schema(self) -> None:
+        path = Path(self.db_path)
+        if path.is_file():
+            uri = path.resolve().as_uri() + "?mode=ro"
+            with closing(sqlite3.connect(uri, uri=True, timeout=30.0)) as conn:
+                conn.execute("BEGIN")
+                objects, triggers = self._schema_state(conn)
+                if _REQUIRED_OBJECTS <= objects and triggers == _EXPECTED_TRIGGERS:
+                    return
         with self._tx() as conn:
-            had_rollups = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observation_rollups'"
-            ).fetchone() is not None
-            had_activity_rollups = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='activity_rollups'"
-            ).fetchone() is not None
-            for stmt in _DDL.split(";"):
-                if stmt.strip():
-                    conn.execute(stmt)
-            if not had_rollups:
+            objects, triggers = self._schema_state(conn)
+            if not _REQUIRED_OBJECTS <= objects:
+                for statement in _DDL_STATEMENTS:
+                    conn.execute(statement)
+            if ("table", "observation_rollups") not in objects:
                 conn.execute(
                     "INSERT INTO observation_rollups (subject_ref, kind, pool_key, latest_capture_seq, row_count) "
                     "SELECT subject_ref, kind, pool_key, latest_capture_seq, row_count FROM ("
@@ -206,17 +226,18 @@ class ObservationStore:
                     "ROW_NUMBER() OVER (PARTITION BY subject_ref, kind, COALESCE(resource_pool_ref, '') "
                     "ORDER BY effective_at_us DESC, capture_seq DESC) AS rn FROM observations) WHERE rn=1"
                 )
-            if not had_activity_rollups:
+            if ("table", "activity_rollups") not in objects:
                 conn.execute(
                     "INSERT INTO activity_rollups (subject_ref, capture_seq) SELECT subject_ref, capture_seq FROM ("
                     "SELECT subject_ref, capture_seq, ROW_NUMBER() OVER (PARTITION BY subject_ref ORDER BY capture_seq DESC) AS rn "
                     "FROM observations WHERE kind='activity') WHERE rn <= 50"
                 )
-            for (name,) in conn.execute(  # reopen: drop EVERY trigger on trigger-owned tables (stale/legacy ones included), then reinstall
-                    "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN (?, ?)", _TRIGGER_OWNERS).fetchall():
-                conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
-            for t in _TRIGGERS:
-                conn.execute(t)
+            if triggers != _EXPECTED_TRIGGERS:
+                for name in triggers:
+                    quoted = '"' + name.replace('"', '""') + '"'
+                    conn.execute(f"DROP TRIGGER {quoted}")
+                for statement in _TRIGGERS:
+                    conn.execute(statement)
 
     # ------------------------------------------------------------------ Resource Pool
     @staticmethod

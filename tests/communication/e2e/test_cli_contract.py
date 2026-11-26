@@ -52,6 +52,16 @@ def test_command_reference_matches_the_parser_inventory():
     assert not (missing or stale), f"docs/commands.md missing {sorted(missing)}, stale {sorted(stale)}"
 
 
+@pytest.mark.parametrize(("command", "option"), [
+    ("ask", "--final-only"), ("batch run", "--response-task"), ("diag", "--compact"),
+])
+def test_output_flag_is_documented_in_reference_and_help(command, option, capsys):
+    reference = (ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
+    assert re.search(rf"`[^`]*{re.escape(option)}(?: |`)", reference)
+    code, out, err = run(capsys, "unused.db", *command.split(), "--help")
+    assert code == 0 and option in out and not err
+
+
 # ------------------------------------------------------------------ helpers
 def run(capsys, db, *args):
     try:

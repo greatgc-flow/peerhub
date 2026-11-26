@@ -49,6 +49,8 @@ def register_diag_parser(subparsers: Subparsers) -> None:
                              help="Number of live snapshots (default %(default)s, watch until interrupted)")
     diag_parser.add_argument("--plan", action="store_true",
                              help="Per-pool spend/hold/rest/blocked with target %%/h until reset, from stored observations only (no refresh)")
+    diag_parser.add_argument("--compact", action="store_true",
+                             help="With --plan --json, show pool actions, limiting gates, resets and current load")
     diag_parser.add_argument("--peer", dest="plan_peers", action="append", metavar="PEER",
                              help="With --plan, show only these subjects (exact match, repeatable)")
     diag_parser.add_argument("--observation-db", dest="plan_obs_db", metavar="PATH",
@@ -127,6 +129,8 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         parser.error("--cycles/--interval-seconds require --live")
     if args.plan and (args.live or args.action is not None):
         parser.error("--plan is a one-shot snapshot; it cannot be combined with --live or diag subcommands")
+    if args.compact and not (args.plan and args.json):
+        parser.error("--compact requires --plan --json")
     if not args.plan and (args.plan_peers is not None or args.plan_obs_db is not None):
         parser.error("diag --peer and --observation-db require --plan")
     from peerhub.cli.store_select import env_override_note, report_missing_store
@@ -165,7 +169,8 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                 profiles_by_pool.setdefault(pool, []).append(name)
         profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
         if args.json:
-            plan_output = json.dumps(plan_data(rep, store, load, profiles_by_pool, peers=peers), separators=(",", ":"), ensure_ascii=True)
+            data = plan_data(rep, store, load, profiles_by_pool, peers=peers, compact=args.compact)
+            plan_output = json.dumps(data, separators=(",", ":"), ensure_ascii=True)
         else:
             plan_output = render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
                                       store_note=store_note, load=load, profiles_by_pool=profiles_by_pool,

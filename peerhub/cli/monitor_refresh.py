@@ -106,11 +106,15 @@ def refresh_dispatch_quota(db_path: Path, peer: str) -> None:
     """Give advisory quota collection a short head start before dispatch."""
     def refresh() -> None:
         try:
-            from peerhub.extensions.diag_quota import quota_items
+            from peerhub.extensions.diag_quota import has_recent_quota
 
-            if not any(not quota_expired(item) for item in quota_items(db_path, peer=peer)
-                       if item["subject_ref"] == peer):
-                try_quota_refresh(db_path, [peer])
+            if has_recent_quota(db_path, peer):
+                return
+            from peerhub.extensions import quota_capture
+
+            with quota_capture.quota_refresh_lock(db_path, wait=False) as acquired:
+                if acquired and not has_recent_quota(db_path, peer):
+                    refresh_with_profile_pools(db_path, (peer,))
         except Exception:
             pass
 
@@ -288,10 +292,11 @@ class RefreshJob:
                 timeout = args.timeout
                 if timeout >= MONITOR_REFRESH_LEAD_SECONDS:
                     timeout = MONITOR_PROBE_MAX_TIMEOUT_SECONDS
-                self.result = quota_capture.refresh_each_peer(
-                    self.peers, cancellation=self._cancel,
-                    collect=lambda peer: refresh_with_profile_pools(
-                        args.db, (peer,), sys_dir=args.sys_dir, deadline_sec=timeout, cancellation=self._cancel))
+                if self.peers:
+                    result = refresh_with_profile_pools(args.db, self.peers, sys_dir=args.sys_dir, deadline_sec=timeout,
+                                                        cancellation=self._cancel, incremental=True)
+                    if not self.cancelled():
+                        self.result = result
         except Exception as exc:
             if not self.cancelled():
                 self.result = {"status": "FAILED", "warnings": [type(exc).__name__]}

@@ -29,6 +29,10 @@ _DDL = [
     "CREATE INDEX IF NOT EXISTS idx_be_delivery_seq ON bridge_evidence(delivery_id,seq)",
     "CREATE INDEX IF NOT EXISTS idx_bd_record_peer_attempt ON bridge_deliveries(record_id,peer_id,attempt)",
     "CREATE INDEX IF NOT EXISTS idx_bd_scope_generation ON bridge_deliveries(stream_id,peer_id,session_generation)",
+    "CREATE INDEX IF NOT EXISTS idx_bd_seq ON bridge_deliveries(seq)",
+    "CREATE INDEX IF NOT EXISTS idx_bd_scope_seq ON bridge_deliveries(stream_id,peer_id,seq DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_bd_scope_unresolved ON bridge_deliveries(stream_id,peer_id,seq DESC) "
+    "WHERE certainty IN ('STARTED','MAY_HAVE_STARTED') AND result_json IS NULL",
     "CREATE INDEX IF NOT EXISTS idx_bd_peer_outcomes ON bridge_deliveries(peer_id,seq DESC) "
     "WHERE certainty IN ('MAY_HAVE_STARTED','STARTED','TERMINAL')",
     "CREATE INDEX IF NOT EXISTS idx_be_stream_kind_seq ON bridge_evidence(stream_id,kind,seq)",
@@ -180,27 +184,45 @@ _POST_REGISTRY_DDL = (
 )
 
 
+_SCHEMA_DDL = (*_DDL, *bridge_registry.SCHEMA_DDL, *ask_budgets.ASK_METRIC_DDL,
+               *ask_budgets.WRITE_PATH_INDEXES, *_POST_REGISTRY_DDL)
+_REQUIRED_OBJECTS = {
+    (match[1].lower(), match[2]) for stmt in _SCHEMA_DDL
+    if (match := re.match(r"CREATE (?:UNIQUE )?(TABLE|INDEX) IF NOT EXISTS (\w+)", stmt))
+}
+_TRIGGER_TABLES = {match[1] for stmt in _DDL if (match := re.match(r"CREATE TABLE IF NOT EXISTS (\w+)", stmt))}
+# Compare full definitions. Only strip the CREATE prefix clause omitted by SQLite.
+_EXPECTED_TRIGGERS = {
+    match[1]: stmt.replace("CREATE TRIGGER IF NOT EXISTS ", "CREATE TRIGGER ", 1)
+    for stmt in _SCHEMA_DDL if (match := re.match(r"CREATE TRIGGER IF NOT EXISTS (\w+)", stmt))
+}
+
+
+def _schema_state(conn: sqlite3.Connection) -> tuple[bool, dict[str, str]]:
+    objects: set[tuple[str, str]] = set()
+    installed: dict[str, str] = {}
+    for kind, name, table, sql in conn.execute("SELECT type,name,tbl_name,sql FROM sqlite_master"):
+        objects.add((kind, name))
+        if kind == "trigger" and (table in _TRIGGER_TABLES or name in _EXPECTED_TRIGGERS):
+            installed[name] = sql
+    ready = _REQUIRED_OBJECTS <= objects and installed == _EXPECTED_TRIGGERS
+    if ready:
+        # The scope table predates its retained-session columns.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(bridge_session_monitor_scope)")}
+        ready = {"retained_session_count", "retained_complete"} <= columns and not bridge_registry.needs_projection_repair(conn)
+    return ready, installed
+
+
 def initialize(claims: ClaimStore, fire: Callable[[str], None]) -> None:
     refuse_future_schema(claims.db_path)  # MIG-003: refuse a future schema before any DDL/DML
+    with claims.snapshot() as conn:
+        if _schema_state(conn)[0]:
+            return
     with claims.transaction() as conn:
-        owned = [m.group(1) for stmt in _DDL if (m := re.match(r"\s*CREATE TABLE IF NOT EXISTS (\w+)", stmt))]
-        marks = ",".join("?" * len(owned))
-        # Compare complete SQL, not only names or a cached schema version.
-        # Only remove SQLite's CREATE-prefix IF NOT EXISTS; never normalize
-        # body whitespace, which may be significant inside string literals.
-        expected = {
-            match.group(1): stmt.replace("CREATE TRIGGER IF NOT EXISTS ", "CREATE TRIGGER ", 1)
-            for stmt in (*_DDL, *_POST_REGISTRY_DDL)
-            if (match := re.match(r"CREATE TRIGGER IF NOT EXISTS (\w+)", stmt))
-        }
-        installed = dict(conn.execute(
-            f"SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name IN ({marks})", owned))
-        session_columns = {row[1] for row in conn.execute("PRAGMA table_info(bridge_sessions)")}
-        legacy_registry = bool(session_columns) and "session_handle" not in session_columns
-        # Conservative choice: legacy registries keep the pre-0.24.8 full
-        # rebuild INSIDE this transaction. The upgrade itself writes only
-        # bridge_sessions/bridge_session_events, not delivery metadata.
-        if installed != expected or legacy_registry:
+        ready, installed = _schema_state(conn)
+        if ready:
+            return
+        if installed != _EXPECTED_TRIGGERS:
             for name in installed:
                 quoted = '"' + name.replace('"', '""') + '"'
                 conn.execute(f"DROP TRIGGER {quoted}")
@@ -208,7 +230,7 @@ def initialize(claims: ClaimStore, fire: Callable[[str], None]) -> None:
             conn.execute(stmt)
         bridge_registry.initialize(conn, upgrade_session_context, fire)
         ask_budgets.install_ask_metrics(conn)
-        for stmt in _POST_REGISTRY_DDL:
+        for stmt in (*ask_budgets.WRITE_PATH_INDEXES, *_POST_REGISTRY_DDL):
             conn.execute(stmt)
 
 

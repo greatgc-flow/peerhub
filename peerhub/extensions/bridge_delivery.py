@@ -97,7 +97,7 @@ class BridgeDelivery(BridgeSessions):
                 pass  # unavailable/fenced evidence cannot justify an accepted identity
             raise
         if result.delivery_id is not None:
-            with self.claims.transaction() as conn:
+            with self.claims.snapshot() as conn:
                 row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,)).fetchone()
                 result.session = session_receipts.snapshot(row) if row is not None else None
         return result

@@ -632,6 +632,9 @@ def test_guidance_payload_structure():
     assert payload["explain_cmd"] == "peerhub explain ask_uncertain"
     assert isinstance(payload["summary"], str)
     assert len(payload["summary"]) > 0
+    assert "peerhub diag health --stream STREAM_ID" in payload["summary"]
+    assert "Do not retry" in payload["summary"]
+    assert len(payload["recover"]) == 1
 
 
 def test_render_guidance_hint_contains_all_components():
@@ -639,8 +642,9 @@ def test_render_guidance_hint_contains_all_components():
     hint = render_guidance_hint(entry)
     assert len(hint.splitlines()) == 1
     assert entry.recover[0]["purpose"] in hint
-    assert entry.avoid in hint
+    assert "Do not retry this stream" in hint
     assert "peerhub explain ask_uncertain" in hint
+    assert len(hint) < 180
 
 
 def test_guidance_context_instantiation(tmp_path):

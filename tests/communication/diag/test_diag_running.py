@@ -230,9 +230,10 @@ def test_monitor_and_diag_report_dead_asks_and_orphans_without_writes(abandoned_
 
 def test_dead_ask_release_is_idempotent_and_preserves_uncertainty(abandoned_leases: sqlite3.Connection) -> None:
     for now, expected in ((NOW, 2), (NOW + 1, 0)):
+        candidates = _dead_candidates(abandoned_leases, now)
         with abandoned_leases:
             abandoned_leases.execute("BEGIN IMMEDIATE")
-            assert BridgeLedger.release_dead_asks(abandoned_leases, "test", now) == expected
+            assert BridgeLedger.release_dead_asks(abandoned_leases, "test", now, candidates) == expected
     assert [tuple(row) for row in abandoned_leases.execute(
         "SELECT stream_id,expires_at,generation FROM bridge_claims ORDER BY stream_id")] == [
         ("s0", NOW, 1), ("s1", NOW + 60, 1), ("s2", NOW, 1), ("s3", NOW + 60, 1)]
@@ -265,13 +266,18 @@ def test_retry_uses_current_invocation_and_only_its_process_evidence(abandoned_l
     (row,) = report(__file__)["rows"]
     assert row["delivery_id"] == "d2" and row["caller"]["ask_pid"] == 450
     assert "state" not in row  # the first invocation's launch is not evidence about this retry
+    candidates = _dead_candidates(conn, NOW)
     with conn:
-        BridgeLedger.release_dead_asks(conn, "test", NOW)
+        conn.execute("BEGIN IMMEDIATE")
+        BridgeLedger.release_dead_asks(conn, "test", NOW, candidates)
         assert BridgeLedger.open_invocation(conn, "d2") == 2
         conn.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
                      "VALUES ('d2','s2','cx','launch_reserved','NOT_STARTED',?)",
                      (json.dumps(dict(invocation_no=2, provider_pid=451, provider_created=NOW)),))
-        assert BridgeLedger.release_dead_asks(conn, "test", NOW) == 1
+    candidates = _dead_candidates(conn, NOW)
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        assert BridgeLedger.release_dead_asks(conn, "test", NOW, candidates) == 1
     assert BridgeLedger.open_invocation(conn, "d2") is None
     assert not report(__file__)["rows"]
 
@@ -280,9 +286,11 @@ def test_gate_skips_dead_invocations_but_counts_a_later_live_ask(abandoned_lease
     conn = abandoned_leases
     with conn:
         conn.execute("UPDATE bridge_claims SET expires_at=? WHERE stream_id='s3'", (NOW - 1,))
-        assert BridgeLedger.has_active_asks(conn, "test", NOW)
+        inactive = BridgeLedger.inactive_claims(BridgeLedger.claim_activity(conn, "test", NOW).fetchall())
+        assert BridgeLedger.has_active_asks(conn, "test", NOW, inactive)
         conn.execute("UPDATE bridge_claims SET expires_at=? WHERE stream_id='s1'", (NOW - 1,))
-        assert not BridgeLedger.has_active_asks(conn, "test", NOW)
+        inactive = BridgeLedger.inactive_claims(BridgeLedger.claim_activity(conn, "test", NOW).fetchall())
+        assert not BridgeLedger.has_active_asks(conn, "test", NOW, inactive)
 
 
 def test_preinvocation_claim_can_expire_without_delivery_evidence(lease_store: sqlite3.Connection,
@@ -298,10 +306,42 @@ def test_preinvocation_claim_can_expire_without_delivery_evidence(lease_store: s
             detail = {**reader, "ask_pid": pid, "ask_created": NOW, "ask_identity": None,
                       "caller_pid": 300, "caller_created": NOW}
             conn.execute("INSERT INTO bridge_claim_callers VALUES (?, 'cx', 1, ?)", (f"s{i}", json.dumps(detail)))
-        assert BridgeLedger.release_dead_asks(conn, "test", NOW) == 2
+    candidates = _dead_candidates(conn, NOW)
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        assert BridgeLedger.release_dead_asks(conn, "test", NOW, candidates) == 2
     assert [r[0] for r in conn.execute("SELECT expires_at FROM bridge_claims ORDER BY stream_id")] == [NOW, NOW + 60, NOW]
     assert [r[0] for r in conn.execute("SELECT certainty FROM bridge_deliveries ORDER BY seq")] == ["NOT_STARTED"] * 2
     assert conn.execute("SELECT count(*) FROM bridge_evidence").fetchone()[0] == 0
+
+
+def _dead_candidates(conn: sqlite3.Connection, now: float) -> list[sqlite3.Row]:
+    rows = BridgeLedger.claim_activity(conn, "test", now, include_expired=True).fetchall()
+    return BridgeLedger.dead_ask_candidates(rows, now)
+
+
+@pytest.mark.parametrize("change", ("takeover", "heartbeat", "launch_evidence", "same_kind_evidence"))
+def test_dead_ask_release_rechecks_claim_and_invocation_under_lock(
+    abandoned_leases: sqlite3.Connection, change: str,
+) -> None:
+    conn = abandoned_leases
+    candidates = [row for row in _dead_candidates(conn, NOW) if row["delivery_id"] == "d2"]
+    assert len(candidates) == 1
+    if change == "takeover":
+        sql = "UPDATE bridge_claims SET generation=2 WHERE stream_id='s2'"
+    elif change == "heartbeat":
+        sql = "UPDATE bridge_claims SET expires_at=expires_at+1 WHERE stream_id='s2'"
+    else:
+        kind = "started" if change == "launch_evidence" else candidates[0]["last_kind"]
+        sql = ("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) "
+               f"VALUES ('d2','s2','cx','{kind}','NOT_STARTED','{{}}')")
+    with conn:
+        conn.execute(sql)
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        assert BridgeLedger.release_dead_asks(conn, "test", NOW, candidates) == 0
+        assert BridgeLedger.open_invocation(conn, "d2") == 1
+        assert conn.execute("SELECT COUNT(*) FROM bridge_evidence WHERE kind='processes_dead'").fetchone()[0] == 0
 
 
 def test_monitor_retains_orphan_alert_after_claim_takeover(abandoned_leases: sqlite3.Connection) -> None:

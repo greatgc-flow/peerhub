@@ -522,16 +522,14 @@ def test_account_probes_run_in_parallel_inside_one_shared_budget(tmp_path):
     assert measured_account_peers(db) == ["ag", "cc", "cx"]
 
 
-def test_account_probes_overlap_the_serial_quota_probes_instead_of_following_them(tmp_path):
-    """The account probes run alongside the quota loop: all three are running while the first quota probe runs."""
+def test_account_probes_overlap_all_quota_probes(tmp_path):
     db = refresh_env(tmp_path)
-    overlap = threading.Barrier(4, timeout=OVERLAP_WAIT)  # the three account probes and the first quota probe
+    overlap = threading.Barrier(6, timeout=OVERLAP_WAIT)  # all three account probes and all three quota probes
     quota_calls = []
 
     def quota(**kw):
         quota_calls.append(kw["instance_id"])
-        if len(quota_calls) == 1:
-            overlap.wait()
+        overlap.wait()
         return ()
 
     def account(kind):
@@ -542,7 +540,7 @@ def test_account_probes_overlap_the_serial_quota_probes_instead_of_following_the
 
     refresh_quota(db, ["cc", "cx", "ag"], pollers={"cc": quota, "cx": quota, "ag": quota}, deadline_sec=OVERLAP_DEADLINE,
                   version_checker=lambda k: None, account_pollers={"cc": account("cc"), "cx": account("cx"), "ag": account("cc")})
-    assert quota_calls == ["cc", "cx", "ag"]  # each quota probe ran once, in peer order
+    assert sorted(quota_calls) == ["ag", "cc", "cx"]
     assert measured_account_peers(db) == ["ag", "cc", "cx"]
 
 

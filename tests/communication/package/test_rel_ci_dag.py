@@ -1,5 +1,6 @@
 """Wave 7: REL-005 (deterministic CI needs no provider quota) and REL-006 (publish is causally gated by the live job)."""
 import copy
+import json
 import os
 import re
 import sys
@@ -15,6 +16,21 @@ from tests.communication.harness.pkg_env import REPO
 pytestmark = [pytest.mark.package, pytest.mark.release, pytest.mark.ci, pytest.mark.timeout(900)]
 
 PROVIDER_CLIS = ("claude", "claude.cmd", "codex", "codex.cmd", "agy", "agy.exe")
+
+# Keep the nested offline run focused on architecture boundaries, fake-peer
+# delivery and recovery, and Bridge failures that must preserve durable state.
+_REL005_CASES = (
+    "tests/communication/architecture/test_arch_core_boundary.py::test_arch_001_core_import_graph_forbids_extension_and_cli_dependencies",
+    "tests/communication/architecture/test_arch_core_boundary.py::test_arch_002_core_boots_with_extension_tables_absent",
+    "tests/communication/architecture/test_arch_extension_graph.py::test_extension_import_graph_matches_the_documented_allowlist",
+    "tests/communication/e2e/test_e2e_core_only.py::test_e2e_009_core_remains_useful_with_all_extensions_disabled",
+    "tests/communication/e2e/test_e2e_fake_runtime.py::test_e2e_001_two_peers_one_adapter_one_stream",
+    "tests/communication/e2e/test_e2e_fake_runtime.py::test_e2e_004_may_have_started_survives_restart_and_blocks_blind_replay",
+    "tests/communication/e2e/test_e2e_fake_runtime.py::test_e2e_006_lost_session_creates_new_generation_and_reconstructs_from_durable_records",
+    "tests/communication/e2e/test_e2e_fake_runtime.py::test_e2e_007_shared_pool_visible_in_diag_without_contaminating_core_peers",
+    "tests/communication/fault/test_flt_bridge.py::test_flt_004_may_have_started_blocks_every_automatic_retry_until_explicit_reconciliation",
+    "tests/communication/fault/test_flt_bridge.py::test_flt_007_claim_expiring_mid_execution_fences_stale_owner_finalize_and_offset",
+)
 
 
 def _wf(name):
@@ -138,7 +154,7 @@ def _no_provider_env(tmp_path):
     return env
 
 
-def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or_network(tmp_path):
+def _offline_pytest_nodeids(tmp_path, targets: tuple[str, ...]) -> set[str]:
     from _rel005_oracle import validate_pair
 
     env = _no_provider_env(tmp_path)
@@ -153,8 +169,6 @@ def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or
         print(found, net)
     """) % (PROVIDER_CLIS,)], cwd=REPO, env=env)
     assert probe.stdout.strip() == "[] blocked", probe.stdout + probe.stderr  # the sandbox itself is real
-    targets = ["tests/communication/architecture", "tests/communication/e2e",
-               "tests/communication/fault/test_flt_bridge.py"]
     marker_expression = "not slow and not e2e and not live and not canary and not soak"
     common = [sys.executable, "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider", "-p", "no:xdist",
               "-p", "_rel005_oracle", "-c", str(REPO / "pyproject.toml"), "--rootdir", str(REPO),
@@ -169,13 +183,24 @@ def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or
     execution_cmd = [*common, "--rel005-report", str(execution_file), "--rel005-nonce", execution_nonce]
     execution = pkg_env.run(execution_cmd, cwd=REPO, env=env, timeout=900)
     assert execution_file.is_file(), execution.stdout[-1500:] + execution.stderr[-1500:]
-    import json
-    validate_pair(json.loads(collect_file.read_text(encoding="utf-8")),
+    collection = json.loads(collect_file.read_text(encoding="utf-8"))
+    validate_pair(collection,
                   json.loads(execution_file.read_text(encoding="utf-8")),
                   expected_nonce=(collect_nonce, execution_nonce),
                   platform="windows" if os.name == "nt" else "posix",
                   collect_returncode=collect.returncode, execution_returncode=execution.returncode)
-    assert len(json.loads(collect_file.read_text(encoding="utf-8"))["item_nodeids"]) >= 30
+    return set(collection["item_nodeids"])
+
+
+def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or_network(tmp_path):
+    assert _offline_pytest_nodeids(tmp_path, _REL005_CASES) == set(_REL005_CASES)
+
+
+@pytest.mark.slow
+def test_rel_005_broad_offline_sweep(tmp_path):
+    targets = ("tests/communication/architecture", "tests/communication/e2e",
+               "tests/communication/fault/test_flt_bridge.py")
+    assert len(_offline_pytest_nodeids(tmp_path, targets)) >= 30
 
 
 def test_rel_005_live_and_soak_tests_are_deselected_by_the_default_command(tmp_path):
@@ -235,8 +260,6 @@ def test_rel_006_removed_live_job_leaves_publish_unrunnable_and_gate_linkage_fai
 
 
 def _gates():
-    import json
-
     return {g["id"]: g for g in json.loads((REPO / "docs/m1_spec/08_LIFECYCLE/release-gates.json").read_text(encoding="utf-8"))["gates"]}
 
 

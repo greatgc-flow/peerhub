@@ -9,6 +9,8 @@ import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from tempfile import gettempdir
+from uuid import uuid4
 
 import pytest
 import yaml
@@ -293,8 +295,7 @@ def test_cut_020_no_hard_coded_time_threshold_in_the_tool():
     assert str(ttl) not in src and "--ttl" not in src and not re.search(r"timedelta\(|\b(3600|86400|604800)\b", src)
 
 
-GATE_JOBS = (("verify", "G0", ["g0"]), ("verify", "G1", ["g1"]), ("verify", "G2", ["g2"]),
-             ("build", "G4", ["g4"]))
+GATE_JOBS = (("build", "G4", ["g4"]),)
 G3_FILES = ("g3", "g3-slow", "g3-e2e")  # produced and stamped locally by `python -m tools.live_gate`, fetched from the Release assets
 
 
@@ -302,8 +303,9 @@ def workflow_problems(wf):
     """Structural contract of publish.yml for candidate evidence; returns human-readable problems (empty = ok)."""
     bad = []
     verify = wf["jobs"].get("verify")
-    if verify is None or verify.get("needs") or verify.get("continue-on-error"):
-        bad.append("verify must exist, need nothing and fail closed")
+    if (verify is None or verify.get("needs") or verify.get("continue-on-error")
+            or [st["run"] for st in verify["steps"] if "run" in st] != ["python -m tools.traceability"]):
+        bad.append("verify must run the standalone traceability scan and fail closed")
     ev_run = next((st["run"] for st in wf["jobs"]["release-evidence"]["steps"] if "release_evidence" in st.get("run", "")), "")
     for need in ("--candidate", f"--policy-file {ev.POLICY_REL}", "--release-policy docs/m1_impl/release-policy.json"):
         if need not in ev_run:
@@ -379,7 +381,7 @@ def workflow_problems(wf):
             bad.append("matrix job must stamp its JUnit with --gate G4 --dist dist (package scope) under if: always()")
         if mx.get("continue-on-error"):
             bad.append("matrix job must fail closed")
-        if "matrix" not in wf["jobs"]["release-evidence"]["needs"] or "junit/g4-matrix-" not in ev_run:
+        if "matrix" not in wf["jobs"]["release-evidence"]["needs"] or "--g4-matrix-dir junit" not in ev_run:
             bad.append("release-evidence must need the matrix job and read its per-cell JUnit files")
     ci = wf["jobs"].get("candidate-ci", {})
     ci_steps = [st for st in ci.get("steps", []) if st.get("id") == "candidate-ci"
@@ -387,9 +389,9 @@ def workflow_problems(wf):
                 or "--verify-ci-junit" in st.get("run", "")]
     if (len(ci_steps) != 3 or any(st.get("if") or st.get("continue-on-error") for st in ci_steps)
             or ci_steps[1].get("with", {}).get("run-id") != "${{ steps.candidate-ci.outputs.run-id }}"
-            or "--verify-ci-junit" not in ci_steps[2].get("run", "")
-            or "candidate-ci" not in wf["jobs"]["live-validation"]["needs"]):
-        bad.append("live validation must wait for the exact candidate CI run and verified G2 reports")
+            or "--verify-ci-junit ci-junit --verify-source-catalog" not in ci_steps[2].get("run", "")
+            or any("candidate-ci" not in wf["jobs"][name]["needs"] for name in ("live-validation", "build", "release-evidence"))):
+        bad.append("live validation, build and evidence must wait for the candidate CI reports and source catalog")
     evj = wf["jobs"]["release-evidence"]
     ci_download = [st for st in evj["steps"] if st.get("with", {}).get("name") == "candidate-ci-junit"]
     if (len(ci_download) != 1 or any(st.get("if") or st.get("continue-on-error") for st in ci_download)
@@ -438,7 +440,7 @@ def _mutate(kind):
     elif kind == "g3-continue-on-error":
         wf["jobs"]["live-validation"]["continue-on-error"] = True
     elif kind == "stamp-not-always":
-        next(st for st in wf["jobs"]["verify"]["steps"] if "--stamp-junit" in st.get("run", "")).pop("if")
+        next(st for st in build if "--stamp-junit" in st.get("run", "")).pop("if")
     elif kind == "g4-stamp-before-build":
         i = next(i for i, st in enumerate(build) if "--stamp-junit" in st.get("run", ""))
         build.insert(0, build.pop(i))
@@ -475,7 +477,7 @@ def _mutate(kind):
     elif kind == "matrix-continue-on-error":
         wf["jobs"]["matrix"]["continue-on-error"] = True
     elif kind == "evidence-ignores-matrix":
-        ev_step["run"] = ev_step["run"].replace("junit/g4-matrix-", "junit/other-")
+        ev_step["run"] = ev_step["run"].replace("--g4-matrix-dir junit", "")
     elif kind == "evidence-skips-g3-slow":
         ev_step["run"] = ev_step["run"].replace("--junit junit/g3-slow.xml", "")
     elif kind == "evidence-skips-ci-reports":
@@ -488,11 +490,19 @@ def _mutate(kind):
             st["continue-on-error"] = True
     elif kind == "live-skips-ci-preflight":
         wf["jobs"]["live-validation"]["needs"].remove("candidate-ci")
+    elif kind == "build-skips-ci-preflight":
+        wf["jobs"]["build"]["needs"].remove("candidate-ci")
+    elif kind == "ci-skips-source-catalog":
+        st = next(st for st in wf["jobs"]["candidate-ci"]["steps"] if "--verify-ci-junit" in st.get("run", ""))
+        st["run"] = st["run"].replace("--verify-source-catalog", "")
+    elif kind == "verify-skips-traceability":
+        next(st for st in wf["jobs"]["verify"]["steps"] if "run" in st)["run"] = "true"
     return wf
 
 
 @pytest.mark.parametrize("kind", ["no-release-policy", "g3-self-hosted", "g3-no-presence-check", "g3-fetch-missing-file", "g3-upload-before-fetch",
                                   "evidence-skips-ci-reports", "ci-fetch-wrong-run", "ci-fetch-continue-on-error", "live-skips-ci-preflight",
+                                  "build-skips-ci-preflight", "ci-skips-source-catalog", "verify-skips-traceability",
                                   "g3-continue-on-error", "stamp-not-always", "g4-stamp-before-build",
                                   "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg",
                                   "publish-always", "publish-no-release-event",
@@ -599,6 +609,67 @@ def test_ci_reports_are_individually_checked_and_the_ci_run_is_recorded(monkeypa
 GATE_OF = {e["test_id"]: e["primary_gate"] for e in json.loads(
     (REPO / "docs/m1_spec/06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json").read_text(encoding="utf-8"))["entries"]}
 GATE_OF.update({t["id"]: "G2" for t in M23_CATALOG})
+
+
+@pytest.mark.parametrize("problem", [None, "source-skip", "live-borrow", "matrix-missing", "dist-changed"])
+def test_publish_evidence_uses_candidate_source_live_assets_and_exact_g4_dist(monkeypatch, capsys, problem):
+    root = Path(gettempdir()).resolve() / f"peerhub-candidate-evidence-{uuid4().hex}"
+    root.mkdir()
+    try:
+        dist = make_dist(root / "dist")
+        ci_dir = root / "ci-junit"
+        source = {i: "passed" for i, gate in GATE_OF.items() if gate in ("G0", "G1", "G2", "G7")}
+        monkeypatch.setattr(ev, "_now", lambda: NOW)
+        for index, path in enumerate(ev.matrix_junit_paths(ci_dir)):
+            path.parent.mkdir(parents=True)
+            cases = source.copy()
+            if index == 0 and problem == "source-skip":
+                cases["SCH-003"] = "skipped"
+            if problem == "live-borrow":
+                cases["LIVE-007"] = "passed"
+            ev.stamp_junit(junit(path, cases), commit=SHA, gate="G2", at=NOW)
+
+        ci_args = ["--commit", SHA, "--release-policy", str(RELEASE_POLICY)]
+        assert ev.main(["--verify-ci-junit", str(ci_dir), "--verify-source-catalog", *ci_args]) == int(problem == "source-skip")
+        if problem == "source-skip":
+            assert "SCH-003" in capsys.readouterr().err
+
+        junit_args = []
+        live_stages = {"g3.xml": [i for i, gate in GATE_OF.items() if gate == "G3" and i not in {"LIVE-007", "LIVE-008"}],
+                       "g3-slow.xml": ["LIVE-007"] if problem != "live-borrow" else ["OTHER-001"],
+                       "g3-e2e.xml": ["LIVE-008"]}
+        for name, stage in live_stages.items():
+            path = junit(root / name, dict.fromkeys(stage, "passed"))
+            ev.stamp_junit(path, commit=SHA, gate="G3", at=NOW)
+            junit_args.extend(["--junit", str(path)])
+        matrix_cases = {"REL-010": "passed", "REL-011": "passed"}
+        package = {i: "passed" for i, gate in GATE_OF.items() if gate == "G4" and i not in matrix_cases}
+        g4 = junit(root / "g4.xml", package)
+        ev.stamp_junit(g4, commit=SHA, gate="G4", dist_dir=dist, at=NOW)
+        junit_args.extend(["--junit", str(g4)])
+        for os_name in ("ubuntu-latest", "windows-latest"):
+            for version in ("3.11", "3.12", "3.13", "3.14", "3.15"):
+                cell = junit(root / f"g4-matrix-{os_name}-py{version}.xml", matrix_cases)
+                ev.stamp_junit(cell, commit=SHA, gate="G4", dist_dir=dist, at=NOW)
+        if problem == "matrix-missing":
+            cell.unlink()
+        if problem == "dist-changed":
+            next(dist.glob("*.whl")).write_bytes(b"changed")
+
+        code = ev.main([*junit_args, *ci_args, "--candidate", "--dist", str(dist), "--out", str(root / "bundle"),
+                        "--ci-junit-dir", str(ci_dir), "--ci-run-url", "https://github.com/owner/repo/actions/runs/42",
+                        "--g4-matrix-dir", str(root)])
+        assert code == int(problem is not None)
+        result = json.loads(capsys.readouterr().out)
+        if problem:
+            message = {"source-skip": "SCH-003", "live-borrow": "live canary LIVE-007 is missing",
+                       "matrix-missing": f"{cell.name} is missing", "dist-changed": "package_sha256"}[problem]
+            assert any(message in blocker for blocker in result["blockers"])
+        else:
+            assert result == {"release_ready": True, "blockers": []}
+    finally:
+        if root.resolve() == root:
+            shutil.rmtree(root)
 
 
 def test_cut_028_future_timestamps_are_rejected_beyond_the_policy_skew_tolerance(env, tmp_path):

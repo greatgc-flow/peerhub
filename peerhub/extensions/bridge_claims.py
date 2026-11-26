@@ -13,9 +13,10 @@ import json
 import os
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any, Callable, Generator
 
 from peerhub.core.migrations import rollback_quietly
 from peerhub.core.store import UnknownReferenceError
@@ -77,6 +78,9 @@ CREATE TABLE IF NOT EXISTS bridge_claim_callers (
     detail TEXT NOT NULL,
     PRIMARY KEY (stream_id, peer_id)
 )"""
+_DDL_LIVE_CLAIMS = ("CREATE INDEX IF NOT EXISTS idx_bc_workspace_expiry "
+                    "ON bridge_claims(workspace_generation,expires_at)")
+_SCHEMA_OBJECTS = {"bridge_claims", "bridge_finalizations", "bridge_claim_callers", "idx_bc_workspace_expiry"}
 
 
 _FINALIZATION_TRIGGERS: dict[str, str] = {
@@ -87,27 +91,49 @@ _FINALIZATION_TRIGGERS: dict[str, str] = {
 }
 
 
+@contextmanager
+def read_snapshot(db_path: str | os.PathLike[str]) -> Generator[sqlite3.Connection, None, None]:
+    uri = Path(db_path).resolve().as_uri() + "?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True, timeout=30.0, isolation_level=None)) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("BEGIN")
+        yield conn
+
+
 class ClaimStore:
     def __init__(self, db_path: str | os.PathLike[str], generation: Callable[[], str], clock: Callable[[], float] = time.time) -> None:
         self.db_path = str(db_path)
         self._generation = generation
         self._clock = clock
         refuse_future_schema(self.db_path)  # MIG-003: refuse a future schema before any DDL/DML
+        if Path(self.db_path).is_file():
+            with self.snapshot() as conn:
+                if self._schema_state(conn) == (True, _FINALIZATION_TRIGGERS):
+                    return
         with self._tx() as conn:
-            conn.execute(_DDL)
-            conn.execute(_DDL_FINAL)
-            conn.execute(_DDL_CALLERS)
-            # Inspect under BEGIN IMMEDIATE on EVERY open; never trust a cached
-            # schema version or just a trigger name. Preserve SQL body literals.
-            installed = dict(conn.execute(
-                "SELECT name,sql FROM sqlite_master WHERE type='trigger' "
-                "AND tbl_name IN ('bridge_claims','bridge_finalizations')"))
+            ready, installed = self._schema_state(conn)
+            if not ready:
+                for statement in (_DDL, _DDL_FINAL, _DDL_CALLERS, _DDL_LIVE_CLAIMS):
+                    conn.execute(statement)
             if installed != _FINALIZATION_TRIGGERS:
                 for name in installed:
                     quoted = '"' + name.replace('"', '""') + '"'
                     conn.execute(f"DROP TRIGGER {quoted}")
                 for statement in _FINALIZATION_TRIGGERS.values():
                     conn.execute(statement)
+
+    @staticmethod
+    def _schema_state(conn: sqlite3.Connection) -> tuple[bool, dict[str, str]]:
+        objects = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table','index') AND tbl_name IN "
+            "('bridge_claims','bridge_finalizations','bridge_claim_callers')")}
+        triggers = dict(conn.execute(
+            "SELECT name,sql FROM sqlite_master WHERE type='trigger' "
+            "AND tbl_name IN ('bridge_claims','bridge_finalizations')"))
+        return _SCHEMA_OBJECTS <= objects, triggers
+
+    def snapshot(self):
+        return read_snapshot(self.db_path)
 
     @contextmanager
     def _tx(self):

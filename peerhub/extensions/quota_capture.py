@@ -6,13 +6,17 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import subprocess
 import sys
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Generator, Sequence, cast
+from queue import Queue
+from threading import Lock, Thread
+from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Generator, Iterator, Sequence, cast
 
 from peerhub.core.load_limits import ResourceSample, probe_timeout_factor
 from peerhub.core.models import utc_now_iso
@@ -26,11 +30,16 @@ from peerhub.extensions.observation_model import (
 from peerhub.extensions.quota_types import ResetCreditObserved, UsageObserved
 
 if TYPE_CHECKING:
-    from peerhub.extensions.quota_probes import ProbeCancellation
+    from peerhub.extensions.quota_probes import AccountObserved, ProbeCancellation
 
 VERSION_PROBE_TIMEOUT_SECONDS = 3.0
+VERSION_CACHE_MAX_AGE_SECONDS = 900.0
 QUOTA_LOCK_WAIT_SECONDS = 3.0
 QUOTA_LOCK_POLL_SECONDS = .05
+_CommandFileIdentity = tuple[str, str, int, int, int, int, int]
+_CommandIdentity = tuple[_CommandFileIdentity, ...]
+_VERSION_CACHE: dict[str, tuple[_CommandIdentity, float, str]] = {}
+_VERSION_CACHE_LOCK = Lock()
 
 
 def _try_file_lock(file: BinaryIO) -> bool:
@@ -48,13 +57,14 @@ def _try_file_lock(file: BinaryIO) -> bool:
 
 
 @contextmanager
-def quota_refresh_lock(db_path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> Generator[bool, None, None]:
+def quota_refresh_lock(db_path: str | Path, *, cancelled: Callable[[], bool] | None = None,
+                       wait: bool = True) -> Generator[bool, None, None]:
     """Hold a PID lock until the refresh finishes or its process exits."""
     import psutil
 
     scratch = store_scratch_dir(db_path)
     scratch.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + QUOTA_LOCK_WAIT_SECONDS
+    deadline = time.monotonic() + (QUOTA_LOCK_WAIT_SECONDS if wait else 0)
     # Keep a stable file identity so two contenders cannot lock different files during dead-owner recovery.
     with (scratch / "quota-refresh.lock").open("a+b") as file:
         while not _try_file_lock(file):
@@ -81,30 +91,6 @@ def quota_refresh_lock(db_path: str | Path, *, cancelled: Callable[[], bool] | N
         finally:
             file.seek(0)
             file.truncate()  # Closing releases the OS lock. An interrupted owner leaves its PID for the next caller.
-
-
-def refresh_each_peer(peers: Sequence[str], *, collect: Callable[[str], dict[str, Any]],
-                      cancellation: ProbeCancellation) -> dict[str, Any] | None:
-    """Commit each peer's evidence as it arrives and summarize the collection."""
-    statuses: set[str] = set()
-    observations: list[dict[str, Any]] = []
-    warnings: list[str] = []
-    for peer in peers:
-        if cancellation.cancelled():
-            return None
-        try:
-            result = collect(peer)
-        except Exception as exc:
-            statuses.add("FAILED")
-            warnings.append(type(exc).__name__)
-            continue
-        statuses.add(result["status"])
-        observations.extend(result.get("observations", []))
-        warnings.extend(result.get("warnings", []))
-    if statuses and not cancellation.cancelled():
-        status = "OK" if statuses == {"OK"} else "FAILED" if statuses == {"FAILED"} else "PARTIAL"
-        return {"status": status, "observations": observations, "warnings": warnings}
-    return None
 
 
 class _Ids:
@@ -139,12 +125,10 @@ def _account_is_fresh(store: ObservationStore, peer: str) -> bool:
 class AccountCollection:
     """Account readings per peer under ONE deadline. Construction starts the probes (in parallel, once per provider kind: aliases share
     the reading; peers whose account observation is still fresh are skipped), so they overlap whatever the caller does next;
-    `finish()` joins them and returns {peer: AccountObserved} for the peers that should get a new observation. A probe that
+    `finish(kind)` joins one provider and returns {peer: AccountObserved} for the peers that should get a new observation. A probe that
     raises or outlives `start + budget + 1 s` becomes an ERROR reading with a fixed reason."""
 
     def __init__(self, store: ObservationStore, targets: Sequence[tuple[str, str]], pollers: dict[str, Callable[[], Any]], budget: float) -> None:
-        import threading
-
         peers_by_kind: dict[str, list[str]] = {}
         for peer, kind in targets:
             if kind in pollers and peer not in peers_by_kind.setdefault(kind, []):
@@ -159,23 +143,18 @@ class AccountCollection:
             except Exception as exc:
                 self._readings[kind] = _account_error(kind, "probe_exception", type(exc).__name__)
 
-        self._threads = {kind: threading.Thread(target=run, args=(kind,), daemon=True) for kind in self._due}
+        self._threads = {kind: Thread(target=run, args=(kind,), daemon=True) for kind in self._due}
         self._end = time.monotonic() + budget + 1.0  # the pollers themselves honour `budget`
         for thread in self._threads.values():
             thread.start()
 
-    def finish(self) -> dict[str, Any]:
-        timed_out = set[str]()
-        for kind, thread in self._threads.items():
-            thread.join(max(0.0, self._end - time.monotonic()))
-            if thread.is_alive():
-                timed_out.add(kind)
-        out: dict[str, Any] = {}
-        for kind, peers in self._due.items():
-            reading = _account_error(kind, "timeout") if kind in timed_out else self._readings.get(kind)
-            if reading is not None:
-                out.update({peer: reading for peer in peers})
-        return out
+    def finish(self, kind: str) -> dict[str, AccountObserved]:
+        thread = self._threads.get(kind)
+        if thread is None:
+            return {}
+        thread.join(max(0.0, self._end - time.monotonic()))
+        reading = _account_error(kind, "timeout") if thread.is_alive() else self._readings.get(kind)
+        return {peer: reading for peer in self._due[kind]} if reading is not None else {}
 
 
 def default_account_pollers(sys_dir: Path | None, deadline_sec: float,
@@ -188,9 +167,24 @@ def default_account_pollers(sys_dir: Path | None, deadline_sec: float,
             "ag": lambda: poll_agy_account(sys_dir=sys_dir, deadline_sec=deadline_sec, **options)}
 
 
+def _command_identity(command: list[str]) -> _CommandIdentity | None:
+    files: list[_CommandFileIdentity] = []
+    try:
+        for arg in command:
+            path = Path(arg)
+            if not path.is_absolute() or path.suffix.lower() in {".cmd", ".bat"}:
+                return None  # The search path or launcher can select a different file.
+            real = path.resolve(strict=True)
+            stat = real.stat()
+            files.append((os.path.normcase(str(path)), os.path.normcase(str(real)), stat.st_dev, stat.st_ino, stat.st_size,
+                          stat.st_mtime_ns, stat.st_ctime_ns))
+    except (OSError, RuntimeError):
+        return None
+    return tuple(files)
+
+
 def _probe_cli_version(kind: str, sys_dir: Path | None, *, timeout: float = VERSION_PROBE_TIMEOUT_SECONDS,
                        cancellation: ProbeCancellation | None = None) -> str | None:
-    import re
     from peerhub.extensions.quota_probes import real_command, resolve_sys_dir, run_text_probe
     resolved_sys = resolve_sys_dir(sys_dir)
     peer_map = {"claude": "cc", "codex": "cx", "antigravity": "ag", "cc": "cc", "cx": "cx", "ag": "ag"}
@@ -198,14 +192,27 @@ def _probe_cli_version(kind: str, sys_dir: Path | None, *, timeout: float = VERS
     cmd = real_command(peer, resolved_sys)
     if not cmd:
         return None
+    _check_cancelled(cancellation)
+    identity = _command_identity(cmd)
+    if identity is not None:
+        with _VERSION_CACHE_LOCK:
+            cached = _VERSION_CACHE.get(peer)
+        if cached is not None and cached[0] == identity and time.monotonic() - cached[1] < VERSION_CACHE_MAX_AGE_SECONDS:
+            return cached[2]
     try:
         proc = run_text_probe([*cmd, "--version"], timeout=timeout, cancellation=cancellation)
         if proc.returncode != 0:
             return None
         m = re.search(r"\b\d+\.\d+\.\d+(?:[-+][A-Za-z0-9._-]+)?\b", proc.stdout or proc.stderr)
-        return m.group(0) if m else None
     except Exception:
         return None
+    if m is None or (cancellation is not None and cancellation.cancelled()):
+        return None
+    version = m.group(0)
+    if identity is not None and identity == _command_identity(cmd):
+        with _VERSION_CACHE_LOCK:
+            _VERSION_CACHE[peer] = (identity, time.monotonic(), version)
+    return version
 
 
 def _packaged_observed_versions() -> dict[str, str]:
@@ -255,7 +262,23 @@ def _poll_quota(poll: Callable[..., Any], *, retry_timeouts: bool, **options: An
             if not any(isinstance(r, UsageObserved) and r.evidence.state == EvidenceState.ERROR
                        and quota_probe_timed_out(r.extra.get("reason")) for r in readings or ()):
                 return readings
+        _check_cancelled(options.get("cancellation"))
     return poll(**options)
+
+
+def _check_cancelled(cancellation: ProbeCancellation | None) -> None:
+    if cancellation is not None and cancellation.cancelled():
+        raise OSError("quota collection cancelled")
+
+
+_QuotaReadings = Sequence[UsageObserved | ResetCreditObserved] | Exception
+
+
+@dataclass(frozen=True)
+class _ProviderResult:
+    version: str | None
+    readings: dict[int, _QuotaReadings]
+    accounts: dict[str, AccountObserved]
 
 
 def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None = None,
@@ -265,7 +288,8 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                   ag_pools: Sequence[str] | None = None,
                   account_pollers: dict[str, Callable[[], Any]] | None = None,
                   retry_timeouts: bool = False, cancellation: ProbeCancellation | None = None,
-                  resource_reader: Callable[[], ResourceSample] | None = None) -> dict[str, Any]:
+                  resource_reader: Callable[[], ResourceSample] | None = None,
+                  incremental: bool = False) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
     if not Path(db_path).is_file():
@@ -278,22 +302,129 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             raise ValueError(f"quota providers: {labels}")
         kinds.append(kind)
     timeout_factor = probe_timeout_factor(resource_reader)
-    busy = timeout_factor > 1
     deadline_sec *= timeout_factor
     injected_pollers = pollers is not None
     if pollers is None:
         from peerhub.extensions.quota_probes import poll_agy_usage, poll_claude_usage, poll_codex_usage
         pollers = {"cx": poll_codex_usage, "cc": poll_claude_usage, "ag": poll_agy_usage}
 
+    positions: dict[str, list[int]] = {}
+    for i, kind in enumerate(kinds):
+        positions.setdefault(kind, []).append(i)
+    parallel = len(positions) > 1
     store = ObservationStore(db_path, require_existing=True)
+    owns_cancellation = parallel and cancellation is None and not injected_pollers
+    with ExitStack() as cleanup:
+        if owns_cancellation:
+            from peerhub.extensions.quota_probes import ProbeCancellation
 
-    # Account / login / plan evidence (#329): bounded no-model-turn probes, independent of the quota probes (a failure there never
-    # blocks them). They start now, run alongside the serial version and quota probes below, and are joined after the quota loop, so the
-    # whole refresh stays within roughly max(quota time, probe timeout). Injected quota pollers imply no real account probes.
-    probe_options: dict[str, Any] = {"cancellation": cancellation} if cancellation is not None else {}
-    if account_pollers is None:
-        account_pollers = {} if injected_pollers else default_account_pollers(sys_dir, deadline_sec, **probe_options)
-    accounts_running = AccountCollection(store, list(zip(peers, kinds)), account_pollers, deadline_sec)
+            cancellation = ProbeCancellation()
+            cleanup.callback(cancellation.close)
+        probe_options: dict[str, Any] = {"cancellation": cancellation} if cancellation is not None else {}
+        if account_pollers is None:
+            account_pollers = {} if injected_pollers else default_account_pollers(sys_dir, deadline_sec, **probe_options)
+        accounts = AccountCollection(store, list(zip(peers, kinds)), account_pollers, deadline_sec)
+
+        def collect(kind: str, polls: dict[str, Callable[..., Any]]) -> _ProviderResult:
+            _check_cancelled(cancellation)
+            timeout = VERSION_PROBE_TIMEOUT_SECONDS * timeout_factor
+            if cancellation is not None and not owns_cancellation:
+                timeout = min(deadline_sec, timeout)
+            try:
+                version = (version_checker(kind) if version_checker is not None else
+                           _probe_cli_version(kind, sys_dir, timeout=timeout, cancellation=cancellation))
+            except Exception:
+                version = None
+            readings: dict[int, _QuotaReadings] = {}
+            configured = {"cx": cx_pools, "cc": cc_pools, "ag": ag_pools}[kind]
+            pool_options: dict[str, Any] = {"configured_pools": configured} if configured is not None else {}
+            if kind == "ag" and owns_cancellation:
+                pool_options["allow_exit_grace"] = True
+            for i in positions[kind]:  # Alias probes share a worker and version check.
+                _check_cancelled(cancellation)
+                try:
+                    readings[i] = _poll_quota(polls[kind], retry_timeouts=retry_timeouts, ids=_Ids(),
+                                              instance_id=peers[i], profile_id="default", deadline_sec=deadline_sec,
+                                              sys_dir=sys_dir, **probe_options, **pool_options)
+                except Exception as exc:
+                    readings[i] = exc
+            _check_cancelled(cancellation)
+            return _ProviderResult(version, readings, accounts.finish(kind))
+
+        def commit(results: dict[str, _ProviderResult]) -> dict[str, Any]:
+            readings = {i: reading for result in results.values() for i, reading in result.readings.items()}
+            return _commit_quota(
+                store, [(peers[i], kinds[i], readings[i]) for i in sorted(readings)],
+                {peer: account for result in results.values() for peer, account in result.accounts.items()},
+                {kind: result.version for kind, result in results.items()}, busy=timeout_factor > 1,
+                cancellation=cancellation)
+
+        def commit_provider(kind: str, result: _ProviderResult) -> dict[str, Any]:
+            try:
+                return commit({kind: result})
+            except Exception as exc:
+                _check_cancelled(cancellation)
+                return {"status": "FAILED", "warnings": [type(exc).__name__]}
+
+        def completed(polls: dict[str, Callable[..., Any]]) -> Iterator[tuple[str, _ProviderResult]]:
+            if not parallel:
+                yield kinds[0], collect(kinds[0], polls)
+                return
+            done: Queue[tuple[str, _ProviderResult | BaseException]] = Queue()
+
+            def worker(kind: str) -> None:
+                try:
+                    result = collect(kind, polls)
+                except BaseException as exc:
+                    done.put((kind, exc))
+                else:
+                    done.put((kind, result))
+
+            # Bounded by the supported providers. Daemon workers preserve the monitor's bounded exit on interruption.
+            for kind in positions:
+                Thread(target=worker, args=(kind,), name=f"peerhub-quota-{kind}", daemon=True).start()
+            for _ in positions:
+                kind, result = done.get()
+                if isinstance(result, BaseException):
+                    raise result
+                yield kind, result
+
+        results: dict[str, _ProviderResult] = {}
+        committed: dict[str, dict[str, Any]] = {}
+        try:
+            for kind, result in completed(pollers):
+                if incremental:
+                    committed[kind] = commit_provider(kind, result)
+                else:
+                    results[kind] = result
+        except Exception:
+            if cancellation is not None:
+                cancellation.close()
+            raise
+        except BaseException:
+            if cancellation is not None:
+                cancellation.stop()
+            raise
+        if not incremental:
+            result = commit({kind: results[kind] for kind in positions})
+            if cancellation is not None:
+                result["warnings"].extend(cancellation.take_warnings())
+            return result
+        _check_cancelled(cancellation)
+        statuses = {result["status"] for result in committed.values()}
+        status = "OK" if statuses == {"OK"} else "FAILED" if statuses == {"FAILED"} else "PARTIAL"
+        warnings = [warning for kind in positions for warning in committed[kind].get("warnings", [])]
+        if cancellation is not None:
+            warnings.extend(cancellation.take_warnings())
+        return {"status": status, "observations": [obs for kind in positions for obs in committed[kind].get("observations", [])],
+                "warnings": warnings}
+
+
+def _commit_quota(store: ObservationStore, targets: Sequence[tuple[str, str, _QuotaReadings]],
+                  accounts: dict[str, AccountObserved], probed_versions: dict[str, str | None], *,
+                  busy: bool, cancellation: ProbeCancellation | None) -> dict[str, Any]:
+    _check_cancelled(cancellation)
+    kinds = probed_versions.keys()
 
     observed_versions = _packaged_observed_versions()
     prior_report = _read_latest_facts_report(store)
@@ -304,25 +435,6 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
 
     ag_probed_ok = False
     ag_unknown_pools: list[str] = []
-    probed_versions: dict[str, str | None] = {}
-
-    def _default_v_fn(k: str) -> str | None:
-        timeout = VERSION_PROBE_TIMEOUT_SECONDS * timeout_factor
-        if cancellation is not None:
-            timeout = min(deadline_sec, timeout)
-        return _probe_cli_version(k, sys_dir, timeout=timeout, cancellation=cancellation)
-
-    def check_cancelled() -> None:
-        if cancellation is not None and cancellation.cancelled():
-            raise OSError("quota collection cancelled")
-
-    v_fn: Callable[[str], str | None] = version_checker if version_checker is not None else _default_v_fn
-    for kind in set(kinds):
-        check_cancelled()
-        try:
-            probed_versions[kind] = v_fn(kind)
-        except Exception:
-            probed_versions[kind] = None
     pending_obs: list[tuple[str, str | None, str, EvidenceState, dict[str, Any], str, str, str]] = []  # last item: observation kind
     warnings: list[str] = []
 
@@ -330,13 +442,11 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         payload["reason"] = QUOTA_PROBE_LOAD_DELAY
         warnings.append(f"{peer}: {QUOTA_PROBE_LOAD_DELAY}: {QUOTA_PROBE_LOAD_LABEL}")
 
-    for peer, kind in zip(peers, kinds):
-        check_cancelled()
+    for peer, kind, readings in targets:
+        _check_cancelled(cancellation)
         try:
-            injected = {"cx": cx_pools, "cc": cc_pools, "ag": ag_pools}[kind]
-            readings = _poll_quota(pollers[kind], retry_timeouts=retry_timeouts, ids=_Ids(), instance_id=peer,
-                                   profile_id="default", deadline_sec=deadline_sec, sys_dir=sys_dir, **probe_options,
-                                   **({"configured_pools": injected} if injected is not None else {}))
+            if isinstance(readings, Exception):
+                raise readings
             if not readings:
                 raise ValueError("probe returned no evidence")
             if kind == "ag":
@@ -411,14 +521,13 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                 epoch_to_iso(evidence.captured_at), "quota",
             ))
 
-    # Join the account probes started above. Only normalized fields reach `pending_obs`.
-    for peer, account in accounts_running.finish().items():
+    # Only normalized account fields reach `pending_obs`.
+    for peer, account in accounts.items():
         if account.warning:
             warnings.append(f"{peer}: account_probe: {account.warning}")
         stamp = epoch_to_iso(account.observed_at)
         pending_obs.append((peer, None, account.source_tag, account.state, dict(account.payload), stamp, stamp, "account"))
 
-    import re
     today = utc_now_iso()[:10]
     checks: dict[str, str] = {}
     check_dates: dict[str, str] = {}
@@ -494,7 +603,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
 
     written: list[dict[str, Any]] = []
     for peer_id, pool_ref, src, st, pld, obs_at, cap_at, kind_name in pending_obs:
-        check_cancelled()
+        _check_cancelled(cancellation)
         if kind_name == "quota":
             pld["facts_report"] = facts_report
         obs = Observation(
@@ -511,7 +620,5 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         store.persist(obs)
         written.append(obs.model_dump(mode="json"))
 
-    if cancellation is not None:
-        warnings.extend(cancellation.take_warnings())
     return {"schema_version": "1.0", "status": "PARTIAL" if any(o["state"] == "ERROR" and o["kind"] != "account" for o in written) else "OK",  # account evidence never degrades quota status
             "observations": written, "warnings": warnings}

@@ -8,20 +8,26 @@ an explicit UNKNOWN entry, never "unlimited"; only keys of MEASUREMENT_KEYS are 
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any, cast
 
 from peerhub.core.models import iso_timestamp
-from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
+from peerhub.core.schema_version import SchemaVersionError
+from peerhub.extensions.diag import DiagnosticReport, DiagReadOnlyError, ReadonlyDiag
 from peerhub.extensions.observation_model import (
     QUOTA_MAX_AGE_SECONDS,
     FreshnessPolicy,
     MEASUREMENT_KEYS,
+    ObservationCorruptError,
     QUOTA_NOTICE_AGE_SECONDS,
     QUOTA_PROBE_LOAD_DELAY,
     QUOTA_PROBE_LOAD_LABEL,
+    effective_us,
     oldest_measured_quota_age,
+    row_to_observation,
 )
 from peerhub.extensions.quota_projection import (
     limit_by_parent,
@@ -180,6 +186,39 @@ def quota_items(db_path: str | Path, *, peer: str | None = None) -> list[dict[st
     policy = FreshnessPolicy(by_kind={"quota": QUOTA_MAX_AGE_SECONDS + .000001})
     report = quota_report(db_path, peer=peer, policy=policy)
     return [item for group in report["pools"] for item in group["items"] if item["kind"] == "quota"]
+
+
+def has_recent_quota(db_path: str | Path, peer: str, *, max_age_seconds: float = QUOTA_MAX_AGE_SECONDS,
+                     read_at: float | None = None) -> bool:
+    """Look up recent quota evidence for one subject without building a diagnostic report."""
+    now_us = round((time.time() if read_at is None else read_at) * 1_000_000)
+    cutoff_us = now_us - round(max_age_seconds * 1_000_000)
+    try:
+        # Reuse the diagnostic snapshot's schema, integrity and read-only checks.
+        with closing(ReadonlyDiag(db_path)._open()) as conn:  # pyright: ignore[reportPrivateUsage]
+            has_rollups = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='observation_rollups'").fetchone()
+            if has_rollups:
+                rows = conn.execute(
+                    "SELECT o.* FROM observation_rollups AS h JOIN observations AS o ON o.capture_seq=h.latest_capture_seq "
+                    "WHERE h.subject_ref=? AND h.kind='quota' AND o.effective_at_us BETWEEN ? AND ?", (peer, cutoff_us, now_us))
+            else:
+                # Legacy stores still have the subject/kind/effective-time index. A newer future row for a pool masks an old one.
+                rows = conn.execute(
+                    "SELECT * FROM observations WHERE subject_ref=? AND kind='quota' AND effective_at_us>=? "
+                    "ORDER BY effective_at_us DESC, capture_seq DESC", (peer, cutoff_us))
+            seen: set[str | None] = set()
+            for row in rows:
+                try:
+                    obs, _ = row_to_observation(row)
+                except ObservationCorruptError:
+                    continue
+                pool = obs.resource_pool_ref
+                if pool not in seen and cutoff_us <= effective_us(obs) <= now_us:
+                    return True
+                seen.add(pool)
+    except (OSError, sqlite3.Error, DiagReadOnlyError, SchemaVersionError):
+        return False
+    return False
 
 
 def _num(value: object) -> float | None:

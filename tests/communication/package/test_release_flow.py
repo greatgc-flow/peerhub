@@ -14,9 +14,9 @@ from uuid import uuid4
 
 import pytest
 
-from tools import release_flow
-from tools.release_ci import REQUIRED_JOBS
-from tools.release_evidence import stamp_junit
+from tools import live_gate, release_evidence, release_flow
+from tools.release_ci import REPORT_PATTERN, REQUIRED_JOBS, candidate_runs_endpoint, matrix_junit_paths
+from tools.release_evidence import RELEASE_POLICY_REL, stamp_junit
 
 pytestmark = [pytest.mark.package, pytest.mark.release]
 VERSION = "1.2.3"
@@ -73,13 +73,7 @@ class FakeLive:
         self.reaped = True
         if self.returncode is None:
             self.returncode = self.fake.live_exit
-            if self.returncode == 0:
-                for name in release_flow.JUNIT_NAMES:
-                    path = self.fake.evidence / name
-                    path.write_bytes(b"<testsuites><testsuite /></testsuites>")
-                    stamp_junit(path, commit=self.fake.live_sha, gate="G3", at=NOW)
-                if self.fake.write_json:
-                    (self.fake.evidence / JSON_NAME).write_bytes(b'{"providers": {}}\n')
+            self.fake.complete_live()
         return self.returncode
 
     def stop(self):
@@ -93,6 +87,7 @@ class Fake:
         self.root = root
         self.evidence = root / release_flow.EVIDENCE_DIR.relative_to(release_flow.ROOT)
         self.state_path = self.evidence.with_name("release-flow") / f"state-{VERSION}.json"
+        self.checkpoint = self.state_path.with_name(f"live-{VERSION}.json")
         self.lock_path = self.state_path.with_name(f"lock-{VERSION}")
         self.calls = []
         self.dirty = ""
@@ -119,6 +114,10 @@ class Fake:
         self.jobs = {1: [job(name) for name in sorted(REQUIRED_JOBS)], 2: [job(CELL)]}
         self.attempt = 1
         self.run_overrides = {}
+        self.listed_runs = []
+        self.push_visible_after = 0
+        self.discovery_reads = 0
+        self.bad_ci_report = None
         self.raise_while_polling = None
         self.rerun_requested = False
         self.rerun_exit = 0
@@ -133,6 +132,9 @@ class Fake:
         self.hold_live = False
         self.live_process = None
         self.live_runner = None
+        self.live_completed = None
+        self.live_stages_run = []
+        self.resuming_live = False
         self.interrupt_at_launch = False
         self.live_stream = None
         self.wait_timeouts = []
@@ -163,7 +165,9 @@ class Fake:
             elif self.exit_during_taskkill:
                 self.live_process.returncode = 0
             return subprocess.CompletedProcess(cmd, self.taskkill_exit, b"", b"process not found")
-        assert cmd == [sys.executable, "-m", "tools.live_gate", "--yes"]
+        expected = [sys.executable, "-m", "tools.live_gate", "--yes", "--checkpoint", str(self.checkpoint)]
+        assert cmd in (expected, [*expected, "--resume"])
+        self.resuming_live = cmd[-1] == "--resume"
         assert cwd == self.root
         assert log == self.evidence / "release-flow-live.log"
         self.live_started = True
@@ -177,6 +181,23 @@ class Fake:
 
             signal_module.getsignal(signal_module.SIGINT)(signal_module.SIGINT, None)
         return self.live_process
+
+    def complete_live(self):
+        limit = self.live_completed if self.live_completed is not None else (0 if self.live_exit else len(NAMES) - 1)
+        hashes = json.loads(self.checkpoint.read_text(encoding="utf-8"))["evidence_sha256"] if self.checkpoint.exists() else {}
+        for name in release_flow.JUNIT_NAMES[:limit]:
+            if name in hashes:
+                continue
+            self.live_stages_run.append(name)
+            path = self.evidence / name
+            path.write_bytes(b'<testsuite><testcase name="test_live_case"/></testsuite>')
+            stamp_junit(path, commit=self.live_sha, gate="G3", at=NOW)
+            hashes[name] = live_gate.file_digest(path)
+        if limit and (self.write_json or JSON_NAME in hashes):
+            if JSON_NAME not in hashes:
+                (self.evidence / JSON_NAME).write_bytes(b'{"providers": {}}\n')
+                hashes[JSON_NAME] = live_gate.file_digest(self.evidence / JSON_NAME)
+            live_gate.write_checkpoint(self.checkpoint, SHA, hashes)
 
     def git(self, cmd, cwd):
         assert cwd == self.root
@@ -214,6 +235,10 @@ class Fake:
         if cmd[-1] == f"repos/{REPO}/releases":
             assert cmd[4:-1] == ["--paginate", "--slurp"]
             out = [[draft(tag="v1.2.2", is_draft=False)], [self.release] if self.release is not None else []]
+        elif cmd[-1] == f"repos/{REPO}/{candidate_runs_endpoint(SHA)}":
+            assert cmd[4:-1] == ["--paginate", "--slurp"]
+            self.discovery_reads += 1
+            out = [{"workflow_runs": self.listed_runs if self.discovery_reads > self.push_visible_after else []}]
         elif cmd[-1].startswith(f"repos/{REPO}/releases/assets/"):
             assert cmd[4:-1] == ["-H", "Accept: application/octet-stream"]
             asset_id = int(cmd[-1].rsplit("/", 1)[-1])
@@ -261,6 +286,14 @@ class Fake:
                 assert not self.dispatched
                 self.dispatched = True
                 return subprocess.CompletedProcess(cmd, 0, self.dispatch_output)
+            case ["run", "download", "42", "--pattern", pattern, "--dir", directory] if pattern == REPORT_PATTERN:
+                for path in matrix_junit_paths(Path(directory)):
+                    path.parent.mkdir()
+                    if path.name == self.bad_ci_report:
+                        continue
+                    path.write_bytes(b'<testsuite><testcase name="test_ci_case"/></testsuite>')
+                    stamp_junit(path, commit=SHA, gate="G2", at=NOW)
+                return subprocess.CompletedProcess(cmd, 0, b"")
             case ["run", "rerun", "42", "--failed"]:
                 assert not self.rerun_requested
                 assert self.state()["retry_requested"] is False
@@ -313,6 +346,7 @@ class Fake:
 @pytest.fixture
 def fake(monkeypatch):
     monkeypatch.setattr(release_flow, "is_windows", lambda: True)
+    monkeypatch.setattr(release_evidence, "_now", lambda: NOW)
     base = Path(gettempdir()).resolve()
     root = base / f"peerhub-release-flow-{uuid4().hex}"
     root.mkdir()
@@ -320,6 +354,16 @@ def fake(monkeypatch):
         (root / "peerhub").mkdir()
         (root / "peerhub/_version.py").write_text(f'__version__ = "{VERSION}"\n', encoding="utf-8")
         (root / "CHANGELOG.md").write_text(f"## [{VERSION}]\n\n" + NOTES.decode(), encoding="utf-8")
+        for rel, contents in {
+            RELEASE_POLICY_REL: (release_flow.ROOT / RELEASE_POLICY_REL).read_text(encoding="utf-8"),
+            "docs/m1_spec/06_GUIDES/TEST_SET/test-catalog.json": '{"tests": []}',
+            "docs/m1_spec/06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json": '{"entries": []}',
+            "docs/m2/test-catalog.m2.json": '{"tests": []}',
+            "docs/m3/test-catalog.m3.json": '{"tests": []}',
+        }.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(contents, encoding="utf-8")
         yield Fake(root)
     finally:
         assert root.resolve().parent == base
@@ -333,7 +377,7 @@ def test_happy_path_binds_evidence_and_runs_ci_concurrently(fake, capsys):
     assert len(fake.called("gh", "release", "create")) == 1
     assert f"{PUBLISH} --repo github.com/{REPO}" in capsys.readouterr().out
     assert fake.state() == {
-        "head": SHA, "ci_run_id": RUN_ID, "live_status": "passed", "retry_requested": False,
+        "head": SHA, "ci_run_id": RUN_ID, "live_status": "passed", "retry_requested": False, "initial_ci_attempt": 1,
         "evidence_sha256": {name: hashlib.sha256((fake.evidence / name).read_bytes()).hexdigest() for name in NAMES},
     }
 
@@ -628,7 +672,7 @@ def test_live_gate_nonzero_writes_log_and_no_draft(fake, capsys):
 def test_live_gate_refuses_wrong_junit_sha(fake, capsys):
     fake.live_sha = OTHER_SHA
     assert fake.invoke() == 1
-    assert f"must be stamped for HEAD {SHA}" in capsys.readouterr().err
+    assert "bound to a different candidate: source_revision" in capsys.readouterr().err
     assert not fake.called("gh", "release", "create")
 
 
@@ -637,7 +681,7 @@ def test_live_gate_does_not_accept_existing_json_without_an_update(fake, capsys)
     (fake.evidence / JSON_NAME).write_bytes(b'{"providers": {}}\n')
     fake.write_json = False
     assert fake.invoke() == 1
-    assert f"<date>-{TAG}.json from the live gate; found none" in capsys.readouterr().err
+    assert "live gate did not complete all three stages" in capsys.readouterr().err
     assert not fake.called("gh", "release", "create")
 
 
@@ -919,7 +963,7 @@ def test_parallel_interruption_stops_live_tree_saves_state_and_releases_lock(fak
     new_process_group = 0x200
 
     def popen(cmd, *, cwd, stdin, stdout, stderr, start_new_session, creationflags):
-        assert cmd == [sys.executable, "-m", "tools.live_gate", "--yes"]
+        assert cmd == [sys.executable, "-m", "tools.live_gate", "--yes", "--checkpoint", str(fake.checkpoint)]
         assert cwd == fake.root
         assert stdin == subprocess.DEVNULL
         assert stderr == subprocess.STDOUT
@@ -1034,6 +1078,55 @@ def test_ci_first_waits_for_all_jobs_before_starting_live_gate(fake):
     jobs_call, = [call for call in fake.called("gh", "api") if call[-1].endswith("/jobs")]
     live_call, = fake.called(sys.executable, "-m", "tools.live_gate")
     assert fake.calls.index(jobs_call) < fake.calls.index(live_call)
+    download, = fake.called("gh", "run", "download")
+    assert fake.calls.index(jobs_call) < fake.calls.index(download) < fake.calls.index(live_call)
+
+
+@pytest.mark.parametrize("status", ["queued", "completed"])
+def test_adopts_exact_main_push_without_dispatch(fake, status):
+    fake.event = "push"
+    fake.listed_runs = [{"id": RUN_ID, "event": "push", "head_sha": SHA, "head_branch": "main",
+                         "repository": {"full_name": REPO}, "head_repository": {"full_name": REPO}}]
+    fake.run_overrides[1] = {"status": status}
+    fake.push_visible_after = 1
+    assert fake.invoke("--ci-first") == 0
+    assert not fake.dispatched
+    assert fake.discovery_reads == 2
+    assert fake.state()["ci_run_id"] == RUN_ID
+    assert fake.called("gh", "run", "download")
+
+
+def test_explicit_recovery_run_reuses_verified_rerun(fake):
+    fake.attempt = 2
+    assert fake.invoke("--ci-first", "--ci-run-id", str(RUN_ID)) == 0
+    assert not fake.dispatched
+    assert fake.state()["initial_ci_attempt"] == 2
+
+
+@pytest.mark.parametrize("bad_report", [False, True])
+def test_failed_live_resume_keeps_run_and_completed_stage(fake, capsys, bad_report):
+    fake.live_exit = 1
+    fake.live_completed = 1
+    assert fake.invoke("--ci-first") == 1
+    first = fake.evidence / release_flow.JUNIT_NAMES[0]
+    digest = live_gate.file_digest(first)
+    fake.live_exit = 0
+    fake.live_completed = None
+    fake.calls.clear()
+    if bad_report:
+        fake.bad_ci_report = matrix_junit_paths(Path("."))[-1].name
+    assert fake.invoke("--resume") == int(bad_report)
+    assert not fake.called("gh", "workflow", "run")
+    assert live_gate.file_digest(first) == digest
+    assert fake.live_stages_run == list(release_flow.JUNIT_NAMES[:1] if bad_report else release_flow.JUNIT_NAMES)
+    output = capsys.readouterr()
+    if bad_report:
+        assert "missing" in output.err and fake.bad_ci_report in output.err
+        assert not fake.called(sys.executable, "-m", "tools.live_gate")
+        assert not fake.called("gh", "release", "create")
+    else:
+        assert fake.resuming_live
+        assert PUBLISH in output.out
 
 
 def test_invalid_version_is_usage_error(fake):

@@ -37,6 +37,27 @@ DDL = (
     """CREATE TRIGGER IF NOT EXISTS bridge_history_tombstone_final BEFORE UPDATE ON bridge_session_history
         WHEN OLD.state='TOMBSTONED' BEGIN SELECT RAISE(ABORT,'session tombstones are final'); END""",
 )
+_POINTER_INDEX = "CREATE INDEX IF NOT EXISTS idx_bs_monitor_peer ON bridge_sessions(peer_id,updated_at DESC,stream_id)"
+_DELIVERY_SESSION_INDEX = "CREATE INDEX IF NOT EXISTS idx_bd_session ON bridge_deliveries(session_handle,seq)"
+_QUOTA_INDEX = ("CREATE INDEX IF NOT EXISTS idx_obs_session_quota "
+                "ON observations(subject_ref,kind,resource_pool_ref,effective_at_us DESC,capture_seq DESC)")
+_PROJECTION_REPAIR_DDL = (
+    """CREATE TABLE IF NOT EXISTS bridge_session_stats_pending (session_handle TEXT PRIMARY KEY)""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_history_track_stats AFTER INSERT ON bridge_session_history
+        WHEN NOT EXISTS (SELECT 1 FROM bridge_session_monitor_stats WHERE session_handle=NEW.session_handle)
+        BEGIN INSERT OR IGNORE INTO bridge_session_stats_pending VALUES (NEW.session_handle); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_stats_track_delete AFTER DELETE ON bridge_session_monitor_stats
+        WHEN EXISTS (SELECT 1 FROM bridge_session_history WHERE session_handle=OLD.session_handle)
+        BEGIN INSERT OR IGNORE INTO bridge_session_stats_pending VALUES (OLD.session_handle); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_stats_clear_pending AFTER INSERT ON bridge_session_monitor_stats
+        BEGIN DELETE FROM bridge_session_stats_pending WHERE session_handle=NEW.session_handle; END""",
+)
+SCHEMA_DDL = (*DDL, POINTER_DDL, _POINTER_INDEX, *delivery_projections.DDL, *_PROJECTION_REPAIR_DDL, _DELIVERY_SESSION_INDEX)
+
+
+def needs_projection_repair(conn: sqlite3.Connection) -> bool:
+    return (conn.execute("SELECT 1 FROM bridge_session_stats_pending LIMIT 1").fetchone() is not None
+            or bool(conn.execute("SELECT COALESCE(MIN(version),0)<1 FROM bridge_session_monitor_meta").fetchone()[0]))
 
 
 def generate_session_handle() -> str:
@@ -128,15 +149,18 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
     else:
         rows = []
     conn.execute(POINTER_DDL)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_bs_monitor_peer ON bridge_sessions(peer_id,updated_at DESC,stream_id)")
+    conn.execute(_POINTER_INDEX)
     for stmt in delivery_projections.DDL:
+        conn.execute(stmt)
+    for stmt in _PROJECTION_REPAIR_DDL:
         conn.execute(stmt)
     scope_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(bridge_session_monitor_scope)")}
     retained_columns_added = ("bridge_session_monitor_scope" not in seeded or
-                              "retained_session_count" not in scope_columns)
+                              not {"retained_session_count", "retained_complete"} <= scope_columns)
     if "retained_session_count" not in scope_columns:
         conn.execute("ALTER TABLE bridge_session_monitor_scope ADD COLUMN retained_session_count INTEGER "
                      "CHECK(retained_session_count IS NULL OR retained_session_count>=0)")
+    if "retained_complete" not in scope_columns:
         conn.execute("ALTER TABLE bridge_session_monitor_scope ADD COLUMN retained_complete INTEGER NOT NULL DEFAULT 0 "
                      "CHECK(retained_complete IN (0,1))")
     historical_cache: dict[tuple[str, str], tuple[dict[int, tuple[int | None, int | None, int]], tuple[int | None, int | None, int]]] = {}
@@ -207,9 +231,10 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
     for name in ("session_handle", "session_snapshot_json"):
         if name not in cols:
             conn.execute(f"ALTER TABLE bridge_deliveries ADD COLUMN {name} TEXT")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_bd_session ON bridge_deliveries(session_handle,seq)")
+    conn.execute(_DELIVERY_SESSION_INDEX)
     if conn.execute("SELECT 1 FROM sqlite_master WHERE name='observations'").fetchone():
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_session_quota ON observations(subject_ref,kind,resource_pool_ref,effective_at_us DESC,capture_seq DESC)")
+        conn.execute(_QUOTA_INDEX)
+    conn.execute("DELETE FROM bridge_session_stats_pending")
     session_receipts.repair_latest_telemetry_pointers(conn)
     fire("bridge.registry.before_commit")
 

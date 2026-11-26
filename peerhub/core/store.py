@@ -124,10 +124,10 @@ class CoreStore:
     def __init__(self, db_path: str | Path, fault_hook: Callable[[str], None] | None = None, *,
                  busy_timeout_ms: int = 30000, conn_init: Callable[[sqlite3.Connection], None] | None = None,
                  quick_check_max_bytes: int = DEFAULT_QUICK_CHECK_MAX_BYTES,
-                 readonly: bool = False) -> None:
+                 readonly: bool = False, light_preflight: bool = False) -> None:
         """Test seams: `fault_hook(point)` (CrashInjector points: append.begin, append.before_commit, append.after_commit,
         offset.before_head_check); `conn_init(conn)` runs on every store connection (e.g. a real `PRAGMA max_page_count`);
-        `busy_timeout_ms` bounds how long a writer waits for the database write lock before failing explicitly."""
+        `busy_timeout_ms` bounds the writer lock wait. `light_preflight` samples table roots on current-schema opens."""
         self.db_path = str(db_path)
         self._restore_lineage = self._read_restore_lineage()
         self.fault_hook = fault_hook
@@ -157,7 +157,7 @@ class CoreStore:
                 probe_table_roots(conn)
             return
         with storage_errors():
-            self._preflight()  # fail closed on a corrupt/foreign file BEFORE any migration/WAL change (FLT-013)
+            self._preflight(light_current=light_preflight)  # before any migration/WAL change (FLT-013)
             run_migrations(self.db_path)  # ordered, transactional, no-op at current version; rejects future versions (TD-14)
 
     def _read_restore_lineage(self) -> tuple[str | None, str | None]:
@@ -178,16 +178,26 @@ class CoreStore:
         if current != self._restore_lineage:
             raise StoreReplacedError("workspace restored; this CoreStore belongs to a stale lineage")
 
-    def _preflight(self) -> None:
+    def _preflight(self, *, light_current: bool = False) -> None:
         """Read-only integrity probe of an EXISTING non-empty file: never creates, repairs or migrates anything.
         size <= quick_check_max_bytes: full `PRAGMA quick_check`. Larger: light probe (header + schema read + first/last row of every
-        table); deeper damage then surfaces lazily as StorageCorruptError on access (every read/write path maps it). Diag always runs the full check."""
+        table). Callers can opt into the light probe for current stores while keeping a full check before migrating.
+        Deeper damage surfaces as StorageCorruptError on access. Diag always runs the full check."""
         path = Path(self.db_path)
         if not path.exists() or path.stat().st_size == 0:
             return
-        conn = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000.0)
+        conn = connection.create_connection(self.db_path, readonly=True, timeout_ms=self.busy_timeout_ms)
         try:
-            if path.stat().st_size <= self.quick_check_max_bytes:
+            conn.execute("BEGIN")
+            if light_current:
+                version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                if version > SUPPORTED_SCHEMA_VERSION:
+                    raise SchemaVersionError(future_schema_message(version, SUPPORTED_SCHEMA_VERSION))
+                if version == SUPPORTED_SCHEMA_VERSION:
+                    self.preflight_mode = "light"
+                    probe_table_roots(conn)
+                    return
+            if light_current or path.stat().st_size <= self.quick_check_max_bytes:
                 self.preflight_mode = "full"
                 rows = conn.execute("PRAGMA quick_check").fetchall()
                 if rows != [("ok",)]:
@@ -195,8 +205,9 @@ class CoreStore:
             else:
                 self.preflight_mode = "light"
                 for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall():
+                    quoted = '"' + str(name).replace('"', '""') + '"'
                     for order in ("ASC", "DESC"):
-                        conn.execute(f'SELECT * FROM "{name}" ORDER BY rowid {order} LIMIT 1').fetchall()
+                        conn.execute(f"SELECT * FROM {quoted} ORDER BY rowid {order} LIMIT 1").fetchall()
         finally:
             conn.close()
 

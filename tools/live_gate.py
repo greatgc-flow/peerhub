@@ -11,11 +11,18 @@ writing canary.xml without a G3 stamp; it is excluded from the default release g
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+from xml.etree.ElementTree import ParseError
+
+from tools.release_evidence import RELEASE_POLICY_REL, junit_passed, source_binding_errors, source_version
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = (("live", "runtime canaries", "g3.xml"), ("slow", "real adapter and quota probes", "g3-slow.xml"),
@@ -26,6 +33,51 @@ EVIDENCE_DIR = ROOT / ".peerhub" / "work" / "live-gate"  # the canaries write <d
 PROVIDER_CLIS = ("agy", "claude", "codex")
 
 
+def evidence_json_name(name: str, version: str) -> bool:
+    return re.fullmatch(rf"[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}-v{re.escape(version)}\.json", name) is not None
+
+
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def checkpoint_evidence(checkpoint: Path, out: Path, evidence_dir: Path, commit: str, version: str,
+                        policy: Path) -> dict[str, str]:
+    if not checkpoint.exists():
+        return {}
+    saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+    if saved.get("head") != commit:
+        raise ValueError(f"live checkpoint HEAD differs from {commit}")
+    hashes = saved["evidence_sha256"]
+    reports = [out / name for _, _, name in STAGES if name in hashes]
+    json_names = [name for name in hashes if evidence_json_name(name, version)]
+    if (not reports or [p.name for p in reports] != [stage[2] for stage in STAGES[:len(reports)]]
+            or len(json_names) != 1 or len(hashes) != len(reports) + 1):
+        raise ValueError("live checkpoint must contain consecutive passing stages and one live evidence JSON")
+    for path in (*reports, evidence_dir / json_names[0]):
+        if not path.is_file() or file_digest(path) != hashes[path.name]:
+            raise ValueError(f"live checkpoint SHA-256 mismatch for {path.name}")
+    if errors := source_binding_errors(reports, commit, policy):
+        raise ValueError("\n".join(errors))
+    for report in reports:
+        if not junit_passed(report):
+            raise ValueError(f"{report.name} did not pass all live tests")
+    return hashes
+
+
+def write_checkpoint(checkpoint: Path, commit: str, hashes: dict[str, str]) -> None:
+    checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=checkpoint.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(json.dumps({"head": commit, "evidence_sha256": hashes}).encode("utf-8"))
+        temporary.replace(checkpoint)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--yes", action="store_true", help="acknowledge that this spends real provider quota")
@@ -33,9 +85,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--peer", choices=("cc", "cx", "ag", "ca", "oa", "ga"),
                     help="with --only live/canary: select one peer to reduce quota use (ca, oa and ga exist in canary only; they spend API credits)")
     ap.add_argument("--out", type=Path, default=EVIDENCE_DIR, help="JUnit output directory")
+    ap.add_argument("--checkpoint", type=Path, help="record hashes of completed full-gate stages for release_flow")
+    ap.add_argument("--resume", action="store_true", help="reuse verified stages from --checkpoint")
     args = ap.parse_args(argv)
     if args.peer and args.only not in ("live", "canary"):
         ap.error("--peer requires --only live or --only canary (partial evidence is not a complete release gate)")
+    if (args.checkpoint and args.only) or (args.resume and not args.checkpoint):
+        ap.error("--checkpoint applies to the full gate and --resume requires --checkpoint")
     if os.environ.get("CI"):
         print("refusing to run in CI: the live gate is local-only", file=sys.stderr)
         return 2
@@ -52,17 +108,37 @@ def main(argv: list[str] | None = None) -> int:
         print("refusing: uncommitted changes would make live evidence untruthful (commit them before running)\n" + dirty,
               file=sys.stderr)
         return 2
+    try:
+        return run_stages(args, commit)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, ParseError) as exc:
+        print(f"live gate stopped: {exc}", file=sys.stderr)
+        return 1
+
+
+def run_stages(args: argparse.Namespace, commit: str) -> int:
+    from tools.release_evidence import stamp_junit
+
     args.out.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "PEERHUB_LIVE": "1"}
+    hashes: dict[str, str] = {}
+    before_json: dict[str, str] = {}
+    version = ""
+    if args.checkpoint:
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise ValueError("live checkpoint requires a full HEAD SHA")
+        version = source_version(ROOT)
+        if args.resume:
+            hashes = checkpoint_evidence(args.checkpoint, args.out, EVIDENCE_DIR, commit, version, ROOT / RELEASE_POLICY_REL)
+        else:
+            args.checkpoint.unlink(missing_ok=True)
+        before_json = {p.name: file_digest(p) for p in EVIDENCE_DIR.glob(f"*-v{version}.json")
+                       if p.is_file() and evidence_json_name(p.name, version)}
     worst = 0
-    stamped: list[Path] = []
     stages = (CANARY_STAGE,) if args.only == "canary" else STAGES
-    for marker, _, name in stages:
-        if not args.only or args.only == marker:
-            (args.out / name).unlink(missing_ok=True)
+    stages = tuple(stage for stage in stages if (not args.only or args.only == stage[0]) and stage[2] not in hashes)
+    for _, _, name in stages:
+        (args.out / name).unlink(missing_ok=True)
     for marker, label, name in stages:
-        if args.only and args.only != marker:
-            continue
         selection = "canary" if marker == "canary" else STAGE_SELECTIONS[marker]
         if args.peer:
             selection = f"({selection}) and {args.peer}"
@@ -72,13 +148,21 @@ def main(argv: list[str] | None = None) -> int:
                                 "tests/communication/live"], cwd=ROOT, env=env)
         worst = worst or code
         if marker != "canary" and junit.is_file():
-            stamped.append(junit)
+            stamp_junit(junit, commit=commit, gate="G3")
         if code:
             break
-    from tools.release_evidence import stamp_junit
-
-    for junit in stamped:
-        stamp_junit(junit, commit=commit, gate="G3")
+        if args.checkpoint:
+            if not junit_passed(junit):
+                raise ValueError(f"{name} did not pass all live tests")
+            if marker == STAGES[0][0]:
+                changed = {p.name: digest for p in EVIDENCE_DIR.glob(f"*-v{version}.json")
+                           if p.is_file() and evidence_json_name(p.name, version)
+                           and (digest := file_digest(p)) != before_json.get(p.name)}
+                if len(changed) != 1:
+                    raise ValueError(f"expected one new or updated <date>-v{version}.json from the live gate")
+                hashes.update(changed)
+            hashes[name] = file_digest(junit)
+            write_checkpoint(args.checkpoint, commit, hashes)
     if args.only == "canary":
         print(f"Canary JUnit written to {args.out} (outside release evidence)")
     else:
@@ -87,7 +171,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if worst else 0
     from peerhub import __version__
 
-    evidence_files = sorted(EVIDENCE_DIR.glob(f"*-v{__version__}.json"))
+    evidence_files = (sorted(EVIDENCE_DIR / name for name in hashes if evidence_json_name(name, version))
+                      if args.checkpoint else sorted(EVIDENCE_DIR.glob(f"*-v{__version__}.json")))
     if not evidence_files and not args.only:
         print(f"missing live evidence: expected {EVIDENCE_DIR}{os.sep}<date>-v{__version__}.json "
               "(the release needs it as its fourth asset)", file=sys.stderr)

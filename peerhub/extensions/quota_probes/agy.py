@@ -309,6 +309,8 @@ def poll_agy_usage(
     sys_dir: Optional[Path] = None,
     configured_pools: Sequence[str] | None = None,
     cancellation: ProbeCancellation | None = None,
+    *,
+    allow_exit_grace: bool | None = None,
 ) -> Sequence[UsageObserved]:
     """Poll Agy's local ``/usage`` command, with explicitly configured statusline fallback.
 
@@ -343,6 +345,7 @@ def poll_agy_usage(
                                            evidence_ref_override="agy_usage_cwd_refused",
                                            extra={"reason": "agy_usage_cwd_refused", "warning": refusal}),)
             try:
+                grace = cancellation is None if allow_exit_grace is None else allow_exit_grace
                 completed = common.run_text_probe(
                     [
                         *agy_cmd,
@@ -356,7 +359,7 @@ def poll_agy_usage(
                     cwd=str(agy_cwd),
                     stdin=subprocess.DEVNULL,
                     errors="replace",
-                    timeout=deadline_sec + AGY_USAGE_EXIT_GRACE_SECONDS if cancellation is None else deadline_sec,
+                    timeout=deadline_sec + (AGY_USAGE_EXIT_GRACE_SECONDS if grace else 0),
                     cancellation=cancellation,
                 )
                 violation = _agy_usage_violation(completed.stdout)  # whatever the exit code: tokens may be spent either way

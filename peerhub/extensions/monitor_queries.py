@@ -114,17 +114,22 @@ def _sql_list(values: tuple[str, ...]) -> str:
 
 
 _R = "tx.result_json"
+_LATEST_INDEX = "idx_bd_scope_seq"
+_SUPERSEDED_INDEX = "idx_bd_scope_unresolved"
 _ACTIVITY_SQL = (
     "WITH s AS (SELECT c.stream_id,c.peer_id,c.generation AS c_generation,c.expires_at,c.lease_sec,c.workspace_generation AS c_wsgen,"
     "ROW_NUMBER() OVER (ORDER BY c.expires_at DESC,c.stream_id,c.peer_id) AS scope_rank,COUNT(*) OVER () AS scope_total "
     "FROM bridge_claims c WHERE c.expires_at>=:since ORDER BY c.expires_at DESC,c.stream_id,c.peer_id LIMIT :scope_limit), "
-    # Every delivery of a selected scope is read through the (stream_id, peer_id) prefix of a scope index (#330 cost class).
-    # Only keys travel through the window sorts; the result and record are joined back by primary key for the kept rows.
-    "dl AS (SELECT s.*,d.delivery_id,d.seq,d.certainty,d.result_json IS NULL AS no_result,"
-    "ROW_NUMBER() OVER (PARTITION BY s.stream_id,s.peer_id ORDER BY d.seq DESC) AS rn "
-    "FROM s CROSS JOIN bridge_deliveries d ON d.stream_id=s.stream_id AND d.peer_id=s.peer_id WHERE s.scope_rank<=:scope_cap), "
-    "pick AS (SELECT dl.*,CASE WHEN dl.rn=1 THEN 0 ELSE 1 END AS sup FROM dl "
-    "WHERE dl.rn=1 OR (dl.certainty IN ('STARTED','MAY_HAVE_STARTED') AND dl.no_result)), "
+    # One seek per scope, plus a range of unresolved deliveries. Legacy stores
+    # can execute the same statement before the Bridge installs the indexes.
+    f"latest AS (SELECT s.*,(SELECT d.delivery_id FROM bridge_deliveries d INDEXED BY {_LATEST_INDEX} "
+    "WHERE d.stream_id=s.stream_id AND d.peer_id=s.peer_id ORDER BY d.seq DESC LIMIT 1) AS latest_id "
+    "FROM s WHERE s.scope_rank<=:scope_cap), "
+    "pick AS (SELECT l.*,d.delivery_id,d.seq,d.certainty,0 AS sup FROM latest l "
+    "CROSS JOIN bridge_deliveries d ON d.delivery_id=l.latest_id UNION ALL "
+    f"SELECT l.*,d.delivery_id,d.seq,d.certainty,1 AS sup FROM latest l CROSS JOIN bridge_deliveries d INDEXED BY {_SUPERSEDED_INDEX} "
+    "ON d.stream_id=l.stream_id AND d.peer_id=l.peer_id "
+    "WHERE d.certainty IN ('STARTED','MAY_HAVE_STARTED') AND d.result_json IS NULL AND d.delivery_id<>l.latest_id), "
     "ranked AS (SELECT pick.*,ROW_NUMBER() OVER (PARTITION BY pick.sup ORDER BY pick.seq DESC) AS sup_rank,"
     "SUM(pick.sup) OVER () AS sup_total FROM pick), "
     "kept AS (SELECT k.*,d.claim_generation,d.record_id,d.result_json,d.terminal_at FROM ranked k "
@@ -314,14 +319,24 @@ def recent_quota_payloads(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def activity_rows(conn: sqlite3.Connection, now: float, generation: str | None, text_on: bool) -> list[sqlite3.Row]:
+    params = _activity_params(now, generation, text_on)
+
+    def read(sql: str) -> list[sqlite3.Row]:
+        try:
+            return conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            if str(exc) not in (f"no such index: {_LATEST_INDEX}", f"no such index: {_SUPERSEDED_INDEX}"):
+                raise
+            legacy_sql = sql.replace(f" INDEXED BY {_LATEST_INDEX}", "").replace(f" INDEXED BY {_SUPERSEDED_INDEX}", "")
+            return conn.execute(legacy_sql, params).fetchall()
+
     try:
         try:
-            return conn.execute(_ACTIVITY_SQL, _activity_params(now, generation, text_on)).fetchall()
+            return read(_ACTIVITY_SQL)
         except sqlite3.OperationalError as exc:
             if not str(exc).startswith("no such table: bridge_session"):
                 raise  # a store without the session tables (#412) reads the asks without the join
-            return conn.execute(_ACTIVITY_SQL_NO_SESSIONS,
-                                _activity_params(now, generation, text_on)).fetchall()
+            return read(_ACTIVITY_SQL_NO_SESSIONS)
     except sqlite3.OperationalError as exc:
         if "no such table: bridge_claims" not in str(exc):
             raise

@@ -690,6 +690,32 @@ def test_the_last_main_chain_assistant_line_wins(tmp_path: Path):
     assert session["context_at"] == iso("2026-11-15T00:09:00Z")
 
 
+def test_transcript_tail_cache_reuses_unchanged_file_and_invalidates_on_metadata_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    write_session(tmp_path)
+    transcript = write_transcript(tmp_path, [assistant(model="claude-first")])
+    ls._tail_cache.clear()  # pyright: ignore[reportPrivateUsage]
+    original = ls._open  # pyright: ignore[reportPrivateUsage]
+    opens: list[str] = []
+
+    def counted(path: str, flags: int) -> int:
+        if os.path.normcase(path) == os.path.normcase(str(transcript)):
+            opens.append(path)
+        return original(path, flags)
+
+    monkeypatch.setattr(ls, "_open", counted)
+    assert one([tmp_path])["model"] == "claude-fable-5-2"
+    assert one([tmp_path])["model"] == "claude-fable-5-2"
+    assert len(opens) == 1
+
+    old = transcript.stat()
+    transcript.write_bytes(b"".join(json.dumps(line).encode() + b"\n" for line in [assistant(model="claude-opus-5-5")]))
+    os.utime(transcript, ns=(old.st_atime_ns, old.st_mtime_ns + 1_000_000))
+    assert one([tmp_path])["model"] == "claude-opus-5-5"
+    assert len(opens) == 2
+
+
 @pytest.mark.parametrize("skipped", [
     assistant(sidechain=True, model="claude-sub"),
     assistant(usage={"input_tokens": 0}, model="claude-zero"),
