@@ -77,3 +77,22 @@ def test_open_accepts_json_after_id_and_reports_future_schema(db, capsys):
         conn.commit()
     assert main(["--db", str(db), "monitor", "open", short_id]) == 6
     assert "[schema_version_error]" in capsys.readouterr().err
+
+
+def test_open_rejects_a_corrupt_stored_body_in_both_modes(db, capsys):
+    store = CoreStore(db)
+    store.register_peer(Peer(peer_id="user"))
+    store.create_stream(Stream(stream_id="s"))
+    record = store.append_record(stream_id="s", author_peer_id="user", kind="prompt", body="x",
+                                 created_at="2026-11-27T00:00:00Z", idempotency_key="k")
+    with closing(sqlite3.connect(db)) as conn:
+        triggers = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='records'")]
+        for name in triggers:
+            conn.execute(f'DROP TRIGGER "{name}"')
+        conn.execute("UPDATE records SET body_json='broken json' WHERE record_id=?", (record.record_id,))
+        conn.commit()
+    short_id = record.record_id.removeprefix("rec-")
+    for argv in (["monitor", "open", short_id], ["monitor", "open", short_id, "--json"]):
+        assert main(["--db", str(db), *argv]) == 4
+        captured = capsys.readouterr()
+        assert captured.out == "" and "[diag_unavailable]" in captured.err

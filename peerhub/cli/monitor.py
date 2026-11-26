@@ -536,7 +536,8 @@ def run_monitor_command(args: argparse.Namespace, parser: argparse.ArgumentParse
             return 5
         try:
             prompt = read_ask_prompt(args.db, args.id)
-            payload = {"id": args.id, "prompt": json.loads(prompt)} if args.json and prompt is not None else None
+            decoded = json.loads(prompt) if prompt is not None else None  # validate in both output modes
+            payload = {"id": args.id, "prompt": decoded} if args.json and prompt is not None else None
         except SchemaVersionError:
             error_line("schema_version_error", "Unsupported database schema", "peerhub guide")
             return 6
