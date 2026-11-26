@@ -50,7 +50,7 @@ def register_diag_parser(subparsers: Subparsers) -> None:
     diag_parser.add_argument("--plan", action="store_true",
                              help="Per-pool spend/hold/rest/blocked with target %%/h until reset, from stored observations only (no refresh)")
     diag_parser.add_argument("--compact", action="store_true",
-                             help="With --plan --json, show pool actions, limiting gates, resets and current load")
+                             help="With --plan --json, show pool left %%, PACE, actions, limiting gates, resets and current load")
     diag_parser.add_argument("--peer", dest="plan_peers", action="append", metavar="PEER",
                              help="With --plan, show only these subjects (exact match, repeatable)")
     diag_parser.add_argument("--observation-db", dest="plan_obs_db", metavar="PATH",

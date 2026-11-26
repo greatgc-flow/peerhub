@@ -184,7 +184,8 @@ def test_compact_plan_preserves_advice_resets_live_load_and_peer_filter():
     compact = plan_data(report, store, load, profiles, peers=frozenset({"cc"}), compact=True)
     assert set(compact) == {"schema_version", "status", "read_at", "store_selection", "pools", "load"}
     assert compact["store_selection"] == store and compact["load"] == load
-    fields = ("peer", "pool", "resource_pool_ref", "action", "binding", "reason", "resets_in_seconds")
+    fields = ("peer", "pool", "resource_pool_ref", "left_pct", "pace_pt", "action", "binding", "reason",
+              "resets_in_seconds")
     assert compact["pools"] == [
         {**{field: row[field] for field in fields},
          "effective_reset_in_seconds": row["health"]["effective_reset_in_seconds"]}

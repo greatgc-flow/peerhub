@@ -8,6 +8,17 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.18] - 2026-11-26
+
+### Changed
+
+- PACE now prints two decimals everywhere (monitor, `diag`, `diag --plan`, gap line, `suggest`), from one setting (`PACE_DECIMALS`). One step is about 10 minutes of a 7-day window; one decimal was about 1h41m, so a fresh window looked frozen.
+
+### Fixed
+
+- An unused quota window whose provider-reported start lands a few seconds after the measurement (agy reports reset as its own clock plus the window) now shows PACE 0.0 instead of `?`/`-` in the monitor, `diag` and `diag --plan`.
+- `diag --plan --json --compact` now includes each pool's `left_pct` and `pace_pt`, so a caller can pick the lowest PACE without the full plan.
+
 ## [0.26.17] - 2026-11-26
 
 ### Added

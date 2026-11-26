@@ -450,7 +450,7 @@ def test_pools_five_hour_rule_and_columns(frame):
     pools = section(lines, "POOLS")
     assert pools[0].split() == ["POOLS", "8", "STATE", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY", *POOLS_USE_FIRST_HINT.split()]  # G4
     rows = {re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1]: line for line in pools[1:] if line.startswith(" ")}
-    assert {"low", "1%!", "+71.0!"} <= set(rows["3P-7D"].split()) and "claude-via-ag" in rows["3P-7D"]
+    assert {"low", "1%!", "+71.00!"} <= set(rows["3P-7D"].split()) and "claude-via-ag" in rows["3P-7D"]
     for parent, child in (("G-7D", "G-5H"), ("X-7D", "X-5H")):
         assert rows[child].lstrip().startswith(f"`- {child}")
         assert pools.index(rows[child]) == pools.index(rows[parent]) + 1

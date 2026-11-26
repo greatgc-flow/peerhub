@@ -316,7 +316,7 @@ def test_g_quota_details_match_pools_vocabulary_and_bar():
         assert cells[:7] == actual[:7], name  # state, bar, left, pace, margin and pair
         assert monitor_format.BAR_CELLS <= len(cells[2]) <= monitor_format.BAR_MAX_CELLS
     assert rows["X-7D"][:2] == [U["fast"], "fast"]
-    assert rows["X-7D"][3:5] == ["42%", "+31.0!"]
+    assert rows["X-7D"][3:5] == ["42%", "+31.00!"]
 
 
 @pytest.mark.parametrize("unicode", [True, False])
@@ -395,7 +395,7 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
     assert set(SGR.findall(screen)) <= OUR_CODES and not {"32", "33", "31"} & set(SGR.findall(screen))
     assert all(chunk.startswith(U["cempty"]) for chunk in screen.split("\x1b[2m")[1:])  # SGR 2 only dims a child bar's empty cells
     x7d = next(line for line in details if " X-7D " in strip(line))
-    assert span(x7d, "+31.0!") == monitor_layout.RICH_SGR["warn"]  # M1/G2
+    assert span(x7d, "+31.00!") == monitor_layout.RICH_SGR["warn"]  # M1/G2
 
 
 def span(line: str, text: str) -> str | None:

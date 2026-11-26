@@ -60,7 +60,7 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. These commands exit 5 if the observation store is missing. Without an override, the selected store supplies observations. With an existing observation store and a missing selected store, `diag --plan` still reports the observations and shows the active ask count as unknown (`load.active: null` in JSON). See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing.
 
-Use `diag --plan --json --compact` for repeated plan reads. Each pool includes its identity, action, limiting pool (`binding`), reason, own reset and effective reset after parent limits. The top-level `load` still includes lease-active asks and current machine resources.
+Use `diag --plan --json --compact` for repeated plan reads. Each pool includes its identity, left percentage, PACE, action, limiting pool (`binding`), reason, own reset and effective reset after parent limits. The top-level `load` still includes lease-active asks and current machine resources.
 
 | Command | Purpose |
 |---|---|

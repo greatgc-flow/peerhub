@@ -136,6 +136,10 @@ def project_exhaustion(
     consistent = False
     if _is_finite_num(window_start) and _is_finite_num(resets_at):
         start, reset = float(window_start), float(resets_at)
+        if no_usage and start > meas:
+            # An unused window has not started; a provider clock a few seconds ahead of ours (agy reports
+            # reset = its now + window) must not hide PACE. Not started = nothing elapsed = even burn.
+            start = meas
         duration, elapsed = reset - start, meas - start
         consistent = math.isfinite(duration) and math.isfinite(elapsed) and duration > 0 and start <= meas < reset
         if consistent:

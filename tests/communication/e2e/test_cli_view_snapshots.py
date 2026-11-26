@@ -6,6 +6,7 @@ import pytest
 
 from peerhub._console import use_color, visible_len
 from peerhub.cli.view import format_frame, render_view
+from peerhub.core.quota_policy import format_pace
 from peerhub.extensions.diag_read_model import advance_report
 from peerhub.extensions.diag import DiagnosticReport, Section
 from peerhub.extensions.diag_quota import projection as item_projection
@@ -333,7 +334,7 @@ def test_gate_transitions_keep_measurement_pace(used, elapsed, decision):
     projection = item_projection(item, NOW)
     out = frame(rep, 120)
     assert decision in out
-    assert f"{projection['pace_pt']:+.1f}" in out
+    assert format_pace(projection['pace_pt']) in out
     later = advance_report(rep, NOW + 1)
     assert item_projection(later.sections["observations"].data["items"][0], NOW + 1) == projection
 
@@ -358,8 +359,8 @@ def test_projection_fields_match_plain_and_rich_decisions():
         assert label in plain
         assert label.replace(":", "○").replace("=", "●") in rich
         if projection["pace_pt"] is not None:
-            assert f"{projection['pace_pt']:+.1f}" in plain
-            assert f"{projection['pace_pt']:+.1f}" in rich
+            assert format_pace(projection['pace_pt']) in plain
+            assert format_pace(projection['pace_pt']) in rich
 
 
 def test_plain_is_ascii_without_escapes_even_if_color_requested():
@@ -537,14 +538,14 @@ SNAPSHOTS: dict[int, str] = {
 (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
-ag   3P-5H [........]   0%        ? 4h59m : not enough data               *59s
-ag   3P-7D [######..]  74%     +1.2 1d22h = on pace                       *59s
-ag   G-5H  [#.......]  16%    -28.7 2h44m = on pace                       *59s
-ag   G-7D  [####....]  49%    -22.2 2d00h = on pace                       *59s
-cc   C-5H  [##......]  24%    -26.4 2h28m = on pace                       *1m13s
-cc   C-7D  [#######.]  83%     +4.0 1d11h ! exh Tue 13:51 (1d03h)         *1m13s
-cx   X-5H  [######..]  73%    +26.0 2h38m ! exh 11:33 (51m)               *1m17s
-cx   X-7D  [#.......]  16%     +3.3 6d02h : not enough data               *1m17s
+ag   3P-5H [........]   0%     0.00 4h59m : not enough data               *59s
+ag   3P-7D [######..]  74%    +1.23 1d22h = on pace                       *59s
+ag   G-5H  [#.......]  16%   -28.73 2h44m = on pace                       *59s
+ag   G-7D  [####....]  49%   -22.18 2d00h = on pace                       *59s
+cc   C-5H  [##......]  24%   -26.39 2h28m = on pace                       *1m13s
+cc   C-7D  [#######.]  83%    +4.02 1d11h ! exh Tue 13:51 (1d03h)         *1m13s
+cx   X-5H  [######..]  73%   +25.99 2h38m ! exh 11:33 (51m)               *1m17s
+cx   X-7D  [#.......]  16%    +3.28 6d02h : not enough data               *1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
@@ -553,14 +554,14 @@ PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit"""
     100: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
-ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                 *59s
-ag   3P-7D [#######...]  74%     +1.2 1d22h = on pace                                         *59s
-ag   G-5H  [##........]  16%    -28.7 2h44m = on pace                                         *59s
-ag   G-7D  [#####.....]  49%    -22.2 2d00h = on pace                                         *59s
-cc   C-5H  [##........]  24%    -26.4 2h28m = on pace                                         *1m13s
-cc   C-7D  [########..]  83%     +4.0 1d11h ! exhausts Tue 13:51 (in 1d03h)                   *1m13s
-cx   X-5H  [#######...]  73%    +26.0 2h38m ! exhausts 11:33 (in 51m)                         *1m17s
-cx   X-7D  [##........]  16%     +3.3 6d02h : not enough data                                 *1m17s
+ag   3P-5H [..........]   0%     0.00 4h59m : not enough data                                 *59s
+ag   3P-7D [#######...]  74%    +1.23 1d22h = on pace                                         *59s
+ag   G-5H  [##........]  16%   -28.73 2h44m = on pace                                         *59s
+ag   G-7D  [#####.....]  49%   -22.18 2d00h = on pace                                         *59s
+cc   C-5H  [##........]  24%   -26.39 2h28m = on pace                                         *1m13s
+cc   C-7D  [########..]  83%    +4.02 1d11h ! exhausts Tue 13:51 (in 1d03h)                   *1m13s
+cx   X-5H  [#######...]  73%   +25.99 2h38m ! exhausts 11:33 (in 51m)                         *1m17s
+cx   X-7D  [##........]  16%    +3.28 6d02h : not enough data                                 *1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
@@ -569,14 +570,14 @@ PACE + = faster than even | forecasts are conditional window-average | Ctrl-C qu
     120: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
-ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                                     *59s
-ag   3P-7D [#######...]  74%     +1.2 1d22h = on pace                                                             *59s
-ag   G-5H  [##........]  16%    -28.7 2h44m = on pace                                                             *59s
-ag   G-7D  [#####.....]  49%    -22.2 2d00h = on pace                                                             *59s
-cc   C-5H  [##........]  24%    -26.4 2h28m = on pace                                                             *1m13s
-cc   C-7D  [########..]  83%     +4.0 1d11h ! exhausts Tue 13:51 (in 1d03h)                                       *1m13s
-cx   X-5H  [#######...]  73%    +26.0 2h38m ! exhausts 11:33 (in 51m)                                             *1m17s
-cx   X-7D  [##........]  16%     +3.3 6d02h : not enough data                                                     *1m17s
+ag   3P-5H [..........]   0%     0.00 4h59m : not enough data                                                     *59s
+ag   3P-7D [#######...]  74%    +1.23 1d22h = on pace                                                             *59s
+ag   G-5H  [##........]  16%   -28.73 2h44m = on pace                                                             *59s
+ag   G-7D  [#####.....]  49%   -22.18 2d00h = on pace                                                             *59s
+cc   C-5H  [##........]  24%   -26.39 2h28m = on pace                                                             *1m13s
+cc   C-7D  [########..]  83%    +4.02 1d11h ! exhausts Tue 13:51 (in 1d03h)                                       *1m13s
+cx   X-5H  [#######...]  73%   +25.99 2h38m ! exhausts 11:33 (in 51m)                                             *1m17s
+cx   X-7D  [##........]  16%    +3.28 6d02h : not enough data                                                     *1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
@@ -589,14 +590,14 @@ RICH_SNAPSHOTS: dict[int, str] = {
 (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
-ag   3P-5H [░░░░░░░░]   0%        ? 4h59m ○ not enough data               ●59s
-ag   3P-7D [██████░░]  74%     +1.2 1d22h ● on pace                       ●59s
-ag   G-5H  [█░░░░░░░]  16%    -28.7 2h44m ● on pace                       ●59s
-ag   G-7D  [████░░░░]  49%    -22.2 2d00h ● on pace                       ●59s
-cc   C-5H  [██░░░░░░]  24%    -26.4 2h28m ● on pace                       ●1m13s
-cc   C-7D  [███████░]  83%     +4.0 1d11h ▲ exh Tue 13:51 (1d03h)         ●1m13s
-cx   X-5H  [██████░░]  73%    +26.0 2h38m ▲ exh 11:33 (51m)               ●1m17s
-cx   X-7D  [█░░░░░░░]  16%     +3.3 6d02h ○ not enough data               ●1m17s
+ag   3P-5H [░░░░░░░░]   0%     0.00 4h59m ○ not enough data               ●59s
+ag   3P-7D [██████░░]  74%    +1.23 1d22h ● on pace                       ●59s
+ag   G-5H  [█░░░░░░░]  16%   -28.73 2h44m ● on pace                       ●59s
+ag   G-7D  [████░░░░]  49%   -22.18 2d00h ● on pace                       ●59s
+cc   C-5H  [██░░░░░░]  24%   -26.39 2h28m ● on pace                       ●1m13s
+cc   C-7D  [███████░]  83%    +4.02 1d11h ▲ exh Tue 13:51 (1d03h)         ●1m13s
+cx   X-5H  [██████░░]  73%   +25.99 2h38m ▲ exh 11:33 (51m)               ●1m17s
+cx   X-7D  [█░░░░░░░]  16%    +3.28 6d02h ○ not enough data               ●1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
@@ -605,14 +606,14 @@ PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit"""
     100: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
-ag   3P-5H [░░░░░░░░░░]   0%        ? 4h59m ○ not enough data                                 ●59s
-ag   3P-7D [███████░░░]  74%     +1.2 1d22h ● on pace                                         ●59s
-ag   G-5H  [██░░░░░░░░]  16%    -28.7 2h44m ● on pace                                         ●59s
-ag   G-7D  [█████░░░░░]  49%    -22.2 2d00h ● on pace                                         ●59s
-cc   C-5H  [██░░░░░░░░]  24%    -26.4 2h28m ● on pace                                         ●1m13s
-cc   C-7D  [████████░░]  83%     +4.0 1d11h ▲ exhausts Tue 13:51 (in 1d03h)                   ●1m13s
-cx   X-5H  [███████░░░]  73%    +26.0 2h38m ▲ exhausts 11:33 (in 51m)                         ●1m17s
-cx   X-7D  [██░░░░░░░░]  16%     +3.3 6d02h ○ not enough data                                 ●1m17s
+ag   3P-5H [░░░░░░░░░░]   0%     0.00 4h59m ○ not enough data                                 ●59s
+ag   3P-7D [███████░░░]  74%    +1.23 1d22h ● on pace                                         ●59s
+ag   G-5H  [██░░░░░░░░]  16%   -28.73 2h44m ● on pace                                         ●59s
+ag   G-7D  [█████░░░░░]  49%   -22.18 2d00h ● on pace                                         ●59s
+cc   C-5H  [██░░░░░░░░]  24%   -26.39 2h28m ● on pace                                         ●1m13s
+cc   C-7D  [████████░░]  83%    +4.02 1d11h ▲ exhausts Tue 13:51 (in 1d03h)                   ●1m13s
+cx   X-5H  [███████░░░]  73%   +25.99 2h38m ▲ exhausts 11:33 (in 51m)                         ●1m17s
+cx   X-7D  [██░░░░░░░░]  16%    +3.28 6d02h ○ not enough data                                 ●1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
@@ -621,14 +622,14 @@ PACE + = faster than even | forecasts are conditional window-average | Ctrl-C qu
     120: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
-ag   3P-5H [░░░░░░░░░░]   0%        ? 4h59m ○ not enough data                                                     ●59s
-ag   3P-7D [███████░░░]  74%     +1.2 1d22h ● on pace                                                             ●59s
-ag   G-5H  [██░░░░░░░░]  16%    -28.7 2h44m ● on pace                                                             ●59s
-ag   G-7D  [█████░░░░░]  49%    -22.2 2d00h ● on pace                                                             ●59s
-cc   C-5H  [██░░░░░░░░]  24%    -26.4 2h28m ● on pace                                                             ●1m13s
-cc   C-7D  [████████░░]  83%     +4.0 1d11h ▲ exhausts Tue 13:51 (in 1d03h)                                       ●1m13s
-cx   X-5H  [███████░░░]  73%    +26.0 2h38m ▲ exhausts 11:33 (in 51m)                                             ●1m17s
-cx   X-7D  [██░░░░░░░░]  16%     +3.3 6d02h ○ not enough data                                                     ●1m17s
+ag   3P-5H [░░░░░░░░░░]   0%     0.00 4h59m ○ not enough data                                                     ●59s
+ag   3P-7D [███████░░░]  74%    +1.23 1d22h ● on pace                                                             ●59s
+ag   G-5H  [██░░░░░░░░]  16%   -28.73 2h44m ● on pace                                                             ●59s
+ag   G-7D  [█████░░░░░]  49%   -22.18 2d00h ● on pace                                                             ●59s
+cc   C-5H  [██░░░░░░░░]  24%   -26.39 2h28m ● on pace                                                             ●1m13s
+cc   C-7D  [████████░░]  83%    +4.02 1d11h ▲ exhausts Tue 13:51 (in 1d03h)                                       ●1m13s
+cx   X-5H  [███████░░░]  73%   +25.99 2h38m ▲ exhausts 11:33 (in 51m)                                             ●1m17s
+cx   X-7D  [██░░░░░░░░]  16%    +3.28 6d02h ○ not enough data                                                     ●1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m

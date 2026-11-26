@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, TypedDict, cast
 
 from peerhub.cli.monitor_refresh import quota_expired, quota_workspace, try_quota_refresh
-from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, format_pace
 from peerhub.core.scalars import finite_number
 from peerhub.core.shell import format_shell_command as _shell_command
 
@@ -114,7 +114,7 @@ def _evaluate(profile: _Profile, readings: dict[tuple[str, str], dict[str, Any]]
         unknown_5h = not profile.short or bool(unknown_short)
         if not unknown_5h and max_pace is not None and not unknown_weekly:
             five = f"5H usage {max_used:.1%}" if max_used is not None else "5H n/a"
-            explanation = f"{five}, 7D PACE {max_pace:+.1f} pp"
+            explanation = f"{five}, 7D PACE {format_pace(max_pace)} pp"
             reason = "fast pool" if fast else None
             score = max_pace
         else:
@@ -139,7 +139,7 @@ def _show_result(payload: dict[str, object], *, json_output: bool, candidates: l
             left, pace = row["left_pct"], row["pace_pt"]
             worst = f"{row['worst_pool']} {left:.1f}%" if left is not None else "?"
             rows.append((row["profile"], row["peer"], "yes" if row["eligible"] else "no", worst,
-                         f"{pace:+.1f}" if pace is not None else "?", "yes" if row["fast"] else "no", row["reason"] or "-"))
+                         format_pace(pace) if pace is not None else "?", "yes" if row["fast"] else "no", row["reason"] or "-"))
         widths = [max(map(len, column)) for column in zip(*rows)]
         for row in rows:
             print("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip())

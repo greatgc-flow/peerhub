@@ -104,14 +104,14 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
 
 @pytest.mark.parametrize("width", [80, 100])
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
-@pytest.mark.parametrize("pace,expected", [(19.4, "+19.4"), (-12.4, "-12.4"), (0, "0.0"), (-.1, "-0.1")])
+@pytest.mark.parametrize("pace,expected", [(19.4, "+19.40"), (-12.4, "-12.40"), (0, "0.00"), (-.1, "-0.10")])
 @pytest.mark.parametrize("aged", [False, True])
 def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
         compact_frame, width, view, unicode_mode, pace, expected, aged):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "stale" if aged else "on_pace", "pace_pt": pace},
                state="STALE" if aged else "MEASURED", age_seconds=540 if aged else 60)
-    anchor_pool(row, NOW, pace)  # C1 uses the raw anchors. G2 shows signed tenths without arrows.
+    anchor_pool(row, NOW, pace)  # C1 uses the raw anchors. G2 shows signed hundredths without arrows.
     screen = _solo(compact_frame, width=width, view=view, unicode=unicode_mode)
     header = _header(screen)
     assert header.index("PACE(pp)") < header.index("EXH/RESET")
@@ -179,7 +179,7 @@ def test_narrow_pool_table_keeps_pace_and_quota_facts(compact_frame, width):
     cells = pool.split()
     header = _header(screen)
     assert POOL_MARGIN_COLUMN in header
-    assert cells[cells.index("+5.0") + 1].startswith("-")
+    assert cells[cells.index("+5.00") + 1].startswith("-")
     assert any(cell.endswith("/1h!") for cell in cells) == ("EXH/RESET" in header)
     assert all(cell_width(line) <= width for line in screen.splitlines())
 
@@ -269,7 +269,7 @@ def test_m1_fast_with_threat_forecast_uses_state_warning_colour(compact_frame, m
     line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
     warn = f"\x1b[{RICH_SGR['warn']}m"
     assert not line.startswith("\x1b") and f"{warn}▲ fast\x1b[0m" in line
-    assert f"\x1b[{RICH_SGR['ok']}m+5.0\x1b[0m" in line  # M1: the pace band is independent of STATE.
+    assert f"\x1b[{RICH_SGR['ok']}m+5.00\x1b[0m" in line  # M1: the pace band is independent of STATE.
 
 
 def test_ttl_boundary_and_next_absent_when_fresh(compact_frame):

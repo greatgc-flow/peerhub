@@ -13,7 +13,8 @@ from peerhub._console import ANSI_ESCAPE
 from peerhub.cli.view import PLAN_EARLY_TAG, render_plan
 from peerhub.extensions.diag_read_model import plan_data
 from peerhub.extensions.quota_windows import FAMILIES
-from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
+from peerhub.core.quota_policy import (LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS,
+                                       format_pace)
 from peerhub.extensions.adapters.profiles import list_profiles
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE, pace_gaps, pool_health
 from tests.communication.diag.test_diag_plan_339 import DAY, HOUR, NOW, _item, _report
@@ -197,7 +198,7 @@ def test_g_same_columns_and_cell_text_in_pools_and_quota(view: str, width: int) 
     assert compact_cells == expanded_top
     header = next(line for line in expanded.splitlines() if line.lstrip().startswith("PEER POOL"))
     assert (quota[:-1] if "AGE" in header.split() else quota) == compact_cells
-    assert {"17%", "+3.8"} <= set(quota)
+    assert {"17%", "+3.80"} <= set(quota)
     assert "|" in quota[1]  # M3/G: the even-burn tick in both bars
     if width == 120:
         assert any("ag.neon" in cell for cell in quota)
@@ -218,7 +219,7 @@ def test_g_pace_precision_and_m1_independent_colours(pace: float, colour: str, s
     pool = "G-7D"
     data = frame(reading("ag", pool, .17, pace))
     screen = mv.render_grouped_frame(data, view="rich", color=True, width=120, expand=True)
-    expected = ("0.0" if abs(pace) < .01 else f"{pace:+.1f}") + suffix
+    expected = format_pace(pace) + suffix
     assert all(expected in cells for cells in pool_cells(screen, pool))
     assert screen.count(f"\x1b[{monitor_layout.RICH_SGR[colour]}m{expected}\x1b[0m") == 2
     assert not re.search(r"\x1b\[[0-9;]*m17%", screen)
@@ -325,7 +326,7 @@ def test_m9_and_g_gap_order_and_single_legend_match_docs() -> None:
                 "G-7D": reading("ag", "G-7D", .5, -1),
                 "A-7D": reading("ag", "A-7D", .5, 20, age=QUOTA_TTL_SECONDS)}
     gaps = pace_gaps({pool: pool_health(item, None, NOW) for pool, item in readings.items()})
-    cells = [f"{name} " + ("—" if gap is None else f"{gap:+.1f}")
+    cells = [f"{name} " + ("—" if gap is None else format_pace(gap))
              for name, gap in gaps["pools"].items() if name in readings]
     line = f"gap vs {PACE_GAP_BASELINE} (pp): " + ", ".join(cells)
     for expand in (False, True):

@@ -17,6 +17,7 @@ from peerhub.cli.quota_format import (
     fraction_bar as bar,
     human_duration as human_duration,
 )
+from peerhub.core.quota_policy import format_pace
 from peerhub.core.text import strip_controls
 from peerhub.extensions.diag_read_model import (
     PLAN_GATE_TAG,
@@ -103,7 +104,7 @@ def _quota_table(rows: list[QuotaRow], width: int, color: bool, unicode: bool, *
     for row in rows:
         body = bar(row.used, cells, unicode)
         used = "?" if row.used is None else format_percent(row.used, show_tiny=False)
-        pace = "?" if row.diff is None else f"{row.diff:+.1f}"
+        pace = "?" if row.diff is None else format_pace(row.diff)
         lead = prefix(row.peer, row.pool, f"[{body}]", used, pace, human_duration(row.left))
         forecast = ellipsize(_forecast(row, now, tz, unicode, width < 100), forecast_w, unicode)
         fresh = _badge(row, False, unicode)

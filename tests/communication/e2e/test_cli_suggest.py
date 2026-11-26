@@ -81,7 +81,7 @@ def test_default_output_matches_before_candidates(quota, capsys, monkeypatch, js
     argv = ["peerhub", "--db", str(db), "ask", "ag", "--profile", "ag.standard", "--fresh",
             "--query-file", "review.txt", "--writable"]
     command = format_shell_command(argv)
-    reason = "5H usage 40.0%, 7D PACE -10.0 pp"
+    reason = "5H usage 40.0%, 7D PACE -10.00 pp"
     expected = json.dumps({"status": "ok", "profile": "ag.standard", "command": command,
                            "argv": argv, "reason": reason}) + "\n" if json_output else f"{command}\n{reason}\n"
     options = ["--json"] if json_output else []
@@ -124,7 +124,7 @@ def test_candidates_show_tier_facts_without_changing_the_recommendation(quota, c
     assert header.split() == ["PROFILE", "PEER", "ELIGIBLE", "WORST", "POOL", "(LEFT", "%)", "PACE", "(7D", "pp)", "FAST", "REASON"]
     assert len(rows) == len(candidates)
     cc_text = next(row.split() for row in rows if row.startswith("cc.standard"))
-    assert cc_text == ["cc.standard", "cc", "yes", "C-7D", "35.0%", "+15.0", "yes", "fast", "pool"]
+    assert cc_text == ["cc.standard", "cc", "yes", "C-7D", "35.0%", "+15.00", "yes", "fast", "pool"]
 
 
 @pytest.mark.parametrize("condition", ["stale", "reset", "unknown"])
