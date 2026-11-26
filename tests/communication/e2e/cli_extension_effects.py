@@ -424,22 +424,12 @@ def monitor_effect(e, option):
         argv += [option, str(e.tmp)]
     elif option == "--timeout-seconds":
         argv += [option, "2"]
-    elif option == "--collect-every":
-        argv = ["monitor", "--cycles", "2", "--collect-every", "2"]
     elif option == "--allow-agy-token-use":
         argv = ["monitor", "--cycles", "2", "--peers", "ag", option]
     elif option == "--json":
         argv += [option]
-    elif option == "--schema-version":
-        argv += ["--json", option, "1.1"]
     elif option == "--view":
         argv += [option, "rich"]
-    argv.append("--probe")
-    if option not in ("--view", "--schema-version"):
-        # These option effects predate the grouped read model and concern the
-        # collection loop itself. Keep the projection-independent 1.1 wire path
-        # explicit; grouped human rendering has separate contract tests.
-        argv[1:1] = ["--json", "--schema-version", "1.1"]
     sleeps = []
     fake_now = [0.0]
 
@@ -447,14 +437,16 @@ def monitor_effect(e, option):
         sleeps.append(seconds)
         fake_now[0] += seconds
 
-    with patch("peerhub.extensions.quota_probes.poll_claude_usage", probe), \
+    with patch("peerhub.cli.monitor.monitor_auto_probe", return_value=True), \
+         patch("peerhub.cli.monitor_refresh._recent_quota_peers", return_value=set()), \
+         patch("peerhub.extensions.quota_probes.poll_claude_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_codex_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_agy_usage", probe_agy if option == "--allow-agy-token-use" else probe), \
          patch("peerhub.cli.monitor.monotonic", lambda: fake_now[0]), \
          patch("peerhub.cli.monitor.sleep", fake_sleep):
         code, out, err = e.run(db, *argv)
         if option == "--view":
-            plain_code, plain, plain_err = e.run(db, "monitor", "--probe", "--cycles", "1", "--view", "plain")
+            plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")
             assert_vt_view_effect(e, db, "monitor")
     if option == "--view":
         assert code in (0, 4) and plain_code in (0, 4) and "refresh:" in err and "refresh:" in plain_err
@@ -468,16 +460,10 @@ def monitor_effect(e, option):
         assert code in (0, 4) and captured
         assert all(call["sys_dir"] == e.tmp for call in captured)
     elif option == "--timeout-seconds": assert captured[0]["deadline_sec"] == 2
-    elif option == "--collect-every": assert len(captured) == 3
     elif option == "--allow-agy-token-use":
         assert code in (1, 4) and len(agy_probes) == 2
         assert "stopping watch mode" not in err
     elif option == "--json": import json; assert "cycle" in json.loads(out.splitlines()[0])
-    elif option == "--schema-version":
-        import json
-        assert json.loads(out.splitlines()[0])["schema_version"] == "1.1"
-    elif option == "--probe":
-        assert len(captured) == 3
 
 
 def monitor_management_effect(e, argv, *, needs_bridge=False):
@@ -505,28 +491,6 @@ def monitor_management_effect(e, argv, *, needs_bridge=False):
             assert not db.exists()
 
 
-def monitor_groups_effect(e, _option):
-    monitor_management_effect(e, ["monitor", "groups", "--json"])
-
-
-def monitor_defaults_show_effect(e, _option):
-    monitor_management_effect(e, ["monitor", "defaults", "show", "--json"])
-
-
-def monitor_defaults_set_effect(e, option):
-    args = ["monitor", "defaults", "set", "--group", "usage", "sessions", "--json"]
-    if option == "--global":
-        args.insert(3, "--global")
-    monitor_management_effect(e, args)
-
-
-def monitor_defaults_reset_effect(e, option):
-    args = ["monitor", "defaults", "reset", "--json"]
-    if option == "--global":
-        args.insert(3, "--global")
-    monitor_management_effect(e, args)
-
-
 def monitor_snapshot_effect(e, option):
     monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True)
 
@@ -552,27 +516,13 @@ def monitor_display_effect(e, option):
     before = db.read_bytes()
     args = ["monitor", "--snapshot", "--view", "plain"]
     payload = full_payload()
-    if option == "--show-quota-notes":
-        args.append("--expand")
-        peers = payload["groups"]["peers"]["data"]["peers"]
-        observations = payload["groups"]["capacity"]["data"]["observations"]
-        weekly = next(item for item in observations if item["pool_ref"] == "quota:cx:X-7D")
-        next(peer for peer in peers if peer["peer_id"] == "cx")["quota"] = {
-            "pool_ref": weekly["pool_ref"], "state": weekly["state"],
-            "remaining_fraction": weekly["measurements"]["remaining_fraction"],
-        }
     with patch("peerhub.extensions.monitor_read_model.render_monitor_frame", return_value=payload):
         code, baseline, _ = e.run(db, *args)
         assert code == 0
         code, selected, _ = e.run(db, *args, option)
         assert code == 0
-        if option == "--compact":
-            assert selected == baseline
-            assert e.run(db, *args, "--expand")[1] != selected
-        else:
-            # Expanded QUOTA explains unavailable windows by default. The flag adds the PEERS note.
-            note = "plan prolite: no 30d window"
-            assert note not in baseline and note in selected
+        assert selected == baseline
+        assert e.run(db, *args, "--expand")[1] != selected
     assert db.read_bytes() == before
 
 
@@ -787,22 +737,14 @@ EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
-               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--schema-version", "--allow-agy-token-use", "--collect-every", "--view", "--probe")})
+               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--allow-agy-token-use", "--view")})
 EFFECT.update({f"suggest {option}": (lambda e, option=option: suggest_effect(e, option))
                for option in ("--tier", "--task", "--json", "--candidates")})
-EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, ["monitor", "groups", "--json"]),
-               "monitor defaults show --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "show", "--json"]),
-               "monitor defaults set --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage"]),
-               "monitor defaults set --group": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage"]),
-               "monitor defaults set --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage", "--json"]),
-               "monitor defaults reset --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "reset", "--global"]),
-               "monitor defaults reset --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "reset", "--global", "--json"]),
-               "monitor --snapshot": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
+EFFECT.update({"monitor --snapshot": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
                "monitor --no-probe": monitor_no_probe_effect,
                "monitor --group": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
                "monitor --expand": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--expand", "--group", "usage", "--view", "plain"], needs_bridge=True),
                "monitor --compact": lambda e: monitor_display_effect(e, "--compact"),
-               "monitor --show-quota-notes": lambda e: monitor_display_effect(e, "--show-quota-notes"),
                "monitor repair --chunk-size": lambda e: monitor_management_effect(e, ["monitor", "repair", "--chunk-size", "1", "--json"], needs_bridge=True),
                "monitor repair --json": lambda e: monitor_management_effect(e, ["monitor", "repair", "--json"], needs_bridge=True)})
 EFFECT.update({f"profile {command} {option}": (lambda e, command=command, option=option: profile_effect(e, command, option))
@@ -830,3 +772,17 @@ EFFECT.update({"diag running --peer": lambda e: running_option_effect(e, "--peer
 EFFECT.update({f"session list {option}": (lambda e, option=option: session_inspection_effect(e, "list", option))
                for option in ("--stream", "--peer", "--limit", "--cursor")})
 EFFECT.update({"session show handle": lambda e: session_inspection_effect(e, "show", "handle")})
+
+def monitor_open_effect(e, *, as_json=False):
+    from peerhub.core.store import CoreStore
+
+    db = e.fresh()
+    record = CoreStore(db).append_record(stream_id="s", author_peer_id="a", kind="prompt", body="inspect me",
+                                         created_at="2026-11-27T00:00:00Z", idempotency_key="inspect")
+    code, output, _ = e.run(db, "monitor", "open", record.record_id.removeprefix("rec-"), *(["--json"] if as_json else []))
+    assert code == 0
+    assert (json.loads(output)["prompt"] if as_json else json.loads(output)) == "inspect me"
+
+
+EFFECT["monitor open id"] = monitor_open_effect
+EFFECT["monitor open --json"] = lambda e: monitor_open_effect(e, as_json=True)

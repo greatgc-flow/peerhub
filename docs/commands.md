@@ -78,11 +78,7 @@ Use `peerhub observation refresh --peers cx` to refresh a single provider's evid
 | Command | Purpose |
 |---|---|
 | `monitor` | Watch the dashboard or read one frame with `--snapshot`. See the [monitor guide](monitor.md). |
-| `monitor groups` | List group IDs and their default selection. |
-| `monitor defaults` | Manage the saved monitor group selection. |
-| `monitor defaults show` | Show the effective selection and its source. |
-| `monitor defaults set` | Save the group selection. |
-| `monitor defaults reset` | Remove the saved selection from the chosen layer. |
+| `monitor open` | Read a stored prompt with the short ID from RUNNING, e.g. `peerhub monitor open ID`. |
 | `monitor repair` | Release dead leases and rebuild monitor projections from durable evidence. |
 
 ## Accounts, profiles, and sessions

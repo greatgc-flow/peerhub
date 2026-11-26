@@ -27,7 +27,6 @@ from peerhub.cli.monitor_layout import (
 )
 from peerhub.cli.monitor_legend import FRAME_DETAIL_ORDER, MONITOR_LEGEND
 from peerhub.cli.monitor_links import link_profiles
-from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.monitor_quota_view import display_peer_quotas, frame_consumers, frame_pools
 from peerhub.cli.monitor_running_view import ask_split, running_total
 from peerhub.cli.monitor_sections import group_label, group_lines
@@ -74,10 +73,7 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
     data = as_dict(cap.get("data"))
     observations, _, rows = frame_pools(payload, frame_consumers(payload))
     pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row for row in rows}
-    show_notes = bool(payload.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
-    display_groups = {**groups,
-        "capacity": {**cap, "data": {**data, "_show_quota_notes": show_notes,
-                                      "_pool_rows": pool_rows}}}
+    display_groups = {**groups, "capacity": {**cap, "data": {**data, "_pool_rows": pool_rows}}}
     activity = as_dict(groups.get("activity"))
     execution = as_dict(groups.get("execution"))
     if isinstance(activity.get("data"), Mapping) and isinstance(execution.get("data"), Mapping):
@@ -87,7 +83,7 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
         display_groups["execution"] = {**execution, "data": {**as_dict(execution.get("data")), "_running_asks": running_asks}}
     # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
     plan_windows: dict[str, tuple[str, list[str]]] = {}
-    for obs in observations if show_notes else []:
+    for obs in observations:
         reason = clean_text(obs.get("reason") or "")
         if obs.get("state") == "ABSENT" and reason.startswith(NOT_REPORTED_REASON):
             pool = clean_text(obs.get("pool_ref") or "").split(":")[-1]
@@ -97,7 +93,7 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
     peers_group = as_dict(groups.get("peers"))
     if isinstance(peers_group.get("data"), Mapping):
         peers_data = as_dict(peers_group.get("data"))
-        display_groups["peers"] = {**peers_group, "data": {**peers_data, "_show_quota_notes": show_notes,
+        display_groups["peers"] = {**peers_group, "data": {**peers_data,
             "peers": display_peer_quotas(payload, dict_items(peers_data.get("peers")), observations, pool_rows)}}
         if plan_windows:
             display_groups["peers"]["data"]["plan_notes"] = {

@@ -245,7 +245,6 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                          workspace: str | Path | None = None, human: bool = False,
                          liveness: Callable[..., object] | None = None,
                          process_probe: Callable[[int], object] | None = None,
-                         preference_source: str | None = None,
                          lead_reader: monitor_activity.LeadReader | None = None) -> dict[str, Any]:
     """Read grouped monitor facts from one query-only SQLite snapshot (five bounded query families).
 
@@ -328,7 +327,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         capacity_ok = bool(set(groups) & {"capacity", "peers"}) and "capacity" not in errors
         pools = (pool_states(quota.observations, quota.last_known, now, quota.sample_counts)
                  if capacity_ok else None)
-        alert_sources = monitor_alerts.alert_source_status(groups, errors, activity_data, quota, pools, preference_source)
+        alert_sources = monitor_alerts.alert_source_status(groups, errors, activity_data, quota, pools)
         alerts = monitor_alerts.build_alerts(asks=activity_data["asks"] if activity_data else None, pools=pools,
                                              accounts=quota.accounts if capacity_ok else None,
                                              facts_report=quota.facts_report if capacity_ok else None,

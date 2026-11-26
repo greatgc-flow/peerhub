@@ -99,8 +99,10 @@ def row_counts(lines: list[str]) -> dict[str, int]:
 def test_the_fit_order_preserves_running_ahead_of_recent(view):
     seen: list[dict[str, int]] = []
     for height in range(30, 1, -1):
+        payload = full_payload()
+        payload["selected_groups"] = ["activity"]
         options = {"width": 140, "height": height}
-        screen = plain(full_payload(), **options) if view == "plain" else strip(rich(full_payload(), **options))
+        screen = plain(payload, **options) if view == "plain" else strip(rich(payload, **options))
         assert len(screen.splitlines()) <= height - 1
         seen.append(row_counts(screen.splitlines()))
     assert seen[0]["RUNNING"] == 4
@@ -385,7 +387,7 @@ def test_running_rows_start_with_their_state_glyph_and_word():
     rows = lines[start + 1:start + 5]
     assert [row.split()[0] for row in rows] == [U["run"], U["gone"], "?", "!"]
     assert rows[1].split()[1] == "gone" and rows[3].split()[1] == "overdue"
-    assert rows[0].split()[1] == "16m"  # the elapsed time follows directly
+    assert rows[0].split()[1:3] == ["000000000001", "16m"]  # the elapsed time follows directly
     painted = screen.splitlines()[start + 1:start + 5]
     assert painted[0].startswith(f" \x1b[{monitor_layout.RICH_SGR['ok']}m{U['run']}\x1b[0m")
     assert painted[1].startswith(f" \x1b[{monitor_layout.RICH_SGR['bad']}m{U['gone']} gone\x1b[0m")

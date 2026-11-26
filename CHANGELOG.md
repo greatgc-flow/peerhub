@@ -12,12 +12,22 @@ they do not claim new validation or publication evidence.
 
 - Root `NOW.md` gives peers a capped, test-pinned handoff that is refreshed in the PR that changes it.
 - `peerhub ask` accepts repeated `--query-file` flags and joins the files in command-line order with one blank line between them.
-- Both terminal monitor layouts list copyable record-read commands for running asks, including inline prompts.
+- Both monitor layouts show a short ask ID on each RUNNING row and one `peerhub monitor open ID` footer for reading the stored prompt.
 
 ### Fixed
 
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
 - The release-flow test fixture uses pytest-managed scratch space (#492).
+
+### Removed
+
+- Monitor watch keyboard controls. Watch refreshes automatically, Ctrl-C exits, and `--interval-seconds` sets the interval.
+- Monitor `--collect-every`. Terminal watch checks quota freshness automatically.
+- Monitor `--probe`. Use `peerhub observation refresh` for explicit collection.
+- Monitor `--show-quota-notes`. Use `--expand` for quota notes.
+- `monitor defaults` and saved `monitor.toml` preferences. Pass repeatable `--group` options to select groups.
+- `monitor groups`. See `peerhub monitor --help` for group IDs.
+- Monitor JSON 1.1 and `--schema-version`. Use `monitor --json` for schema 2.0.
 
 ## [0.26.19] - 2026-11-26
 

@@ -23,7 +23,7 @@ from peerhub.cli.monitor_layout import (
 from peerhub.cli.monitor_legend import CONTEXT_ESTIMATE_LABEL, FRAME_DETAIL_ORDER, FRAME_SECTIONS
 from peerhub.cli.monitor_quota_view import quota_label, quota_rows
 from peerhub.cli.quota_format import format_percent, fraction_bar
-from peerhub.core.monitor_groups import GROUPS
+from peerhub.core.monitor_groups import GROUP_IDS
 from peerhub.extensions.monitor_sessions import context_estimate_age
 
 
@@ -47,7 +47,7 @@ def group_label(gid: str, group: dict[str, Any], status: str, read_at: float | N
     label = f"{head} [{status}]"
     note = _sample_note(gid, as_dict(group.get("data")))
     label += f" | {note}" if note else ""
-    return label if gid in {str(item["id"]) for item in GROUPS} else label + " [unrecognized group]"
+    return label if gid in GROUP_IDS else label + " [unrecognized group]"
 
 
 def _coverage(data: dict[str, Any], unicode: bool = True) -> str:
@@ -151,8 +151,8 @@ def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bo
                 q_scope = clean_text(q_obj.get("scope") or "")
 
                 if q_pool == "not_reported":  # every configured pool omitted by the provider: unknown, never 100% free
-                    q_wide = "? (not reported)" if data.get("_show_quota_notes") else "unknown"
-                    q_narr = "? not reported" if data.get("_show_quota_notes") else "unk"
+                    q_wide = "? (not reported)"
+                    q_narr = "? not reported"
                 elif q_state == "INCOMPLETE" or q_pool == "incomplete":
                     q_wide = "incomplete"
                     q_narr = "incomplete"
@@ -170,7 +170,7 @@ def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bo
                     else:
                         pool_label = q_pool
                     pool_str = f" ({pool_label})" if pool_label else ""
-                    plan_note = clean_text(as_dict(data.get("plan_notes")).get(pid) or "") if data.get("_show_quota_notes") else ""
+                    plan_note = clean_text(as_dict(data.get("plan_notes")).get(pid) or "")
                     q_wide = f"{format_percent(q_rem)}{pool_str}{age_str}" + (f" [{plan_note}]" if plan_note else "")
                     q_narr = f"{format_percent(q_rem)}{pool_str}"
 

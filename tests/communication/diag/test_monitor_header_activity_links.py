@@ -12,9 +12,9 @@ import pytest
 
 from peerhub import __version__
 from peerhub import _console
-from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_preferences, monitor_refresh, monitor_view
+from peerhub.cli import monitor, monitor_layout, monitor_links, monitor_refresh, monitor_view
 from peerhub.extensions import monitor_alerts, monitor_quota
-from peerhub.extensions import monitor_preferences as saved_preferences, monitor_read_model
+from peerhub.extensions import monitor_read_model
 from peerhub.extensions.monitor_queries import ACTIVITY_SCOPE_CAP
 from peerhub.extensions.pool_health import PoolState
 from tests.communication.diag.test_monitor_activity_view import NOW, ask, pool
@@ -116,24 +116,6 @@ def test_existing_db_path_has_a_link_with_unchanged_visible_text(monkeypatch: py
     missing = db.with_name("missing.db")
     payload["store_selection"]["path"] = str(missing)
     assert all(url != missing.as_uri() for url, _ in OSC_LINK.findall(snapshot(tty=True)))
-
-
-def test_defaults_show_links_only_the_existing_config_file(monkeypatch: pytest.MonkeyPatch,
-                                                         capsys: pytest.CaptureFixture[str]) -> None:
-    config = Path(__file__).resolve().parents[3] / "pyproject.toml"
-    monkeypatch.setattr(saved_preferences, "preference_paths", lambda *a: (config, config))
-    monkeypatch.setattr(saved_preferences, "_decode", lambda *a: {
-        "status": "OK", "source": "workspace", "reason": None, "selected_groups": [],
-    })
-    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    monkeypatch.setattr(_console, "enable_vt", lambda: True)
-    args = argparse.Namespace(monitor_action="defaults", defaults_action="show", json=False)
-    assert monitor_preferences.run_preferences(args) == 0
-    linked = capsys.readouterr().out
-    assert OSC_LINK.findall(linked) == [(config.as_uri(), "workspace")]
-    monkeypatch.setenv("PEERHUB_NO_LINKS", "1")
-    assert monitor_preferences.run_preferences(args) == 0
-    assert capsys.readouterr().out == _console.ANSI_ESCAPE.sub("", linked)
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -263,7 +245,7 @@ def test_live_activity_reads_do_not_advance_quota_reads_or_probes(monkeypatch: p
     monkeypatch.setattr(monitor, "_cached_profiles", lambda *a: [])
     monkeypatch.setattr(monitor, "monitor_auto_probe", lambda args: True)
     args = argparse.Namespace(db=__file__, db_source="env", json=False, view="plain", cycles=0,
-                              interval=interval, collect_every=1, peers=["cc"], probe=False, no_probe=False,
+                              interval=interval, peers=["cc"], no_probe=False,
                               allow_agy_token_use=False)
     selected = ["activity", "capacity"]
     assert monitor._run_monitor_grouped_watch(args, selected, {}) == 0
@@ -349,7 +331,7 @@ def test_live_activity_refresh_updates_alerts_sources_and_recovers(monkeypatch: 
     monkeypatch.setattr(monitor, "_cached_profiles", lambda *a: [])
     monkeypatch.setattr(monitor, "monitor_auto_probe", lambda args: False)
     args = argparse.Namespace(db=__file__, db_source="env", json=False, view="plain", cycles=0, expand=expand,
-                              interval=60, collect_every=1, peers=["cx"], probe=False, no_probe=True,
+                              interval=60, peers=["cx"], no_probe=True,
                               allow_agy_token_use=False)
     assert monitor._run_monitor_grouped_watch(args, selected, {}) == 0
     assert [at for at, groups in reads if groups == tuple(selected)] == [0]

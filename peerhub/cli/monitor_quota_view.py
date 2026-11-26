@@ -37,7 +37,6 @@ from peerhub.cli.monitor_layout import (
     wrap_text,
 )
 from peerhub.cli.monitor_legend import FRAME_SECTIONS, QUOTA_NA
-from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.quota_format import format_duration, format_percent
 from peerhub.core.peer_kinds import ALIASES
 from peerhub.extensions.monitor_alerts import pool_out_alerts
@@ -54,7 +53,7 @@ from peerhub.extensions.quota_read_model import PoolReading, PoolRow, monitor_re
 from peerhub.extensions.quota_windows import EXPIRED_WINDOW_REASON, FAMILIES, omitted_plan_windows, pool_family, quota_window_remaining
 
 
-HIDDEN_QUOTA_WINDOWS = "Unavailable quota windows hidden (use --show-quota-notes)"
+HIDDEN_QUOTA_WINDOWS = "Unavailable quota windows hidden (use --expand)"
 POOLS_CAP = 8
 POOLS_USE_FIRST_HINT = "use first"
 
@@ -165,7 +164,7 @@ def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool,
 def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
                   rich: bool = False, paint: bool = False, every: bool = False, guide_url: str | None = None,
                   profile_urls: Mapping[str, Any] | None = None,
-                  show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT) -> tuple[list[str], int, int]:
+                  show_quota_notes: bool = False) -> tuple[list[str], int, int]:
     """POOLS rows, including inline markers and counts for any unavailable windows passed in."""
     ordered = ordered_pools(rows, every=every)
     unavailable = [row for row in rows if row["state"] == QUOTA_NA] if show_quota_notes else []
@@ -417,7 +416,6 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
         evidence_notes: list[str] = []
         na_notes: list[str] = []
         available: list[dict[str, Any]] = []
-        show_notes = bool(data.get("_show_quota_notes", SHOW_QUOTA_NOTES_DEFAULT))
         for item in sorted(observations, key=lambda item: pool_order(
                 peer_label(item), str(item.get("pool_ref") or item.get("pool_kind") or "").rsplit(":", 1)[-1])):
             peer = peer_label(item)
@@ -436,10 +434,10 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
                 row = _compact_pool(project_pool_rows([source], now + elapsed_seconds)[0])
             pool, reason = row["pool"], row["reason"]
             if reason.startswith(ABSENT_FACT_REASONS) and state in {"ABSENT", "STALE"} and not row["retired"]:
-                if row["state"] == QUOTA_NA and show_notes:
+                if row["state"] == QUOTA_NA:
                     na_notes.append(na_pool_note(row))
                 elif row["aged"]:
-                    why = f"{na_reason(row, reason)}, " if show_notes else ""
+                    why = f"{na_reason(row, reason)}, "
                     na_notes.append(f"{peer} {pool} ? {why}aged; next: peerhub observation refresh --peers {peer}")
             elif row["aged"]:
                 probe_notes.setdefault(peer, set()).add("STALE:window")
@@ -450,15 +448,13 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
         visible = [row for row in available if row["state"] != QUOTA_NA]
         position = {(str(row["peer"]), str(row["pool_ref"])): index
                     for index, (row, _) in enumerate(ordered_pools(visible, every=True))}
-        layout, retired_notes = quota_layout(available, unicode, show_quota_notes=show_notes, order=position)
+        layout, retired_notes = quota_layout(available, unicode, show_quota_notes=True, order=position)
         entries = [
             (f"{row['display_peer'] or ' ' * cell_width(row['peer'])} {row['display_pool']}",
              row, row["display_pool"] != row["pool"], str(row["suffix"]))
             for row in layout
         ]
         table_rows = list(pool_rows.values()) or available
-        if not show_notes:
-            table_rows = [row for row in table_rows if row["state"] != QUOTA_NA]
         omitted: list[str] = []
         if table_rows or entries or not available:
             header, rendered, omitted = pool_table(entries, table_rows, width - 1,

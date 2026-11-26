@@ -248,21 +248,6 @@ def test_coverage_group_does_not_call_empty_scope_set_complete(frame):
     assert "Scopes complete: 0/0" not in rendered
 
 
-def test_human_renderer_is_isolated_from_schema_11_adapter():
-    import ast
-    from pathlib import Path
-
-    cli = Path(__file__).resolve().parents[3] / "peerhub" / "cli"
-    renderer = ("monitor_view", "monitor_compact", "monitor_expanded", "monitor_sections",
-                "monitor_activity_view", "monitor_running_view", "monitor_recent_view", "monitor_leads_view",
-                "monitor_alert_view", "monitor_quota_view")
-    for name in renderer:
-        tree = ast.parse((cli / f"{name}.py").read_text(encoding="utf-8"))
-        imported = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-        imported.extend(alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
-        assert all("monitor_schema11" not in module for module in imported), name
-
-
 @pytest.mark.parametrize("width", [32, 48, 80, 120])
 def test_rich_frame_respects_terminal_width_without_losing_groups(frame, width):
     from peerhub.cli.monitor_layout import cell_width
@@ -301,7 +286,7 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
     elif height == 3:
         assert rendered.splitlines()[1].startswith("PeerHub")
     elif height == 5:
-        assert ("POOLS 1" in rendered) == (width >= 40)
+        assert "POOLS" not in rendered  # the pool row and expanded gap must fit together
         assert "gap vs " not in rendered
     elif height >= 4 and len(frame["selected_groups"]) > max(0, height - 3):
         assert "omitted" in rendered or "hidden" in rendered or any(f"+{i}" in rendered for i in range(1, 10))
@@ -1027,7 +1012,7 @@ def _cx_plan_frame(absent_state="ABSENT", peer_quota=None):
 def test_not_reported_pool_renders_na_with_plan_never_zero_or_incomplete():
     """X3/X5: a window the provider does not report is n/a (plan shown); the peer line keeps the reported pool's %."""
     from peerhub.cli.monitor_view import render_grouped_frame
-    rendered = render_grouped_frame(_cx_plan_frame(), view="plain", unicode=False, width=120, expand=True, show_quota_notes=True)
+    rendered = render_grouped_frame(_cx_plan_frame(), view="plain", unicode=False, width=120, expand=True)
     assert "cx X-5H n/a not reported (plan prolite)" in rendered
     row = next(line for line in rendered.splitlines() if line.startswith("cx") and " X-5H " in line and "PROFILES" not in line)
     assert "STALE" not in row and "ABSENT" not in row and "n/a" in row
@@ -1039,14 +1024,14 @@ def test_all_pools_not_reported_is_question_mark_never_full():
     from peerhub.cli.monitor_view import render_grouped_frame
     unknown = {"state": "UNKNOWN", "pool_ref": "not_reported", "remaining_fraction": None, "percent": None,
                "age_seconds": None, "scope": "mapped"}
-    rendered = render_grouped_frame(_cx_plan_frame(peer_quota=unknown), view="plain", unicode=False, width=120, expand=True, show_quota_notes=True)
+    rendered = render_grouped_frame(_cx_plan_frame(peer_quota=unknown), view="plain", unicode=False, width=120, expand=True)
     assert "quota: ? (not reported)" in rendered
     assert "100%" not in rendered and "incomplete" not in rendered
 
 
 def test_aged_not_reported_pool_is_question_mark_with_refresh_hint():
     from peerhub.cli.monitor_view import render_grouped_frame
-    rendered = render_grouped_frame(_cx_plan_frame(absent_state="STALE"), view="plain", unicode=False, width=120, expand=True, show_quota_notes=True)
+    rendered = render_grouped_frame(_cx_plan_frame(absent_state="STALE"), view="plain", unicode=False, width=120, expand=True)
     assert "cx X-5H ? not reported (plan prolite), aged; next: peerhub observation refresh --peers cx" in rendered
     assert "STALE:window" not in rendered
 

@@ -52,7 +52,7 @@ platform suite.
 ## Quota forecast backtesting
 
 Collect an opt-in trace with `peerhub monitor --json --cycles 0 >> quota-trace.ndjson`
-(Ctrl-C stops it); this may contact providers and spend quota. Quota observations
+(Ctrl-C stops it). Redirected watch reads committed evidence. Use a terminal monitor or explicit observation refresh to collect fresh observations. Quota observations
 also accumulate in the selected store. Replay them read-only with
 `python -m tools.quota_report --backtest --db <store> [--json]`. The report groups by pool
 and stable reset, skipping fewer than five distinct samples or less than 5%

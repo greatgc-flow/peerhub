@@ -124,7 +124,7 @@ def test_stored_relative_reset_stops_aging_the_title(quota_age_connection, group
     assert "quota age 1m" in monitor_view.render_grouped_frame(snapshot).splitlines()[1]
     for frame in ({**snapshot, "display_elapsed_seconds": 6},
                   render_monitor_frame(__file__, groups, human=True, read_at=now + 6)):
-        screen = monitor_view.render_grouped_frame(frame, show_quota_notes=True, width=120, expand=True)
+        screen = monitor_view.render_grouped_frame(frame, width=120, expand=True)
         assert "quota age 16s" in screen.splitlines()[1]
         if groups == ["capacity"]:
             assert "cc C-7D n/a (quota window expired)" in screen

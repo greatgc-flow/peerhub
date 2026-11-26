@@ -79,7 +79,7 @@ def test_no_probe_title_uses_plan_retirement_and_selected_peers(monkeypatch, exp
     assert main(["--db", __file__, "monitor", "--group", "capacity", "--peers", "cx", "--no-probe",
                  "--view", "plain", "--cycles", "0", *(["--expand"] if expanded else [])]) == 0
     assert "oldest quota age 10s" in frames[0].splitlines()[1]
-    assert "X-30D" not in frames[0]
+    assert ("X-30D" in frames[0]) == expanded
 
 
 def test_per_peer_due_at_lead_with_missing_and_partial_pools():
@@ -254,8 +254,9 @@ def test_job_overlaps_providers_and_commits_each_as_it_finishes(monkeypatch, sec
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=monitor_refresh.MONITOR_REFRESH_LEAD_SECONDS)
     peers = ("cc", "cx")
     required = dict.fromkeys(peers, set())
-    job = RefreshJob(args, peers, required, force=True, retry=())
-    job._run(args, required, True, ())
+    monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
+    job = RefreshJob(args, peers, required, retry=())
+    job._run(args, required, ())
 
     assert committed == (["cx"] if second_state is None else ["cx", "cc"])
     assert job.result is not None
@@ -275,8 +276,9 @@ def test_job_reports_failed_if_every_peer_fails(monkeypatch):
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
     peers = ("cc", "cx")
     required = dict.fromkeys(peers, set())
-    job = RefreshJob(args, peers, required, force=True, retry=())
-    job._run(args, required, True, ())
+    monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
+    job = RefreshJob(args, peers, required, retry=())
+    job._run(args, required, ())
 
     assert job.result == {"status": "FAILED", "observations": [], "warnings": ["OSError", "OSError"]}
 
@@ -303,8 +305,9 @@ def test_job_cancellation_discards_results_in_flight(monkeypatch):
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
     peers = ("cc", "cx")
     required = dict.fromkeys(peers, set())
-    job = RefreshJob(args, peers, required, force=True, retry=())
-    job._run(args, required, True, ())
+    monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
+    job = RefreshJob(args, peers, required, retry=())
+    job._run(args, required, ())
 
     assert sorted(calls) == ["cc", "cx"] and peers_stopped.is_set()
     assert job.result is None
@@ -350,14 +353,13 @@ def test_watch_defers_a_lock_timeout_without_reporting_failure(monkeypatch, expa
     monkeypatch.setattr(monitor_refresh.RefreshJob, "start", staticmethod(launch))
     monkeypatch.setattr(monitor, "sleep", tick)
     assert main(["--db", __file__, "monitor", "--group", "capacity", "--peers", "cc", "--view", "plain",
-                 "--cycles", "0", "--probe", *(["--expand"] if expand else [])]) == 0
+                 "--cycles", "0", *(["--expand"] if expand else [])]) == 0
     assert launches == [100, last]
     assert any("next refresh 1m" in frame for frame in frames)
     assert all("refresh failed" not in frame for frame in frames)
 
 
-@pytest.mark.parametrize("forced", [False, True])
-def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, forced):
+def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch):
 
     started, release = Event(), Event()
     frames, reads, captures, geometries, jobs = [], [], [], [], []
@@ -412,8 +414,6 @@ def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, 
     monkeypatch.setattr(monitor, "sleep", tick)
     argv = ["--db", __file__, "monitor", "--group", "capacity", "--peers", "cc", "--view", "plain",
             "--timeout-seconds", "120"]
-    if forced:
-        argv.extend(["--cycles", "0", "--probe"])
     try:
         assert main(argv) == 0
     finally:
@@ -486,13 +486,12 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
 
     monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
     args = argparse.Namespace(db=__file__, db_source="explicit", json=False, view="plain", cycles=0,
-                              interval=60, collect_every=1, peers=["cc"], probe=True, no_probe=False,
+                              interval=60, peers=["cc"], no_probe=False,
                               sys_dir=None, timeout=15, allow_agy_token_use=False)
 
     def interrupt(seconds):
         assert started.wait(1)
-        assert monitor_refresh.RefreshJob.start(args, ("cc",), force=False) is None
-        assert monitor_refresh.RefreshJob.start(args, ("cc",), force=True) is None
+        assert monitor_refresh.RefreshJob.start(args, ("cc",)) is None
         raise KeyboardInterrupt
 
     monkeypatch.setattr(monitor, "sleep", interrupt)
@@ -534,7 +533,8 @@ def test_job_cleans_up_a_lingering_probe_before_releasing_the_guard(monkeypatch,
     monkeypatch.setattr(quota_capture, "quota_refresh_lock", guard)
     monkeypatch.setattr(monitor_refresh, "refresh_with_profile_pools", collect)
     args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
-    job = RefreshJob.start(args, ("cc",), force=True, required={"cc": set()})
+    monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
+    job = RefreshJob.start(args, ("cc",), required={"cc": set()})
     assert job is not None
     job._worker.join(1)
     assert job.done() and job.result == {"status": "PARTIAL", "observations": [], "warnings": []}

@@ -11,16 +11,13 @@ from peerhub.cli.app import build_parser, main
 from peerhub.core.store import CoreStore
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.diag import DiagnosticReport
-from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
 
 
-@pytest.mark.parametrize("options", [[], ["--json"], ["--json", "--schema-version", "1.1"]])
-def test_redirected_watch_requires_probe_opt_in(monkeypatch, capsys, options):
+@pytest.mark.parametrize("options", [[], ["--json"]])
+def test_redirected_watch_reads_committed_evidence(monkeypatch, capsys, options):
     calls = []
-    import peerhub.cli.monitor_schema11  # import first: a lazy import under the patch would keep the fake name for good
 
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
-    monkeypatch.setattr("peerhub.cli.monitor_schema11.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame",
                         lambda *a, **kw: {"schema_version": "2.0", "status": "OK", "groups": {}})
     monkeypatch.setattr("peerhub.extensions.diag.ReadonlyDiag.render",
@@ -34,20 +31,11 @@ def test_redirected_watch_requires_probe_opt_in(monkeypatch, capsys, options):
     argv = ["--db", "unused.db", "monitor", "--cycles", "1", *options]
     assert main(argv) == 0
     assert not calls and not capsys.readouterr().err
-    assert main([*argv, "--probe"]) == 0
-    assert calls == [list(QUOTA_CAPABLE_PEERS)]
-
-
-def test_snapshot_rejects_probe(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(["--db", "unused.db", "monitor", "--snapshot", "--probe"])
-    assert exc.value.code == 2
-    assert "--snapshot cannot be combined with --probe" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("options,tty,cycles,expected", [
     (options, tty, cycles, expected)
-    for options in ([], ["--json"], ["--json", "--schema-version", "1.1"])
+    for options in ([], ["--json"])
     for tty, cycles, expected in ((False, None, 1), (True, None, 2), (False, 0, 2), (True, 0, 2), (True, 1, 1))
     if options or not tty or cycles == 1  # Continuous human TTY cycles are covered by test_monitor_live_refresh.
 ])
@@ -75,11 +63,11 @@ def test_scripted_monitor_cycle_defaults_and_explicit_zero(tmp_path, monkeypatch
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
     monkeypatch.setattr("peerhub.cli.monitor.sleep", sleep)
     monkeypatch.setattr("peerhub.cli.monitor.monotonic", lambda: now[0])
-    argv = ["--db", str(db), "monitor", "--probe", "--view", "plain", *options]
+    argv = ["--db", str(db), "monitor", "--view", "plain", *options]
     if cycles is not None:
         argv.extend(["--cycles", str(cycles)])
     assert main(argv) in (0, 4)
-    assert len(refreshes) == expected
+    assert len(refreshes) == (expected if tty else 0)
     assert len(sleeps) == (0 if expected == 1 else 2)
     output = capsys.readouterr().out
     if "--json" in options:
@@ -110,13 +98,11 @@ def test_non_tty_human_prints_only_completed_frame_and_keeps_diagnostics(tmp_pat
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", render)
-    assert main(["--db", str(db), "monitor", "--probe", "--group", "capacity", "--view", "plain"]) == (4 if failed else 0)
+    assert main(["--db", str(db), "monitor", "--group", "capacity", "--view", "plain"]) == (4 if failed else 0)
     captured = capsys.readouterr()
     assert captured.out.count("PeerHub Monitor") == 1
-    assert calls == ["refresh", "snapshot"]
-    assert f"refresh: {'ERROR' if failed else 'OK'}" in captured.err
+    assert calls == ["snapshot"]
     if failed:
-        assert "warning: probe failed" in captured.err
         assert "[diag_unavailable]" in captured.err and "peerhub diag health" in captured.err
 
 
@@ -136,7 +122,7 @@ def test_non_tty_human_future_schema_exits_six_without_probes(tmp_path, monkeypa
     monkeypatch.setattr("peerhub.extensions.quota_capture._probe_cli_version", probe)
     for name in ("poll_codex_usage", "poll_claude_usage", "poll_agy_usage"):
         monkeypatch.setattr(f"peerhub.extensions.quota_probes.{name}", probe)
-    assert main(["--db", str(db), "monitor", "--probe", "--view", "plain", "--group", "capacity"]) == 6
+    assert main(["--db", str(db), "monitor", "--view", "plain", "--group", "capacity"]) == 6
     assert probes == [] and db.read_bytes() == before
     assert "[schema_version_error]" in capsys.readouterr().err
 

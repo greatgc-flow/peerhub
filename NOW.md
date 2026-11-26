@@ -7,7 +7,7 @@ Updated: 2026-11-27
 
 ## State
 
-- Released: v0.26.19 (2026-11-27). Integration branch: `main`. In flight: #488 monitor follow-up in a separate lane.
+- Released: v0.26.19 (2026-11-27). Integration branch: `main`. The 0.27.0 monitor lane implements the approved scope decision.
 
 ## Recent flow (newest first, at most 5)
 
@@ -19,7 +19,7 @@ Updated: 2026-11-27
 
 ## Next (ordered, at most 8)
 
-1. [#488](https://github.com/greatgc-flow/peerhub/issues/488) Finish inline task inspection and refresh controls in the separate lane.
+1. [#488](https://github.com/greatgc-flow/peerhub/issues/488) Integrate and verify RUNNING inspection and the monitor CLI removals.
 2. [#492](https://github.com/greatgc-flow/peerhub/issues/492) Continue the tracked follow-ups. Item 1 now uses pytest-managed scratch space for release-flow tests.
 
 ## Rules that bite (at most 8, one line each, link the doc)

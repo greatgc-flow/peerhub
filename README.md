@@ -119,9 +119,8 @@ peerhub diag --live --interval-seconds 2
 peerhub diag --view rich
 # Use diag quota --max-age-seconds N for recent readings, or diag --plan --peer PEER (repeatable) and --observation-db PATH to narrow the plan's stored evidence.
 
-# List every monitor group and see what each ID means; --json emits the same catalog.
-peerhub monitor groups
-peerhub monitor groups --json
+# List group IDs under --group.
+peerhub monitor --help
 
 # Show a read-only snapshot once, without provider refresh or writes.
 peerhub monitor --snapshot
@@ -137,14 +136,8 @@ peerhub monitor --no-probe --interval-seconds 60
 # For a person who wants only the verdict, suggestion and pools (AI sessions read `peerhub diag --plan` instead).
 peerhub monitor --snapshot --group capacity
 
-# Keep the schema 1.1 quota/dashboard output for existing scripts.
-peerhub monitor --json --schema-version 1.1 --cycles 1
-
-# Customize grouped watch and snapshot defaults (workspace by default).
-peerhub monitor defaults set --group overview activity peers execution sessions usage context capacity coverage
-peerhub monitor defaults show
-# Reset defaults saved before 0.24.16 to include the new activity group.
-peerhub monitor defaults reset
+# Read one grouped JSON snapshot (schema 2.0).
+peerhub monitor --json --snapshot
 
 # Review with a second provider using a declared profile.
 peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
@@ -198,8 +191,7 @@ for details.
 
 `diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
-`monitor groups` lists all eleven stable group IDs, their meaning, and whether each
-is selected by the effective defaults. The default monitor includes running and
+`monitor --help` lists the available group IDs. The default monitor includes running and
 recent asks (`activity`), quota capacity (`capacity`), retained session state and
 configured binding (`sessions`), per-peer dependency chains (`peers`), and Bridge
 delivery certainty (`execution`).
@@ -279,19 +271,16 @@ What was measured and what was not. Historical measurements on Windows 11 with C
 
 The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for every pool and detailed session and group sections. Both layouts show `MARGIN`, the `EXH/RESET` pair and the even-burn mark. `--view rich` adds colour on terminals.
 `--view plain` selects ASCII-safe output: the frame's own lines and marks are ASCII, while request, reply, lead and alert text keeps every character the output encoding can show (Korean, Kana and CJK stay readable; ambiguous-width characters become `?`; the cut mark is `~`). Add repeatable `--group` options to
-watch one or more groups, or `--group all` to include all eleven. `monitor groups`
-lists group IDs and meanings; `monitor defaults show|set|reset` inspects and
-changes the default selection (`show` prints a table; `--json` gives JSON). `monitor --snapshot` renders one read-only
+watch one or more groups, or `--group all` to include all eleven. `monitor --snapshot` renders one read-only
 dashboard without refreshing providers. In a terminal, `--snapshot --expand`
 fits the screen; piping shows all rows, for example
 `peerhub monitor --snapshot --group all --expand | more`.
-Quota windows omitted by a plan or disabled by a provider are `n/a`. Both human layouts hide these windows by default and omit pools without readings from the weekly pace gap. Add `--show-quota-notes` to include unavailable windows in the POOLS count, show their names inline (for example, `(C-5H n/a)`) and see their reasons in compact POOLS or expanded QUOTA. The layout options `--compact` and `--expand` are mutually exclusive. These options and `--show-quota-notes` apply to human output.
+Compact hides unavailable quota windows. Expanded POOLS counts and names them, and expanded QUOTA gives their reasons. A RUNNING row shows the short ask ID. Use `peerhub monitor open ID` to read the stored prompt.
 
 Configured weekly dependencies appear together in POOLS: for example, `cc F-7D` is a child of `cc C-7D`. With both pools fresh, the F-7D row is limited by C-7D: LEFT and PACE are the lower of the two, the reset is the nearer one, the state is the worse one, and its own value stays in the FAMILY note (for example `own 26%`); a fresh exhausted C-7D says `blocked` and names C-7D. POOLS, QUOTA, the `suggest:` line, `diag quota` and `diag readiness` use the same rule. Sections that read only a sample (EXECUTION, SESSIONS, USAGE, CONTEXT) say `sample N/M` in their head, and PEERS says `showing N of M peers` when capped. Stale, unknown, reset or ambiguous parent evidence is not treated as a current block. The rich expanded QUOTA table shows the same state. Live VT watch rewrites changed rows at fixed screen positions so wide glyphs cannot push later rows down. See [the monitor guide](docs/monitor.md#the-alternate-screen-and-live_row_margin) for full repaints and terminal behavior.
 
 For automation, `--json` emits schema
-2.0 NDJSON frames for watch and one JSON object for snapshot. The frozen 0.16.1
-machine contract is available via `--json --schema-version 1.1`.
+2.0 NDJSON frames for watch and one JSON object for snapshot.
 
 The `diag` dashboard shows a threat summary, a stable pool
 table with usage, PACE in percentage points, reset countdown, conditional
@@ -304,8 +293,7 @@ data”. Inferred anchors remain conditional and predictive accuracy is not
 established.
 
 Monitor reads committed evidence every N seconds (`--interval-seconds`).
-With `--probe`, it also collects initially and then every Kth cycle
-(`--collect-every`). Collection may spend quota through provider calls such as
+In a terminal it refreshes quota when due. Collection may spend quota through provider calls such as
 agy `/usage` and `/credits`. With `--cycles` omitted,
 stdout on a TTY watches until interrupted; non-TTY stdout runs one cycle.
 Explicit `--cycles 0` watches until interrupted everywhere; positive values

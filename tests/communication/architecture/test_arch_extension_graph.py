@@ -35,7 +35,7 @@ ALLOWED: dict[str, set[str]] = {
                            "monitor_sessions", "quota_read_model"},
     "monitor_activity": {"adapters", "caller", "diag_running", "liveness", "monitor_queries", "monitor_sessions",
                          "monitor_values"},
-    "monitor_alerts": {"liveness", "monitor_activity", "monitor_preferences", "monitor_queries", "monitor_quota", "monitor_values"},
+    "monitor_alerts": {"liveness", "monitor_activity", "monitor_queries", "monitor_quota", "monitor_values"},
     "monitor_queries": {"delivery_reads", "observation_model"},
     "monitor_quota": {"monitor_queries", "observation_model", "quota_projection", "quota_read_model", "quota_windows"},
     "monitor_sessions": {"adapters", "monitor_queries", "monitor_values", "session_receipts", "usage_normalization"},
@@ -152,7 +152,7 @@ def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts",
           "ask_budgets", "delivery_projection_rebuild", "delivery_projections", "delivery_reads", "monitor_read_model", "usage_normalization", "runtime_contract",
-          "caller", "liveness", "lead_sessions", "pool_health", "monitor_preferences", "monitor_queries",
+          "caller", "liveness", "lead_sessions", "pool_health", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",
           "diag_read_model", "quota_read_model", "quota_windows", "recovery_classification", "profile_stats"}
     helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "manifest"}

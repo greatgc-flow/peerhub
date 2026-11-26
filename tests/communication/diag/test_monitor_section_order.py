@@ -15,6 +15,7 @@ def _all_sections_payload():
     activity = payload["groups"]["activity"]["data"]
     activity["leads"] = activity["leads"][:1]  # leave room for LEADS within the compact line budget
     activity["asks"] = [activity["asks"][0], activity["asks"][-1]]
+    activity["counts"]["running"] = 1
     return payload
 
 

@@ -54,7 +54,7 @@ _SOURCE_REASONS = {"not_selected": "not selected", "error": "read failed", "trun
 
 
 def unread_sources(payload: dict[str, Any]) -> list[str]:
-    """`source <id>: <reason>` for every alert source that was not read completely, then the hint (for --expand).
+    """`source <id>: <reason>` for every alert source that was not read completely (for --expand).
     A frame without `alert_sources` (a schema error, a hand-made payload) says so, as line 1 does."""
     raw: object = payload.get("alert_sources")
     if not isinstance(raw, Mapping):
@@ -68,11 +68,11 @@ def unread_sources(payload: dict[str, Any]) -> list[str]:
             _SOURCE_REASONS.get(str(sources.get(key)), "not read")
 
     rows = [f"source {key}: {reason(key)}" for key, _ in _ALERT_SOURCES if sources.get(key) != "read"]
-    return rows + ([f"hint: {clean_text(sources['hint'])}"] if rows and sources.get("hint") else [])
+    return rows
 
 
 def _unread(payload: dict[str, Any]) -> str | None:
-    """None when every alert source was selected and read completely; otherwise what was not, and the hint."""
+    """None when every alert source was selected and read completely; otherwise which sources were incomplete."""
     raw: object = payload.get("alert_sources")
     if not isinstance(raw, Mapping):
         return "alerts not read"
@@ -85,8 +85,6 @@ def _unread(payload: dict[str, Any]) -> str | None:
     if not phrases:
         return None
     parts = [f"{', '.join(labels)} {phrase}" for phrase, labels in phrases.items()]
-    if sources.get("hint"):
-        parts.append(clean_text(sources["hint"]))
     return "; ".join(parts)
 
 

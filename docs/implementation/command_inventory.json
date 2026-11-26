@@ -584,38 +584,13 @@
       ]
     },
     {
-      "command": "monitor defaults reset",
+      "command": "monitor open",
       "options": [
-        {
-          "default": false,
-          "dest": "global_preferences",
-          "flags": [
-            "--global"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        },
         {
           "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        }
-      ]
-    },
-    {
-      "command": "monitor defaults set",
-      "options": [
-        {
-          "default": false,
-          "dest": "global_preferences",
-          "flags": [
-            "--global"
           ],
           "positional": false,
           "required": false,
@@ -623,53 +598,13 @@
         },
         {
           "default": null,
-          "dest": "group",
+          "dest": "id",
           "flags": [
-            "--group"
+            "id"
           ],
-          "positional": false,
+          "positional": true,
           "required": true,
           "takes_value": true
-        },
-        {
-          "default": "==SUPPRESS==",
-          "dest": "json",
-          "flags": [
-            "--json"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        }
-      ]
-    },
-    {
-      "command": "monitor defaults show",
-      "options": [
-        {
-          "default": "==SUPPRESS==",
-          "dest": "json",
-          "flags": [
-            "--json"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        }
-      ]
-    },
-    {
-      "command": "monitor groups",
-      "options": [
-        {
-          "default": "==SUPPRESS==",
-          "dest": "json",
-          "flags": [
-            "--json"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
         }
       ]
     },
@@ -1706,16 +1641,6 @@
           "takes_value": false
         },
         {
-          "default": 1,
-          "dest": "collect_every",
-          "flags": [
-            "--collect-every"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
           "default": false,
           "dest": "compact",
           "flags": [
@@ -1797,36 +1722,6 @@
         },
         {
           "default": false,
-          "dest": "probe",
-          "flags": [
-            "--probe"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        },
-        {
-          "default": null,
-          "dest": "schema_version",
-          "flags": [
-            "--schema-version"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
-          "default": false,
-          "dest": "show_quota_notes",
-          "flags": [
-            "--show-quota-notes"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        },
-        {
-          "default": false,
           "dest": "snapshot",
           "flags": [
             "--snapshot"
@@ -1864,21 +1759,6 @@
           "positional": false,
           "required": false,
           "takes_value": true
-        }
-      ]
-    },
-    {
-      "command": "monitor defaults",
-      "options": [
-        {
-          "default": "==SUPPRESS==",
-          "dest": "json",
-          "flags": [
-            "--json"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
         }
       ]
     },
