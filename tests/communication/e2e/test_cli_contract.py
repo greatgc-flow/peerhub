@@ -53,7 +53,7 @@ def test_command_reference_matches_the_parser_inventory():
 
 
 @pytest.mark.parametrize(("command", "option"), [
-    ("ask", "--final-only"), ("batch run", "--response-task"), ("diag", "--compact"),
+    ("ask", "--final-only"), ("batch run", "--responses"), ("diag", "--compact"),
 ])
 def test_output_flag_is_documented_in_reference_and_help(command, option, capsys):
     reference = (ROOT / "docs" / "commands.md").read_text(encoding="utf-8")

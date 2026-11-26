@@ -98,7 +98,7 @@ CLI output defaults to compact human text, including when redirected. Use `--jso
 # Persist the prompt, execute one provider, and persist its response.
 peerhub ask cx "Summarize this repository" --stream review --request-id review-001
 
-# Recommend a peer and print an ask command that reads review.txt.
+# Deprecated: use peerhub diag --plan for planning. This command is removed next release.
 peerhub suggest --tier effort --task review
 
 # Show the tier's candidate profiles and the quota facts behind their eligibility.
@@ -176,7 +176,8 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API pee
 
 Quota is collected separately from diagnostics. The default peers are shown in `peerhub observation refresh --peers cx cc ag`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 
-`peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
+`peerhub suggest` is deprecated, removed in the next release; use `peerhub diag --plan`.
+Until removal, `peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
 prints an ask command and one reason line. Put the task and supporting material
 in `prompt.txt` or, with `--task`, in `review.txt`, `code.txt`, or `read.txt`.
 The generated command selects the store and profile, requests a fresh session,

@@ -19,6 +19,16 @@ they do not claim new validation or publication evidence.
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
 - The release-flow test fixture uses pytest-managed scratch space (#492).
 
+### Removed
+
+- `batch run --response-task` is removed; use `--responses` to include completed replies.
+
+### Changed
+
+- `ask` reports high CPU load as a warning and proceeds; RAM protection and batch admission remain.
+- `peerhub suggest` is deprecated and will be removed in the next release; use `peerhub diag --plan`.
+
+
 ## [0.26.19] - 2026-11-26
 
 ### Added

@@ -357,16 +357,6 @@
           "takes_value": true
         },
         {
-          "default": null,
-          "dest": "response_task",
-          "flags": [
-            "--response-task"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
           "default": false,
           "dest": "responses",
           "flags": [

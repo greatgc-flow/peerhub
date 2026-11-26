@@ -22,8 +22,6 @@ if TYPE_CHECKING:
 
 
 ASK_QUERY_FILE_OPTIONS = ("--query-file", "--prompt-file")
-ASK_LOAD_MAX_WAIT_SECONDS = 120.0
-ASK_LOAD_POLL_SECONDS = 3.0
 
 
 def register_ask_parser(subparsers: Subparsers) -> None:
@@ -205,28 +203,18 @@ def _wait_for_ask_resources(
     sleep: Callable[[float], None] = time.sleep,
 ) -> ClaimToken:
     resource_reader = resource_reader or load_limits.read_resources
-    deadline = monotonic() + ASK_LOAD_MAX_WAIT_SECONDS
-    waiting = False
-    while True:
-        warnings = load_limits.load_warnings(resource_reader().facts())
-        if not warnings:
-            token = acquire(False)
-            assert token is not None
-            return token
-        detail = "; ".join(warnings)
-        remaining = deadline - monotonic()
-        if remaining <= 0:
-            token = acquire(False)
-            assert token is not None
-            print(f"Warning: {detail}. Starting ask after the resource wait limit.", file=sys.stderr, flush=True)
-            return token
-        if (token := acquire(True)) is not None:
-            print(f"Warning: {detail}. Starting ask.", file=sys.stderr, flush=True)
-            return token
-        if not waiting:
-            print(f"Waiting to start ask while other asks are active ({detail}).", file=sys.stderr, flush=True)
-            waiting = True
-        sleep(max(0, min(ASK_LOAD_POLL_SECONDS, deadline - monotonic())))
+    sample = resource_reader()
+    warnings = load_limits.load_warnings(sample.facts())
+    cpu_warning = [warning for warning in warnings if "CPU" in warning.upper()]
+    if cpu_warning:
+        print(f"Warning: {'; '.join(cpu_warning)}. Starting ask.", file=sys.stderr, flush=True)
+    token = acquire(bool(warnings and not cpu_warning))
+    if token is None:
+        token = acquire(False)
+        assert token is not None
+    if warnings and not cpu_warning:
+        print(f"Warning: {'; '.join(warnings)}. Starting ask.", file=sys.stderr, flush=True)
+    return token
 
 
 def run_ask(args: argparse.Namespace) -> int:

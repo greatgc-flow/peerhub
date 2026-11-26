@@ -86,7 +86,15 @@ def test_default_output_matches_before_candidates(quota, capsys, monkeypatch, js
                            "argv": argv, "reason": reason}) + "\n" if json_output else f"{command}\n{reason}\n"
     options = ["--json"] if json_output else []
     assert main(["--db", db.name, "suggest", "--tier", "standard", "--task", "review", *options]) == 0
-    assert capsys.readouterr() == (expected, "")
+    out, err = capsys.readouterr()
+    assert out == expected
+    assert err == "Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release.\n"
+
+
+def test_deprecation_notice_is_one_stderr_line_and_points_to_diag_plan(capsys):
+    suggest("--tier", "standard", "--json")
+    lines = capsys.readouterr().err.splitlines()
+    assert lines == ["Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release."]
 
 
 def test_candidates_show_tier_facts_without_changing_the_recommendation(quota, capsys):
@@ -115,10 +123,10 @@ def test_candidates_show_tier_facts_without_changing_the_recommendation(quota, c
     assert not calls
 
     assert suggest(*options) == 0
-    default_text, _ = capsys.readouterr()
+    default_text, default_err = capsys.readouterr()
     assert suggest(*options, "--candidates") == 0
     out, err = capsys.readouterr()
-    assert out.startswith(default_text) and not err
+    assert out.startswith(default_text) and err == default_err
     table = out.removeprefix(default_text)
     header, *rows = table.splitlines()
     assert header.split() == ["PROFILE", "PEER", "ELIGIBLE", "WORST", "POOL", "(LEFT", "%)", "PACE", "(7D", "pp)", "FAST", "REASON"]
@@ -215,7 +223,7 @@ def test_rank_by_weekly_pace_and_gate_at_90_percent(quota, capsys, weekly, short
     assert "--fresh" in value["argv"]
     assert ("--writable" in value["argv"]) == expected.startswith("ag.")
     assert "7D PACE" in value["reason"]
-    assert not out.err and not calls
+    assert out.err == "Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release.\n" and not calls
 
 
 def test_refresh_missing_and_expired_once_then_rank_unknown_last(quota, capsys):
@@ -227,7 +235,7 @@ def test_refresh_missing_and_expired_once_then_rank_unknown_last(quota, capsys):
     out = capsys.readouterr()
     command, reason = out.out.splitlines()
     assert " ask cx " in command and "--profile cx.standard" in command
-    assert "7D PACE" in reason and not out.err
+    assert "7D PACE" in reason and out.err == "Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release.\n"
     assert len(calls) == 1 and set(calls[0]) == {"ag", "cc"}
 
 
@@ -257,7 +265,7 @@ def test_quota_unknown_when_no_peer_has_measured_weekly_quota(quota, capsys):
     out = capsys.readouterr()
     value = json.loads(out.out)
     assert value["profile"] == "cx.effort" and value["reason"] == "quota unknown"
-    assert not out.err and not calls
+    assert out.err == "Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release.\n" and not calls
 
 
 @pytest.mark.parametrize("tier,expected", [("effort", "cx.effort"), ("deepthink", "ag.deepthink")])
