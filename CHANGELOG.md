@@ -19,6 +19,11 @@ they do not claim new validation or publication evidence.
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
 - The release-flow test fixture uses pytest-managed scratch space (#492).
 
+### Removed
+
+- Removed the diag watch options `--live`, `--view`, `--cycles`, and `--interval-seconds`. Use `peerhub monitor` for the terminal watch or `peerhub diag --plan` for one AI planning read per turn.
+- Removed `diag --plan --json --compact`. Use `peerhub diag --plan --json` for the full plan.
+
 ## [0.26.19] - 2026-11-26
 
 ### Added

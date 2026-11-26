@@ -652,7 +652,7 @@ def test_monitor_snapshot_rejects_explicit_watch_options_including_defaults(tmp_
 
 @pytest.mark.parametrize("command", [
     ["monitor", "--view", "rich"], ["monitor", "--view", "plain"], ["monitor", "--json"],
-    ["diag", "--view", "rich"], ["diag", "--view", "plain"], ["diag", "--json"],
+    ["diag"], ["diag", "--json"],
     ["diag", "quota"], ["diag", "quota", "--json"], ["diag", "health"],
 ])
 def test_missing_store_refused_before_probes(tmp_path, capsys, command):
@@ -1030,40 +1030,6 @@ def test_monitor_skips_elapsed_monotonic_slots_after_slow_probe(tmp_path, monkey
          patch("peerhub.cli.monitor.sleep", lambda seconds: sleeps.append(seconds)):
         assert _run(_db(tmp_path), "--probe", "--cycles", "2", "--interval-seconds", "5") in (0, 4)
     assert sleeps == []
-
-
-def test_render_exception_restores_cursor(tmp_path, monkeypatch):
-    import io
-    from peerhub import _console
-    from peerhub.cli import view
-
-    class Output(io.StringIO):
-        def isatty(self):
-            return True
-
-    output = Output()
-    monkeypatch.setattr("sys.stdout", output)
-    monkeypatch.setattr(_console, "enable_vt", lambda: True)
-    monkeypatch.setenv("TERM", "xterm")
-    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
-    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: {"status": "OK"})
-    original = view.format_frame
-    calls = []
-
-    def render(*args, **kwargs):
-        calls.append(1)
-        if len(calls) == 2:
-            raise RuntimeError("render failed")
-        return original(*args, **kwargs)
-
-    # Use the snapshot loop to reach the second render without a real clock.
-    monkeypatch.setattr(view, "format_frame", render)
-    from peerhub.extensions.diag_watch import dashboard_snapshots
-    monkeypatch.setattr("peerhub.extensions.diag_watch.dashboard_snapshots",
-                        lambda path, **kw: dashboard_snapshots(path, **kw, sleep=lambda seconds: None))
-    assert main(["--db", str(_db(tmp_path)), "diag", "--live", "--cycles", "2"]) == 1
-    assert len(calls) == 2
-    assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
 
 
 def _db(tmp_path):

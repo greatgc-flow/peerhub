@@ -277,9 +277,9 @@ def test_quota_module_has_no_retired_dashboard_renderer():
     assert not hasattr(diag_quota, "format_dashboard")
 
 
-def test_format_frame_inline_forecast_and_threat_summary(tmp_path):
+def test_render_view_inline_forecast_and_threat_summary(tmp_path):
     from peerhub.extensions.diag import ReadonlyDiag
-    from peerhub.cli.view import format_frame
+    from peerhub.cli.view import render_view
     h = ObservationHarness(tmp_path / "wsDash")
     t_meas = time.time() - 10.0
     start_t = t_meas - 7200.0
@@ -301,7 +301,7 @@ def test_format_frame_inline_forecast_and_threat_summary(tmp_path):
         }, "src-cc"),
     ])
     rep = ReadonlyDiag(h.db_path).render(["peers", "streams", "resource_pools", "observations"])
-    text = format_frame(rep, "plain", width=140, store_path=str(h.db_path), store_source="explicit")
+    text = render_view(rep, width=140, store_path=str(h.db_path), store_source="explicit")
     assert "(explicit)" in text
     assert "Threats: 1 threat - earliest cx/P1" in text
     threat_row = next(line for line in text.splitlines() if line.split()[:2] == ["cx", "P1"])

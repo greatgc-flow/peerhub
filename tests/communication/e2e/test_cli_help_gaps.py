@@ -38,8 +38,6 @@ CONTEXTUAL_DEFAULTS = {
 REQUIRED_DEFAULTS = {
     ("ask", "--effort"),
     ("ask", "--silence-timeout-seconds"),
-    ("diag", "--cycles"),
-    ("diag", "--interval-seconds"),
     ("monitor", "--collect-every"),
     ("monitor", "--interval-seconds"),
     ("monitor", "--timeout-seconds"),
@@ -122,8 +120,6 @@ def test_named_defaults_match_argparse(commands):
     ("stream show", "--stream", ("Stream ID",)),
     ("ask", "--effort", ("profile",)),
     ("ask", "--silence-timeout-seconds", ("seconds",)),
-    ("diag", "--cycles", ("until interrupted",)),
-    ("diag", "--interval-seconds", ("seconds",)),
     ("monitor", "--collect-every", ("cycle",)),
     ("monitor", "--interval-seconds", ("seconds",)),
     ("monitor", "--timeout-seconds", ("seconds",)),
@@ -138,8 +134,6 @@ def test_help_explains_requested_arguments(commands, command, flag, fragments):
 
 
 def test_diagnostic_and_account_help_matches_the_commands(commands):
-    diag_view = dict(_arguments(commands["diag"]))["--view"].help
-    assert "Monitor countdown" not in diag_view
     running_help = " ".join(commands["diag running"].format_help().split())
     assert f"read up to {MAX_ROWS} rows" in running_help
     account_help = " ".join(commands["account"].format_help().split())

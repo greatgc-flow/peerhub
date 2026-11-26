@@ -1,6 +1,6 @@
 # Reading the PeerHub monitor
 
-`peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
+`peerhub monitor` is the human screen. AI agents read `peerhub diag --plan` once per turn (pools plus the load line, about 350 tokens).
 
 `peerhub diag --plan --json` reports the same difference as `exhaust_margin_seconds`, using the effective reset for a parent-limited pool. The plan text marks early exhaustion with `!early`.
 
@@ -12,7 +12,7 @@ required quota reading reaches 210 seconds (90 seconds before expiry) or is miss
 If agy reports model-token use, watch stops unless `--allow-agy-token-use` was passed.
 Use `--no-probe` or set `PEERHUB_MONITOR_PROBE=off` to disable automatic refresh. Redirected watch reads committed evidence
 by default. Explicit `--probe` also schedules collection on the watch cadence. `--collect-every K` applies to
-that cadence and scripted cycles. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
+that cadence and scripted cycles. `monitor --snapshot` and `diag quota` read committed evidence. Use `monitor --probe --cycles 1`
 to collect and show one completed cycle.
 With `--cycles N` and `N > 0`, scripted runs keep synchronous refresh and the same output as before, while continuous TTY watch refreshes in the background.
 
@@ -80,7 +80,7 @@ JSON `min_quota.state` also reports `aged` for a stale zero, with `aged: true`.
 
 Below the title, both layouts show `quota 5h old -> peerhub observation refresh` when the oldest quota reading is more
 than an hour old. Ages of a day or more use days. Without quota readings, the line says `quota: no reading -> peerhub observation refresh`.
-The per-pool `aged` state keeps its own freshness rule. Human `diag quota` and `diag --live` show the same notice.
+The per-pool `aged` state keeps its own freshness rule. `diag quota` shows the same notice.
 After a timeout, both monitor layouts keep a measured value less than 15 minutes old and show one note per affected peer,
 such as `cc probe timeout (value 3m old)`.
 A quota probe that still times out under high CPU load is labeled `delayed by load`.

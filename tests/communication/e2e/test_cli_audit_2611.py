@@ -100,15 +100,18 @@ def test_help_says_who_each_command_is_for(capsys):
     assert "--query-file" in _help("ask", capsys=capsys).split("positional arguments:")[1].split("options:")[0]
 
 
-def test_diag_help_describes_tty_refresh_and_plan_rejects_rich(capsys):
-    help_text = _help("diag", capsys=capsys)
-    assert "refreshes quota when due on a TTY" in help_text
-    assert "The plan uses its own text layout" in help_text
-    args = ["diag", "--plan", "--view", "rich"]
+@pytest.mark.parametrize(("options", "flag"), [
+    (["--live"], "--live"),
+    (["--view=rich"], "--view"),
+    (["--cycles=1"], "--cycles"),
+    (["--interval-seconds=1"], "--interval-seconds"),
+    (["--plan", "--json", "--compact"], "--compact"),
+])
+def test_diag_removed_options_are_rejected(options, flag, capsys):
     with pytest.raises(SystemExit) as exc:
-        main(args)
+        main(["diag", *options])
     assert exc.value.code == 2
-    assert "applies to the dashboard" in capsys.readouterr().err
+    assert flag in capsys.readouterr().err
 
 
 def test_guide_help_points_to_profile_list(capsys):
