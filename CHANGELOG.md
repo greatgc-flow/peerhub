@@ -25,16 +25,15 @@ they do not claim new validation or publication evidence.
 
 ### Removed
 
-- Monitor watch keyboard controls. Watch refreshes automatically, Ctrl-C exits, and `--interval-seconds` sets the interval.
 - Monitor `--collect-every`. Terminal watch checks quota freshness automatically.
 - Monitor `--probe`. Use `peerhub observation refresh` for explicit collection.
 - Monitor `--show-quota-notes`. Use `--expand` for quota notes.
 - `monitor defaults` and saved `monitor.toml` preferences. Pass repeatable `--group` options to select groups.
 - `monitor groups`. See `peerhub monitor --help` for group IDs.
 - Monitor JSON 1.1 and `--schema-version`. Use `monitor --json` for schema 2.0.
-- Removed the diag watch options `--live`, `--view`, `--cycles`, and `--interval-seconds`. Use `peerhub monitor` for the terminal watch or `peerhub diag --plan` for one AI planning read per turn.
-- Removed `diag --plan --json --compact`. Use `peerhub diag --plan --json` for the full plan.
-- Removed `peerhub explain handoff`. Follow [AGENTS.md](AGENTS.md) to [NOW.md](NOW.md) and use the [query-file example](docs/commands.md#ask) for ag inline context.
+- Diag watch options `--live`, `--view`, `--cycles`, and `--interval-seconds`. Use `peerhub monitor` for the terminal watch or `peerhub diag --plan` for one AI planning read per turn.
+- `diag --plan --json --compact`. Use `peerhub diag --plan --json` for the full plan.
+- `peerhub explain handoff` (never released). Follow [AGENTS.md](AGENTS.md) to [NOW.md](NOW.md) and use the [query-file example](docs/commands.md#ask) for ag inline context.
 
 ## [0.26.19] - 2026-11-26
 
