@@ -43,7 +43,7 @@ _Ranking = tuple[float, int, str, str, str]
 
 
 def register_suggest_parser(subparsers: Any) -> None:
-    parser = subparsers.add_parser("suggest", help="Recommend an ask from profiles and quota evidence")
+    parser = subparsers.add_parser("suggest", help="Deprecated: recommend an ask from profiles and quota evidence (use diag --plan)")
     parser.add_argument("--tier", choices=("standard", "effort", "deepthink"), required=True,
                         help="Profile tier to recommend")
     parser.add_argument("--task", choices=("review", "code", "read"),

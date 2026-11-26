@@ -27,7 +27,7 @@ Verdicts are unanimous unless a split is shown; a split is settled by majority.
 | `diag --plan --json --compact` | CUT (3/3). |
 | `batch run --response-task` | CUT (3/3): `--responses` is enough. |
 | `ask --final-only` | KEEP (2/3). |
-| `suggest` command | DEPRECATE now and remove in the next batch (3/3 to retire it). It is a second selection policy next to `diag --plan`. The one-line `suggest:` hint in `diag --plan` stays. |
+| `suggest` command | DEPRECATE now and remove in the next batch (3/3 to retire it). It is a second selection policy next to `diag --plan`, which already gives per-pool ACTION and the profiles per pool; the monitor keeps its `suggest:` line. |
 | CLI aliases (`ask --prompt-file`, `peer show`, `profile -w`) | KEEP (2/3). |
 | `ask` waiting up to 120 s under high CPU | Becomes a warning (3/3): print the load facts and proceed. Bounded low-memory protection and the batch admission gate stay. |
 | `explain a1`-`a6` | KEEP (3/3). The monitor footer points to them, and they come from one source. |

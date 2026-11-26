@@ -34,14 +34,26 @@ def test_ask_gate_warns_on_cpu_and_proceeds_immediately(capsys):
 def test_ask_gate_keeps_bounded_ram_protection(capsys):
     token = ClaimToken("workspace", 1, "owner", "cx", "stream")
     calls = []
+    sleeps = []
+
     def acquire(under_pressure):
         calls.append(under_pressure)
         return None if under_pressure else token
+
+    samples = iter([
+        load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT, ram_available_bytes=1),
+        load_limits.ResourceSample(ram_available_bytes=1),
+    ])
     assert ask_cmd._wait_for_ask_resources(
-        acquire, resource_reader=lambda: load_limits.ResourceSample(ram_available_bytes=1),
+        acquire,
+        resource_reader=lambda: next(samples, load_limits.ResourceSample(ram_available_bytes=1)),
+        monotonic=lambda: sum(sleeps),
+        sleep=sleeps.append,
     ) == token
-    assert calls == [True, False]
-    assert "free RAM" in capsys.readouterr().err
+    assert sleeps and sum(sleeps) == ask_cmd.ASK_RESOURCE_WAIT_SECONDS
+    assert calls == [True] * (len(sleeps) + 1) + [False]
+    err = capsys.readouterr().err
+    assert "CPU load 80.0%" in err and "free RAM" in err and "waiting up to 120s" in err
 
 
 def test_ask_cli_waits_for_an_active_claim_under_load(tmp_path, monkeypatch, capsys):
@@ -51,7 +63,9 @@ def test_ask_cli_waits_for_an_active_claim_under_load(tmp_path, monkeypatch, cap
     claims = ClaimStore(harness.db_path, generation=harness.ws.generation)
     first = claims.acquire("cx", "first", "first", 60, caller=detect_caller())
 
-    target = FakeRuntimeTarget().script_deliver(("started", "second-exec"), ("terminal", {"response": "answer"}))
+    target = (FakeRuntimeTarget()
+              .script_deliver(("started", "cpu-exec"), ("terminal", {"response": "cpu-answer"}))
+              .script_deliver(("started", "second-exec"), ("terminal", {"response": "answer"})))
     monkeypatch.setattr("peerhub.extensions.ask.build_ask_target", lambda *a, **kw: target)
     monkeypatch.setattr("peerhub.cli.monitor_refresh.refresh_dispatch_quota", lambda *a, **kw: None)
     busy = load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT)
@@ -59,20 +73,28 @@ def test_ask_cli_waits_for_an_active_claim_under_load(tmp_path, monkeypatch, cap
     sleeps = []
 
     def finish_first(seconds):
-        assert target.count("deliver") == 0
+        assert target.count("deliver") == 1
         sleeps.append(seconds)
         claims.release(first)
 
     monkeypatch.setattr(ask_cmd, "_wait_for_ask_resources",
                         partial(ask_cmd._wait_for_ask_resources, monotonic=lambda: sum(sleeps), sleep=finish_first))
+    assert main(["--db", str(harness.db_path), "ask", "cx", "cpu prompt", "--stream", "cpu",
+                 "--request-id", "cpu", "--json"]) == 0
+    cpu_output = capsys.readouterr()
+    assert sleeps == []
+    assert "CPU load" in cpu_output.err
+    assert json.loads(cpu_output.out)["response"] == "cpu-answer"
+
+    busy = load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT, ram_available_bytes=1)
     assert main(["--db", str(harness.db_path), "ask", "cx", "second prompt", "--stream", "second",
                  "--request-id", "second", "--json"]) == 0
     output = capsys.readouterr()
-    assert sleeps == []
-    assert "CPU load" in output.err
+    assert sleeps == [ask_cmd.ASK_RESOURCE_POLL_SECONDS]
+    assert "CPU load" in output.err and "free RAM" in output.err
     result = json.loads(output.out)
     assert result["status"] == "delivered" and result["response"] == "answer"
-    assert target.count("deliver") == 1
+    assert target.count("deliver") == 2
 
 
 def test_two_busy_asks_on_distinct_streams_cannot_both_reserve_the_store():

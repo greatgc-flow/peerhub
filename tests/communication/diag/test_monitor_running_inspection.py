@@ -50,3 +50,12 @@ def test_open_running_ask_from_frame(db, capsys, expand):
     assert "peerhub --db " in output
     assert main(["--db", str(db), "monitor", "open", short_id]) == 0
     assert json.loads(capsys.readouterr().out) == "inspect this"
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_plain_running_footer_uses_path_placeholder_when_plain_conversion_would_alter_db_path(expand):
+    payload = _payload([{**ask(), "_ask_id": "rec-123456789abc"}], [])
+    payload["store_selection"] = {"path": "D:/café/core.db", "source": "explicit"}
+    output = render_grouped_frame(payload, expand=expand, view="plain", unicode=False, width=100)
+    assert "peerhub --db PATH monitor open ID" in output.splitlines()
+    assert not any(line.startswith("peerhub --db D:/caf") for line in output.splitlines())

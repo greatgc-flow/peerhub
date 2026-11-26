@@ -1147,10 +1147,12 @@ def test_an_incompatible_schema_keeps_its_own_message_and_code_for_the_human_mon
     assert "[schema_version_error] Unsupported database schema" in capsys.readouterr().err
 
 
-def test_a_corrupt_store_keeps_its_own_message_for_the_human_monitor(tmp_path, capsys):
+@pytest.mark.parametrize("args", [("--snapshot",), ("--cycles", "1")])
+def test_a_corrupt_store_keeps_its_own_message_for_the_human_monitor(tmp_path, capsys, monkeypatch, args):
+    _no_refresh(monkeypatch)
     db = tmp_path / "broken.db"
     db.write_bytes(b"this is not a database" * 64)
-    assert _run(db, "--snapshot", "--view", "plain") == 1
+    assert _run(db, *args, "--view", "plain") == 4
     out, err = capsys.readouterr()
     assert "file is not a database" in err and "no quota evidence" not in out
 

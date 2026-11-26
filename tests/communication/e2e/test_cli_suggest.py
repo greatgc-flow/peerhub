@@ -91,7 +91,7 @@ def test_default_output_matches_before_candidates(quota, capsys, monkeypatch, js
     assert err == "Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release.\n"
 
 
-def test_deprecation_notice_is_one_stderr_line_and_points_to_diag_plan(capsys):
+def test_deprecation_notice_is_one_stderr_line_and_points_to_diag_plan(quota, capsys):
     suggest("--tier", "standard", "--json")
     lines = capsys.readouterr().err.splitlines()
     assert lines == ["Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release."]

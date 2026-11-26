@@ -19,7 +19,7 @@ Updated: 2026-11-27
 
 ## Next (ordered, at most 8)
 
-1. Remove `peerhub suggest` (deprecated in 0.27.0; the `suggest:` hint in `diag --plan` stays).
+1. Remove `peerhub suggest` (deprecated in 0.27.0; `diag --plan` gives per-pool ACTION and the profiles per pool, and the monitor keeps its `suggest:` line).
 2. Engram and VerySimpleGuide adopt NOW.md once this file has stayed accurate for one release.
 3. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
 

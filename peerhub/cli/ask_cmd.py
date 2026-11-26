@@ -195,6 +195,10 @@ def _print_final_result(result: dict[str, Any]) -> None:
     print(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
 
 
+ASK_RESOURCE_WAIT_SECONDS = 120.0
+ASK_RESOURCE_POLL_SECONDS = 3.0
+
+
 def _wait_for_ask_resources(
     acquire: Callable[[bool], ClaimToken | None],
     *,
@@ -203,18 +207,34 @@ def _wait_for_ask_resources(
     sleep: Callable[[float], None] = time.sleep,
 ) -> ClaimToken:
     resource_reader = resource_reader or load_limits.read_resources
-    sample = resource_reader()
-    warnings = load_limits.load_warnings(sample.facts())
-    cpu_warning = [warning for warning in warnings if "CPU" in warning.upper()]
-    if cpu_warning:
-        print(f"Warning: {'; '.join(cpu_warning)}. Starting ask.", file=sys.stderr, flush=True)
-    token = acquire(bool(warnings and not cpu_warning))
-    if token is None:
-        token = acquire(False)
-        assert token is not None
-    if warnings and not cpu_warning:
-        print(f"Warning: {'; '.join(warnings)}. Starting ask.", file=sys.stderr, flush=True)
-    return token
+    deadline: float | None = None
+    warned = False
+    while True:
+        facts = resource_reader().facts()
+        warnings = load_limits.load_warnings(facts)
+        low_ram = facts["ram_ok"] is False
+        token = acquire(low_ram)
+        if token is not None:
+            if warnings and not warned:
+                print(f"Warning: {'; '.join(warnings)}. Starting ask.", file=sys.stderr, flush=True)
+            return token
+        now = monotonic()
+        if deadline is None:
+            deadline = now + ASK_RESOURCE_WAIT_SECONDS
+        remaining = deadline - now
+        if not warned and warnings:
+            print(
+                f"Warning: {'; '.join(warnings)}; waiting up to {ASK_RESOURCE_WAIT_SECONDS:g}s for active asks.",
+                file=sys.stderr,
+                flush=True,
+            )
+            warned = True
+        if remaining <= 0:
+            token = acquire(False)
+            assert token is not None
+            print(f"Warning: {'; '.join(warnings)}. Starting ask.", file=sys.stderr, flush=True)
+            return token
+        sleep(min(ASK_RESOURCE_POLL_SECONDS, remaining))
 
 
 def run_ask(args: argparse.Namespace) -> int:

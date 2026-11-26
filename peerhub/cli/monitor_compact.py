@@ -324,7 +324,8 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
         if store.get("source") == "explicit":
             path = str(store.get("path") or "")
             command = format_shell_command(["peerhub", "--db", path, "monitor", "open", "ID"])
-            frame.running_hint = (command if path and clean_text(path) == path and cell_width(command) <= width
+            unchanged = clean_text(path) == path and (unicode or (path.isascii() and ascii_text(command, keep) == command))
+            frame.running_hint = (command if path and unchanged and cell_width(command) <= width
                                   else "peerhub --db PATH monitor open ID")
     links = bool(payload.get("_file_links"))
     if "activity" in selected_ids and not expand:

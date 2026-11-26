@@ -214,6 +214,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.extensions.monitor_alerts import merge_activity_frame
     from peerhub.core.schema_version import SchemaVersionError
+    from peerhub.core.store import storage_errors
     from peerhub._console import FrameOutput, use_color
     output = FrameOutput(interactive=not args.json, anchor_rows=True, alternate=args.cycles == 0)
     auto_probe = monitor_auto_probe(args)
@@ -226,8 +227,9 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
 
     def read_groups(groups: list[str]) -> dict[str, Any]:
         try:
-            return render_monitor_frame(args.db, groups, human=not args.json,
-                                        lead_reader=_lead_reader)
+            with storage_errors():
+                return render_monitor_frame(args.db, groups, human=not args.json,
+                                            lead_reader=_lead_reader)
         except SchemaVersionError:
             return {"schema_version": "2.0", "status": "FAILED", "groups": {},
                     "errors": {"schema": "SchemaVersionError"}}
@@ -439,10 +441,12 @@ def _run_monitor_snapshot(args: argparse.Namespace, selected: list[str], prefere
         return 5
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.core.schema_version import SchemaVersionError
+    from peerhub.core.store import storage_errors
     expand = bool(getattr(args, "expand", False))
     try:
-        payload = render_monitor_frame(args.db, selected, human=not args.json,
-                                       lead_reader=_lead_reader)
+        with storage_errors():
+            payload = render_monitor_frame(args.db, selected, human=not args.json,
+                                           lead_reader=_lead_reader)
     except SchemaVersionError:
         payload = {"schema_version": "2.0", "status": "FAILED", "selected_groups": selected,
                    "errors": {"schema": "SchemaVersionError"}}
