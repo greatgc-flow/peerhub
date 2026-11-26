@@ -1,5 +1,13 @@
 # Offline operational lessons. Regenerate docs/lessons.md after edits.
 [[lessons]]
+id = "handoff"
+title = "Repo-first handoff"
+keywords = ["handoff", "task delta", "NOW.md"]
+symptom = "A task prompt repeats the repository's current state and recent work."
+fix = "In PeerHub, cx reads AGENTS.md and follows it to NOW.md on its own. For ag inline asks, pass NOW.md as the first --query-file and the task file as the second, for example --query-file NOW.md --query-file task.md. Keep prompts to the task delta and file pointers. See docs/commands.md#ask."
+issue = "Maintainer handoff workflow"
+
+[[lessons]]
 id = "caller-ownership"
 title = "Identify your session's running asks"
 keywords = ["caller", "ownership", "running", "owner", "session", "PEERHUB_OWNER"]

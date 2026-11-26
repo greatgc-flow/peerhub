@@ -8,9 +8,16 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Root `NOW.md` gives peers a capped, test-pinned handoff that is refreshed in the PR that changes it.
+- `peerhub ask` accepts repeated `--query-file` flags and joins the files in command-line order with one blank line between them.
+- `peerhub explain handoff` describes repo-first context for cx and inline context for ag.
+
 ### Fixed
 
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
+- The release-flow test fixture uses pytest-managed scratch space (#492).
 
 ## [0.26.19] - 2026-11-26
 

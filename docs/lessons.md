@@ -135,6 +135,13 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 - Fix: Ask returns 0 for delivery, terminal replay or a valid dry run, 1 for uncertainty or delivery failure (including denied_empty or session_lost), 2 for syntax, invalid selectors or idempotency conflict, and 3 for a compare-and-swap conflict. Batch run returns 0 for a valid dry run or all tasks completed and 1 for an invalid manifest or unsuccessful tasks. An empty terminal reply without an error exits 0 in ask and 1 in batch (UNVERIFIED). Diag health, quota, readiness, running, --plan and integrity use 0 for OK, 4 for a storage/read fault (including PARTIAL reports), 5 for an unavailable store, and 6 for an unsupported schema version. A missing alternate --observation-db with a healthy main store gives health 4 (PARTIAL) and quota 5 (UNAVAILABLE). Diag health returns 1 for a missing stream. Update --check returns 0. Update --plan returns 0 when ready, 1 if an ask is or may be running, and 4/5/6 for an unreadable/missing/incompatible store. Suggest returns 0 for a suggestion or 1 for unavailable. Explain returns 0 for a match or 1 for no match. Monitor snapshot/watch use 0 for success, 1 for invalid defaults, an agy token-use stop or a failed final refresh in finite watch, and the diag store codes. Observation refresh returns 0 for OK or 1 for a non-OK refresh. Shared store errors use the diag store codes as applicable. Coded errors appear on stderr as [code] message; next: ... With --json, ask errors and invalid manifests can include an error object with code and message on stdout. Other reports use command-specific JSON. Run peerhub explain CODE for guidance.
 - Issue: #446
 
+## Repo-first handoff (`handoff`)
+
+- Keywords: handoff, task delta, NOW.md
+- Symptom: A task prompt repeats the repository's current state and recent work.
+- Fix: In PeerHub, cx reads AGENTS.md and follows it to NOW.md on its own. For ag inline asks, pass NOW.md as the first --query-file and the task file as the second, for example --query-file NOW.md --query-file task.md. Keep prompts to the task delta and file pointers. See [docs/commands.md#ask](commands.md#ask).
+- Issue: Maintainer handoff workflow
+
 ## Independent review votes (`independent-peer-votes`)
 
 - Keywords: peer, vote, votes, author, independent, unanimity, review, self-vote, batch, responses, verdict, fresh, consequential

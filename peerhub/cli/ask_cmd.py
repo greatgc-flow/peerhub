@@ -31,7 +31,8 @@ def register_ask_parser(subparsers: Subparsers) -> None:
                                      description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
     ask_parser.add_argument("peer", help=f"Peer ID (built-ins: {', '.join(BUILTIN_PEER_LABELS)})")
     ask_parser.add_argument("prompt", nargs="?", help=f"Prompt text (exclusive with {' or '.join(ASK_QUERY_FILE_OPTIONS)})")
-    ask_parser.add_argument(*ASK_QUERY_FILE_OPTIONS, help="UTF-8 prompt file; exclusive with prompt")
+    ask_parser.add_argument(*ASK_QUERY_FILE_OPTIONS, action="append", metavar="PATH",
+                            help="Repeatable UTF-8 prompt file, exclusive with prompt. Files are joined in order with one blank line.")
     ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat; ca, oa and ga: peer:<id>:<request-id>, one ask per stream)")
     ask_parser.add_argument("--request-id", help="Reuse on retries; uncertain execution is never replayed automatically")
     ask_parser.add_argument("--fresh", action="store_true", help="Allocate a fresh session with bounded Stream catch-up")
@@ -231,11 +232,22 @@ def _wait_for_ask_resources(
 def run_ask(args: argparse.Namespace) -> int:
     from peerhub.cli.monitor_refresh import refresh_dispatch_quota
     from peerhub.extensions.ask import ask, open_ask_snapshot
-    if args.query_file:
-        query = Path(args.query_file).read_bytes()
-        prompt = query.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
-        if len(query) > 64 * 1024:
-            print("Warning: inlined query file exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
+    query_files: list[str] = args.query_file or []
+    if query_files:
+        parts: list[str] = []
+        total_bytes = 0
+        for index, path in enumerate(query_files):
+            contents = Path(path).read_bytes()
+            total_bytes += len(contents)
+            part = contents.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+            if index:
+                part = part.lstrip("\n")
+            if index < len(query_files) - 1:
+                part = part.rstrip("\n")
+            parts.append(part)
+        prompt = "\n\n".join(parts)
+        if total_bytes > 64 * 1024:
+            print("Warning: inlined query exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
     else:
         prompt = args.prompt
     text_output = not (args.json or args.final_only)
@@ -268,7 +280,7 @@ def run_ask(args: argparse.Namespace) -> int:
                      author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
-                     fresh=args.fresh, session=args.session, query_file=args.query_file,
+                     fresh=args.fresh, session=args.session, query_file=query_files[-1] if query_files else None,
                      on_output=show_output if text_output else None, on_stream_budget=show_budget_warning,
                      launch_gate=_wait_for_ask_resources, before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices,
                      dry_run=bool(args.dry_run))

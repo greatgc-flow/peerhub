@@ -163,6 +163,15 @@ def test_instruction_diet_points_agents_to_the_planning_view(capsys):
     assert "peerhub diag --plan each turn" in capsys.readouterr().out
 
 
+def test_handoff_lesson_describes_repo_and_inline_context(capsys):
+    assert main(["explain", "handoff"]) == 0
+    output = capsys.readouterr().out
+    assert output.startswith("handoff:")
+    assert "cx reads AGENTS.md and follows it to NOW.md" in output
+    assert "--query-file NOW.md --query-file task.md" in output
+    assert "task delta and file pointers" in output
+
+
 def test_explain_covers_emitted_monitor_alert_codes(capsys):
     emitted: set[str] = set()
     for node in ast.walk(ast.parse(inspect.getsource(monitor_alerts))):

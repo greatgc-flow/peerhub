@@ -41,10 +41,12 @@ def ask_effect(e, option):
     elif option == "prompt":
         argv[2] = expected = "different text"
     elif option in ASK_QUERY_FILE_OPTIONS:
-        query = e.tmp / "query.txt"
-        query.write_text("한글 prompt\n", encoding="utf-8")
-        expected = query.read_text(encoding="utf-8")
-        argv = ["ask", "cx", option, str(query), "--json"]
+        context = e.tmp / "NOW.md"
+        context.write_bytes("\ufeff한글 context\r\n\r\n".encode("utf-8"))
+        task = e.tmp / "task.md"
+        task.write_bytes(b"\ntask prompt\n")
+        expected = "한글 context\n\ntask prompt\n"
+        argv = ["ask", "cx", option, str(context), option, str(task), "--json"]
     elif option in WORKSPACE_OPTIONS:
         argv += [option, str(e.tmp)]
     elif option in ("--json", "--writable"):

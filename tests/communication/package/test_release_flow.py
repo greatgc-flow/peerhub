@@ -8,9 +8,6 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from shutil import rmtree
-from tempfile import gettempdir
-from uuid import uuid4
 
 import pytest
 
@@ -360,32 +357,29 @@ class Fake:
 
 
 @pytest.fixture
-def fake(monkeypatch):
+def fake(monkeypatch, tmp_path):
     monkeypatch.setattr(release_flow, "is_windows", lambda: True)
     monkeypatch.setattr(release_evidence, "_now", lambda: NOW)
-    base = Path(gettempdir()).resolve()
-    root = base / f"peerhub-release-flow-{uuid4().hex}"
-    root.mkdir()
-    try:
-        (root / "peerhub").mkdir()
-        (root / "peerhub/_version.py").write_text(f'__version__ = "{VERSION}"\n', encoding="utf-8")
-        (root / "CHANGELOG.md").write_text(f"## [{VERSION}]\n\n" + NOTES.decode(), encoding="utf-8")
-        for rel, contents in {
-            RELEASE_POLICY_REL: (release_flow.ROOT / RELEASE_POLICY_REL).read_text(encoding="utf-8"),
-            "docs/m1_spec/06_GUIDES/TEST_SET/test-catalog.json": '{"tests": []}',
-            "docs/m1_spec/06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json": '{"entries": []}',
-            "docs/m2/test-catalog.m2.json": '{"tests": []}',
-            "docs/m3/test-catalog.m3.json": '{"tests": []}',
-        }.items():
-            path = root / rel
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(contents, encoding="utf-8")
-        flow_fake = Fake(root)
-        monkeypatch.setattr(ci_platform, "git_output", flow_fake.git_output)
-        yield flow_fake
-    finally:
-        assert root.resolve().parent == base
-        rmtree(root)
+    (tmp_path / "peerhub").mkdir()
+    (tmp_path / "peerhub/_version.py").write_text(f'__version__ = "{VERSION}"\n', encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text(f"## [{VERSION}]\n\n" + NOTES.decode(), encoding="utf-8")
+    for rel, contents in {
+        RELEASE_POLICY_REL: (release_flow.ROOT / RELEASE_POLICY_REL).read_text(encoding="utf-8"),
+        "docs/m1_spec/06_GUIDES/TEST_SET/test-catalog.json": '{"tests": []}',
+        "docs/m1_spec/06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json": '{"entries": []}',
+        "docs/m2/test-catalog.m2.json": '{"tests": []}',
+        "docs/m3/test-catalog.m3.json": '{"tests": []}',
+    }.items():
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+    flow_fake = Fake(tmp_path)
+    monkeypatch.setattr(ci_platform, "git_output", flow_fake.git_output)
+    return flow_fake
+
+
+def test_fake_checkout_uses_pytest_tmp_path(fake, tmp_path):
+    assert fake.root == tmp_path
 
 
 def test_happy_path_binds_evidence_and_runs_ci_concurrently(fake, capsys):
@@ -433,7 +427,8 @@ def test_preflight_refuses_before_dispatch_or_live(fake, capsys, attribute, valu
     ("CHANGELOG.md", "## [Unreleased]\n", f"No CHANGELOG section for {VERSION}"),
     ("peerhub/_version.py", '__version__ = "2.0.0"\n',
      f"peerhub/_version.py is 2.0.0. Expected {VERSION}. "
-     "Include the version bump, STATUS heading and changelog in the last feature PR for the release."),
+     "Include the version bump, STATUS heading, changelog and NOW.md Updated/Released fields "
+     "in the last feature PR for the release."),
 ])
 def test_preflight_checks_version_and_notes(fake, capsys, path, contents, message):
     (fake.root / path).write_text(contents, encoding="utf-8")

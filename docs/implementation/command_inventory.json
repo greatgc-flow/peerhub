@@ -1505,6 +1505,7 @@
     "cx-sandbox-and-prompt-hygiene",
     "discovery-commands",
     "exit-codes",
+    "handoff",
     "independent-peer-votes",
     "installed-vs-checkout",
     "instruction-diet",

@@ -33,7 +33,11 @@ Read from position 0 to start at the beginning. Advance to the position you actu
 | `ask` | Send a prompt to a peer or preview it with `--dry-run`. |
 | `outcome` | Record whether an ask was accepted, rejected, or retried. |
 
-`peerhub ask PEER "prompt"` accepts inline text or `--query-file PATH` (alias `--prompt-file`) for a UTF-8 file. Use `--dry-run` to inspect the resolved ask without writing or contacting a provider.
+`peerhub ask PEER "prompt"` accepts positional text or UTF-8 files supplied with `--query-file PATH` (alias `--prompt-file`). Repeat the option to join files in command-line order with one blank line between them. The monitor uses the last file for its prompt link when that file is eligible. Use `--dry-run` to inspect the resolved ask without writing or contacting a provider.
+
+```powershell
+peerhub ask ag --query-file NOW.md --query-file task.md --writable --stream handoff --request-id handoff-1
+```
 
 - **Profiles.** Use a qualified `--profile PEER.NAME` to choose a [configured profile](config-hierarchy.md#model-profiles). `--model` and `--effort` override the binding. See [batch planning](batch.md) for choosing a tier and [API peers](api-credits.md) for provider-specific constraints.
 - **Streams and retries.** Choose a dedicated `--stream` for each new task and target one peer per stream. CLI peers default to `peer:<id>:chat`; API peers default to `peer:<id>:<request-id>`. Use a new `--request-id` for each new ask and reuse it for retries of the same ask. A changed prompt, binding or session selector can conflict. An uncertain execution blocks the stream pending reconciliation.
