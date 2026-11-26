@@ -68,3 +68,21 @@ def test_a_monthly_pool_without_a_weekly_parent_sorts_by_its_own_pace(expand: bo
     screen = mv.render_grouped_frame(payload, view="plain", expand=expand, width=100)
     pools = screen.split(monitor_legend.FRAME_SECTIONS["suggest"], 1)[0].split(monitor_legend.FRAME_SECTIONS["pools"], 1)[1]
     assert re.findall(r"(?m)^ +(?:\S+ +)?([A-Z]+-(?:30D|7D|5H))(?= +)", pools) == ["X-7D", "X-30D", "A-7D"]
+
+
+@pytest.mark.parametrize("view", ["plain", "rich"])
+def test_quota_groups_peers_and_families_by_pools_rank(view: str) -> None:
+    payload = _payload([], [pool("ag", "A-7D", .50, pace=-10), pool("cc", "C-7D", .50, pace=-15),
+                            pool("cx", "X-30D", .50, pace=5), pool("ag", "G-5H", .20, reset=3600),
+                            pool("ag", "G-7D", .50, pace=-20), pool("cx", "X-7D", .50, pace=-30)])
+    for expand in (False, True):
+        screen = mv.render_grouped_frame(payload, view=view, unicode=True, expand=expand, width=140)
+        heads = monitor_legend.FRAME_SECTIONS
+        pools = screen.split(heads["suggest"], 1)[0].split(heads["pools"], 1)[1]
+        assert re.findall(r"(?m)^ +(?:\S+ +)?([A-Z]+-(?:30D|7D|5H)) +", pools) == [
+            "X-7D", "G-7D", "G-5H", "C-7D", "A-7D", "X-30D"]
+        if expand:
+            quota = screen.split(heads["capacity"], 1)[1].split(heads["peers"], 1)[0]
+            assert re.findall(r"(?m)^ *(?:(\w+) +|([└├]─) )?([A-Z]+-(?:30D|7D|5H)) +", quota) == [
+                ("cx", "", "X-7D"), ("", "", "X-30D"), ("ag", "", "G-7D"), ("", "└─", "G-5H"),
+                ("", "", "A-7D"), ("cc", "", "C-7D")]

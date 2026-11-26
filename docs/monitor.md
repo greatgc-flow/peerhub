@@ -80,7 +80,9 @@ A quota probe that still times out under high CPU load is labeled `delayed by lo
 (`n/a`) windows by default, including the legacy Antigravity weekly bucket when the provider omits it from a
 complete report. Add `--show-quota-notes` to count and name them inline and show reasons in compact POOLS or
 expanded QUOTA. This display option applies to snapshots and watches. See [Antigravity quota pools](adapters/ag.md#quota-pools).
-Readings past their reset or older than their window are also shown as `n/a` and excluded from the header age.
+Both layouts also hide readings past their reset or older than their window. Quota notes show them as `n/a`, and the
+header age excludes them. `diag --plan` shows a reset window as `hold` with `window reset; refresh` and omits it from
+other pools' gates. Plan JSON retains the previous window's measured LEFT and reset time.
 
 The compact view applies `POOLS_CAP` and omits nonbinding short windows unless they have a scoped parent.
 The expanded view includes all short windows, with visible rows limited by the frame height.
@@ -191,7 +193,7 @@ the remaining space.
 row is the elapsed time, profile, lead, the ask's first words and the stream. A flag comes first: `►` (`>`) running
 normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller is gone and the ask has no confirmed end),
 `!orphan` (a provider process is still alive after both the caller and wrapper exited) and `?` (liveness unknown).
-`--expand` lists every field of every running ask.
+`--expand` lists every field of each sampled running ask. Both layouts count running asks beyond the detail sample.
 
 Continuous terminal watch reads activity every `min(5 s, --interval-seconds)` using `RUNNING_REFRESH_SECONDS`.
 Activity rows, alerts, source status and the verdict update together, including when an activity alert clears.
@@ -254,7 +256,8 @@ unknown; `!` after the percentage means 80% or more (a mark, not an alert). The 
 The sampled sections (EXECUTION, SESSIONS, USAGE, CONTEXT) say `sample N/M` when the read was capped. The last line
 is `Coverage: complete|partial; peerhub explain <code>`.
 
-QUOTA groups pools by peer and orders peers by their most urgent family. The order is `out`, `low`, a binding short window, `fast`, then the rest.
+QUOTA groups pools by peer. The first pool for each peer in the POOLS `use first` order sets the peer group's rank.
+Within each peer group, families follow that same order and children stay under their parents.
 
 ### Accounts
 

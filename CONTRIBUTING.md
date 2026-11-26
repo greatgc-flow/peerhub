@@ -13,7 +13,7 @@ development dependencies with the editable install documented in the
 pip install -e .[dev]
 ```
 
-The shared Engram venv may lack development tools. Create a disposable venv
+The shared Python environment may lack development tools. Create a disposable venv
 with `python -m virtualenv <dir>`, activate it, then run
 `python -m pip install -e ".[dev]"` from this checkout.
 
@@ -92,6 +92,9 @@ Use concise Conventional Commit subjects, following the repository's existing
 history: `fix(cli): correct adapter detection`, `docs: clarify setup`, or
 `feat(governance): add a workflow`. Open a focused pull request to `main` that
 explains the change and the checks you ran.
+Finish related changes and tests locally, then open one focused PR. Repeat the
+closing keyword for each issue the PR resolves. When deferring a proposal,
+record the reason and the condition that would reopen it on its issue.
 For security vulnerabilities, see [SECURITY.md](SECURITY.md); for Dependabot PRs, review the changelog and run tests (majors need cx review).
 
 ## Knowledge placement
@@ -115,7 +118,8 @@ Use the GitHub bug-report or feature-request templates when applicable. They
 collect the reproduction and environment details needed to work on an issue.
 Search for existing reports with `gh issue list -R greatgc-flow/peerhub --search KEYWORD`.
 Include `peerhub --version`, the OS, the exact command, the outcome or exit code,
-and any workaround. Remove secrets and private paths.
+and any workaround. Remove secrets and replace shared-store paths, stream
+names, labels and prompt or reply text with neutral examples.
 Include lessons/feedback from using the docs or CLI: what was confusing, what
 you tried, and the wording or behavior that would have helped. See the
 [development/operation closed loop](docs/m1_spec/USAGE_GUIDE.md#developmentoperation-closed-loop).
@@ -267,8 +271,10 @@ tags, with administrator bypass disabled. It has no required-reviewer rule.
 The workflow YAML cannot prove PyPI's OIDC trust configuration; that remains a
 release preflight check.
 
-CLI walk-through before every release (owner rule, 2026-11-20): from the installed candidate, run and read by eye
-every public command and subcommand (use the `--help` tree as the checklist), `peerhub guide`, every
+For every release, including a single-fix patch, complete the CLI walk-through
+on the merged candidate before starting the live gate or creating the draft.
+Run and read by eye every public command and subcommand (use the `--help`
+tree as the checklist), `peerhub guide`, every
 `peerhub explain <topic>` and `peerhub explain lessons`, `profile list/show/stats/check`, `suggest`, `outcome`,
 `update --check/--plan`, and `monitor` in compact and expand, rich and plain, narrow and wide. Fix wording,
 contradictions, stale text and layout glitches before publishing, and record what was checked in the release PR.
@@ -309,6 +315,22 @@ gh auth refresh -h github.com -s workflow
 ### Release lessons
 
 - Release only when there are no functional defects and the mean review score is at least 80. Re-run G3 on the final target.
+- When main CI fails in a test the change did not touch, rerun the failed job
+  once with `gh run rerun <RUN-ID> --failed`. Treat a repeated failure as a
+  defect. Either way, record the failure in an issue with the failing log line
+  and the rerun result.
+- Regenerate monitor goldens by rendering with each test's own payload and
+  dimensions. Even a reordered phrase can change line wrapping and the height
+  budget. Review the diff in both layouts.
+- Run the full suite after the lanes finish. Run `pytest -m platform_sensitive
+  --junitxml <REPORT>` on Windows and check it with `python -m
+  tools.ci_platform verify-junit <REPORT>`. Add new modules to
+  `ci/platform_sensitive_tests.txt`. Run POSIX-only cases on POSIX outside that
+  inventory, whose JUnit check rejects skips.
+- If a permission gate blocks merging or publishing, get explicit approval
+  for that operation before retrying. Keep it with the lead.
+- Record measured numbers in the repository or linked evidence before quoting
+  them in the changelog. Take release timestamps from Git or release evidence.
 - Update the version pinned by `tests/communication/package/test_release_notes.py` in the same PR as the version bump. A CHANGELOG heading for a never-published version needs `(superseded ...)`.
 - For missing `yaml` or `setuptools` imports, check the dev extras in a disposable environment. See AGENTS.md for the Windows sandbox limits.
 - The live gate writes `.peerhub/work/live-gate/<date>-v<version>.json` (dates UTC, git-ignored); attach it to the GitHub release instead of committing it. Evidence files committed up to 0.24.12 stay in `docs/implementation/live_evidence/` as history. Before a repeated run for the same date and version, rename the earlier file to `-attemptN`.
@@ -435,6 +457,15 @@ can prevent those operations even when file edits are enabled. Sandbox limits
 are environment-dependent, rather than a guarantee made by `--writable`.
 Plan against stored quota with [batch planning](docs/batch.md). Obtain explicit authorization before live probes or provider calls in maintainer sessions that require it.
 
+Use [independent reviews](docs/lessons.md#independent-review-votes-independent-peer-votes)
+on a fixed diff. Give Git writes and shared release files to one lead, and
+keep reviewers read-only. For parallel edits, put rules, compatibility,
+checks and reply format in one shared `CONTEXT.md`. Give each lane a disjoint
+file list and a short prompt pointing to that file and the relevant findings.
+Ask lanes to report cross-file changes outside their scope. Start lanes after
+their inputs exist. For each review round, send the diff since the prior round
+and how its findings were resolved.
+
 ## Development notes
 
 - The frozen M1 catalog tests define Bridge behaviour. Fix code to satisfy the
@@ -459,5 +490,8 @@ Plan against stored quota with [batch planning](docs/batch.md). Obtain explicit 
   IDs, for example `python -m tools.model_ping cc.effort`, to limit the checks.
 - After adding CLI options, run `python -m tools.command_inventory --write` and add an effect proof in `tests/communication/e2e/cli_extension_effects.py`.
 - Keep changes simple and verify claims against code or evidence. Capture unresolved objections and get agreement before implementing consequential design changes. See [independent review votes](docs/lessons.md#independent-review-votes-independent-peer-votes) for the review procedure.
+- Give each shared threshold, phrase or list a single named source. Derive related tests and generated docs from that source.
+- For new concurrency tests, synchronize with events and reserve wall-clock limits for hang guards and designated latency checks. Import lazy modules before patching a dependency they bind with `from ... import ...`.
+- Exercise candidate behavior against a disposable copy when checking a real store. Clean up only known scratch paths and disposable stores after checking for active users.
 - For shared stores, follow `peerhub explain caller-ownership`. Near a session limit, record decisions, open work and file references in a handoff and leave one resume prompt.
 - Earlier handoff notes are in Git (`git show 7497a70f:docs/HANDOFF.md`). Previous maintainer checkpoints are in the [October session log](docs/history/session-log-2026-10.md) and the [cross-repository handoff audit](docs/history/cross-repo-handoff-audit-2026-10-16.md).

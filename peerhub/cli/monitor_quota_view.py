@@ -448,8 +448,8 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
                                       f"next: peerhub observation refresh --peers {peer}")
             available.append(row)
         visible = [row for row in available if row["state"] != QUOTA_NA]
-        position = {(str(row["peer"]), str(row["pool"])): index
-                    for index, (row, _) in enumerate(ordered_pools(visible, every=True, for_quota=True))}
+        position = {(str(row["peer"]), str(row["pool_ref"])): index
+                    for index, (row, _) in enumerate(ordered_pools(visible, every=True))}
         layout, retired_notes = quota_layout(available, unicode, show_quota_notes=show_notes, order=position)
         entries = [
             (f"{row['display_peer'] or ' ' * cell_width(row['peer'])} {row['display_pool']}",

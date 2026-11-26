@@ -415,6 +415,48 @@ def test_scope_cap_of_one_thousand(db):
     assert len(d["asks"]) == 1000 and d["truncated"] is False
 
 
+def test_running_counts_include_open_asks_beyond_scope_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    from peerhub.cli.monitor_view import render_grouped_frame
+    from peerhub.core.migrations import get_migration_registry
+    from tests.communication.diag.test_monitor_plain_golden import _payload
+
+    cap = monitor_queries.ACTIVITY_SCOPE_CAP
+    scopes = [(f"cx-{i}", "cx", NOW + 60, 1, None) for i in range(cap)]
+    scopes.extend([("omitted-running", "ag", NOW + 30, 1, None),
+                   ("omitted-overdue", "cc", NOW - 10, 1, None),
+                   ("omitted-taken", "ag", NOW + 20, 2, None),
+                   ("omitted-ended", "cc", NOW + 10, 1, json.dumps(ok_result()))])
+    monkeypatch.setattr(monitor_activity, "_workspace_generation", lambda _: ("workspace", None))
+    groups: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    with closing(sqlite3.connect(":memory:")) as c:
+        get_migration_registry()[0].apply(c)
+        for stmt in (*bridge_schema._DDL, bridge_claims._DDL):  # pyright: ignore[reportPrivateUsage]
+            c.execute(stmt)
+        c.row_factory = sqlite3.Row
+        c.executemany("INSERT INTO bridge_claims (stream_id,peer_id,owner_id,generation,expires_at,lease_sec,workspace_generation) "
+                      "VALUES (?,?,'owner',?,?,60,'workspace')",
+                      [(name, peer, generation, expiry) for name, peer, expiry, generation, _ in scopes])
+        c.executemany("INSERT INTO bridge_deliveries (delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,"
+                      "certainty,claim_generation,result_json) VALUES (?,?,?,?,?,1,1,'NOT_STARTED',1,?)",
+                      [(name, seq, name, peer, name, result) for seq, (name, peer, _, _, result) in enumerate(scopes, 1)])
+        c.execute("UPDATE bridge_deliveries SET certainty='STARTED' WHERE result_json IS NULL")
+        c.execute("INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                  "VALUES ('omitted-overdue','omitted-overdue','cc','started','STARTED','{}')")
+        activity = monitor_activity.read_activity_group(c, ":memory:", NOW, human=True, text_on=False,
+                                                        liveness=lambda *_: True, process_probe=None,
+                                                        output=groups, errors=errors)
+
+    assert activity is not None, errors
+    assert activity["sample_size"] == cap and activity["scopes_total"] == len(scopes)
+    assert activity["counts"] == {"running": cap + 2, "overdue": 1, "by_peer": {"ag": 1, "cc": 1, "cx": cap}, "leads": 0}
+    assert all(row["peer"] == "cx" for row in activity["asks"])
+    payload = _payload([], [], selected_groups=["activity"], groups=groups)
+    for expand in (False, True):
+        screen = render_grouped_frame(payload, view="plain", width=120, height=24, expand=expand)
+        assert f"RUNNING {cap + 2}" in screen and f"{cap + 2:,} running" in screen.splitlines()[0]
+
+
 def test_restored_workspace_generation_is_unsure_and_never_alerts(db):
     claim(db, "s-restored", workspace_generation="another-lineage")
     delivery(db, "s-restored", certainty="STARTED", caller_detail=caller())

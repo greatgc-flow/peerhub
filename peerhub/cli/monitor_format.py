@@ -56,19 +56,18 @@ def _retired_pool_note(peer: str, pools: str, plans: str) -> str:
 
 def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes: bool,
                   order: dict[tuple[str, str], int] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
-    """Derive a forest from configured consumers, leaving every pool's values intact. `order` gives the urgency rank
-    of each (peer, pool) for the QUOTA peer order. Within a peer the trees keep their family and window order."""
+    """Derive a forest from configured consumers. For QUOTA, `order` gives each pool's POOLS rank."""
     result: list[dict[str, Any]] = []
     notes: list[str] = []
     hidden: dict[str, list[str]] = {}  # the n/a pools that have no parent row to carry their name
     noted: set[str] = set()  # peers whose retired pools already have their note
     order = order or {}
 
-    def rank(peer: str, name: str) -> int:
-        return order.get((peer, name), len(order))
+    def rank(row: dict[str, Any]) -> int:
+        return order.get((str(row["peer"]), str(row["pool_ref"])), len(order))
 
     visible = [row for row in rows if not row.get("retired") and row["state"] != QUOTA_NA]
-    peer_order = {peer: min(rank(peer, str(row["pool"])) for row in visible if row["peer"] == peer)
+    peer_order = {peer: min(rank(row) for row in visible if row["peer"] == peer)
                   for peer in {str(row["peer"]) for row in visible}}
     for peer in sorted({str(row["peer"]) for row in (rows if show_quota_notes else visible)},
                        key=lambda p: (peer_order.get(p, len(order)), p)):
@@ -97,7 +96,7 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
         # Names are tree identities only when unique. Preserve every source row
         # in the flat fallback, including duplicate names with different values.
         if len({row["pool"] for row in active}) != len(active):
-            for row in active:
+            for row in sorted(active, key=rank):
                 append_row(row, str(row["pool"]))
             if show_quota_notes:
                 hidden.setdefault(peer, []).extend(str(row["pool"]) for row in unavailable)
@@ -155,7 +154,7 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
                 visit(child, continuation + branch, continuation + stem)
 
         for name in sorted((name for name in by_name if parents[name] is None),
-                           key=lambda name: (pool_family(name), windows[name], name)):
+                           key=lambda name: (rank(by_name[name]), pool_family(name), windows[name], name)):
             visit(name, "", "")
     if not show_quota_notes:
         return result, notes
@@ -224,9 +223,8 @@ def _binds(child: dict[str, Any], parent: dict[str, Any]) -> bool:
             and float(child["remaining"]) < float(parent["remaining"]))
 
 
-def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
-                   for_quota: bool = False) -> list[tuple[dict[str, Any], int]]:
-    """Sort POOLS by each family's weekly parent. QUOTA retains its urgency order.
+def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False) -> list[tuple[dict[str, Any], int]]:
+    """Sort POOLS by each family's weekly parent.
 
     Expanded POOLS also lists the short windows that do not bind. Each tuple carries its indentation depth.
     """
@@ -257,16 +255,8 @@ def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
         if binds or every or id(row) in scoped:
             listed.setdefault(id(parent), []).append(row)
     for children_rows in listed.values():
-        children_rows.sort(key=lambda row: (not for_quota and id(row) in scoped,
+        children_rows.sort(key=lambda row: (id(row) in scoped,
                                             -parse_window(str(row["pool"]))[0], str(row["pool"])))
-
-    def urgency(row: dict[str, Any]) -> int:
-        # The most severe class of the pool and its binding short rows, including a scoped weekly child's class.
-        states = {row["state"], *(child["state"] for child in children.get(id(row), ())),
-                  *(child["state"] for child in listed.get(id(row), ()) if id(child) in scoped)}
-        cls = (0 if "out" in states else 1 if "low" in states else 2 if id(row) in children
-               else 3 if "fast" in states else 4)
-        return min([cls, *(urgency(child) for child in listed.get(id(row), ()) if id(child) in scoped)])
 
     def use_first(row: dict[str, Any]) -> tuple[int, float, str, str]:
         peer, name = str(row["peer"]), str(row["pool"])
@@ -285,10 +275,7 @@ def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
         for child in listed.get(id(row), ()):
             append_tree(child, depth + 1)
 
-    if for_quota:
-        tops.sort(key=lambda row: (urgency(row), pool_order(str(row["peer"]), str(row["pool"]))))
-    else:
-        tops.sort(key=use_first)
+    tops.sort(key=use_first)
     for top in tops:
         append_tree(top, 0)
     return ordered

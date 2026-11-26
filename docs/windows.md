@@ -81,6 +81,15 @@ Set-Content -Path "query.txt" -Value "Review this function: def foo(bar): return
 peerhub ask cc --query-file query.txt --stream review-session --request-id req-qf-001
 ```
 
+### Script files and escapes
+
+A Windows Git Bash tool runner was observed to halve doubled backslashes in a
+quoted heredoc on 2026-11-14. Save scripts that contain escapes to a file and
+run that file. Use forward slashes in Windows paths and `newline="\n"` in
+Python text writes that require LF. Re-read generated JSON to catch unintended
+control characters. When invoking agy's literal `/usage` from Git Bash,
+set `MSYS_NO_PATHCONV=1` for that invocation to prevent path conversion.
+
 ## Non-ASCII and Unicode Paths
 
 When running PeerHub in workspaces or database locations containing non-ASCII characters (e.g. Korean, Chinese, Japanese, or accented European characters):

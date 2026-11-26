@@ -7,7 +7,7 @@ import textwrap
 
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.cc import cc_permission_denials
-from tests.communication.bridge_helpers import bseed, sql
+from tests.communication.bridge_helpers import FAKE_CLI_DELIVERY_TIMEOUT_S, bseed, sql
 
 PY = sys.executable
 
@@ -47,22 +47,30 @@ def _script(stdout: str) -> str:
     """)
 
 
-def _terminal(bridge_h, tmp_path, stdout: str, peer: str = "cc", stream: str = "s_den"):
-    ws = tmp_path / f"ws_{stream}"
-    ws.mkdir()
-    target = CliRuntimeTarget(peer, ws, command=[PY, "-c", _script(stdout)], timeout_s=15.0)
+def _deliver_terminal(bridge_h, stream: str, target: CliRuntimeTarget):
     (rec,) = bseed(bridge_h, stream=stream)
     res = bridge_h.delivery_cycle("b", stream, target)
-    # the public envelope is persisted in bridge_deliveries.result_json and replayed from there (ask._read_delivery_result)
-    (stored,) = [json.loads(r[0]) for r in sql(bridge_h, "SELECT result_json FROM bridge_deliveries WHERE record_id=?", (rec.record_id,))]
-    return res, stored
+    assert res.status == "delivered" and res.certainty == "TERMINAL", (
+        f"{stream}: expected terminal delivery, got {res.status}/{res.certainty}: {res.detail}"
+    )
+    # Read the persisted envelope that ask replays.
+    ((stored,),) = sql(bridge_h, "SELECT result_json FROM bridge_deliveries WHERE record_id=?", (rec.record_id,))
+    assert stored is not None, f"{stream}: terminal delivery has no stored result"
+    return json.loads(stored)
+
+
+def _terminal(bridge_h, tmp_path, stdout: str, stream: str = "s_den"):
+    ws = tmp_path / f"ws_{stream}"
+    ws.mkdir()
+    target = CliRuntimeTarget("cc", ws, command=[PY, "-c", _script(stdout)],
+                              timeout_s=FAKE_CLI_DELIVERY_TIMEOUT_S)
+    return _deliver_terminal(bridge_h, stream, target)
 
 
 def test_cc_runtime_emits_redacted_truncated_denied_actions_when_reply_empty(bridge_h, tmp_path):
     secret_cmd = "curl -H 'Authorization: Bearer abcdefghijklmnop12345' https://x " + "a" * 200
     stdout = _result([{"tool_name": "Bash", "tool_input": {"command": secret_cmd}}])
-    res, detail = _terminal(bridge_h, tmp_path, stdout)
-    assert res.status == "delivered" and res.certainty == "TERMINAL"
+    detail = _terminal(bridge_h, tmp_path, stdout)
     assert detail["empty_response"] is True
     (entry,) = detail["denied_actions"]
     assert entry.startswith("Bash: curl -H 'Authorization: [REDACTED]")  # redacted BEFORE the 120-char cut
@@ -72,13 +80,13 @@ def test_cc_runtime_emits_redacted_truncated_denied_actions_when_reply_empty(bri
 
 def test_cc_runtime_also_surfaces_denials_when_reply_has_text(bridge_h, tmp_path):
     stdout = _result([{"tool_name": "Bash", "tool_input": {"command": "peerhub --version"}}], text="I could not run it.")
-    _res, detail = _terminal(bridge_h, tmp_path, stdout, stream="s_den_text")
+    detail = _terminal(bridge_h, tmp_path, stdout, stream="s_den_text")
     assert detail["denied_actions"] == ["Bash: peerhub --version"]
     assert "empty_response" not in detail
 
 
 def test_cc_runtime_without_denials_has_no_denied_actions(bridge_h, tmp_path):
-    _res, detail = _terminal(bridge_h, tmp_path, _result([]), stream="s_den_none")
+    detail = _terminal(bridge_h, tmp_path, _result([]), stream="s_den_none")
     assert "denied_actions" not in detail
 
 
@@ -116,11 +124,9 @@ def test_cc_denials_survive_stdout_truncation(bridge_h, tmp_path):
     """)
     ws = tmp_path / "ws_trunc"
     ws.mkdir()
-    target = CliRuntimeTarget("cc", ws, command=[PY, "-c", script], timeout_s=15.0, max_bytes=100_000)
-    (rec,) = bseed(bridge_h, stream="s_den_trunc")
-    res = bridge_h.delivery_cycle("b", "s_den_trunc", target)
-    assert res.certainty == "TERMINAL"
-    (stored,) = [json.loads(r[0]) for r in sql(bridge_h, "SELECT result_json FROM bridge_deliveries WHERE record_id=?", (rec.record_id,))]
+    target = CliRuntimeTarget("cc", ws, command=[PY, "-c", script],
+                              timeout_s=FAKE_CLI_DELIVERY_TIMEOUT_S, max_bytes=100_000)
+    stored = _deliver_terminal(bridge_h, "s_den_trunc", target)
     assert stored["denied_actions"] == ["Bash: peerhub --version"]
 
 

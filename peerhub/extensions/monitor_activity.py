@@ -159,7 +159,7 @@ def _liveness_of(caller: dict[str, Any], liveness: Callable[..., object] | None,
 
 
 def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool, text_on: bool, secrets: list[str],
-             liveness: Callable[..., object] | None, probe: Callable[[int], object]) -> dict[str, Any]:
+             liveness: Callable[..., object] | None, probe: Callable[[int], object]) -> dict[str, Any] | None:
     from peerhub.extensions.diag_running import _started_at  # pyright: ignore[reportPrivateUsage]
     reasons: list[str] = []
     superseded = bool(r["sup"])
@@ -216,13 +216,6 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
             state, note = "error", "not started"
     else:
         state, note = "unsure", display_text(last, 40, secrets)
-    try:
-        started_at = _started_at(r["start_detail"])
-    except (OverflowError, RecursionError):  # an integer of 2**1024 or more; a deeply nested detail
-        started_at = None
-    if r["start_detail"] is not None and started_at is None:
-        reasons.append("start time unreadable")
-    terminal_at = iso_seconds(r["terminal_at"])
     lease_based = state in ("run", "overdue")
     may_have_orphan = (r["result_ok"] is None and r["abandonment"] is None and r["provider_detail"] is not None
                        and (r["certainty"] in ("STARTED", "MAY_HAVE_STARTED") or last in START_KINDS))
@@ -235,6 +228,18 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
             state, note = ORPHAN_RUNNING, "provider process still alive"
     # An overdue row is in the running set only for ALERT_WINDOW_S after its lease expired; then it is an ended (bad) row.
     open_row = state in ("run", ORPHAN_RUNNING) or (state == "overdue" and expires_at >= now - ALERT_WINDOW_S)
+    peer = display_text(r["peer_id"], 64, secrets) or "?"
+    lead = _lead(caller, secrets) if caller is not None else None
+    if not r["is_detail"]:
+        return {"state": state, "peer": peer, "lead": lead} if open_row else None
+
+    try:
+        started_at = _started_at(r["start_detail"])
+    except (OverflowError, RecursionError):  # an integer of 2**1024 or more; a deeply nested detail
+        started_at = None
+    if r["start_detail"] is not None and started_at is None:
+        reasons.append("start time unreadable")
+    terminal_at = iso_seconds(r["terminal_at"])
     ended_at: float | None = None
     ended_exact: bool | None = None
     if not open_row:
@@ -290,8 +295,8 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
               if r["usage_in"] is not None or r["usage_out"] is not None else None)
     row: dict[str, Any] = {
         "state": state, "superseded": superseded, "alive": alive, "alive_reason": alive_reason,
-        "peer": display_text(r["peer_id"], 64, secrets) or "?", "profile": profile, "model": model, "effort": effort,
-        "stream": stream, "name": name, "lead": _lead(caller, secrets) if caller is not None else None,
+        "peer": peer, "profile": profile, "model": model, "effort": effort,
+        "stream": stream, "name": name, "lead": lead,
         "started_at": started_at, "elapsed_s": elapsed_s, "ended_at": ended_at, "ended_exact": ended_exact, "age_s": age_s,
         "lease_left_s": round(expires_at - now, 3) if open_row else None, "tokens": tokens,
         "ask_line": lines["ask_line"], "reply_line": lines["reply_line"],
@@ -340,8 +345,15 @@ def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | Non
     one per stream and peer, not every ask: older asks of a stream are replaced by its newest one (superseded rows excluded)."""
     from peerhub.extensions.adapters.sanitize import env_secrets
     secrets = env_secrets()
-    built = [_ask_row(r, now, gen_reason=gen_reason, human=human, text_on=text_on, secrets=secrets,
-                      liveness=liveness, probe=probe) for r in rows]
+    built: list[dict[str, Any]] = []
+    additional_running: list[dict[str, Any]] = []
+    for r in rows:
+        if r["seq"] is None:  # scope coverage without a delivery
+            continue
+        ask = _ask_row(r, now, gen_reason=gen_reason, human=human, text_on=text_on, secrets=secrets,
+                       liveness=liveness, probe=probe)
+        if ask is not None:
+            (built if r["is_detail"] else additional_running).append(ask)
     main = [a for a in built if not a["superseded"]]
     running: list[dict[str, Any]] = []
     ended: list[dict[str, Any]] = []
@@ -369,12 +381,13 @@ def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | Non
     scope_total = int(rows[0]["scope_total"]) if rows else 0
     sup_total = int(rows[0]["sup_total"] or 0) if rows else 0
     omitted = max(0, sup_total - SUPERSEDED_CAP)
+    all_running = running + additional_running
     return {
         "asks": asks,
         "leads": list(leads.values()),  # still keyed: `_merge_leads` merges, orders and removes the digest
-        "counts": {"running": len(running), "overdue": sum(1 for a in running if a["state"] == "overdue"),
-                   "by_peer": dict(sorted(Counter(a["peer"] for a in running).items())),
-                   "leads": len({a["lead"]["key"] for a in running if a["lead"] is not None})},
+        "counts": {"running": len(all_running), "overdue": sum(1 for a in all_running if a["state"] == "overdue"),
+                   "by_peer": dict(sorted(Counter(a["peer"] for a in all_running).items())),
+                   "leads": len({a["lead"]["key"] for a in all_running if a["lead"] is not None})},
         "sample_size": len(asks), "truncated": scope_total > ACTIVITY_SCOPE_CAP or omitted > 0,
         "scopes_total": scope_total, "superseded_omitted": omitted, "reason": gen_reason,
     }
