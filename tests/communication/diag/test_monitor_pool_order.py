@@ -86,3 +86,17 @@ def test_quota_groups_peers_and_families_by_pools_rank(view: str) -> None:
             assert re.findall(r"(?m)^ *(?:(\w+) +|([└├]─) )?([A-Z]+-(?:30D|7D|5H)) +", quota) == [
                 ("cx", "", "X-7D"), ("", "", "X-30D"), ("ag", "", "G-7D"), ("", "└─", "G-5H"),
                 ("", "", "A-7D"), ("cc", "", "C-7D")]
+
+
+def test_quota_family_ranks_by_its_best_member_not_its_root() -> None:
+    """A 30D root whose 7D child ranks first in POOLS leads QUOTA ahead of a family ranked between them (R16)."""
+    from peerhub.cli.monitor_format import quota_layout
+
+    def row(name: str, profiles: list[str]) -> dict[str, object]:
+        return {"peer": "cx", "pool": name, "pool_ref": f"quota:cx:{name}", "state": "ok", "profiles": profiles}
+
+    rows = [row("A-30D", ["cx.a", "cx.b"]), row("A-7D", ["cx.a"]), row("B-7D", ["cx.c"])]
+    order = {("cx", "quota:cx:A-7D"): 0, ("cx", "quota:cx:B-7D"): 1, ("cx", "quota:cx:A-30D"): 2}
+    layout, _ = quota_layout(rows, False, show_quota_notes=False, order=order)
+    assert [r["display_pool"].split()[-1] if " " in r["display_pool"] else r["display_pool"] for r in layout] == [
+        "A-30D", "A-7D", "B-7D"]

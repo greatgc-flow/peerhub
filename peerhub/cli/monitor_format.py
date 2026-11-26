@@ -153,8 +153,12 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
                 stem = "   " if last else "│  " if unicode else "|  "
                 visit(child, continuation + branch, continuation + stem)
 
+        def tree_rank(name: str) -> int:
+            # A family sorts by its best-ranked member: a 30D root holding a 7D child ranks by that child.
+            return min([rank(by_name[name]), *(tree_rank(child) for child in children[name])])
+
         for name in sorted((name for name in by_name if parents[name] is None),
-                           key=lambda name: (rank(by_name[name]), pool_family(name), windows[name], name)):
+                           key=lambda name: (tree_rank(name), pool_family(name), windows[name], name)):
             visit(name, "", "")
     if not show_quota_notes:
         return result, notes
