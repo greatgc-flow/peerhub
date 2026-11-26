@@ -537,7 +537,7 @@ SNAPSHOTS: dict[int, str] = {
 (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
-ag   3P-5H [........]   0%        ? 4h59m : not enough data               *59s
+ag   3P-5H [........]   0%     +0.0 4h59m : not enough data               *59s
 ag   3P-7D [######..]  74%     +1.2 1d22h = on pace                       *59s
 ag   G-5H  [#.......]  16%    -28.7 2h44m = on pace                       *59s
 ag   G-7D  [####....]  49%    -22.2 2d00h = on pace                       *59s
@@ -553,7 +553,7 @@ PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit"""
     100: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
-ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                 *59s
+ag   3P-5H [..........]   0%     +0.0 4h59m : not enough data                                 *59s
 ag   3P-7D [#######...]  74%     +1.2 1d22h = on pace                                         *59s
 ag   G-5H  [##........]  16%    -28.7 2h44m = on pace                                         *59s
 ag   G-7D  [#####.....]  49%    -22.2 2d00h = on pace                                         *59s
@@ -569,7 +569,7 @@ PACE + = faster than even | forecasts are conditional window-average | Ctrl-C qu
     120: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
-ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                                     *59s
+ag   3P-5H [..........]   0%     +0.0 4h59m : not enough data                                                     *59s
 ag   3P-7D [#######...]  74%     +1.2 1d22h = on pace                                                             *59s
 ag   G-5H  [##........]  16%    -28.7 2h44m = on pace                                                             *59s
 ag   G-7D  [#####.....]  49%    -22.2 2d00h = on pace                                                             *59s
@@ -589,7 +589,7 @@ RICH_SNAPSHOTS: dict[int, str] = {
 (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
-ag   3P-5H [░░░░░░░░]   0%        ? 4h59m ○ not enough data               ●59s
+ag   3P-5H [░░░░░░░░]   0%     +0.0 4h59m ○ not enough data               ●59s
 ag   3P-7D [██████░░]  74%     +1.2 1d22h ● on pace                       ●59s
 ag   G-5H  [█░░░░░░░]  16%    -28.7 2h44m ● on pace                       ●59s
 ag   G-7D  [████░░░░]  49%    -22.2 2d00h ● on pace                       ●59s
@@ -605,7 +605,7 @@ PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit"""
     100: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
-ag   3P-5H [░░░░░░░░░░]   0%        ? 4h59m ○ not enough data                                 ●59s
+ag   3P-5H [░░░░░░░░░░]   0%     +0.0 4h59m ○ not enough data                                 ●59s
 ag   3P-7D [███████░░░]  74%     +1.2 1d22h ● on pace                                         ●59s
 ag   G-5H  [██░░░░░░░░]  16%    -28.7 2h44m ● on pace                                         ●59s
 ag   G-7D  [█████░░░░░]  49%    -22.2 2d00h ● on pace                                         ●59s
@@ -621,7 +621,7 @@ PACE + = faster than even | forecasts are conditional window-average | Ctrl-C qu
     120: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
-ag   3P-5H [░░░░░░░░░░]   0%        ? 4h59m ○ not enough data                                                     ●59s
+ag   3P-5H [░░░░░░░░░░]   0%     +0.0 4h59m ○ not enough data                                                     ●59s
 ag   3P-7D [███████░░░]  74%     +1.2 1d22h ● on pace                                                             ●59s
 ag   G-5H  [██░░░░░░░░]  16%    -28.7 2h44m ● on pace                                                             ●59s
 ag   G-7D  [█████░░░░░]  49%    -22.2 2d00h ● on pace                                                             ●59s

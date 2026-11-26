@@ -8,6 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- An unused quota window whose provider-reported start lands a few seconds after the measurement (agy reports reset as its own clock plus the window) now shows PACE 0.0 instead of `?`/`-` in the monitor, `diag` and `diag --plan`.
+- `diag --plan --json --compact` now includes each pool's `left_pct` and `pace_pt`, so a caller can pick the lowest PACE without the full plan.
+
 ## [0.26.17] - 2026-11-26
 
 ### Added

@@ -504,7 +504,8 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
                                "store_selection": dict(store_selection)}
     if compact:
-        fields = ("peer", "pool", "resource_pool_ref", "action", "binding", "reason", "resets_in_seconds")
+        fields = ("peer", "pool", "resource_pool_ref", "left_pct", "pace_pt", "action", "binding", "reason",
+                  "resets_in_seconds")
         data["pools"] = [{**{field: row[field] for field in fields},
                           "effective_reset_in_seconds": health["reset_in_seconds"]}
                          for _, row, health in pools]

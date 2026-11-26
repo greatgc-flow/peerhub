@@ -108,6 +108,14 @@ def test_fresh_zero_usage_is_known_even_without_usable_window_anchor(start, rese
     assert result["reason"] == "no usage yet"
 
 
+def test_unused_window_starting_after_the_measurement_shows_even_pace():
+    # agy reports an unused pool's reset as its own clock + window, a few seconds after our measurement time.
+    result = project(0, 500, start=504, reset=504 + 7 * 86400)
+    assert result["pace_pt"] == 0.0
+    assert result["reason"] == "no usage yet"
+    assert project(0.2, 500, start=504, reset=2000)["pace_pt"] is None  # used windows keep the ordering check
+
+
 def test_quantised_one_percent_trace():
     for measured in (79.0, 100.0, 200.0, 500.0):
         assert_suppressed(project(0.01, measured), "insufficient")
