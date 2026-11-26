@@ -255,13 +255,17 @@ def test_06_cache_skips_both_probes_until_expiry_or_replacement(monkeypatch, tmp
     binary.write_bytes(b"one")
     probes = Probes()
     monkeypatch.setattr(common, "probe_cli", probes)
+    command = [str(binary)]
+    env = {"PEERHUB_CONFIG_HOME": str(tmp_path)}
 
     def detect():
-        return ag_transport._detect_ag_transport([str(binary)], {"PEERHUB_CONFIG_HOME": str(tmp_path)}, str(tmp_path))
+        return ag_transport._detect_ag_transport(command, env, str(tmp_path))
 
     assert detect() == detect() == ag_transport.AgTransport("stream", "help", "1.5.9")
     assert probes.calls == ["--version", "--help"]
-    cache_file, = tmp_path.rglob("*.json")
+    identity = ag_transport._transport_identity(command, env)
+    assert identity is not None
+    cache_file = ag_transport._transport_cache_path(identity, env)
     expired = time.time() - ag_transport._AG_TRANSPORT_MAX_AGE_S - 1
     os.utime(cache_file, (expired, expired))
     probes.version = b"agy 1.6.0\n"

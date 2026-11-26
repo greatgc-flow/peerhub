@@ -40,7 +40,7 @@ def render_guide() -> str:
         "Other sessions' asks count. No cap.",
         "Timeout: --timeout-seconds 1800-3600 for implementer/review (default 600); ag up to 7200.",
         "Uncertain (timeout, empty reply, pending_earlier_record): stop the stream, check diag running and working tree, never blind-retry.",
-        f"More: peerhub profile list; peerhub explain <topic> for: {', '.join(topic['id'] for topic in sorted((item for item in load_lessons() if item.get('guide_order', 0) >= 3 and item['id'] != 'parallel-quota'), key=lambda item: item.get('guide_order', 0)))}, setup; peerhub explain lessons.",
+        f"More: peerhub profile list; peerhub explain <topic> for: parallel-quota, {', '.join(topic['id'] for topic in sorted((item for item in load_lessons() if item.get('guide_order', 0) >= 3 and item['id'] != 'parallel-quota'), key=lambda item: item.get('guide_order', 0)))}, setup; peerhub explain lessons.",
     ])
 
 

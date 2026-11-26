@@ -132,8 +132,9 @@ _ACTIVITY_SQL = (
     "WHERE d.certainty IN ('STARTED','MAY_HAVE_STARTED') AND d.result_json IS NULL AND d.delivery_id<>l.latest_id), "
     "ranked AS (SELECT pick.*,ROW_NUMBER() OVER (PARTITION BY pick.sup ORDER BY pick.seq DESC) AS sup_rank,"
     "SUM(pick.sup) OVER () AS sup_total FROM pick), "
+    # Keep the ranked rows on the outside so SQLite seeks each kept delivery by ID.
     "kept AS (SELECT k.*,d.claim_generation,d.record_id,d.result_json,d.terminal_at FROM ranked k "
-    "JOIN bridge_deliveries d ON d.delivery_id=k.delivery_id WHERE k.sup=0 OR k.sup_rank<=:sup_cap), "
+    "CROSS JOIN bridge_deliveries d ON d.delivery_id=k.delivery_id WHERE k.sup=0 OR k.sup_rank<=:sup_cap), "
     "ev AS (SELECT kept.*,"
     "COALESCE(json_extract(CASE WHEN json_valid(m.detail) THEN m.detail END,'$.claim_generation'),"
     "kept.claim_generation) AS invocation_generation,"

@@ -26,7 +26,6 @@ NOW = datetime(2026, 10, 1, 12, 0, 0, tzinfo=timezone.utc)
 POLICY = REPO / ev.POLICY_REL
 RELEASE_POLICY = REPO / "docs/m1_impl/release-policy.json"
 TTL = json.loads(RELEASE_POLICY.read_text(encoding="utf-8"))["policy_ttl_seconds"]
-VERSION = ev.source_version(REPO)
 
 
 @pytest.mark.parametrize("problem", [None, "missing", "mismatched", "stale"])
@@ -51,10 +50,22 @@ def test_candidate_ci_preflight_requires_every_current_exact_sha_report(monkeypa
 
 
 def make_dist(path, payload=b"wheel-bytes"):
+    version = ev.source_version(REPO)
     path.mkdir(exist_ok=True)
-    (path / f"peerhub-{VERSION}-py3-none-any.whl").write_bytes(payload)
-    (path / f"peerhub-{VERSION}.tar.gz").write_bytes(payload + b"-sdist")
+    (path / f"peerhub-{version}-py3-none-any.whl").write_bytes(payload)
+    (path / f"peerhub-{version}.tar.gz").write_bytes(payload + b"-sdist")
     return path
+
+
+def test_synthetic_dist_uses_the_checkout_version_at_build_time(tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    package = checkout / "peerhub"
+    package.mkdir(parents=True)
+    monkeypatch.setattr(sys.modules[__name__], "REPO", checkout)
+    for version in ("1.2.3", "1.2.4"):
+        (package / "_version.py").write_text(f'__version__ = "{version}"\n', encoding="utf-8")
+        dist = make_dist(tmp_path / version)
+        assert {p.name for p in dist.iterdir()} == {f"peerhub-{version}-py3-none-any.whl", f"peerhub-{version}.tar.gz"}
 
 
 def policy_with(tmp_path, name, **over):

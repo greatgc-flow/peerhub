@@ -250,7 +250,7 @@ jobs:
           path: evidence/
 
   publish:
-    needs: [verify, live-validation, build, matrix, release-evidence]
+    needs: [verify, candidate-ci, live-validation, build, matrix, release-evidence]
     # Manual dispatch is a safe live-validation/build dry run. Only a published
     # GitHub Release may mint an OIDC token and publish the resulting artifact.
     if: github.event_name == 'release'

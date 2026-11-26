@@ -705,8 +705,8 @@ def test_transcript_tail_cache_reuses_unchanged_file_and_invalidates_on_metadata
         return original(path, flags)
 
     monkeypatch.setattr(ls, "_open", counted)
-    assert one([tmp_path])["model"] == "claude-fable-5-2"
-    assert one([tmp_path])["model"] == "claude-fable-5-2"
+    assert one([tmp_path])["model"] == "claude-first"
+    assert one([tmp_path])["model"] == "claude-first"
     assert len(opens) == 1
 
     old = transcript.stat()

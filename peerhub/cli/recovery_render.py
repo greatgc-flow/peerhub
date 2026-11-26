@@ -101,7 +101,7 @@ def render_guidance_hint(entry: GuidanceEntry) -> str:
     first_recover = entry.recover[0] if entry.recover else None
     action_text = f"{first_recover['purpose']} ({shlex.join(first_recover['argv'])})" if first_recover else "Inspect diagnostics."
     retry = " Do not retry this stream." if "Do not retry" in entry.avoid else ""
-    return f"{action_text}.{retry} Details: peerhub explain {entry.code}"
+    return f"{action_text}.{retry} details: peerhub explain {entry.code}"
 
 
 def render_exception_guidance_hint(code: str, exception: BaseException | None) -> str:

@@ -10,7 +10,7 @@ import pytest
 
 from peerhub.core.migrations import get_migration_registry, run_migrations
 from peerhub.core.store import CoreStore
-from peerhub.extensions import ask, ask_budgets, bridge_ledger, delivery_projections, monitor_queries
+from peerhub.extensions import ask, ask_budgets, bridge_ledger, bridge_registry, delivery_projections, monitor_queries
 from peerhub.extensions.bridge import Bridge
 from peerhub.extensions.bridge_claims import ClaimStore, ClaimToken
 from peerhub.extensions.observation import ObservationStore
@@ -142,12 +142,14 @@ def test_registry_reopen_repairs_missing_stats_rows(bridge):
         conn.execute("INSERT INTO bridge_session_history(session_handle,stream_id,peer_id,runtime_kind,"
                      "external_session_id,session_generation,adapter_fingerprint,binding,resumable,state,last_seen,created_at) "
                      "VALUES ('handle','s','cx','cx','external',1,'fp','binding',1,'FRESH',0,0)")
+        assert bridge_registry.needs_projection_repair(conn)
     for _ in range(2):
         Bridge(bridge.store, bridge.claims)
         with bridge.claims.transaction() as conn:
             assert conn.execute("SELECT session_handle FROM bridge_session_monitor_stats").fetchone()[0] == "handle"
-            assert conn.execute("SELECT 1 FROM bridge_session_stats_pending").fetchone() is None
+            assert not bridge_registry.needs_projection_repair(conn)
             conn.execute("DELETE FROM bridge_session_monitor_stats WHERE session_handle='handle'")
+            assert bridge_registry.needs_projection_repair(conn)
 
 
 def test_light_preflight_keeps_full_check_for_existing_migration(migration_db):

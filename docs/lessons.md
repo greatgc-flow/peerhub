@@ -223,7 +223,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: parallel, quota, pace, pools, batch, loop, distribute, minimal, ram, free, memory, slots, load, diag, plan, resource, resources
 - Symptom: Several tasks can run at once and the caller wants them spread over the pools with the most spare quota, spending as little as possible.
-- Fix: Read peerhub diag --plan and choose usable pools by lowest 7D PACE first. Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. After each wave refresh only the peers the next wave may use (peerhub observation refresh --peers cx ag) and read the plan again. See [docs/batch.md#parallel-work-over-the-least-quota](batch.md#parallel-work-over-the-least-quota).
+- Fix: Read peerhub diag --plan and choose usable pools by lowest 7D PACE first. Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Refresh only the peers the next wave may use (peerhub observation refresh --peers cx ag) and read the plan after each wave. See [docs/batch.md#parallel-work-over-the-least-quota](batch.md#parallel-work-over-the-least-quota).
 - Issue: owner decisions 2026-11-22 and 2026-11-25
 
 ## Peer sub-agents inside one ask (`peer-subagents`)
