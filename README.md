@@ -108,15 +108,13 @@ peerhub suggest --tier effort --task review --candidates
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
 
-# AIs read quota with one low-token command (pools + active asks + RAM and CPU); `peerhub monitor` is the human screen.
+# AI agents read quota once per turn (pools, active asks, RAM and CPU). People use `peerhub monitor`.
 peerhub diag --plan
 
 # Read committed observations without probing or writing.
 peerhub diag
 peerhub diag quota --json
 peerhub diag health
-peerhub diag --live --interval-seconds 2
-peerhub diag --view rich
 # Use diag quota --max-age-seconds N for recent readings, or diag --plan --peer PEER (repeatable) and --observation-db PATH to narrow the plan's stored evidence.
 
 # List group IDs under --group.
@@ -188,8 +186,6 @@ than 15 minutes and waits at most one second for it. Run `peerhub explain sugges
 for details.
 
 `--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its `MARGIN` and `EXH/RESET` pair, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
-
-`diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
 `monitor --help` lists the available group IDs. The default monitor includes running and
 recent asks (`activity`), quota capacity (`capacity`), retained session state and
@@ -297,8 +293,7 @@ In a terminal it refreshes quota when due. Collection may spend quota through pr
 agy `/usage` and `/credits`. With `--cycles` omitted,
 stdout on a TTY watches until interrupted; non-TTY stdout runs one cycle.
 Explicit `--cycles 0` watches until interrupted everywhere; positive values
-bound watch cycles. The legacy dashboard and
-live diagnostics update countdowns at most 1 Hz; PACE and forecast ETA remain
+bound watch cycles. Monitor updates countdowns at most 1 Hz; PACE and forecast ETA remain
 anchored to the measurement. Non-TTY human watch prints one completed frame
 per cycle without escapes (skipping the initial pre-refresh frame), while unavailable VT on a TTY appends without escapes; schema 2.0 JSON watch emits one `initial` frame plus
 one `complete` frame per cycle (default non-TTY JSON = two lines). `NO_COLOR` suppresses

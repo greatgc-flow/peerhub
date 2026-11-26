@@ -28,6 +28,8 @@ they do not claim new validation or publication evidence.
 - `monitor defaults` and saved `monitor.toml` preferences. Pass repeatable `--group` options to select groups.
 - `monitor groups`. See `peerhub monitor --help` for group IDs.
 - Monitor JSON 1.1 and `--schema-version`. Use `monitor --json` for schema 2.0.
+- Removed the diag watch options `--live`, `--view`, `--cycles`, and `--interval-seconds`. Use `peerhub monitor` for the terminal watch or `peerhub diag --plan` for one AI planning read per turn.
+- Removed `diag --plan --json --compact`. Use `peerhub diag --plan --json` for the full plan.
 
 ## [0.26.19] - 2026-11-26
 

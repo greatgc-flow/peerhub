@@ -48,7 +48,7 @@ def test_no_note_without_a_conflict(tmp_path, source, env):
 # --- diag header ---------------------------------------------------------------------------------
 
 def test_diag_header_shows_full_path_and_source():
-    out = render_view(DiagnosticReport("OK", 1000000.0, {}, {}), width=120, unicode=False,
+    out = render_view(DiagnosticReport("OK", 1000000.0, {}, {}), width=120,
                       store_path=LONG, store_source="env")
     assert out.splitlines()[0].endswith(f"{LONG} (env)")
     assert ".../" not in out
@@ -56,7 +56,7 @@ def test_diag_header_shows_full_path_and_source():
 
 @pytest.mark.parametrize("width", [45, 60, 80])
 def test_narrow_header_wraps_instead_of_truncating(width):
-    out = render_view(DiagnosticReport("OK", 1000000.0, {}, {}), width=width, unicode=False,
+    out = render_view(DiagnosticReport("OK", 1000000.0, {}, {}), width=width,
                       store_path=LONG, store_source="explicit")
     lines = out.splitlines()
     head = "\n".join(lines[:next(i for i, line in enumerate(lines) if line.startswith("Threats"))])
@@ -66,7 +66,7 @@ def test_narrow_header_wraps_instead_of_truncating(width):
 
 
 def test_diag_header_note_line_follows_header():
-    out = render_view(DiagnosticReport("OK", 1000000.0, {}, {}), width=120, unicode=False,
+    out = render_view(DiagnosticReport("OK", 1000000.0, {}, {}), width=120,
                       store_path=LONG, store_source="explicit", store_note="note: --db A overrides PEERHUB_DB=B")
     lines = out.splitlines()
     assert lines[1] == "note: --db A overrides PEERHUB_DB=B"

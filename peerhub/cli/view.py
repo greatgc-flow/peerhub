@@ -1,7 +1,6 @@
 """Width-aware diagnostic dashboard and quota-plan rendering."""
 from __future__ import annotations
 
-import os
 import textwrap
 from collections.abc import Mapping, Sequence
 from datetime import datetime, tzinfo
@@ -40,13 +39,6 @@ if TYPE_CHECKING:
     from peerhub.extensions.diag import DiagnosticReport
     from peerhub.extensions.pool_health import PoolHealth
 
-RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
-
-
-def _paint(text: str, code: str, on: bool) -> str:
-    return f"{code}{text}{RESET}" if on and code else text
-
-
 def _local(at: float, tz: tzinfo | None) -> datetime:
     return datetime.fromtimestamp(at, tz) if tz is not None else datetime.fromtimestamp(at).astimezone()
 
@@ -57,12 +49,10 @@ def _eta(at: float, now: float, tz: tzinfo | None) -> str:
     return dt.strftime("%a %H:%M" if dated else "%H:%M")
 
 
-def _forecast(row: QuotaRow, now: float, tz: tzinfo | None, unicode: bool, short: bool) -> str:
+def _forecast(row: QuotaRow, now: float, tz: tzinfo | None, short: bool) -> str:
     state = row.projection["state"]
-    glyph = ({"threat": "▲", "on_pace": "●", "insufficient": "○", "exhausted": "✖",
-              "unknown": "◌", "stale": "△", "expired": "⊘"} if unicode else
-             {"threat": "!", "on_pace": "=", "insufficient": ":", "exhausted": "x",
-              "unknown": "?", "stale": "~", "expired": "/"})[state]
+    glyph = {"threat": "!", "on_pace": "=", "insufficient": ":", "exhausted": "x",
+             "unknown": "?", "stale": "~", "expired": "/"}[state]
     if state == "threat":
         at = row.projection["exhaustion_at"]
         assert at is not None
@@ -75,40 +65,35 @@ def _forecast(row: QuotaRow, now: float, tz: tzinfo | None, unicode: bool, short
                           "insufficient": "not enough data", "on_pace": "on pace"}[state]
 
 
-def _quota_ink(row: QuotaRow) -> str:
-    return RED if row.projection["state"] in ("threat", "exhausted") else YELLOW if row.projection["state"] in ("stale", "expired", "insufficient") else CYAN if row.projection["state"] == "on_pace" else ""
-
-
-def _badge(row: QuotaRow, color: bool, unicode: bool) -> str:
+def _badge(row: QuotaRow) -> str:
     if row.age is None:
         return "?"
-    stale = row.state == "STALE"
-    dot = ("○" if stale else "●") if unicode else ("~" if stale else "*")
+    dot = "~" if row.state == "STALE" else "*"
     return dot + human_duration(row.age)
 
 
-def _quota_table(rows: list[QuotaRow], width: int, color: bool, unicode: bool, *,
+def _quota_table(rows: list[QuotaRow], width: int, *,
                  now: float, tz: tzinfo | None = None) -> list[str]:
     cells = 10 if width >= 100 else 8
     peer_w = max(4, max((visible_len(r.peer) for r in rows), default=4))
     pool_w = max(5, max((visible_len(r.pool) for r in rows), default=5))
     reset_w = max(5, max((visible_len(human_duration(r.left)) for r in rows), default=5))
-    fresh_w = max(5, max((visible_len(_badge(r, False, unicode)) for r in rows), default=5))
+    fresh_w = max(5, max((visible_len(_badge(r)) for r in rows), default=5))
     def prefix(peer: str, pool: str, usage: str, used: str, pace: str, reset: str) -> str:
         return (pad_cell(peer, peer_w) + " " + pad_cell(pool, pool_w) + " " +
                 f"{usage:<{cells + 2}} {used:>4} {pace:>8} " + pad_cell(reset, reset_w) + " ")
     head_lead = prefix("PEER", "POOL", "USAGE-bar", "USED", "PACE(pt)", "RESET")
     forecast_w = max(0, width - visible_len(head_lead) - fresh_w - 1)
-    head = head_lead + pad_cell(ellipsize("FORECAST", forecast_w, unicode), forecast_w) + " FRESH"
+    head = head_lead + pad_cell(ellipsize("FORECAST", forecast_w, False), forecast_w) + " FRESH"
     out = [head]
     for row in rows:
-        body = bar(row.used, cells, unicode)
+        body = bar(row.used, cells, False)
         used = "?" if row.used is None else format_percent(row.used, show_tiny=False)
         pace = "?" if row.diff is None else format_pace(row.diff)
         lead = prefix(row.peer, row.pool, f"[{body}]", used, pace, human_duration(row.left))
-        forecast = ellipsize(_forecast(row, now, tz, unicode, width < 100), forecast_w, unicode)
-        fresh = _badge(row, False, unicode)
-        out.append(_paint(lead + pad_cell(forecast, forecast_w) + " " + fresh, _quota_ink(row), color))
+        forecast = ellipsize(_forecast(row, now, tz, width < 100), forecast_w, False)
+        fresh = _badge(row)
+        out.append(lead + pad_cell(forecast, forecast_w) + " " + fresh)
     return out
 
 
@@ -199,7 +184,6 @@ def _wrap(line: str, width: int) -> list[str]:
     """Wrap evidence instead of dropping pools, asks or alerts; count display cells."""
     if visible_len(line) <= width:
         return [line]
-    # Wrapping happens before adding colour, so no escape is split.
     out: list[str] = []
     current = ""
     for word in textwrap.wrap(line, width=width, break_long_words=True, break_on_hyphens=False):
@@ -213,7 +197,7 @@ def _wrap(line: str, width: int) -> list[str]:
     return out
 
 
-def _credit_lines(items: list[Obj], read_at: float, color: bool, unicode: bool, alerts: list[str], tz: tzinfo | None = None) -> list[str]:
+def _credit_lines(items: list[Obj], read_at: float, alerts: list[str], tz: tzinfo | None = None) -> list[str]:
     out: list[str] = []
     for item in items:
         if item.get("kind") != "reset_credit":
@@ -229,15 +213,15 @@ def _credit_lines(items: list[Obj], read_at: float, color: bool, unicode: bool, 
             line += f"; expiry {expiry} (in {human_duration(max(0, exp - read_at))})"
         if state != "MEASURED":
             word = "stale" if state == "STALE" else "unknown"
-            glyph = ("△" if word == "stale" else "◌") if unicode else ("~" if word == "stale" else "?")
-            line += f"; {glyph} {word} {_badge(QuotaRow(item, read_at), False, unicode)}"
+            glyph = "~" if word == "stale" else "?"
+            line += f"; {glyph} {word} {_badge(QuotaRow(item, read_at))}"
         out.append(line)
         if exp is not None and 0 <= exp - read_at < 72 * 3600 and isinstance(count, int) and count > 0:
             alerts.append(f"{peer} {expiry} in {human_duration(exp - read_at)}")
     return out
 
 
-def _activity_lines(items: list[Obj], limit: int, color: bool) -> list[str]:
+def _activity_lines(items: list[Obj]) -> list[str]:
     latest: dict[str, Obj] = {}
     for item in items:
         if item.get("kind") != "activity":
@@ -260,10 +244,10 @@ def _ask_lines(report: DiagnosticReport, items: list[Obj]) -> list[str]:
             continue
         out.append(f"Asks {strip_controls(p.get('peer'))} {strip_controls(p.get('last_status') or 'unknown')} "
                    f"{human_duration(report_number(p.get('last_age_seconds')))} ago, took {human_duration(report_number(p.get('last_seconds')))}")
-    return out if out else _activity_lines(items, 0, False)
+    return out if out else _activity_lines(items)
 
 
-def _probe_line(items: list[Obj], refresh: Obj | None) -> str:
+def _probe_line(items: list[Obj]) -> str:
     from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL
 
     peers: dict[str, str] = {}
@@ -291,45 +275,25 @@ def _probe_line(items: list[Obj], refresh: Obj | None) -> str:
                 key = (float("inf"), "", 1)
         if peer not in latest or key >= latest[peer]:
             latest[peer], peers[peer] = key, outcome
-    for probe in object_items((refresh or {}).get("probes")):
-        peer = strip_controls(probe.get("peer") or probe.get("subject_ref") or "?")
-        status = strip_controls(probe.get("status") or "?")
-        reason = probe.get("reason")
-        if reason == QUOTA_PROBE_LOAD_DELAY:
-            peers[peer] = QUOTA_PROBE_LOAD_LABEL
-        else:
-            peers[peer] = f"ERR({strip_controls(reason or 'unknown')})" if status == "ERR" else status
     return "Probes " + (" ".join(f"{peer}:{status}" for peer, status in sorted(peers.items())) or "outcomes unavailable")
 
 
-def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = False, unicode: bool = True,
-                db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
-                interval: float | None = None, refresh_every: int | None = None, top_streams: int = 3, recent_asks: int = 3,
-                tz: tzinfo | None = None, store_path: str = "", store_source: str = "", store_note: str = "",
-                show_quota_age: bool = False) -> str:
-    """A-G frame; caller supplies terminal capabilities. No collection or cursor controls.
-
-    Plain and rich share decisions. Width/clock changes only affect layout,
-    countdowns and evaluated freshness, never the measurement-time PACE/ETA.
-    """
+def render_view(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None = None,
+                store_path: str = "", store_source: str = "", store_note: str = "") -> str:
+    """Render a plain-text diagnostic snapshot."""
     width = max(1, width)
-    color = color and "NO_COLOR" not in os.environ
     items = object_items(section_data(report, "observations").get("items"))
     rows = quota_rows(items, object_items(section_data(report, "resource_pools").get("pools")), report.read_at)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M:%S%z" if width >= 100 else "%Y-%m-%d %H:%M%z")
     tail = f" ({strip_controls(store_source)})" if store_source else ""
-    if cycle is not None:
-        tail += f" c{cycle}"
-        if next_refresh_in is not None and next_refresh_in >= 0:
-            tail += f" next: {human_duration(next_refresh_in)}"
     # #338: the full resolved store path; a narrow terminal wraps it instead of truncating it.
-    header = f"PeerHub {strip_controls(report.status)} {when} " + strip_controls(store_path or db_name or "workspace") + tail
+    header = f"PeerHub {strip_controls(report.status)} {when} " + strip_controls(store_path or "workspace") + tail
     threats = [r for r in rows if r.projection["state"] == "threat"]
     first = min(threats, key=lambda r: r.projection["exhaustion_at"] or float("inf")) if threats else None
     earliest_at = cast(float, first.projection["exhaustion_at"]) if first is not None else None
     exhausted = ", ".join(f"{r.peer}/{r.pool}" for r in rows if r.projection["state"] == "exhausted")
     credit_alerts: list[str] = []
-    credits = _credit_lines(items, report.read_at, False, unicode, credit_alerts, tz)
+    credits = _credit_lines(items, report.read_at, credit_alerts, tz)
     summary = threat_summary(rows)
     if summary["state"] == "unknown":
         oldest = summary["oldest_stale_seconds"]
@@ -353,40 +317,17 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
         alert += f"; exhausted {exhausted}"
     if credit_alerts:
         alert += "; credit expiry<72h " + ", ".join(credit_alerts)
-    lines = [_paint(line, CYAN, color) for line in _wrap(header, width)]
-    if show_quota_age:
-        from peerhub.extensions.diag_quota import quota_stale_line
-        from peerhub.extensions.observation_model import oldest_measured_quota_age
-
-        if notice := quota_stale_line(oldest_measured_quota_age(items)):
-            lines.extend(_wrap(notice, width))
-    lines += [_paint(line, YELLOW, color) for line in _wrap(strip_controls(store_note), width)] if store_note else []
-    lines += [_paint(line, RED if threats or exhausted else YELLOW if credit_alerts else '', color) for line in _wrap(alert, width)]
-    # Wrap before adding colour so no escape sequence can be split.
-    table = _quota_table(rows, width, False, unicode, now=report.read_at, tz=tz)
-    lines.append(table[0])
-    for row, line in zip(rows, table[1:]):
-        lines.append(_paint(line, _quota_ink(row), color))
+    lines = _wrap(header, width)
+    if store_note:
+        lines.extend(_wrap(strip_controls(store_note), width))
+    lines.extend(_wrap(alert, width))
+    lines.extend(_quota_table(rows, width, now=report.read_at, tz=tz))
     for line in [*credits, *_ask_lines(report, items)]:
         lines.extend(_wrap(line, width))
-    probe = _probe_line(items, refresh)
+    probe = _probe_line(items)
     if report.error:
         probe += f"; diagnostic ERR({strip_controls(report.error)})"
-    lines.extend(_paint(line, RED if "ERR(" in probe or "TIMEOUT" in probe else "", color)
-                 for line in _wrap(probe, width))
-    legend = "PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit"
-    if len(legend) > width:
-        legend = "PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit"
-    lines.append(ellipsize(legend, width, unicode))
+    lines.extend(_wrap(probe, width))
+    legend = "PACE + = faster than even | forecasts are conditional window-average"
+    lines.append(ellipsize(legend, width, False))
     return "\n".join(lines)
-
-
-def format_frame(report: DiagnosticReport, view: str, *, color: bool = False, unicode: bool = True, width: int = 100,
-                 db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
-                 interval: float | None = None, refresh_every: int | None = None,
-                 store_path: str = "", store_source: str = "", store_note: str = "", show_quota_age: bool = False) -> str:
-    """Both styles use A-G; plain always emits ASCII with zero escapes."""
-    return render_view(report, width=width, color=color if view == "rich" else False,
-                       unicode=unicode if view == "rich" else False, db_name=db_name, cycle=cycle, refresh=refresh,
-                       next_refresh_in=next_refresh_in, interval=interval, refresh_every=refresh_every,
-                       store_path=store_path, store_source=store_source, store_note=store_note, show_quota_age=show_quota_age)

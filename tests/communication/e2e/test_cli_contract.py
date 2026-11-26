@@ -53,7 +53,7 @@ def test_command_reference_matches_the_parser_inventory():
 
 
 @pytest.mark.parametrize(("command", "option"), [
-    ("ask", "--final-only"), ("batch run", "--response-task"), ("diag", "--compact"),
+    ("ask", "--final-only"), ("batch run", "--response-task"),
 ])
 def test_output_flag_is_documented_in_reference_and_help(command, option, capsys):
     reference = (ROOT / "docs" / "commands.md").read_text(encoding="utf-8")
@@ -512,9 +512,8 @@ def test_root_help_and_bad_invocations(capsys):
     assert r.returncode == 2 and "Traceback" not in r.stderr  # real process, not only in-process
 
 
-@pytest.mark.parametrize("command", ["monitor", "diag"])
-def test_dashboard_help_documents_output_capabilities_and_cadence(capsys, command):
-    code, out, err = run(capsys, "unused.db", command, "--help")
+def test_monitor_help_documents_output_capabilities_and_cadence(capsys):
+    code, out, err = run(capsys, "unused.db", "monitor", "--help")
     help_text = " ".join(out.split())
     assert code == 0 and not err
     assert all(text in help_text for text in ("TTY", "VT", "non-TTY", "every N s", "1 Hz", "without escapes"))

@@ -11,11 +11,11 @@ Updated: 2026-11-27
 
 ## Recent flow (newest first, at most 5)
 
+- 2026-11-27 Scope decision: Diag is one-shot. Use `monitor` to watch and `diag --plan --json` for the full plan.
 - 2026-11-27 #491: Release flow dispatches full-matrix CI when the main push leaves the version unchanged.
 - 2026-11-27 v0.26.19 (#490): Fixed just-reset short windows, RUNNING totals past the detail cap, expanded QUOTA rank and a flaky cc adapter test (#488 follow-ups).
 - 2026-11-26 v0.26.19 (#489): Added a requirements registry and alert-code lessons, set the release review bar to 80 and aligned monitor billing and plan gaps.
 - 2026-11-26 #487: Release flow polls for a new draft before verifying it to tolerate a lagging release list (#486).
-- 2026-11-26 v0.26.18 (#485): Fixed PACE on unused windows, made it two decimals throughout and exposed `left_pct` and `pace_pt` in compact plan JSON.
 
 ## Next (ordered, at most 8)
 

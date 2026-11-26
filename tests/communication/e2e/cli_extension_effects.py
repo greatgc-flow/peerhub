@@ -180,15 +180,6 @@ def diag_plan_filter_effect(e, option):
         result = e.j(db, "diag", "--plan", option, baseline["pools"][0]["peer"] + "-other")
         assert baseline["pools"] and result["pools"] == []
         return
-    if option == "--compact":
-        compact = e.j(db, "diag", "--plan", "--compact")
-        (row,) = compact["pools"]
-        (full,) = baseline["pools"]
-        assert row["action"] == full["action"] and row["binding"] == full["binding"]
-        assert compact["load"]["active"] == baseline["load"]["active"]
-        assert "health" in full and "health" not in row
-        return
-
     alternate = e.fresh()
     ObservationStore(alternate)
     pool, peer, remaining = "alternate-5H", "alternate-peer", 0.25
@@ -274,29 +265,6 @@ def session_selector_effect(e, option):
             assert exact["session"]["mode"] == "resumed"
 
 
-def diag_live(e, option):
-    from peerhub.extensions.observation import ObservationStore
-    db = e.fresh()
-    ObservationStore(db)
-    if option == "--view":
-        seed_view_pool(db)
-        rich_code, rich, _ = e.run(db, "diag", "--view", "rich")
-        plain_code, plain, _ = e.run(db, "diag", "--view", "plain")
-        assert rich_code == plain_code == 0
-        assert_view_glyph_effect(rich, plain)
-        assert_vt_view_effect(e, db, "diag")
-        return
-    pauses = []
-    from peerhub.extensions.diag_watch import dashboard_snapshots
-    def frames(path, **kw):
-        return dashboard_snapshots(path, **kw, sleep=pauses.append)
-    with patch("peerhub.extensions.diag_watch.dashboard_snapshots", frames):
-        code, out, _ = e.run(db, "diag", "--live", "--json", "--cycles", "2", "--interval-seconds", ".125")
-    assert code == 0 and len(out.splitlines()) == 2
-    assert pauses == [.125]
-    assert all(json.loads(line)["status"] == "OK" for line in out.splitlines())
-
-
 def seed_view_pool(db):
     from peerhub.extensions.observation import ObservationStore
     from tests.communication.e2e.test_cli_diag_quota import seed
@@ -308,26 +276,17 @@ def seed_view_pool(db):
     ])
 
 
-def assert_view_glyph_effect(rich, plain, *, monitor=False):
+def assert_view_glyph_effect(rich, plain):
     assert rich != plain
-    if monitor:
-        from peerhub.cli.monitor_layout import RICH_GLYPHS
+    from peerhub.cli.monitor_layout import RICH_GLYPHS
 
-        rules = tuple(f"{glyphs['rule'] * 2} POOLS " for glyphs in RICH_GLYPHS.values())
-        assert any(line.startswith(rules) for line in rich.splitlines())
-        assert any(line.startswith("POOLS ") for line in plain.splitlines())
-        assert "\x1b" not in rich and "\x1b" not in plain
-        return
-    assert "█" in rich and "░" in rich
-    assert "█" not in plain and "░" not in plain
-    assert "#" in plain and "[" in plain
-    for out in (rich, plain):
-        assert "PEER" in out and "FORECAST" in out and "Threats: unknown" in out
-        assert "view-5H" in out and "50%" in out
-        assert "\x1b" not in out  # redirected output never emits colour/cursors
+    rules = tuple(f"{glyphs['rule'] * 2} POOLS " for glyphs in RICH_GLYPHS.values())
+    assert any(line.startswith(rules) for line in rich.splitlines())
+    assert any(line.startswith("POOLS ") for line in plain.splitlines())
+    assert "\x1b" not in rich and "\x1b" not in plain
 
 
-def assert_vt_view_effect(e, db, command):
+def assert_vt_view_effect(e, db):
     """The --view help promise applies to both ASCII and rich VT frames."""
     class Output(io.StringIO):
         @property
@@ -340,20 +299,15 @@ def assert_vt_view_effect(e, db, command):
     for style in ("plain", "rich"):
         for vt in (True, False):
             output = Output()
-            args = (["--cycles", "1", "--no-probe"] if command == "monitor" else ["--live", "--cycles", "1"])
             with patch("sys.stdout", output), patch("peerhub._console.enable_vt", lambda: vt), \
                     patch.dict("os.environ", {"TERM": "xterm"}):
-                assert e.run(db, command, "--view", style, *args)[0] in (0, 4)
+                assert e.run(db, "monitor", "--view", style, "--cycles", "1", "--no-probe")[0] in (0, 4)
             text = output.getvalue()
             if vt:
                 from peerhub._console import NO_AUTOWRAP
-                wrap = NO_AUTOWRAP if command == "monitor" else ""  # row-anchored monitor frames clip, never wrap
-                assert "\x1b[?25l" + wrap + "\x1b[H\x1b[2J" in text
-                trailer = "\x1b[0m\x1b[?25h"
-                if command == "monitor":
-                    trailer += "\r\n"
-                    assert "\x1b[?1049h" not in text and "\x1b[?1049l" not in text
-                assert text.endswith(trailer)
+                assert "\x1b[?25l" + NO_AUTOWRAP + "\x1b[H\x1b[2J" in text
+                assert "\x1b[?1049h" not in text and "\x1b[?1049l" not in text
+                assert text.endswith("\x1b[0m\x1b[?25h\r\n")
             else:
                 assert "\x1b" not in text
             assert " [H" not in text
@@ -447,10 +401,10 @@ def monitor_effect(e, option):
         code, out, err = e.run(db, *argv)
         if option == "--view":
             plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")
-            assert_vt_view_effect(e, db, "monitor")
+            assert_vt_view_effect(e, db)
     if option == "--view":
         assert code in (0, 4) and plain_code in (0, 4) and "refresh:" in err and "refresh:" in plain_err
-        assert_view_glyph_effect(out, plain, monitor=True)
+        assert_view_glyph_effect(out, plain)
     elif option == "--interval-seconds":
         import pytest
         assert sleeps == pytest.approx([3.14], abs=0.1)
@@ -728,12 +682,10 @@ EFFECT["ask --final-only"] = ask_final_only_effect
 EFFECT["diag --json"] = diag_json
 EFFECT["diag --plan"] = diag_plan
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_plan_filter_effect(e, option))
-               for option in ("--peer", "--observation-db", "--compact")})
+               for option in ("--peer", "--observation-db")})
 EFFECT["diag quota --max-age-seconds"] = diag_quota_age_effect
 EFFECT["diag readiness --json"] = readiness_json
 EFFECT["diag running --json"] = running_json
-EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
-               for option in ("--live", "--interval-seconds", "--cycles", "--view")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))

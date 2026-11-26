@@ -1,4 +1,4 @@
-"""Rich monitor view: literal-output checks on a real read-only snapshot."""
+"""Plain diagnostic snapshots and shared terminal output."""
 import pytest
 
 from peerhub._console import use_color
@@ -14,7 +14,7 @@ def _report(items, tmp_path):
 
 
 def test_empty_report_is_unknown_and_ascii_safe(tmp_path):
-    out = render_view(_report([], tmp_path), width=64, unicode=False, tz=None)
+    out = render_view(_report([], tmp_path), width=64, tz=None)
     assert "FORECAST" in out and "Threats: unknown" in out
     assert all(ord(c) < 128 for c in out) and max(map(len, out.split("\n"))) <= 80
 
@@ -33,8 +33,7 @@ def test_helpers():
     assert use_color(False, {}) is False
 
 
-@pytest.mark.parametrize("color", [False, True])
-def test_untrusted_peer_pool_and_reason_cannot_emit_terminal_controls(color):
+def test_untrusted_peer_pool_and_reason_cannot_emit_terminal_controls():
     from peerhub.core.text import strip_controls
     from peerhub.cli.view import _activity_lines, _credit_lines, _quota_table
     from peerhub.extensions.diag_read_model import QuotaRow
@@ -43,17 +42,17 @@ def test_untrusted_peer_pool_and_reason_cannot_emit_terminal_controls(color):
     item = {"subject_ref": payload, "resource_pool_ref": "quota:" + payload,
             "kind": "quota", "state": "ERROR", "payload": {"reason": payload}}
     alerts = []
-    lines = _quota_table([QuotaRow(item, 0)], 100, color, False, now=0)
-    lines += _credit_lines([{**item, "kind": "reset_credit"}], 0, color, False, alerts)
+    lines = _quota_table([QuotaRow(item, 0)], 100, now=0)
+    lines += _credit_lines([{**item, "kind": "reset_credit"}], 0, alerts)
     lines += _activity_lines([{**item, "kind": "activity", "payload": {
-        "status": payload, "certainty": payload}}], 3, color)
+        "status": payload, "certainty": payload}}])
     text = "\n".join(lines + alerts)
     assert "\x1b[2J" not in text
     assert all(c not in text for c in ("\x00", "\x07", "\x85"))
     assert "peer[2Jpool" in text
 
 
-# ---------------------------------------------------------------- per-peer ask history (activity section) and live ticks
+# ---------------------------------------------------------------- per-peer ask history (activity section)
 def _asks(db, peer, statuses, took=10.0):
     import uuid
     from datetime import datetime, timezone
@@ -117,28 +116,11 @@ def test_view_shows_a_per_peer_asks_table_and_alerts_on_a_bad_last_ask(tmp_path)
     db = str(tmp_path / "v.db")
     cli(["--db", db, "peer", "register", "--peer", "ag"])
     _asks(db, "ag", ["delivered"] * 9 + ["uncertain"], took=40.0)
-    out = render_view(_render(db), width=100, unicode=False)
+    out = render_view(_render(db), width=100)
     assert "Asks ag uncertain" in out
     assert "ago, took 49s" in out
     assert "counts unavailable" not in out
     assert "conditional window-average" in out
-
-
-
-def test_advance_report_moves_clock_and_ages_without_rereading(tmp_path):
-    from peerhub.cli.app import main as cli
-    from peerhub.extensions.diag_read_model import advance_report
-
-    db = str(tmp_path / "t.db")
-    cli(["--db", db, "peer", "register", "--peer", "ag"])
-    _asks(db, "ag", ["delivered"])
-    rep = _render(db)
-    later = advance_report(rep, rep.read_at + 90)
-    assert later.read_at == rep.read_at + 90
-    assert later.sections["activity"].data["peers"][0]["last_age_seconds"] == pytest.approx(
-        rep.sections["activity"].data["peers"][0]["last_age_seconds"] + 90)
-    assert rep.sections["activity"].data["peers"][0]["last_age_seconds"] < 60  # the original snapshot is untouched
-    assert advance_report(rep, rep.read_at - 5).read_at == rep.read_at  # never moves backwards
 
 
 def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
@@ -213,7 +195,7 @@ def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkey
 
 
 @pytest.mark.platform_sensitive
-def test_frame_output_default_preserves_scrolling_for_unbounded_diag_frames(monkeypatch):
+def test_frame_output_default_preserves_scrolling(monkeypatch):
     import io
     from peerhub._console import FrameOutput
 
@@ -225,8 +207,7 @@ def test_frame_output_default_preserves_scrolling_for_unbounded_diag_frames(monk
     monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
     monkeypatch.setenv("TERM", "xterm")
-    # diag --live does not cap its frame to the screen height. It must retain
-    # CRLF/scrollback, rather than clamping all overflowing rows onto the bottom.
+    # Unanchored frames retain CRLF and can scroll when they exceed the terminal height.
     lines = [f"diagnostic row {row}" for row in range(40)]
     sink = FrameOutput()
     try:
@@ -320,10 +301,10 @@ def test_probe_errors_have_their_own_line_without_a_pool():
 
     item = {"subject_ref": "cc", "kind": "quota", "state": "ERROR", "payload": {"reason": "claude_usage_timeout"}}
     assert quota_rows([item], [], 0) == []
-    assert _probe_line([item], None) == "Probes cc:ERR(claude_usage_timeout)"
+    assert _probe_line([item]) == "Probes cc:ERR(claude_usage_timeout)"
 
 
-def test_dashboard_flags_are_honoured_or_rejected_never_silently_ignored(tmp_path, capsys):
+def test_parent_json_flag_applies_to_quota(tmp_path, capsys):
     import json as _json
 
     from peerhub.cli.app import main as cli
@@ -333,11 +314,6 @@ def test_dashboard_flags_are_honoured_or_rejected_never_silently_ignored(tmp_pat
     capsys.readouterr()
     assert cli(["--db", db, "diag", "--json", "quota"]) in (0, 5)  # parent --json is no longer lost
     assert _json.loads(capsys.readouterr().out)["schema_version"] == "1.0"
-    for argv in (["diag", "--view", "rich", "health"],):
-        with pytest.raises(SystemExit) as exc:
-            cli(["--db", db, *argv])
-        assert exc.value.code == 2
-    assert "diag" in capsys.readouterr().err
 
 
 def test_diag_health_reports_how_the_store_was_chosen(tmp_path, capsys):
@@ -397,7 +373,7 @@ def test_render_view_shows_eta_projection_and_header_threat(tmp_path):
     ))
 
     rep = ReadonlyDiag(db).render(["peers", "streams", "resource_pools", "observations"], read_at=t0 + 7200.0)
-    out = render_view(rep, width=100, unicode=False, store_path=db, store_source="explicit")
+    out = render_view(rep, width=100, store_path=db, store_source="explicit")
     assert "(explicit)" in out
     assert "Threats: 1 threat - earliest cx/pool-threat" in out
     assert "(in 30m)" in out
@@ -409,12 +385,11 @@ def test_render_view_shows_eta_projection_and_header_threat(tmp_path):
 
 def test_header_korean_filename_does_not_split():
     from peerhub._console import visible_len
-    from peerhub.cli.view import format_frame
     from peerhub.extensions.diag import DiagnosticReport
 
     rep = DiagnosticReport("OK", 1000000.0, {}, {})
     # Width 45 with a Korean filename: visible_len exceeds character count
-    frame = format_frame(rep, "plain", width=45, store_path="D:/workspace/한국어.db", store_source="explicit")
+    frame = render_view(rep, width=45, store_path="D:/workspace/한국어.db", store_source="explicit")
     lines = frame.splitlines()
     header = lines[:next(i for i, line in enumerate(lines) if line.startswith("Threats"))]  # #338: wraps, never truncates
     assert header[0].startswith("PeerHub OK")

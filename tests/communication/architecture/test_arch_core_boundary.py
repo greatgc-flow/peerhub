@@ -302,7 +302,7 @@ def test_arch_005_core_identity_is_not_runtime_identity(harness):
 
 # ----------------------------------------------------------------------------- extension independence (composition root = peerhub/cli)
 _OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py", "quota_probes", "quota_types.py",
-                     "diag.py", "diag_quota.py", "diag_read_model.py", "diag_watch.py", "schema_guard.py",
+                     "diag.py", "diag_quota.py", "diag_read_model.py", "schema_guard.py",
                      "quota_projection.py", "quota_read_model.py", "quota_windows.py", "delivery_reads.py")
 _ALLOWED_EXTENSION_IMPORTS = {"peerhub.extensions.observation", "peerhub.extensions.observation_model", "peerhub.extensions.quota_types",
                               "peerhub.extensions.schema_guard", "peerhub.extensions.diag", "peerhub.extensions.quota_probes",

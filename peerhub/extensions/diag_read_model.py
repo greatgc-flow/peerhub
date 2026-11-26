@@ -501,50 +501,13 @@ def plan_gaps(pools: list[_PlanPool]) -> PaceGaps:
 
 def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
               load: Mapping[str, object] | None = None,
-              profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset(),
-              compact: bool = False) -> dict[str, object]:
-    """Project the full or compact JSON plan from the same stored snapshot."""
+              profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset()) -> dict[str, object]:
+    """Project the JSON plan from the stored snapshot."""
     pools = [pool for pool in plan_pools(report, profiles_by_pool=profiles_by_pool)
              if not peers or pool[0] in peers]
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
                                "store_selection": dict(store_selection)}
-    if compact:
-        fields = ("peer", "pool", "resource_pool_ref", "left_pct", "pace_pt", "action", "binding", "reason",
-                  "resets_in_seconds")
-        data["pools"] = [{**{field: row[field] for field in fields},
-                          "effective_reset_in_seconds": health["reset_in_seconds"]}
-                         for _, row, health in pools]
-    else:
-        data.update(legend=PLAN_LEGEND, pools=[row for _, row, _ in pools], gaps=plan_gaps(pools))
+    data.update(legend=PLAN_LEGEND, pools=[row for _, row, _ in pools], gaps=plan_gaps(pools))
     if load is not None:
         data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
     return data
-
-
-def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
-    """The same snapshot as seen `now - read_at` seconds later: clock, evidence ages and last-ask ages move, nothing is re-read."""
-    import copy
-    from dataclasses import replace
-
-    dt = max(0.0, now - report.read_at)
-    sections = dict(report.sections)
-    obs = sections.get("observations")
-    if obs is not None:
-        data = copy.deepcopy(obs.data)
-        for it in cast("list[dict[str, object]]", data.get("items") or []):
-            age = it.get("age_seconds")
-            if isinstance(age, (int, float)) and not isinstance(age, bool):
-                it["age_seconds"] = age + dt
-                ttl = report_number(it.get("ttl_seconds"))
-                if it.get("state") == "MEASURED" and ttl is not None and age + dt >= ttl:
-                    it["state"] = "STALE"
-        sections["observations"] = replace(obs, data=data)
-    act = sections.get("activity")
-    if act is not None:
-        data = copy.deepcopy(act.data)
-        for p in cast("list[dict[str, object]]", data.get("peers") or []):
-            age = p.get("last_age_seconds")
-            if isinstance(age, (int, float)) and not isinstance(age, bool):
-                p["last_age_seconds"] = age + dt
-        sections["activity"] = replace(act, data=data)
-    return replace(report, read_at=report.read_at + dt, sections=sections)

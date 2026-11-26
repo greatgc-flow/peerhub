@@ -32,7 +32,7 @@ def render_guide() -> str:
         f"Peer: cc/cx for code and files (sandbox enforced); ag for drafts with content inline (always --writable, not enforced); {'/'.join(API_PEER_KINDS)} = API credits, text only.",
         "Tier: lowest that fits: standard=bulk, effort=code and routine review, deepthink=design and final check.",
         "Models: underused tops (cx.astra, ag.neon, ag.argon, cc.fable) for design, review, final checks; vary model/effort; different model per vote.",
-        "Quota (AI): peerhub diag --plan = pools, load, RAM/CPU (stale: observation refresh); monitor for humans.",
+        "Quota (AI): peerhub diag --plan each turn. If stale, run observation refresh. Use monitor for humans.",
         "Stream: one --stream per task; reuse only for follow-ups/reviews on ONE diff; new task = new stream.",
         f"Votes: routine check = ONE reviewer; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. All run FRESH, even if a stream name is given; facts inline. Reply VERDICT / BLOCKERS / NITS, <= 300 tokens (peerhub explain {vote['id']}).",
         f"Batch: peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run (checks profiles, no calls). Execution spends quota. "

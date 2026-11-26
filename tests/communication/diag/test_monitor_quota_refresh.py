@@ -190,18 +190,14 @@ def test_monitor_quota_age_uses_measured_pool_readings(quota_age_store, groups, 
     (3780, "quota 1h old"), (570, None), (None, "quota: no reading"),
 ])
 def test_diag_quota_age_uses_measured_pool_readings(quota_age_store, expected_notice):
-    from peerhub.cli.view import render_view
-    from peerhub.extensions.diag import ReadonlyDiag
     from peerhub.extensions.diag_quota import quota_report
 
     report = quota_report(__file__, read_at=quota_age_store)
     rows = format_quota_table(report).splitlines()
-    snapshot = ReadonlyDiag(__file__).render(["resource_pools", "observations"], read_at=quota_age_store)
-    live_rows = render_view(snapshot, show_quota_age=True).splitlines()
     if expected_notice is None:
-        assert rows[0].startswith("quota/rate-limit evidence") and live_rows[1].startswith("Threats:")
+        assert rows[0].startswith("quota/rate-limit evidence")
     else:
-        assert rows[0] == live_rows[1] == f"{expected_notice} -> peerhub observation refresh"
+        assert rows[0] == f"{expected_notice} -> peerhub observation refresh"
     assert any("UNKNOWN" in row and "(no measurement)" in row for row in rows)
 
 
@@ -362,7 +358,7 @@ def test_live_watch_rechecks_after_acquiring_guard(monkeypatch):
 
 
 @pytest.mark.parametrize("command", [["monitor", "--snapshot", "--group", "capacity"],
-                                     ["diag", "quota"], ["diag", "--live", "--cycles", "1"]])
+                                     ["diag", "quota"], ["diag"]])
 def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
     from peerhub.extensions.diag import DiagnosticReport, Section
 
@@ -379,7 +375,8 @@ def test_snapshot_and_diag_never_refresh_on_a_tty(monkeypatch, command):
     })
     monkeypatch.setattr("peerhub.extensions.diag.ReadonlyDiag.render", lambda *a, **kw: rep)
     assert main(["--db", __file__, *command]) == 0
-    assert "quota: no reading -> peerhub observation refresh" in terminal.getvalue()
+    expected = "Threats: unknown" if command == ["diag"] else "quota: no reading -> peerhub observation refresh"
+    assert expected in terminal.getvalue()
 
 
 def test_automatic_collection_retries_only_the_timed_out_peer(monkeypatch):
@@ -442,7 +439,7 @@ def test_busy_quota_timeout_has_a_scaled_deadline_and_a_display_reason(monkeypat
     assert deadlines == [10 * BUSY_PROBE_TIMEOUT_FACTOR]
     (observation,) = result["observations"]
     assert observation["payload"]["reason"] == QUOTA_PROBE_LOAD_DELAY
-    assert "cc:delayed by load" in _probe_line([observation], None)
+    assert "cc:delayed by load" in _probe_line([observation])
     monitor_item = _reading(10, pool_ref=None, state="ERROR", reason=QUOTA_PROBE_LOAD_DELAY)
     for expanded in (False, True):
         screen = monitor_view.render_grouped_frame(_frame([monitor_item]), expand=expanded)

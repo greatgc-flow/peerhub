@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import sys
 from copy import copy
@@ -36,27 +35,16 @@ class _DiagRunningHelpFormatter(argparse.HelpFormatter):
 
 def register_diag_parser(subparsers: Subparsers) -> None:
     diag_parser = subparsers.add_parser("diag", help="Read-only, low-token diagnostics for AI agents (humans use `peerhub monitor`)")
-    diag_parser.description = "Read-only, low-token diagnostics for AI agents; `diag --plan` is the one command to size parallel work. Humans use `peerhub monitor`."
+    diag_parser.description = "Read-only, one-shot diagnostics for AI agents. Run `diag --plan` once per turn to size parallel work. Humans use `peerhub monitor`."
     diag_parser.add_argument("--json", action="store_true")
-    diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence (a human fallback: `peerhub monitor` is the human screen)")
-    diag_parser.add_argument("--interval-seconds", type=float, default=2,
-                             help="Live snapshot interval in positive seconds (default %(default)s)")
-    diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain",
-                             help="Dashboard style for ordinary and live snapshots. The plan uses its own text layout. With --live, snapshots every N s "
-                                  "(a one-second interval targets 1 Hz). A TTY with VT overwrites in place. A non-TTY or a terminal "
-                                  "without VT appends snapshots without escapes.")
-    diag_parser.add_argument("--cycles", dest="count", type=int, default=0,
-                             help="Number of live snapshots (default %(default)s, watch until interrupted)")
     diag_parser.add_argument("--plan", action="store_true",
                              help="Per-pool spend/hold/rest/blocked with target %%/h until reset, from stored observations only (no refresh)")
-    diag_parser.add_argument("--compact", action="store_true",
-                             help="With --plan --json, show pool left %%, PACE, actions, limiting gates, resets and current load")
     diag_parser.add_argument("--peer", dest="plan_peers", action="append", metavar="PEER",
                              help="With --plan, show only these subjects (exact match, repeatable)")
     diag_parser.add_argument("--observation-db", dest="plan_obs_db", metavar="PATH",
                              help="With --plan, read observations from this other workspace database (read-only, never created). "
                                   "Load still comes from the selected store.")
-    diag_parser.epilog = "Examples: peerhub diag --json | peerhub diag --live | peerhub monitor (refreshes quota when due on a TTY by default)"
+    diag_parser.epilog = "Examples: peerhub diag --json | peerhub diag --plan --json | peerhub monitor"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
 
     d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
@@ -111,26 +99,9 @@ def _nonnegative_seconds(value: str) -> int:
     return seconds
 
 
-def _reject_dashboard_flags_on_subcommand(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    """Dashboard-only flags must not be accepted and silently ignored by a diag subcommand."""
-    if args.plan and args.view != "plain":
-        parser.error("diag --view rich applies to the dashboard")
-    if args.action is None:
-        return
-    if args.view != "plain":
-        parser.error("diag --view applies to the dashboard, not to diag subcommands")
-
-
 def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    _reject_dashboard_flags_on_subcommand(parser, args)
-    if args.action is not None and (args.live or args.count or args.interval_seconds != 2):
-        parser.error("--live/--cycles/--interval-seconds apply to the dashboard, not diag subcommands")
-    if not args.live and (args.count or args.interval_seconds != 2):
-        parser.error("--cycles/--interval-seconds require --live")
-    if args.plan and (args.live or args.action is not None):
-        parser.error("--plan is a one-shot snapshot; it cannot be combined with --live or diag subcommands")
-    if args.compact and not (args.plan and args.json):
-        parser.error("--compact requires --plan --json")
+    if args.plan and args.action is not None:
+        parser.error("--plan applies to diag without a subcommand")
     if not args.plan and (args.plan_peers is not None or args.plan_obs_db is not None):
         parser.error("diag --peer and --observation-db require --plan")
     from peerhub.cli.store_select import env_override_note, report_missing_store
@@ -169,7 +140,7 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
                 profiles_by_pool.setdefault(pool, []).append(name)
         profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
         if args.json:
-            data = plan_data(rep, store, load, profiles_by_pool, peers=peers, compact=args.compact)
+            data = plan_data(rep, store, load, profiles_by_pool, peers=peers)
             plan_output = json.dumps(data, separators=(",", ":"), ensure_ascii=True)
         else:
             plan_output = render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
@@ -179,32 +150,20 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         print(plan_output, flush=True)
         return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4
     if args.action is None:
-        from peerhub.extensions.diag_watch import dashboard_snapshots
-        from peerhub._console import FrameOutput, use_color
-        from peerhub.cli.view import format_frame
+        from peerhub._console import FrameOutput
+        from peerhub.cli.view import render_view
         from peerhub.extensions.diag_read_model import dashboard_data
-        code = 0
-        output = FrameOutput(interactive=not args.json, overwrite=args.live)
-        try:
-            for rep in dashboard_snapshots(args.db, interval_s=args.interval_seconds,
-                                            count=args.count if args.live else 1):
-                if args.json:
-                    data = dashboard_data(rep)
-                    data["store_selection"] = store  # #338, additive
-                    print(json.dumps(data, indent=None if args.live else 2, ensure_ascii=True), flush=True)
-                else:
-                    output.write(format_frame(rep, args.view, color=use_color(output.vt, os.environ),
-                                              width=output.width(), store_path=store["path"],
-                                              store_source=store["source"], store_note=store_note, show_quota_age=args.live))
-                code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
-                        else 0 if rep.status == "OK" else 4)
-                if code:
-                    break
-        except KeyboardInterrupt:
-            return code
-        finally:
-            output.close()
-        return code
+
+        rep = ReadonlyDiag(args.db).render(["peers", "streams", "resource_pools", "observations"])
+        if args.json:
+            data = dashboard_data(rep)
+            data["store_selection"] = store
+            print(json.dumps(data, indent=2, ensure_ascii=True), flush=True)
+        else:
+            print(render_view(rep, width=FrameOutput.width(), store_path=store["path"],
+                              store_source=store["source"], store_note=store_note), flush=True)
+        return (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
+                else 0 if rep.status == "OK" else 4)
     if args.action == "readiness":
         from peerhub.extensions.diag_readiness import format_readiness, readiness_report
         from peerhub.cli.recovery_render import get_guidance

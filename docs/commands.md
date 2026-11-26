@@ -51,11 +51,11 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 ## Diagnostics and observation
 
-`peerhub diag` reads the store and committed evidence. Use `--live` for repeated reads, `--interval-seconds` to set the interval and `--cycles N` to limit the watch (default 0, until interrupted). Live JSON is one object per line. For the human dashboard, use [monitor](monitor.md).
+`peerhub diag` reads the store and committed evidence once. AI agents can run `peerhub diag --plan` once per turn. For a continuously updated terminal dashboard, use [monitor](monitor.md).
 
 | Command | Reads |
 |---|---|
-| `diag` | Read committed evidence. With `--plan`, show per-pool `spend` (PACE <= -10), `hold`, `rest` (PACE > +20 or forecast exhausts before reset) or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. The plan supports plain text and JSON. Passing `--view rich` is a usage error. |
+| `diag` | Read committed evidence. With `--plan`, show per-pool `spend` (PACE <= -10), `hold`, `rest` (PACE > +20 or forecast exhausts before reset) or `blocked`, with quota, pace, budget per hour, exhaustion/reset and live machine load. Repeat `--peer PEER` to filter. The plan supports plain text and JSON. |
 | `diag quota` | Stored quota and rate-limit evidence, filtered by `--peer`, `--pool` or `--max-age-seconds`. Missing evidence is `UNKNOWN`. |
 | `diag health` | Store selection and health, or a stream's health. |
 | `diag readiness` | Cached profile readiness. `READY` requires fresh positive verified quota and a matching terminal delivery. A pool's remaining value expires at its reset even when its observation is still fresh. |
@@ -64,7 +64,7 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. These commands exit 5 if the observation store is missing. Without an override, the selected store supplies observations. With an existing observation store and a missing selected store, `diag --plan` still reports the observations and shows the active ask count as unknown (`load.active: null` in JSON). See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing.
 
-Use `diag --plan --json --compact` for repeated plan reads. Each pool includes its identity, left percentage, PACE, action, limiting pool (`binding`), reason, own reset and effective reset after parent limits. The top-level `load` still includes lease-active asks and current machine resources.
+Use `diag --plan --json` for scripts. Each pool includes its identity, left percentage, PACE, action, limiting pool (`binding`), reason, its own reset and the effective reset after parent limits. The top-level `load` includes lease-active asks and current machine resources.
 
 | Command | Purpose |
 |---|---|
