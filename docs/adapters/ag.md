@@ -98,7 +98,7 @@ under `permissions.allow` in agy's `settings.json`; accept-edits alone does not
 approve shell commands. Prefer the narrow matching rule when shell access is
 intended. PeerHub never passes `--dangerously-skip-permissions` (#195).
 
-For a text-only task, inline the content via `--query-file` and say "no tools". Keep one task per ask and name files explicitly; a literal `*` is never expanded. When file reads are needed, ask for the file reader and leave out shell fallbacks (#406). `denied_actions` shows tool names only. Use a new stream after an empty or `denied_empty` reply and inline the content. For a prompt over the argv limit, split it or use cc/cx on a separate stream and use a new request ID for changed text. Verify Flash-tier claims against the source.
+`ag` can read files with its file reader when `-w` is inside a folder listed in agy `trustedWorkspaces` (a git worktree under a trusted root works, measured 2026-11-27). The private empty workspace is only for votes (independence, and `batch` rejects overlapping writable workspaces); inlining via `--query-file` and saying "no tools" is the reliable recipe for votes, not a capability limit. Keep one task per ask and name files explicitly; a literal `*` is never expanded. When file reads are needed, ask for the file reader and leave out shell fallbacks (#406). `denied_actions` shows tool names only. Use a new stream after an empty or `denied_empty` reply and inline the content. For a prompt over the argv limit, split it or use cc/cx on a separate stream and use a new request ID for changed text. Verify Flash-tier claims against the source.
 
 For an empty reply, check these causes before changing permissions:
 

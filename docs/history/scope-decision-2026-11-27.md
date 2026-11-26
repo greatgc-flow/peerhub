@@ -8,7 +8,7 @@ Verdicts are unanimous unless a split is shown; a split is settled by majority.
 | Item | Decision |
 |---|---|
 | Root `NOW.md` (handoff) | KEEP, simplified, peerhub first. Sections: State, Recent flow (at most 5), Next (at most 8), Rules that bite (at most 8); under 60 lines. The test checks headings, caps and the line cap. It does not pin the version (3/3): a pin forces a ceremonial edit on every bump, which is how `docs/HANDOFF.md` drifted. Engram and VerySimpleGuide adopt it after one peerhub release shows it stays accurate (3/3). |
-| Repeatable `ask --query-file` | KEEP (3/3). ag inline peers cannot read the repo, so the caller attaches `NOW.md` and the task file. |
+| Repeatable `ask --query-file` | KEEP (3/3). Serves inline asks in the private vote workspace; ag in a repo workspace reads `NOW.md` itself. |
 | `explain handoff` lesson | CUT (3/3). The `AGENTS.md` pointer already says it. |
 | Monitor watch keyboard controls (#488 item 4) | NOT MERGED (3/3). Watch mode already auto-refreshes. The interactive TUI stays in the deferred backlog. |
 | RUNNING inspection | KEEP, simplified. Each RUNNING row shows a short ask ID, and one footer line gives the command that opens an ask by ID. Compact and expand both get it (argon's blend of the per-row and footer forms). |

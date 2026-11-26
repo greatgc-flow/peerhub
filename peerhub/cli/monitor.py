@@ -248,7 +248,10 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             return 4
         errors_obj: object = payload.get("errors")
         errors = cast(dict[str, Any], errors_obj) if isinstance(errors_obj, dict) else {}
-        return 6 if "schema" in errors else 0
+        if "schema" in errors:
+            error_line("schema_version_error", "Unsupported database schema", "peerhub guide")
+            return 6
+        return 0
 
     def emit(cycle: int, phase: str, refresh: dict[str, Any]) -> int:
         payload = read_frame()

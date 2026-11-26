@@ -109,14 +109,15 @@ def test_ag_writable_hint_resolves_real_lesson(capsys, json_output):
     assert not captured.err
     assert "--writable" in captured.out
     (lesson,) = lesson_by_id(lesson_id)
-    assert lesson["id"] == lesson_id == "ag-requires-writable"
-    assert "ag execution requires --writable" in lesson["symptom"]
-    for fact in ("#140", "intentional", "read-only sandbox", "pings", "reviews", "trusted workspaces only"):
+    assert lesson_id == "ag-requires-writable"
+    assert lesson["id"] == "ag-recipe" and lesson_id in lesson["aliases"]
+    assert "ag refuses an ask without write permission" in lesson["symptom"]
+    for fact in ("--writable", "read-only sandbox", "pings", "reviews"):
         assert fact in lesson["fix"]
     if json_output:
         assert json.loads(captured.out)["lessons"] == [lesson]
     else:
-        assert captured.out.startswith(f"{lesson_id}:")
+        assert captured.out.startswith(f"{lesson['id']}:")
 
 
 @pytest.mark.parametrize("json_output", [False, True])
@@ -299,7 +300,6 @@ STATUS_SCENARIOS: dict[str, list[tuple[dict[str, Any], str]]] = {
 
 EXCEPTION_CONTROL_FLOW_ALLOWLIST: dict[str, str] = {
     "Exception": "Standard library exception base class caught in top-level app error dispatch.",
-    "KeyboardInterrupt": "User SIGINT/Ctrl+C aborts CLI command without guidance output.",
     "SystemExit": "Process exit handler; translates exit code without guidance output.",
     "ImportError": "Optional dependency loading failure caught during dynamic module import.",
     "LaunchBusyError": "Claim acquisition signals the resource gate to wait and retry without emitting a CLI error.",
