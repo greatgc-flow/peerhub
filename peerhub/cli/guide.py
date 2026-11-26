@@ -32,7 +32,7 @@ def render_guide() -> str:
     return "\n".join([
         "PeerHub guide (decisions only)",
         # CLI peers are grouped by what their sandboxes support.
-        f"Peer: cc/cx for code and files (sandbox enforced); ag for drafts with content inline (always --writable, not enforced); {'/'.join(API_PEER_KINDS)} = API credits, text only.",
+        f"Peer: cc/cx for code and files (sandbox enforced); ag for drafts and trusted -w files; votes inline (always --writable); {'/'.join(API_PEER_KINDS)} = API credits, text only.",
         "Tier: lowest that fits: standard=bulk, effort=code and routine review, deepthink=design and final check.",
         "Models: underused tops (cx.astra, ag.neon, ag.argon, cc.fable) for design, review, final checks; vary model/effort; different model per vote.",
         "Quota (AI): peerhub diag --plan each turn. If stale, run observation refresh. Use monitor for humans.",
