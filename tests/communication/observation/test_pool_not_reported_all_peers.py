@@ -205,3 +205,11 @@ def test_refresh_forwards_injected_pools_to_each_peer_and_ag_probe_stays_complet
     assert by_pool[("ag", "quota:ag:A-7D")]["state"] == "ABSENT" and by_pool[("cc", "quota:cc:F-7D")]["payload"]["reason"] == REASON
     # An ag report that is complete (with a not-reported pool) is not an incomplete probe: no drift is recorded.
     assert result["observations"][0]["payload"]["facts_report"]["checks"]["ag_pools"] == "ok"
+
+
+def test_cc_prose_sections_are_not_drift(monkeypatch):
+    """claude 2.1.33x prints a plan banner, a usage-contributions table and sign-in warnings around the windows;
+    none is usage data, so a plan without the session window still records C-5H as not reported."""
+    text = (Path(__file__).parents[1] / "fixtures" / "cc-usage-contributions.txt").read_text(encoding="utf-8")
+    res = run_cc(monkeypatch, text)
+    assert states(res) == [("C-7D", EvidenceState.MEASURED), ("F-7D", EvidenceState.MEASURED), ("C-5H", EvidenceState.ABSENT)]

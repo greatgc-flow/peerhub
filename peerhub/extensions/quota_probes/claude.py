@@ -127,7 +127,10 @@ _INLINE_USAGE = re.compile(r"([^:]+):\s*([^\s%]+)%\s+used(?:\s*[,·|]\s*|\s+)res
 _USAGE_BAR = re.compile(r"^(?:\[[=#. █▉▊▋▌▍▎▏░▒▓━─■□\-]+\]|[█▉▊▋▌▍▎▏░▒▓━─■□]+)\s*")
 _PERCENT_USED = re.compile(r"([^\s%]+)%\s+used", re.I)
 _RESET_LINE = re.compile(r"resets?\s+(.+)", re.I)
-_USAGE_CHROME = re.compile(r"usage|settings:\s+status\s+config\s+usage|esc to (?:cancel|close)", re.I)
+_USAGE_CHROME = re.compile(r"usage|settings:\s+status\s+config\s+usage|esc to (?:cancel|close)"
+                           r"|you are currently using your \w+ to power your claude code usage", re.I)
+# claude 2.1.33x: the windows end where the usage-contributions tips begin; tips and sign-in warnings are not windows.
+_USAGE_TIPS = re.compile(r"what's contributing to your usage\??", re.I)
 
 
 def _parse_claude_usage(
@@ -154,6 +157,8 @@ def _parse_claude_usage(
         line = raw_line.strip()
         if not line or _USAGE_CHROME.fullmatch(line):
             continue
+        if _USAGE_TIPS.fullmatch(line):
+            break
         heading = line.removesuffix(":").strip().casefold()
         inline = _INLINE_USAGE.fullmatch(line)
         percent = _PERCENT_USED.fullmatch(_USAGE_BAR.sub("", line, count=1))
