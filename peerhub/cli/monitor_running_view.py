@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Any, cast
 
 from peerhub.core.scalars import finite_converted_number as finite_number
+from peerhub.core.shell import format_shell_command
+from peerhub.core.text import clean_text
 from peerhub.cli.monitor_layout import (
     ACTIVITY_SNIPPET_COLS,
     RICH_GLYPHS,
@@ -60,6 +62,27 @@ def ask_split(data: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str
 def running_total(data: dict[str, Any], running: list[dict[str, Any]]) -> int:
     number = finite_number(as_dict(data.get("counts")).get("running"))
     return int(number) if number is not None and number >= 0 else len(running)
+
+
+def running_details(payload: dict[str, Any]) -> str:
+    """Unbounded plain text, so a copied command includes the complete store path and stream."""
+    activity = as_dict(as_dict(payload.get("groups")).get("activity"))
+    data = as_dict(activity.get("data"))
+    running = ask_split(data)[0]
+    if not running:
+        return ""
+    db = str(as_dict(payload.get("store_selection")).get("path") or "")
+    lines = [f"RUNNING details {len(running)}/{running_total(data, running)}"]
+    for row in running:
+        lines.append(f"{row['peer']}  {row['name']}")
+        target = row.get("_record_target")
+        if not target or not db or clean_text(db) != db:
+            lines.append("Record unavailable or identifier hidden")
+            continue
+        stream, position = target
+        lines.append(format_shell_command(["peerhub", "--db", db, "record", "read", f"--stream={stream}",
+                                           "--after", str(position - 1), "--limit", "1"]))
+    return "\n".join(lines) + "\n"
 
 
 def running_head(data: dict[str, Any], running: list[dict[str, Any]], unicode: bool,

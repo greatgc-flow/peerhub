@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from peerhub.cli.monitor_legend import MONITOR_LEGEND, POOL_LEGEND
+from peerhub.cli.monitor_keys import (
+    MAX_INTERVAL, MIN_INTERVAL, WATCH_HINT, WATCH_KEYS, ReadKey, adjusted_interval, watch_input,
+)
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.monitor_refresh import (
     MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, monitor_auto_probe, refresh_monitor_quota,
@@ -122,7 +125,7 @@ def _legacy_alias_available(version: str | None = None) -> bool:
 def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if args.view not in {"auto", "rich", "plain"}:
         parser.error("PEERHUB_MONITOR_VIEW must be auto, rich or plain")
-    if not math.isfinite(args.interval) or not args.interval > 0:
+    if not MIN_INTERVAL <= args.interval <= MAX_INTERVAL:
         parser.error("--interval-seconds must be a finite positive number")
     if args.cycles is not None and args.cycles < 0:
         parser.error("--cycles must be >= 0")
@@ -227,10 +230,12 @@ def _read_failed(payload: dict[str, Any]) -> bool:
                for group in groups.values())
 
 
+def _watch_cycles(requested: int | None) -> int:
+    return requested if requested is not None else (0 if sys.stdout.isatty() else 1)
+
+
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     validate_monitor_args(parser, args)
-    if args.cycles is None:
-        args.cycles = 0 if sys.stdout.isatty() else 1
     legacy = bool(getattr(args, "legacy", False))
     schema = getattr(args, "schema_version", None) or ("1.1" if legacy and args.json else "2.0")
     if args.json and schema == "1.1":
@@ -238,6 +243,7 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
             print("warning: --legacy is deprecated; use --schema-version 1.1",
                   file=sys.stderr, flush=True)
         from peerhub.cli.monitor_schema11 import run_schema_11_watch
+        args.cycles = _watch_cycles(args.cycles)
         return run_schema_11_watch(args, sleep_fn=sleep, monotonic_fn=monotonic)
     if legacy:
         print("warning: --legacy is deprecated; the grouped visual dashboard is now the default",
@@ -294,7 +300,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     from peerhub.extensions.monitor_alerts import merge_activity_frame
     from peerhub.core.schema_version import SchemaVersionError
     from peerhub._console import FrameOutput, use_color
-    output = FrameOutput(interactive=not args.json, anchor_rows=True, alternate=args.cycles == 0)
+    cycles = _watch_cycles(args.cycles)
+    output = FrameOutput(interactive=not args.json, anchor_rows=True, alternate=cycles == 0)
     auto_probe = monitor_auto_probe(args)
     effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
     color = effective_view == "rich" and use_color(output.live, os.environ)
@@ -351,7 +358,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                                              nearest_store=get_nearest_store()))
         return read_code(payload)
 
-    def redraw(state: str | None = None, next_in: float | None = None, *, live_refresh: dict[str, Any] | None = None) -> None:
+    def redraw(state: str | None = None, next_in: float | None = None, *, live_refresh: dict[str, Any] | None = None,
+               hint: str = "") -> None:
         """Redraw the latest activity and age the quota facts since their full read, consistently in line 1 and POOLS."""
         if last_payload is None:
             return
@@ -364,14 +372,19 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         if live_refresh is not None:
             display["_live_refresh"] = live_refresh
         width, height = output.geometry()
-        output.write(_render_human_frame(display, view=effective_view, width=width,
-                                         height=_live_rows(height, alternate=output.alt_screen) if output.live else None,
-                                         color=color,
-                                         expand=expand, show_quota_notes=show_quota_notes, links=links,
-                                         nearest_store=get_nearest_store()))
+        rows = _live_rows(height, alternate=output.alt_screen) if output.live else None
+        from peerhub.cli.monitor_layout import fit_text
+        footer = fit_text(hint, width - 1, False) if hint and (rows is None or rows > 1) else ""
+        frame = _render_human_frame(display, view=effective_view, width=width,
+                                    height=rows - bool(footer) if rows is not None else None,
+                                    color=color, expand=expand, show_quota_notes=show_quota_notes,
+                                    links=links, nearest_store=get_nearest_store())
+        output.write(frame + (footer + "\n" if footer else ""))
 
-    def watch_live() -> int:
-        nonlocal last_payload
+    inspection = ""
+
+    def watch_live(read_key: ReadKey | None) -> int:
+        nonlocal last_payload, inspection
         from peerhub.cli.monitor_refresh import RefreshJob, RefreshSchedule, read_quota_readings, required_quota_pools
 
         collect = args.probe or auto_probe
@@ -385,8 +398,30 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         next_activity = next_tick if "activity" in selected else math.inf
         heartbeat = 0
         warnings: list[str] = []
+        displayed: dict[str, Any] | None = None
         try:
             while True:
+                remaining = max(0.0, min(next_tick, next_activity) - monotonic())
+                if displayed is not None and read_key is not None:
+                    action = WATCH_KEYS.get(read_key(remaining) or "")
+                    if action in ("quit", "inspect"):
+                        if action == "inspect":
+                            from peerhub.cli.monitor_running_view import running_details
+                            inspection = running_details(displayed)
+                        return 0
+                    if action == "refresh":
+                        next_read = next_tick = monotonic()
+                    elif action in ("longer", "shorter"):
+                        args.interval = adjusted_interval(args.interval, action)
+                        now = monotonic()
+                        next_tick, next_read = now, now + args.interval
+                        activity_interval = min(RUNNING_REFRESH_SECONDS, args.interval)
+                        if "activity" in selected:
+                            next_activity = now + activity_interval
+                        if args.probe:
+                            schedule.set_forced_interval(args.interval * args.collect_every, now)
+                elif remaining:
+                    sleep(remaining)
                 tick = monotonic()
                 redraw_due = tick >= next_tick
                 completed = job if redraw_due and job is not None and job.done() else None
@@ -410,7 +445,6 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                         last_payload = merge_activity_frame(last_payload, activity)
                     next_activity = tick + activity_interval
                 if not redraw_due:
-                    sleep(max(0.0, min(next_tick, next_activity) - monotonic()))
                     continue
                 now = monotonic()
                 stop = False
@@ -434,14 +468,14 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                     "next_in": schedule.next_in(now) if collect else None,
                     "peers": job.peers if job is not None else (), "elapsed": now - job_started,
                     "failed_ago": schedule.failed_ago(now), "retry_in": schedule.retry_in(now),
-                })
+                }, hint=WATCH_HINT.format(interval=args.interval) if read_key is not None else "")
+                displayed = last_payload
                 if stop:
                     return 1
                 if payload is not None and read_code(payload) == 6:
                     return 6
                 heartbeat += 1
                 next_tick = tick + MONITOR_TICK_SECONDS
-                sleep(max(0.0, min(next_tick, next_activity) - monotonic()))
         finally:
             if job is not None:
                 job.stop()
@@ -449,8 +483,9 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     if not Path(args.db).exists() and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5  # a missing store is reported before any frame, with or without --probe
     try:
-        if not args.json and args.cycles == 0 and sys.stdout.isatty():
-            return watch_live()
+        if not args.json and cycles == 0 and sys.stdout.isatty():
+            with watch_input(args.cycles is None) as read_key:
+                return watch_live(read_key)
         if args.json or sys.stdout.isatty():
             code = emit(0, "initial", {"status": "NOT_STARTED"})
             if code == 6:
@@ -493,7 +528,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             done += 1
             if code == 6:
                 return code
-            if args.cycles > 0 and done >= args.cycles:
+            if cycles > 0 and done >= cycles:
                 return code or last_refresh_code
             remaining = next_deadline - monotonic()
             if remaining > 0 and output.live:
@@ -518,6 +553,9 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         raise
     finally:
         output.close()
+        if inspection:
+            sys.stdout.write(inspection)
+            sys.stdout.flush()
 
 
 def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -601,6 +639,13 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = F
         frame = _render_human_frame(payload, view=effective_view, width=width,
                                     height=effective_height, color=color, expand=expand,
                                     show_quota_notes=show_quota_notes, links=links)
+        if tty:
+            from peerhub.cli.monitor_running_view import running_details
+            # The terminal wraps long commands naturally. Keep the final, height-bounded
+            # dashboard visible even when there are more commands than screen rows.
+            details = running_details(payload)
+            if details:
+                sys.stdout.write(details + "\n")
         sys.stdout.write(frame)
         sys.stdout.flush()
     finally:

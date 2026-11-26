@@ -12,7 +12,7 @@ they do not claim new validation or publication evidence.
 
 - Root `NOW.md` gives peers a capped, test-pinned handoff that is refreshed in the PR that changes it.
 - `peerhub ask` accepts repeated `--query-file` flags and joins the files in command-line order with one blank line between them.
-- `peerhub explain handoff` describes repo-first context for cx and inline context for ag.
+- Both terminal monitor layouts list copyable record-read commands for running asks, including inline prompts.
 
 ### Fixed
 
