@@ -7,11 +7,11 @@ Updated: 2026-11-27
 
 ## State
 
-- Released: v0.26.19 (2026-11-27). Integration branch: `main`. The 0.27.0 monitor lane implements the approved scope decision.
+- Released: v0.27.0 (2026-11-27). Branches: `main` only. In flight: none.
 
 ## Recent flow (newest first, at most 5)
 
-- 2026-11-27 Scope decision ([record](docs/history/scope-decision-2026-11-27.md)): one-shot diag, trimmed monitor flags, consolidated lessons with aliases.
+- 2026-11-27 v0.27.0: scope decision ([record](docs/history/scope-decision-2026-11-27.md)): one-shot diag, trimmed monitor and batch flags, lessons consolidated with aliases, RUNNING rows show ask IDs with `monitor open`, root NOW.md handoff, repeatable `--query-file`, ask warns on high CPU, `suggest` deprecated.
 - 2026-11-27 #491: Release flow dispatches full-matrix CI when the main push leaves the version unchanged.
 - 2026-11-27 v0.26.19 (#490): Fixed just-reset short windows, RUNNING totals past the detail cap, expanded QUOTA rank and a flaky cc adapter test (#488 follow-ups).
 - 2026-11-26 v0.26.19 (#489): Added a requirements registry and alert-code lessons, set the release review bar to 80 and aligned monitor billing and plan gaps.
@@ -19,8 +19,9 @@ Updated: 2026-11-27
 
 ## Next (ordered, at most 8)
 
-1. [#488](https://github.com/greatgc-flow/peerhub/issues/488) Integrate and verify RUNNING inspection and the monitor CLI removals.
-2. [#492](https://github.com/greatgc-flow/peerhub/issues/492) Continue the tracked follow-ups. Item 1 now uses pytest-managed scratch space for release-flow tests.
+1. Remove `peerhub suggest` (deprecated in 0.27.0; the `suggest:` hint in `diag --plan` stays).
+2. Engram and VerySimpleGuide adopt NOW.md once this file has stayed accurate for one release.
+3. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
 
 ## Rules that bite (at most 8, one line each, link the doc)
 

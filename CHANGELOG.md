@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-27
+
+Breaking: removes CLI options listed under Removed, following the [scope decision](docs/history/scope-decision-2026-11-27.md).
+
 ### Added
 
 - Root `NOW.md` gives peers a capped, test-pinned handoff that is refreshed in the PR that changes it.
