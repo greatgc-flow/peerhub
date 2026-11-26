@@ -152,6 +152,7 @@ def _unavailable(reason: str, *, json_output: bool, candidates: list[_Candidate]
 
 
 def run_suggest(args: argparse.Namespace) -> int:
+    print("Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release.", file=sys.stderr)
     from peerhub.extensions.adapters.profiles import list_profiles
 
     candidates: list[_Candidate] | None = [] if args.candidates else None

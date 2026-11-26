@@ -53,7 +53,7 @@ If either task writes, equal or nested workspaces reject the entire batch.
 Streams and request IDs derive from the batch/task IDs; no stream override exists.
 
 Reports contain identities, sessions, elapsed seconds and statuses. Use
-`--responses` or `--response-task TASK_ID` to include replies.
+`--responses` to include replies.
 
 | Status | Meaning |
 | --- | --- |
@@ -66,10 +66,7 @@ Reports contain identities, sessions, elapsed seconds and statuses. Use
 Exit 0 requires every task COMPLETED; exit 1 covers other statuses and invalid
 manifests/options. Argparse syntax errors exit 2. Omit `--json` for a compact table.
 
-`--responses` adds every COMPLETED task's reply. To select replies, repeat
-`--response-task TASK_ID` for each task you want. IDs are case-sensitive and must
-appear in the manifest. For example, use `--response-task summary --response-task review`.
-Use either option on a run. JSON adds a `response` field to each included task. Text
+`--responses` adds every COMPLETED task's reply. JSON adds a `response` field to each included task. Text
 adds a `--- TASK reply ---` block after the table, in manifest order. Replies can
 contain separator lines themselves, so use `--json` for machine parsing. Dry runs
 and tasks with other outcomes have no reply text. To read a stored reply later,
@@ -177,7 +174,7 @@ For an AI planning a parallel wave, `peerhub explain parallel-quota` summarizes 
 
 ## Suggest an ask
 
-`peerhub suggest --tier standard|effort|deepthink [--task review|code|read]` prints an ask and a reason. Put the prompt in `prompt.txt` or in `review.txt`, `code.txt` or `read.txt` with `--task`. The generated command selects the store, profile and a fresh session, and adds `--writable` for ag and for CLI peers chosen for code. `--json` returns the command as an `argv` array.
+`peerhub suggest` is deprecated, removed in the next release. Use `peerhub diag --plan` for planning. Until removal, it prints an ask and a reason, with optional candidate facts. Its behavior is otherwise unchanged.
 
 `--candidates` shows the quota evidence behind eligibility. Among enabled profiles, a measured 5-hour window must be under 90% used. A fresh provider-reported absence skips that gate. An exhausted 7-day pool excludes the profile. The lowest 7-day PACE wins among profiles with usable evidence, with ties in ag, cx, cc order. Missing or over-15-minute evidence can trigger one refresh attempt and spend quota. Candidates without usable evidence remain fallback choices marked `quota unknown`.
 
@@ -195,9 +192,8 @@ the warning. Already running tasks continue. Unavailable readings show `?` and d
 
 The JSON `cpu_busy_pct` reports system-wide CPU utilization sampled over a short interval.
 Read the load line before launching lanes, count other sessions' asks, and hold new work
-at 80% CPU or higher. A standalone ask waits up to 120 seconds if the store has other
-lease-active asks and either resource is under pressure. It starts with a warning
-when the wait expires or no other ask is active.
+at 80% CPU or higher. A standalone ask warns with the sampled load facts and proceeds
+under CPU pressure. Low RAM keeps bounded protection when other asks are active.
 
 If a provider throttles, reduce concurrency; do not reroute the same work to another peer.
 

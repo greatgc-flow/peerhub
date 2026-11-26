@@ -116,9 +116,9 @@ commands, code, and documentation.
 |---|---|
 | `batch` | Manage [parallel asks](batch.md). |
 | `batch run` | Run a flat manifest or validate it with `--dry-run`. Execution spends quota. |
-| `suggest` | Recommend a profile and print an ask command. See [suggest an ask](batch.md#suggest-an-ask) for eligibility and refresh costs. |
+| `suggest` | Deprecated, removed in the next release. Use `peerhub diag --plan`. |
 
-Add `--response-task TASK_ID` to include the reply for a completed task in the batch report. Repeat it to select multiple case-sensitive task IDs, or use `--responses` to include every completed reply. Dry runs show no replies.
+`batch run --responses` includes every completed reply in the report. Dry runs show no replies.
 
 ## Guide and explain
 

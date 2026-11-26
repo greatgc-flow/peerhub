@@ -34,6 +34,13 @@ they do not claim new validation or publication evidence.
 - Diag watch options `--live`, `--view`, `--cycles`, and `--interval-seconds`. Use `peerhub monitor` for the terminal watch or `peerhub diag --plan` for one AI planning read per turn.
 - `diag --plan --json --compact`. Use `peerhub diag --plan --json` for the full plan.
 - `peerhub explain handoff` (never released). Follow [AGENTS.md](AGENTS.md) to [NOW.md](NOW.md) and use the [query-file example](docs/commands.md#ask) for ag inline context.
+- `batch run --response-task`. Use `--responses` to include completed replies.
+
+### Changed
+
+- `ask` reports high CPU load as a warning and proceeds; RAM protection and batch admission remain.
+- `peerhub suggest` is deprecated and will be removed in the next release; use `peerhub diag --plan`.
+
 
 ## [0.26.19] - 2026-11-26
 

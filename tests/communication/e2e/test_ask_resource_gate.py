@@ -20,32 +20,28 @@ from tests.communication.fakes import FakeRuntimeTarget
 from tests.communication.harness.bridge import BridgeHarness
 
 
-@pytest.mark.parametrize("outcome", ["idle", "clears", "expires"])
-@pytest.mark.parametrize("pressure", ["cpu", "ram"])
-def test_ask_gate_waits_only_with_active_leases(monkeypatch, capsys, outcome, pressure):
-    busy = (load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT) if pressure == "cpu"
-            else load_limits.ResourceSample(ram_available_bytes=1))
-    sleeps = []
-    monkeypatch.setattr(ask_cmd, "ASK_LOAD_MAX_WAIT_SECONDS", 6)
-
-    def read_resources():
-        return load_limits.ResourceSample() if outcome == "clears" and sleeps else busy
-
-    calls = []
+def test_ask_gate_warns_on_cpu_and_proceeds_immediately(capsys):
     token = ClaimToken("workspace", 1, "owner", "cx", "stream")
+    calls = []
+    result = ask_cmd._wait_for_ask_resources(
+        lambda under_pressure: calls.append(under_pressure) or token,
+        resource_reader=lambda: load_limits.ResourceSample(cpu_busy_pct=load_limits.CPU_BUSY_WARN_PCT),
+    )
+    assert result == token and calls == [False]
+    assert "CPU load 80.0%" in capsys.readouterr().err
 
+
+def test_ask_gate_keeps_bounded_ram_protection(capsys):
+    token = ClaimToken("workspace", 1, "owner", "cx", "stream")
+    calls = []
     def acquire(under_pressure):
         calls.append(under_pressure)
-        return None if under_pressure and outcome != "idle" else token
-
-    assert ask_cmd._wait_for_ask_resources(acquire, resource_reader=read_resources,
-                                          monotonic=lambda: sum(sleeps), sleep=sleeps.append) == token
-
-    assert sleeps == {"idle": [], "clears": [3], "expires": [3, 3]}[outcome]
-    assert calls == {"idle": [True], "clears": [True, False], "expires": [True, True, False]}[outcome]
-    stderr = capsys.readouterr().err.splitlines()
-    assert sum(line.startswith("Waiting") for line in stderr) == (outcome in ("clears", "expires"))
-    assert sum(line.startswith("Warning") for line in stderr) == (outcome != "clears")
+        return None if under_pressure else token
+    assert ask_cmd._wait_for_ask_resources(
+        acquire, resource_reader=lambda: load_limits.ResourceSample(ram_available_bytes=1),
+    ) == token
+    assert calls == [True, False]
+    assert "free RAM" in capsys.readouterr().err
 
 
 def test_ask_cli_waits_for_an_active_claim_under_load(tmp_path, monkeypatch, capsys):
@@ -72,8 +68,8 @@ def test_ask_cli_waits_for_an_active_claim_under_load(tmp_path, monkeypatch, cap
     assert main(["--db", str(harness.db_path), "ask", "cx", "second prompt", "--stream", "second",
                  "--request-id", "second", "--json"]) == 0
     output = capsys.readouterr()
-    assert sleeps == [ask_cmd.ASK_LOAD_POLL_SECONDS]
-    assert "Waiting to start ask while other asks are active" in output.err
+    assert sleeps == []
+    assert "CPU load" in output.err
     result = json.loads(output.out)
     assert result["status"] == "delivered" and result["response"] == "answer"
     assert target.count("deliver") == 1
