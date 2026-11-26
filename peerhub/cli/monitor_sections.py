@@ -92,7 +92,7 @@ def billing_summary(peer: dict[str, Any]) -> str | None:
         return "billing unreconciled"
     if billing.get("status") == "ERROR":
         return "billing read error"
-    return "billing evidence" if facts else "billing unknown"
+    return "billing evidence" if facts else None
 
 
 def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,

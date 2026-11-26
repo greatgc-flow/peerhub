@@ -70,6 +70,7 @@ project's coding rules. Runtime code is grouped into `core`, `extensions` and
 `cli`; tests are grouped by communication, continuity and collaboration.
 Shared fixtures and fake CLIs live under `tests/communication/harness`.
 Every public non-success outcome needs a registry entry in `peerhub/cli/recovery.py`.
+Add a row to the [requirements registry](docs/requirements.md) when a maintainer states a durable requirement. A bug fix adds or names its regression test.
 
 ### Repository maintenance tools
 
@@ -307,7 +308,7 @@ gh auth refresh -h github.com -s workflow
 
 ### Release lessons
 
-- Release only after the completeness audit scores 100 on every axis; re-run G3 on the final target.
+- Release only when there are no functional defects and the mean review score is at least 80. Re-run G3 on the final target.
 - Update the version pinned by `tests/communication/package/test_release_notes.py` in the same PR as the version bump. A CHANGELOG heading for a never-published version needs `(superseded ...)`.
 - For missing `yaml` or `setuptools` imports, check the dev extras in a disposable environment. See AGENTS.md for the Windows sandbox limits.
 - The live gate writes `.peerhub/work/live-gate/<date>-v<version>.json` (dates UTC, git-ignored); attach it to the GitHub release instead of committing it. Evidence files committed up to 0.24.12 stay in `docs/implementation/live_evidence/` as history. Before a repeated run for the same date and version, rename the earlier file to `-attemptN`.

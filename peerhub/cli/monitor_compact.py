@@ -271,13 +271,17 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
             _, cut = fit_title(width)
     # Fields dropped from line 2 are disclosed on a line of their own, so a narrow terminal keeps the timestamp.
     header = [paint_text(title, RICH_SGR["dim"]) if paint else title]
-    if (selected_ids & {"capacity", "peers"} or "_quota_age_readings" in payload) and (notice := quota_stale_line(age)):
-        header.extend(wrap_text(notice, width))
-    if "peers" in selected_ids and not expand:
+    if expand and store.get("path"):
+        header.extend(location_lines(f"DB:{source} ({clean_text(store['path'])})", width, payload.get("_db_url")))
+    if "peers" in selected_ids:
         peers = dict_items(as_dict(as_dict(groups.get("peers")).get("data")).get("peers"))
         billing = [f"{clean_text(peer['peer_id'])} {summary}" for peer in peers if (summary := billing_summary(peer))]
         if billing:
             header.append(fit_text(sep.join(billing), width, unicode))
+    if expand and payload.get("_store_note"):
+        header.extend(wrap_text(str(payload["_store_note"]), width))
+    if (selected_ids & {"capacity", "peers"} or "_quota_age_readings" in payload) and (notice := quota_stale_line(age)):
+        header.extend(wrap_text(notice, width))
     header.extend(part for note in cast(list[str], payload.get("_quota_probe_notes", []))
                   for part in wrap_text(note, width))
     if cut and not expand:

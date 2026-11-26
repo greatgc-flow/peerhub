@@ -1510,6 +1510,7 @@
     "instruction-diet",
     "invalid-arguments",
     "monitor-accounts",
+    "monitor-alerts",
     "monitor-drift",
     "monitor-insuff",
     "monitor-probe-age",

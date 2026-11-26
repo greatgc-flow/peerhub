@@ -26,7 +26,7 @@ from peerhub.cli.monitor_layout import (
     wrap_text,
 )
 from peerhub.cli.monitor_legend import FRAME_DETAIL_ORDER, MONITOR_LEGEND
-from peerhub.cli.monitor_links import link_profiles, location_lines
+from peerhub.cli.monitor_links import link_profiles
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.monitor_quota_view import display_peer_quotas, frame_consumers, frame_pools
 from peerhub.cli.monitor_running_view import ask_split, running_total
@@ -70,8 +70,6 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
     coverage_data = as_dict(as_dict(groups.get("coverage")).get("data"))
     scope_note = "No scope evidence" if "scopes" in coverage_data and not coverage_data["scopes"] else ""
     footer = "Coverage: " + (scope_note or ("partial" if coverage_partial else "complete")) + "; peerhub explain <code>"
-    store = as_dict(payload.get("store_selection"))
-    db_line = f"DB:{clean_text(store.get('source'))} ({clean_text(store.get('path'))})" if store.get("path") else ""
     cap = as_dict(groups.get("capacity"))
     data = as_dict(cap.get("data"))
     observations, _, rows = frame_pools(payload, frame_consumers(payload))
@@ -105,22 +103,19 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
             display_groups["peers"]["data"]["plan_notes"] = {
                 peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}
     display = {**payload, "selected_groups": selected, "groups": display_groups}
-    # #338: the store path and the --db/PEERHUB_DB note wrap; a truncated path cannot name the store.
-    store_lines = [*(location_lines(db_line, max(1, width - 1), payload.get("_db_url")) if db_line else []),
-                   *(wrap_text(str(payload["_store_note"]), max(1, width - 1)) if payload.get("_store_note") else [])]
     report = as_dict(as_dict(as_dict(groups.get("peers")).get("data")).get("facts_report"))
     # Every facts_report reason is a drift reason ("ag: unknown_pool", "cc: version_drift").
     drift_peers = sorted({str(reason).split(":")[0] for reason in cast(list[object], report.get("reasons") or [])})
     if drift_peers:
         footer += "; DRIFT:" + ",".join(drift_peers)
-    return _expanded_frame(payload, display, footer, store_lines, view=view, color=color, unicode=unicode, width=width,
+    return _expanded_frame(payload, display, footer, view=view, color=color, unicode=unicode, width=width,
                            height=height, expand=expand, keep=keep)
 
 
 _PROFILE_DETAIL_GROUPS = {"peers", "execution", "sessions", "usage", "runtime"}
 
 
-def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: str, store_lines: list[str], *,
+def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: str, *,
                     view: str, color: bool, unicode: bool, width: int, height: int | None, expand: bool,
                     keep: str | None) -> str:
     """Build the header and priority sections first, then fit the expanded details."""
@@ -132,7 +127,6 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
     sep = f" {RICH_GLYPHS[unicode]['sep']} " if rich else " | "
     frame = build_compact_frame(payload, view=view, color=color, unicode=unicode, width=target, height=height, keep=keep,
                            expand=True)
-    frame.header[1:1] = store_lines
 
     lines: list[str] = []
     groups = as_dict(display.get("groups"))

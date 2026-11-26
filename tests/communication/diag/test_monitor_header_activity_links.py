@@ -22,6 +22,33 @@ from tests.communication.diag.test_monitor_plain_golden import _payload
 from tests.communication.diag.test_monitor_pool_health import frame, reading
 from tests.communication.diag.test_monitor_tree import frame_for
 
+
+@pytest.mark.parametrize("expand", [False, True], ids=["compact", "expand"])
+@pytest.mark.parametrize("view", ["plain", "rich"])
+@pytest.mark.parametrize("with_evidence", [False, True], ids=["unknown", "informative"])
+def test_billing_header_shows_only_informative_peers(expand: bool, view: str, with_evidence: bool) -> None:
+    payload = _payload([], [pool("cc", "C-7D", .63)], _store_note="Store selection note")
+    peers = payload["groups"]["peers"]["data"]["peers"]
+    peers.append({"peer_id": "unknown", "billing": {"status": "OK", "observations": []}})
+    if with_evidence:
+        peers.extend([
+            {"peer_id": "oa", "billing": {"status": "OK", "observations": [{"kind": "billing_balance"}]}},
+            {"peer_id": "ca", "billing": {"status": "OK", "observations": [
+                {"kind": "billing_usage", "status": "unreconciled"}]}},
+            {"peer_id": "ga", "billing": {"status": "ERROR", "observations": []}},
+        ])
+    lines = monitor_view.render_grouped_frame(payload, expand=expand, view=view, width=118).splitlines()
+    header_end = next(i for i, line in enumerate(lines) if "POOLS " in line)
+    billing = [line for line in lines[:header_end] if " billing " in line]
+    assert "billing unknown" not in "\n".join(lines)
+    if with_evidence:
+        assert billing == [lines[3 if expand else 2]]
+        assert billing[0].replace(" · ", " | ") == "oa billing evidence | ca billing unreconciled | ga billing read error"
+        if expand:
+            assert lines[2] == "DB:env (/w/.peerhub/core.db)"
+    else:
+        assert billing == []
+
 DOC_URL = "https://example.test/docs/monitor.md"
 OSC_LINK = re.compile(r"\x1b\]8;;([^\x1b]+)\x1b\\([^\x1b]+)\x1b\]8;;\x1b\\")
 MONITOR_DOC = Path(__file__).resolve().parents[3] / monitor_links.GUIDE_DOC

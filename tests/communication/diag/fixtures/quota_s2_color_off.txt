@@ -11,8 +11,8 @@ POOLS 8    STATE                                            LEFT      PACE(pp)  
  ag P-7H   aged   ████████████████████████████████░░░░░░░░   80% ~0m  —         —         —/2h       ?
  ag P-8H   ok     ████████████████████████████████████░░░░   90%      —         —         —/2h       ?
  ag P-4H   out    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    0%      —         —         OUT/2h     ?
-PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | MARGIN=EXH-RESET, - = early |
-EVN=even-burn remaining
+PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | MARGIN=EXH-RESET, - = early | ? =
+too little data | EVN=even-burn left
 suggest: no eligible profiles; next: peerhub observation refresh
 ── QUOTA [OK] | measured remaining | soonest exhaust: ag P-4H 0% exhausted ────────────────────────────────────────────
 PEER POOL  STATE                                            LEFT      PACE(pp)  MARGIN    EXH/RESET  FAMILY  AGE

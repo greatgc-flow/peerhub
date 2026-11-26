@@ -337,6 +337,24 @@ def test_m9_and_g_gap_order_and_single_legend_match_docs() -> None:
     assert monitor_legend.POOL_LEGEND in " ".join(Path("docs/monitor.md").read_text(encoding="utf-8").split())
 
 
+@pytest.mark.parametrize("expand", [False, True], ids=["compact", "expand"])
+@pytest.mark.parametrize("view", ["plain", "rich"])
+def test_projection_placeholder_is_explained_within_the_118_by_37_budget(expand: bool, view: str) -> None:
+    cols, rows = 118, 37
+    item = reading("ag", "G-7D", .5, 0)
+    del item["payload"]["window_started_at"]
+    screen = mv.render_grouped_frame(frame(item), width=cols, height=rows, expand=expand, view=view, unicode=False)
+    lines = screen.splitlines()
+    legend_start = next(i for i, line in enumerate(lines) if line.startswith("PACE(pp)="))
+    suggest_start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
+    assert suggest_start - legend_start == 2
+    assert "? = too little data" in " ".join(lines[legend_start:suggest_start])
+    shown = pool_cells(screen, "G-7D")
+    assert len(shown) == (2 if expand else 1)
+    assert all(cells[4] == "?" and cells[5].startswith("?/") for cells in shown)
+    assert len(lines) <= rows - monitor_layout.FRAME_TRAILING_ROWS
+
+
 def test_early_margin_when_exhaustion_and_reset_display_the_same_minute() -> None:
     pool = "G-7D"
     exhaust = 3 * DAY + 13 * HOUR + 5 * 60
