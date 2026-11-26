@@ -442,3 +442,33 @@ def test_frame_output_leaves_the_alternate_screen_on_close_only_for_anchored_fra
         text = output.getvalue()
         assert ("\x1b[?1049h" in text) is anchored and ("\x1b[?1049l" in text) is anchored
         assert text.endswith("\x1b[0m\x1b[?25h" + ("ATTN 1\n" if anchored else ""))
+
+
+@pytest.mark.platform_sensitive
+def test_frame_output_clears_and_repaints_every_row_after_a_resize(monkeypatch):
+    import io
+    import os
+    from peerhub._console import FrameOutput
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    output = Output()
+    size = [os.terminal_size((120, 30))]
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub._console.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub._console.shutil.get_terminal_size", lambda fallback=None: size[0])
+    monkeypatch.setenv("TERM", "xterm")
+    sink = FrameOutput(anchor_rows=True)
+    try:
+        sink.write("ATTN 1\npools\n")
+        output.seek(0)
+        output.truncate(0)
+        sink.write("ATTN 1\npools\n")
+        assert output.getvalue() == ""  # unchanged rows, same size: nothing is written
+        size[0] = os.terminal_size((80, 30))  # narrower: the terminal kept old cells right of column 80
+        sink.write("ATTN 1\npools\n")
+        assert output.getvalue() == "\x1b[H\x1b[2J\x1b[1;1HATTN 1\x1b[K\x1b[2;1Hpools\x1b[K\x1b[J"
+    finally:
+        sink.close()

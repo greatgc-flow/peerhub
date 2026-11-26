@@ -186,7 +186,7 @@ def test_bar_keeps_its_room_when_family_and_notes_compete(width, bar_cells):
             bar = re.search(r"[#.|]+", row)
             assert bar and len(bar[0]) == bar_cells
             assert re.search(r"claude: .*[+]\d+", row)
-        assert re.search(r"(?m)^\(C-5H n/a\)$", screen)
+        assert re.search(r"(?m)^ *\(C-5H n/a\)$", screen)
 
 
 @pytest.mark.parametrize("view,unicode", [("rich", True), ("rich", False), ("plain", False)])

@@ -484,19 +484,28 @@ def poll_agy_usage(
             except Exception:
                 pass
 
+        if reset_at_ts is not None and reset_at_ts <= 0 and remaining_frac == 1.0:
+            # An unused pool has no running window: agy reports reset_time 1970-01-01. Its window starts with the
+            # first use, so read it as a full window starting now.
+            reset_at_ts = evidence_observed_at + window_sec
+
         if reset_at_ts is None:
             malformed = True
             continue
 
         window_started_at = reset_at_ts - window_sec
 
-        measurement = UsageMeasurement(
-            quota_pool_scope=label,
-            used_fraction=float(used_frac),
-            remaining_fraction=float(remaining_frac),
-            window_started_at=window_started_at,
-            resets_at=reset_at_ts,
-        )
+        try:
+            measurement = UsageMeasurement(
+                quota_pool_scope=label,
+                used_fraction=float(used_frac),
+                remaining_fraction=float(remaining_frac),
+                window_started_at=window_started_at,
+                resets_at=reset_at_ts,
+            )
+        except ValueError:  # one unusable bucket must not drop the other pools' readings
+            malformed = True
+            continue
 
         evidence = EvidenceValue[UsageMeasurement](
             state=EvidenceState.MEASURED,
