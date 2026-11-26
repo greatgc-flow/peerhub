@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.18] - 2026-11-26
+
 ### Changed
 
 - PACE now prints two decimals everywhere (monitor, `diag`, `diag --plan`, gap line, `suggest`), from one setting (`PACE_DECIMALS`). One step is about 10 minutes of a 7-day window; one decimal was about 1h41m, so a fresh window looked frozen.
