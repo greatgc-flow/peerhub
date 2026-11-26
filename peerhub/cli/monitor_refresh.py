@@ -166,6 +166,10 @@ class RefreshSchedule:
         self._retry_at: dict[str, float] = {}
         self._failed_at: dict[str, float] = {}
 
+    def set_forced_interval(self, interval: float, now: float) -> None:
+        self._forced_interval = interval
+        self._forced_at = dict.fromkeys(self.required, now + interval)
+
     def update(self, readings: Sequence[Mapping[str, Any]], now: float) -> None:
         from peerhub.extensions.observation_model import ABSENT_FACT_REASONS
 

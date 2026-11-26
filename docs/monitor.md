@@ -16,6 +16,17 @@ that cadence and scripted cycles. `--snapshot`, `diag quota`, and `diag --live` 
 to collect and show one completed cycle.
 With `--cycles N` and `N > 0`, scripted runs keep synchronous refresh and the same output as before, while continuous TTY watch refreshes in the background.
 
+With terminal input and output, a human watch started without `--cycles` shows one footer in either layout:
+
+```text
+r/Enter refresh | q quit | +/- interval 60s | i details & exit
+```
+
+`r` or Enter reads the selected groups immediately. `+` doubles the full-read interval and `-` halves it, within
+the finite positive range accepted by `--interval-seconds`. The footer shows the current interval. A manual read
+checks committed evidence and keeps the quota collection policy, including `--no-probe` and retry cooldowns.
+`q` quits. `i` exits to the shell with the current RUNNING details ready to copy.
+
 On Windows, background quota refresh puts each probe in a Job Object before it can start children.
 Synchronous `peerhub observation refresh` also uses Job Objects for Claude and Codex account and quota probes (#453).
 Cancellation, timeouts and normal completion clean up each job even if its wrapper has already exited.
@@ -194,6 +205,13 @@ row is the elapsed time, profile, lead, the ask's first words and the stream. A 
 normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller is gone and the ask has no confirmed end),
 `!orphan` (a provider process is still alive after both the caller and wrapper exited) and `?` (liveness unknown).
 `--expand` lists every field of each sampled running ask. Both layouts count running asks beyond the detail sample.
+
+The RUNNING details list gives one plain-text `peerhub --db … record read` command per sampled running ask,
+including inline prompts and file-backed prompts. Each command selects the request's stream, the position just
+before its record (`--after`), and `--limit 1`. It still opens that same ask after newer records arrive.
+In a terminal snapshot, the list appears just above the dashboard in scrollback, where long commands can wrap
+without clipping. The heading counts listed asks against the full RUNNING count. An unavailable request record
+or a stream identifier hidden by the monitor is labeled in place of its command.
 
 Continuous terminal watch reads activity every `min(5 s, --interval-seconds)` using `RUNNING_REFRESH_SECONDS`.
 Activity rows, alerts, source status and the verdict update together, including when an activity alert clears.

@@ -309,6 +309,14 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool,
         if text_on and r["want_text"] and caller is not None and isinstance(caller.get("query_file"), str):
             row["_caller_file"] = {key: caller.get(key) for key in ("query_file", "workspace", "host")}
         if open_row:
+            from peerhub.extensions.adapters.sanitize import Sanitizer
+
+            # Inspection needs the exact stream, including long names. Never turn a
+            # redacted or normalized display label into a command for another stream.
+            raw_stream = r["stream_id"]
+            if (isinstance(raw_stream, str) and raw_stream.isprintable() and r["position"] is not None
+                    and Sanitizer(secrets).clean(raw_stream) == raw_stream):
+                row["_record_target"] = (raw_stream, r["position"])
             lease = finite_number(r["lease_sec"], overflow_is_missing=True)
             row["_lease_age_s"] = (max(0.0, now - (expires_at - lease))
                                    if state == "run" and lease is not None and lease > 0 else None)

@@ -168,7 +168,7 @@ _ACTIVITY_SQL = (
     "CASE WHEN :wsgen IS NULL THEN 1 WHEN tx.c_wsgen=:wsgen THEN 1 ELSE 0 END AS wsgen_match,"
     "scope.scope_total,tx.sup_total,tx.is_detail,tx.seq,tx.certainty,tx.invocation_generation AS claim_generation,"
     "tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
-    "tx.caller_detail,tx.provider_detail,tx.abandonment,tx.result_ok,tx.want_text,r.record_id,"
+    "tx.caller_detail,tx.provider_detail,tx.abandonment,tx.result_ok,tx.want_text,r.record_id,r.position,"
     "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.response') END AS response_type,"
     "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' "
     "THEN length(json_extract(" + _R + ",'$.response')) END END AS reply_len,"

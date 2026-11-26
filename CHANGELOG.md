@@ -8,6 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Both terminal monitor layouts list copyable record-read commands for running asks, including inline prompts.
+- Interactive monitor watches accept r or Enter to refresh, + and - to change the interval, i to inspect and exit, and q to quit.
+
 ### Fixed
 
 - Release flow dispatches the full CI matrix when the version bump landed before the candidate commit.
