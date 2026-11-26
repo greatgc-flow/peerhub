@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
@@ -291,6 +292,42 @@ def test_release_workflow_requires_exact_candidate_ci_before_live_validation():
     assert "--ignore=tests/communication/package/test_rel_matrix.py" in package["run"]
     assert generate["env"]["CI_RUN_URL"] == "${{ needs.candidate-ci.outputs.run-url }}"
     assert evidence["steps"].index(archived) < evidence["steps"].index(generate)
+
+
+def test_release_verify_and_source_version_work_without_packages_or_git(monkeypatch):
+    jobs = yaml.safe_load((ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8"))["jobs"]
+    verify = jobs["verify"]["steps"]
+    checkout = next(step for step in verify if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"].get("fetch-depth", 1) == 1
+    assert [step["run"] for step in verify if "run" in step] == ["python -m tools.traceability"]
+    build_commands = [step["run"] for step in jobs["build"]["steps"] if "run" in step]
+    version_step = next(i for i, run in enumerate(build_commands) if "source_version()" in run)
+    assert version_step < next(i for i, run in enumerate(build_commands) if "pip install" in run)
+
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setenv("GIT_DIR", str(ROOT / "peerhub/_version.py"))
+    for args in (["-m", "tools.traceability"], ["-c", "from tools.release_evidence import source_version; print(source_version())"]):
+        result = subprocess.run([sys.executable, "-E", "-S", *args], cwd=ROOT, capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0 and result.stdout.strip(), result.stderr
+
+
+def test_release_matrix_runs_the_whole_excluded_file_against_the_built_dist():
+    jobs = yaml.safe_load((ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8"))["jobs"]
+    matrix = jobs["matrix"]
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]
+    assert matrix["strategy"]["matrix"] == ci["full-matrix"]["strategy"]["matrix"]
+    test_file = "tests/communication/package/test_rel_matrix.py"
+    run = next(step for step in matrix["steps"] if "-m pytest" in step.get("run", ""))
+    report = '"junit/g4-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml"'
+    assert run["run"] == f"python -u -m pytest -q --junitxml={report} {test_file}"
+    assert run["env"]["PEERHUB_DIST_DIR"] == "${{ github.workspace }}/dist"
+    assert not run.get("if") and not run.get("continue-on-error")
+    stamp = next(step for step in matrix["steps"] if "--stamp-junit" in step.get("run", ""))
+    assert stamp["run"] == f'python -m tools.release_evidence --stamp-junit {report} --gate G4 --commit "$(git rev-parse HEAD)" --dist dist'
+    download = next(step for step in matrix["steps"] if step.get("with", {}).get("name") == "dist")
+    assert download["uses"].startswith("actions/download-artifact@") and download["with"]["path"] == "dist/"
+    assert matrix["needs"] == ["build"]
+    assert matrix["steps"].index(download) < matrix["steps"].index(run) < matrix["steps"].index(stamp)
 
 
 def test_ci_dispatch_stamps_and_uploads_source_reports_for_every_candidate_cell():

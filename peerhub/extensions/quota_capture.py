@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from peerhub.extensions.quota_probes import AccountObserved, ProbeCancellation
 
 VERSION_PROBE_TIMEOUT_SECONDS = 3.0
-VERSION_CACHE_MAX_AGE_SECONDS = 900.0
+VERSION_CACHE_MAX_AGE_SECONDS = 900.0  # Changes to indirect launcher dependencies may take this long to show up.
 QUOTA_LOCK_WAIT_SECONDS = 3.0
 QUOTA_LOCK_POLL_SECONDS = .05
 _CommandFileIdentity = tuple[str, str, int, int, int, int, int]
@@ -98,7 +98,7 @@ class _Ids:
         return f"{prefix}-{uuid.uuid4().hex}"
 
 
-def _account_error(kind: str, reason: str, error_type: str | None = None) -> Any:
+def _account_error(kind: str, reason: str, error_type: str | None = None) -> AccountObserved:
     from peerhub.extensions.quota_probes import ACCOUNT_REFS, account_failure
     return account_failure(ACCOUNT_REFS[kind], f"account_probe:{kind}", int(time.time()), EvidenceState.ERROR, reason, error_type=error_type)
 
@@ -125,7 +125,7 @@ def _account_is_fresh(store: ObservationStore, peer: str) -> bool:
 class AccountCollection:
     """Account readings per peer under ONE deadline. Construction starts the probes (in parallel, once per provider kind: aliases share
     the reading; peers whose account observation is still fresh are skipped), so they overlap whatever the caller does next;
-    `finish(kind)` joins one provider and returns {peer: AccountObserved} for the peers that should get a new observation. A probe that
+    `finish()` joins all providers, or one given `kind`, and returns {peer: AccountObserved} for the peers due for a probe. A probe that
     raises or outlives `start + budget + 1 s` becomes an ERROR reading with a fixed reason."""
 
     def __init__(self, store: ObservationStore, targets: Sequence[tuple[str, str]], pollers: dict[str, Callable[[], Any]], budget: float) -> None:
@@ -135,7 +135,7 @@ class AccountCollection:
                 peers_by_kind[kind].append(peer)
         due = {kind: [p for p in peers if not _account_is_fresh(store, p)] for kind, peers in peers_by_kind.items()}
         self._due = {kind: peers for kind, peers in due.items() if peers}
-        self._readings: dict[str, Any] = {}
+        self._readings: dict[str, AccountObserved | None] = {}
 
         def run(kind: str) -> None:
             try:
@@ -148,13 +148,18 @@ class AccountCollection:
         for thread in self._threads.values():
             thread.start()
 
-    def finish(self, kind: str) -> dict[str, AccountObserved]:
-        thread = self._threads.get(kind)
-        if thread is None:
+    def finish(self, kind: str | None = None) -> dict[str, AccountObserved]:
+        if kind is not None and kind not in self._threads:
             return {}
-        thread.join(max(0.0, self._end - time.monotonic()))
-        reading = _account_error(kind, "timeout") if thread.is_alive() else self._readings.get(kind)
-        return {peer: reading for peer in self._due[kind]} if reading is not None else {}
+        providers = self._threads if kind is None else (kind,)
+        results: dict[str, AccountObserved] = {}
+        for provider in providers:
+            thread = self._threads[provider]
+            thread.join(max(0.0, self._end - time.monotonic()))
+            reading = _account_error(provider, "timeout") if thread.is_alive() else self._readings.get(provider)
+            if reading is not None:
+                results.update(dict.fromkeys(self._due[provider], reading))
+        return results
 
 
 def default_account_pollers(sys_dir: Path | None, deadline_sec: float,
@@ -178,37 +183,40 @@ def _command_identity(command: list[str]) -> _CommandIdentity | None:
             stat = real.stat()
             files.append((os.path.normcase(str(path)), os.path.normcase(str(real)), stat.st_dev, stat.st_ino, stat.st_size,
                           stat.st_mtime_ns, stat.st_ctime_ns))
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         return None
     return tuple(files)
 
 
 def _probe_cli_version(kind: str, sys_dir: Path | None, *, timeout: float = VERSION_PROBE_TIMEOUT_SECONDS,
                        cancellation: ProbeCancellation | None = None) -> str | None:
+    """Read a CLI version on a best-effort basis, propagating cancellation."""
     from peerhub.extensions.quota_probes import real_command, resolve_sys_dir, run_text_probe
-    resolved_sys = resolve_sys_dir(sys_dir)
+
+    _check_cancelled(cancellation)
     peer_map = {"claude": "cc", "codex": "cx", "antigravity": "ag", "cc": "cc", "cx": "cx", "ag": "ag"}
     peer = peer_map.get(kind, kind)
-    cmd = real_command(peer, resolved_sys)
-    if not cmd:
+    try:
+        cmd = real_command(peer, resolve_sys_dir(sys_dir))
+        if not cmd:
+            return None
+        identity = _command_identity(cmd)
+        if identity is not None:
+            with _VERSION_CACHE_LOCK:
+                cached = _VERSION_CACHE.get(peer)
+            if cached is not None and cached[0] == identity and time.monotonic() - cached[1] < VERSION_CACHE_MAX_AGE_SECONDS:
+                return cached[2]
+        proc = run_text_probe([*cmd, "--version"], timeout=timeout, cancellation=cancellation)
+        match = None
+        if proc.returncode == 0:
+            match = re.search(r"\b\d+\.\d+\.\d+(?:[-+][A-Za-z0-9._-]+)?\b", proc.stdout or proc.stderr)
+    except Exception:
+        _check_cancelled(cancellation)
         return None
     _check_cancelled(cancellation)
-    identity = _command_identity(cmd)
-    if identity is not None:
-        with _VERSION_CACHE_LOCK:
-            cached = _VERSION_CACHE.get(peer)
-        if cached is not None and cached[0] == identity and time.monotonic() - cached[1] < VERSION_CACHE_MAX_AGE_SECONDS:
-            return cached[2]
-    try:
-        proc = run_text_probe([*cmd, "--version"], timeout=timeout, cancellation=cancellation)
-        if proc.returncode != 0:
-            return None
-        m = re.search(r"\b\d+\.\d+\.\d+(?:[-+][A-Za-z0-9._-]+)?\b", proc.stdout or proc.stderr)
-    except Exception:
+    if match is None:
         return None
-    if m is None or (cancellation is not None and cancellation.cancelled()):
-        return None
-    version = m.group(0)
+    version = match.group(0)
     if identity is not None and identity == _command_identity(cmd):
         with _VERSION_CACHE_LOCK:
             _VERSION_CACHE[peer] = (identity, time.monotonic(), version)
@@ -397,12 +405,8 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                     committed[kind] = commit_provider(kind, result)
                 else:
                     results[kind] = result
-        except Exception:
-            if cancellation is not None:
-                cancellation.close()
-            raise
-        except BaseException:
-            if cancellation is not None:
+        except BaseException as exc:
+            if owns_cancellation and cancellation is not None and not isinstance(exc, Exception):
                 cancellation.stop()
             raise
         if not incremental:
@@ -534,12 +538,13 @@ def _commit_quota(store: ObservationStore, targets: Sequence[tuple[str, str, _Qu
     reasons: set[str] = set()
 
     sanitized_unknown_pools: list[str] = []
+    ag_pool_reason = "ag: unknown_pool"
 
     if "ag" in kinds and ag_probed_ok:
         check_dates["ag_pools"] = today
         if ag_unknown_pools:
             checks["ag_pools"] = "drift"
-            reasons.add("ag: unknown_pool")
+            reasons.add(ag_pool_reason)
             cleaned = [re.sub(r"[^\w\-\:\.]", "", p).strip() for p in ag_unknown_pools]
             sanitized_unknown_pools = sorted(list(dict.fromkeys(c for c in cleaned if c)))[:5]
         else:
@@ -550,9 +555,8 @@ def _commit_quota(store: ObservationStore, targets: Sequence[tuple[str, str, _Qu
             checks["ag_pools"] = "drift"
             check_dates["ag_pools"] = prior_check_dates.get("ag_pools", today)
             sanitized_unknown_pools = prior_unknown_pools[:5]
-            for r in prior_reasons:
-                if r == "ag: unknown_pool":
-                    reasons.add(r)
+            if ag_pool_reason in prior_reasons:
+                reasons.add(ag_pool_reason)
         else:
             checks["ag_pools"] = prior_checks.get("ag_pools", "unknown")
             sanitized_unknown_pools = []
@@ -561,22 +565,22 @@ def _commit_quota(store: ObservationStore, targets: Sequence[tuple[str, str, _Qu
 
     ver_targets = [("ag", "ag_version", "agy"), ("cc", "cc_version", "claude"), ("cx", "cx_version", "codex-cli")]
     for p_kind, chk_key, obs_key in ver_targets:
-        if p_kind in kinds and p_kind in probed_versions and probed_versions[p_kind] is not None:
-            v_val = probed_versions[p_kind]
+        version_reason = f"{p_kind}: version_drift"
+        v_val = probed_versions.get(p_kind)
+        if v_val is not None:
             expected = observed_versions.get(p_kind) or observed_versions.get(obs_key)
             check_dates[chk_key] = today
             if expected and v_val != expected:
                 checks[chk_key] = "drift"
-                reasons.add(f"{p_kind}: version_drift")
+                reasons.add(version_reason)
             else:
                 checks[chk_key] = "ok"
         else:
             if prior_checks.get(chk_key) == "drift":
                 checks[chk_key] = "drift"
                 check_dates[chk_key] = prior_check_dates.get(chk_key, today)
-                for r in prior_reasons:
-                    if r.startswith(f"{p_kind}:"):
-                        reasons.add(r)
+                if version_reason in prior_reasons:
+                    reasons.add(version_reason)
             else:
                 checks[chk_key] = prior_checks.get(chk_key, "unknown")
                 if chk_key in prior_check_dates:

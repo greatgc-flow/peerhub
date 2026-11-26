@@ -304,6 +304,7 @@ EXCEPTION_CONTROL_FLOW_ALLOWLIST: dict[str, str] = {
     "ImportError": "Optional dependency loading failure caught during dynamic module import.",
     "LaunchBusyError": "Claim acquisition signals the resource gate to wait and retry without emitting a CLI error.",
     "OSError": "Low-level OS/socket error caught during file/socket operations.",
+    "FileNotFoundError": "OSError subclass: a read snapshot of a store file that does not exist; handled like OSError.",
     "TypeError": "Standard library type error caught during internal argument validation.",
 }
 

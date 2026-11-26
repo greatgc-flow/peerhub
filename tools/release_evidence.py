@@ -38,6 +38,8 @@ PROP = "candidate."  # JUnit <property> namespace written by stamp_junit
 PACKAGE_GATE = "G4"
 SOURCE_GATES = {"G0", "G1", "G2", "G7"}
 G4_MATRIX_PREFIX = "g4-matrix-"
+G4_MATRIX_MODULE = "tests.communication.package.test_rel_matrix"
+G4_MATRIX_SMOKES = ("test_rel_010_python_matrix_cell", "test_rel_011_os_matrix_cell_path_and_newline_smoke")
 REQUIRED_BINDING = ("source_revision", "stamped_at", "id", "gate")
 
 
@@ -242,14 +244,27 @@ def source_binding_errors(paths: list[Path], commit: str, policy: Path | None) -
             for b in bindings if b["status"] != "accepted" or b["scope"] != "source"]
 
 
-def junit_passed(path: Path, *, allow_skips: bool = False) -> bool:
+def junit_passed(path: Path, *, allow_skips: bool = False,
+                 required_cases: tuple[tuple[str, str], ...] = ()) -> bool:
     root = ET.parse(path).getroot()
     cases = list(root.iter("testcase"))
     summary = ("failures", "errors") if allow_skips else ("failures", "errors", "skipped")
     return (bool(cases)
+            and (not required_cases or {(case.get("classname"), case.get("name")) for case in cases}.issuperset(required_cases))
             and all(suite.get(count, "0") == "0" for suite in root.iter("testsuite") for count in summary)
             and all(case.find("failure") is None and case.find("error") is None
                     and (allow_skips or case.find("skipped") is None) for case in cases))
+
+
+def _g4_cell_passed(path: Path) -> bool:
+    os_name, _, version = path.stem.removeprefix(G4_MATRIX_PREFIX).rpartition("-py")
+    required = tuple((G4_MATRIX_MODULE, f"{test}[py{version}-{os_name}]") for test in G4_MATRIX_SMOKES)
+    return junit_passed(path, required_cases=required)
+
+
+def _source_report_errors(paths: list[Path]) -> list[str]:
+    return [f"{path.name}: expected a nonempty successful CI report"
+            for path in paths if not junit_passed(path, allow_skips=True)]
 
 
 def catalogs(repo_root: Path) -> tuple[list[str], list[str], set[str], dict[str, str]]:
@@ -270,8 +285,7 @@ def candidate_ci_errors(directory: Path, commit: str, policy: Path, *, repo_root
     errors = source_binding_errors(paths, commit, policy)
     if errors or repo_root is None:
         return errors
-    errors = [f"{path.name}: expected a nonempty successful CI report"
-              for path in paths if not junit_passed(path, allow_skips=True)]
+    errors = _source_report_errors(paths)
     ids, _, m23_ids, gates = catalogs(repo_root)
     outcomes = junit_outcomes(paths, [i for i in ids if gates[i] in SOURCE_GATES], m23_ids)
     errors.extend(f"blocking source test {i} (gate {gates[i]}) is {status}"
@@ -320,9 +334,10 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
         outcomes.update(junit_outcomes(ci_reports, source_ids, m23_ids))
         outcomes.update(junit_outcomes(live_junit, live_ids))
         outcomes.update(junit_outcomes(pkg_junit, pkg_ids))
-        holds.extend(f"HOLD: {p.name} must contain passing tests"
-                     for p in (*live_junit, *(p for p in pkg_junit if p.name.startswith(G4_MATRIX_PREFIX)))
-                     if not junit_passed(p))
+        holds.extend(f"HOLD: {error}" for error in _source_report_errors(ci_reports))
+        holds.extend(f"HOLD: {p.name} must contain passing tests" for p in live_junit if not junit_passed(p))
+        holds.extend(f"HOLD: {p.name} must contain both passing G4 matrix smoke tests for its cell"
+                     for p in pkg_junit if p.name.startswith(G4_MATRIX_PREFIX) and not _g4_cell_passed(p))
     else:
         outcomes = junit_outcomes(used_junit, ids, m23_ids)
     if candidate and workflow_ci_junit is None:  # package-gate tests must match the released package digests

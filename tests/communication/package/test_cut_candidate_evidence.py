@@ -622,28 +622,44 @@ GATE_OF = {e["test_id"]: e["primary_gate"] for e in json.loads(
 GATE_OF.update({t["id"]: "G2" for t in M23_CATALOG})
 
 
-@pytest.mark.parametrize("problem", [None, "source-skip", "live-borrow", "matrix-missing", "dist-changed"])
+@pytest.mark.parametrize("problem", [None, "G0", "G1", "G2", "source-skip", "source-missing", "source-wrong-sha",
+                                     "source-empty", "source-failed", "live-borrow", "matrix-missing", "matrix-empty",
+                                     "matrix-incomplete", "matrix-wrong-cell", "matrix-wrong-sha", "matrix-source-only",
+                                     "dist-changed"])
 def test_publish_evidence_uses_candidate_source_live_assets_and_exact_g4_dist(monkeypatch, capsys, problem):
     root = Path(gettempdir()).resolve() / f"peerhub-candidate-evidence-{uuid4().hex}"
     root.mkdir()
     try:
         dist = make_dist(root / "dist")
         ci_dir = root / "ci-junit"
-        source = {i: "passed" for i, gate in GATE_OF.items() if gate in ("G0", "G1", "G2", "G7")}
+        source_report = "g2-rc-matrix-ubuntu-latest-py3.11.xml"
+        source = {i: "passed" for i, gate in GATE_OF.items() if gate in ("G0", "G1", "G2", "G7") and gate != problem}
         monkeypatch.setattr(ev, "_now", lambda: NOW)
-        for index, path in enumerate(ev.matrix_junit_paths(ci_dir)):
+        for path in ev.matrix_junit_paths(ci_dir):
             path.parent.mkdir(parents=True)
-            cases = source.copy()
-            if index == 0 and problem == "source-skip":
-                cases["SCH-003"] = "skipped"
+            changed = path.name == source_report
+            if changed and problem == "source-missing":
+                continue
+            cases = {} if changed and problem == "source-empty" else source.copy()
+            if changed:
+                if problem == "source-skip":
+                    cases["SCH-003"] = "skipped"
+                if problem == "source-failed":
+                    cases["OTHER-001"] = "failed"
             if problem == "live-borrow":
                 cases["LIVE-007"] = "passed"
-            ev.stamp_junit(junit(path, cases), commit=SHA, gate="G2", at=NOW)
+            commit = "b" * 40 if changed and problem == "source-wrong-sha" else SHA
+            ev.stamp_junit(junit(path, cases), commit=commit, gate="G2", at=NOW)
+
+        source_errors = {"source-skip": "SCH-003", "source-missing": source_report, "source-wrong-sha": "source_revision",
+                         "source-empty": "expected a nonempty successful CI report", "source-failed": "expected a nonempty successful CI report"}
+        for gate in ("G0", "G1", "G2"):
+            source_errors[gate] = f"(gate {gate}) is missing"
 
         ci_args = ["--commit", SHA, "--release-policy", str(RELEASE_POLICY)]
-        assert ev.main(["--verify-ci-junit", str(ci_dir), "--verify-source-catalog", *ci_args]) == int(problem == "source-skip")
-        if problem == "source-skip":
-            assert "SCH-003" in capsys.readouterr().err
+        assert ev.main(["--verify-ci-junit", str(ci_dir), "--verify-source-catalog", *ci_args]) == int(problem in source_errors)
+        if problem in source_errors:
+            assert source_errors[problem] in capsys.readouterr().err
 
         junit_args = []
         live_stages = {"g3.xml": [i for i, gate in GATE_OF.items() if gate == "G3" and i not in {"LIVE-007", "LIVE-008"}],
@@ -658,23 +674,41 @@ def test_publish_evidence_uses_candidate_source_live_assets_and_exact_g4_dist(mo
         g4 = junit(root / "g4.xml", package)
         ev.stamp_junit(g4, commit=SHA, gate="G4", dist_dir=dist, at=NOW)
         junit_args.extend(["--junit", str(g4)])
+        matrix_dir = root / "g4-matrix"
+        matrix_dir.mkdir()
+        changed_cell = "g4-matrix-ubuntu-latest-py3.11.xml"
         for os_name in ("ubuntu-latest", "windows-latest"):
             for version in ("3.11", "3.12", "3.13", "3.14", "3.15"):
-                cell = junit(root / f"g4-matrix-{os_name}-py{version}.xml", matrix_cases)
-                ev.stamp_junit(cell, commit=SHA, gate="G4", dist_dir=dist, at=NOW)
-        if problem == "matrix-missing":
-            cell.unlink()
+                cell = matrix_dir / f"g4-matrix-{os_name}-py{version}.xml"
+                if problem == "matrix-empty" or (cell.name == changed_cell and problem == "matrix-missing"):
+                    continue
+                suite = ET.Element("testsuite")
+                reported_version = "3.12" if cell.name == changed_cell and problem == "matrix-wrong-cell" else version
+                for test in ("test_rel_010_python_matrix_cell", "test_rel_011_os_matrix_cell_path_and_newline_smoke"):
+                    ET.SubElement(suite, "testcase", classname="tests.communication.package.test_rel_matrix",
+                                  name=f"{test}[py{reported_version}-{os_name}]")
+                if cell.name == changed_cell and problem == "matrix-incomplete":
+                    suite.remove(suite[-1])
+                ET.ElementTree(suite).write(cell, encoding="utf-8", xml_declaration=True)
+                commit = "b" * 40 if cell.name == changed_cell and problem == "matrix-wrong-sha" else SHA
+                cell_dist = None if cell.name == changed_cell and problem == "matrix-source-only" else dist
+                ev.stamp_junit(cell, commit=commit, gate="G4", dist_dir=cell_dist, at=NOW)
         if problem == "dist-changed":
             next(dist.glob("*.whl")).write_bytes(b"changed")
 
         code = ev.main([*junit_args, *ci_args, "--candidate", "--dist", str(dist), "--out", str(root / "bundle"),
                         "--ci-junit-dir", str(ci_dir), "--ci-run-url", "https://github.com/owner/repo/actions/runs/42",
-                        "--g4-matrix-dir", str(root)])
+                        "--g4-matrix-dir", str(matrix_dir)])
         assert code == int(problem is not None)
         result = json.loads(capsys.readouterr().out)
         if problem:
-            message = {"source-skip": "SCH-003", "live-borrow": "live canary LIVE-007 is missing",
-                       "matrix-missing": f"{cell.name} is missing", "dist-changed": "package_sha256"}[problem]
+            message = {**source_errors, "source-missing": f"{source_report} is missing", "live-borrow": "live canary LIVE-007 is missing",
+                       "matrix-missing": f"{changed_cell} is missing", "matrix-empty": f"{changed_cell} is missing",
+                       "matrix-incomplete": f"{changed_cell} must contain both passing G4 matrix smoke tests",
+                       "matrix-wrong-cell": f"{changed_cell} must contain both passing G4 matrix smoke tests",
+                       "matrix-wrong-sha": f"{changed_cell} is mismatched",
+                       "matrix-source-only": f"{changed_cell} must be stamped at package scope",
+                       "dist-changed": "package_sha256"}[problem]
             assert any(message in blocker for blocker in result["blockers"])
         else:
             assert result == {"release_ready": True, "blockers": []}

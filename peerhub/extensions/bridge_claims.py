@@ -13,13 +13,13 @@ import json
 import os
 import sqlite3
 import time
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Generator
 
 from peerhub.core.migrations import rollback_quietly
-from peerhub.core.store import UnknownReferenceError
+from peerhub.core.store import UnknownReferenceError, storage_errors
 
 
 class ClaimHeldError(RuntimeError):
@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS bridge_claim_callers (
 _DDL_LIVE_CLAIMS = ("CREATE INDEX IF NOT EXISTS idx_bc_workspace_expiry "
                     "ON bridge_claims(workspace_generation,expires_at)")
 _SCHEMA_OBJECTS = {"bridge_claims", "bridge_finalizations", "bridge_claim_callers", "idx_bc_workspace_expiry"}
+_BUSY_TIMEOUT_SECONDS = 30.0
 
 
 _FINALIZATION_TRIGGERS: dict[str, str] = {
@@ -93,11 +94,32 @@ _FINALIZATION_TRIGGERS: dict[str, str] = {
 
 @contextmanager
 def read_snapshot(db_path: str | os.PathLike[str]) -> Generator[sqlite3.Connection, None, None]:
-    uri = Path(db_path).resolve().as_uri() + "?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True, timeout=30.0, isolation_level=None)) as conn:
-        conn.row_factory = sqlite3.Row
-        conn.execute("BEGIN")
-        yield conn
+    path = Path(db_path).resolve()
+    uri = path.as_uri()
+    with storage_errors():
+        for mode in ("ro", "rw"):
+            conn = None
+            try:
+                try:
+                    conn = sqlite3.connect(f"{uri}?mode={mode}", uri=True, timeout=_BUSY_TIMEOUT_SECONDS, isolation_level=None)
+                    conn.row_factory = sqlite3.Row
+                    conn.execute("PRAGMA query_only = ON")
+                    conn.execute("BEGIN")
+                    conn.execute("PRAGMA schema_version").fetchone()  # pin the snapshot and surface WAL startup errors
+                except sqlite3.OperationalError as exc:
+                    code = (getattr(exc, "sqlite_errorcode", 0) or 0) & 0xFF
+                    if code == sqlite3.SQLITE_CANTOPEN and not path.is_file():
+                        raise FileNotFoundError(f"database not found: {path}") from exc
+                    if mode == "rw" or code not in (sqlite3.SQLITE_CANTOPEN, sqlite3.SQLITE_READONLY):
+                        raise
+                    # A writable handle can initialize or recover WAL sidecars. Keep queries read-only.
+                    continue
+                yield conn
+                return
+            finally:
+                if conn is not None:
+                    rollback_quietly(conn)
+                    conn.close()
 
 
 class ClaimStore:
@@ -137,10 +159,9 @@ class ClaimStore:
 
     @contextmanager
     def _tx(self):
-        conn = sqlite3.connect(self.db_path, timeout=30.0, isolation_level=None)
+        conn = sqlite3.connect(self.db_path, timeout=_BUSY_TIMEOUT_SECONDS, isolation_level=None)
         conn.row_factory = sqlite3.Row
         try:
-            conn.execute("PRAGMA busy_timeout = 30000;")
             conn.execute("PRAGMA recursive_triggers = ON;")  # INSERT OR REPLACE must fire the immutability triggers
             conn.execute("BEGIN IMMEDIATE")
             try:

@@ -9,12 +9,13 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import EvidenceState
-from peerhub.extensions.quota_capture import refresh_quota
+from peerhub.extensions.quota_capture import AccountCollection, refresh_quota
 from peerhub.extensions.quota_probes import (
     AccountObserved,
     parse_claude_auth_status,
@@ -542,6 +543,18 @@ def test_account_probes_overlap_all_quota_probes(tmp_path):
                   version_checker=lambda k: None, account_pollers={"cc": account("cc"), "cx": account("cx"), "ag": account("cc")})
     assert sorted(quota_calls) == ["ag", "cc", "cx"]
     assert measured_account_peers(db) == ["ag", "cc", "cx"]
+
+
+def test_account_collection_finish_accepts_one_provider_or_all_providers():
+    store = Mock(spec=ObservationStore)
+    store.latest.return_value = None
+    cc, cx = live_reading("cc"), live_reading("cx")
+    collection = AccountCollection(store, [("cc", "cc"), ("claude", "cc"), ("cx", "cx")],
+                                   {"cc": lambda: cc, "cx": lambda: cx}, budget=1)
+
+    assert collection.finish("cc") == {"cc": cc, "claude": cc}
+    assert collection.finish("ag") == {}
+    assert collection.finish() == {"cc": cc, "claude": cc, "cx": cx}
 
 
 # This test once slept 4 s in the probe and required the whole refresh to take under 2.5 s (deadline 0.4 s + 1 s grace). Under

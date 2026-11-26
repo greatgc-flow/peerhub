@@ -209,6 +209,7 @@ class CoreStore:
                     for order in ("ASC", "DESC"):
                         conn.execute(f"SELECT * FROM {quoted} ORDER BY rowid {order} LIMIT 1").fetchall()
         finally:
+            rollback_quietly(conn)
             conn.close()
 
     def _fire(self, point: str) -> None:

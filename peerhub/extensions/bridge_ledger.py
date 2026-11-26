@@ -88,7 +88,7 @@ def reap_dead_asks(db_path: str | Path) -> int:
         conn.execute("BEGIN IMMEDIATE")
         if generation.read_text(encoding="utf-8") != workspace_generation:
             return 0
-        return BridgeLedger.release_dead_asks(conn, workspace_generation, time.time(), candidates)
+        return BridgeLedger.release_dead_asks(conn, workspace_generation, now, candidates)
 
 
 class BridgeLedger(BridgeControl):
@@ -355,7 +355,7 @@ class BridgeLedger(BridgeControl):
         for candidate in candidates:
             row = cls.claim_activity(conn, workspace_generation, now, include_expired=True,
                                       scope=(candidate["stream_id"], candidate["peer_id"])).fetchone()
-            if row is None or row != candidate:
+            if row is None or tuple(row) != tuple(candidate):
                 continue
             if cls._current_invocation(row):
                 if not cls._can_reap_invocation(row, now):

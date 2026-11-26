@@ -60,6 +60,67 @@ def test_version_cache_uses_executable_and_script_identity_and_retries_failures(
     assert len(calls) == 4
 
 
+def test_command_identity_rejects_invalid_paths(monkeypatch):
+    from peerhub.extensions import quota_capture
+
+    def invalid_path(*args, **kwargs):
+        raise ValueError("invalid path")
+
+    monkeypatch.setattr(Path, "resolve", invalid_path)
+    assert quota_capture._command_identity([sys.executable]) is None
+
+
+def test_version_probe_handles_discovery_and_subprocess_errors(monkeypatch):
+    from peerhub.extensions import quota_capture, quota_probes
+
+    def discovery_failure(*args):
+        raise ValueError("invalid executable override")
+
+    def probe_failure(*args, **kwargs):
+        raise OSError("executable could not start")
+
+    monkeypatch.setattr(quota_probes, "real_command", discovery_failure)
+    assert quota_capture._probe_cli_version("cx", None) is None
+    monkeypatch.setattr(quota_probes, "real_command", lambda *args: ["fake-codex"])
+    monkeypatch.setattr(quota_probes, "run_text_probe", probe_failure)
+    assert quota_capture._probe_cli_version("cx", None) is None
+
+
+def test_version_probe_propagates_cancellation(monkeypatch):
+    from peerhub.extensions import quota_capture, quota_probes
+
+    cancellation = common.ProbeCancellation()
+
+    def cancel_probe(command, **options):
+        cancellation.stop()
+        return subprocess.CompletedProcess(command, 1, "", "")
+
+    monkeypatch.setattr(quota_probes, "real_command", lambda *args: ["fake-codex"])
+    monkeypatch.setattr(quota_probes, "run_text_probe", cancel_probe)
+    with pytest.raises(OSError, match="quota collection cancelled"):
+        quota_capture._probe_cli_version("cx", None, cancellation=cancellation)
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_incremental_refresh_leaves_caller_cancellation_open(monkeypatch, cancelled):
+    from unittest.mock import Mock
+
+    from peerhub.extensions import quota_capture
+
+    cancellation = Mock(spec=common.ProbeCancellation)
+    cancellation.cancelled.return_value = cancelled
+
+    def interrupted(**options):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(quota_capture, "ObservationStore", Mock())
+    with pytest.raises(OSError if cancelled else KeyboardInterrupt):
+        quota_capture.refresh_quota(__file__, ["cc"], pollers={"cc": interrupted}, version_checker=lambda _: None,
+                                    cancellation=cancellation, incremental=True)
+    cancellation.close.assert_not_called()
+    cancellation.stop.assert_not_called()
+
+
 def test_explicit_parallel_collection_owns_probes_and_keeps_ag_exit_grace(monkeypatch):
     from threading import Barrier, get_ident
     from types import SimpleNamespace

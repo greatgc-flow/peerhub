@@ -190,7 +190,13 @@ _REQUIRED_OBJECTS = {
     (match[1].lower(), match[2]) for stmt in _SCHEMA_DDL
     if (match := re.match(r"CREATE (?:UNIQUE )?(TABLE|INDEX) IF NOT EXISTS (\w+)", stmt))
 }
-_TRIGGER_TABLES = {match[1] for stmt in _DDL if (match := re.match(r"CREATE TABLE IF NOT EXISTS (\w+)", stmt))}
+_TRIGGER_TABLES = {match[1] for stmt in (*_DDL, *bridge_registry.SCHEMA_DDL)
+                   if (match := re.match(r"CREATE TABLE IF NOT EXISTS (\w+)", stmt))}
+_REQUIRED_COLUMNS = {
+    "bridge_sessions": {"session_handle"},
+    "bridge_deliveries": {"session_handle", "session_snapshot_json"},
+    "bridge_session_monitor_scope": {"retained_session_count", "retained_complete"},
+}
 # Compare full definitions. Only strip the CREATE prefix clause omitted by SQLite.
 _EXPECTED_TRIGGERS = {
     match[1]: stmt.replace("CREATE TRIGGER IF NOT EXISTS ", "CREATE TRIGGER ", 1)
@@ -207,9 +213,8 @@ def _schema_state(conn: sqlite3.Connection) -> tuple[bool, dict[str, str]]:
             installed[name] = sql
     ready = _REQUIRED_OBJECTS <= objects and installed == _EXPECTED_TRIGGERS
     if ready:
-        # The scope table predates its retained-session columns.
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(bridge_session_monitor_scope)")}
-        ready = {"retained_session_count", "retained_complete"} <= columns and not bridge_registry.needs_projection_repair(conn)
+        ready = all(columns <= {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+                    for table, columns in _REQUIRED_COLUMNS.items()) and not bridge_registry.needs_projection_repair(conn)
     return ready, installed
 
 

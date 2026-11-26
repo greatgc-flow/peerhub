@@ -12,8 +12,9 @@ from peerhub.core.migrations import get_migration_registry, run_migrations
 from peerhub.core.store import CoreStore
 from peerhub.extensions import ask, ask_budgets, bridge_ledger, bridge_registry, delivery_projections, monitor_queries
 from peerhub.extensions.bridge import Bridge
-from peerhub.extensions.bridge_claims import ClaimStore, ClaimToken
+from peerhub.extensions.bridge_claims import ClaimStore, ClaimToken, read_snapshot
 from peerhub.extensions.observation import ObservationStore
+from tests.communication.bridge_helpers import downgrade_registry
 
 
 @pytest.fixture
@@ -86,6 +87,66 @@ def test_execution_evidence_pins_both_queries_to_one_snapshot(bridge, db_path, m
         assert conn.execute("SELECT COUNT(*) FROM bridge_evidence").fetchone()[0] == 1
 
 
+@pytest.mark.parametrize("fail_read", (False, True))
+def test_read_snapshot_rolls_back_before_close(db_path, monkeypatch, fail_read):
+    transactions_at_close = []
+    original = sqlite3.connect
+
+    class TrackedConnection(sqlite3.Connection):
+        def close(self):
+            transactions_at_close.append(self.in_transaction)
+            super().close()
+
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: original(*args, factory=TrackedConnection, **kwargs))
+
+    def read():
+        with read_snapshot(db_path) as conn:
+            assert conn.in_transaction
+            assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30_000
+            if fail_read:
+                raise ValueError("reader failed")
+
+    if fail_read:
+        with pytest.raises(ValueError, match="reader failed"):
+            read()
+    else:
+        read()
+    assert transactions_at_close == [False]
+
+
+def test_read_snapshot_does_not_create_missing_database(db_path):
+    missing = db_path.with_suffix(".missing")
+    with pytest.raises(FileNotFoundError):
+        with read_snapshot(missing):
+            pytest.fail("opened a nonexistent database")
+    assert not missing.exists()
+
+
+def test_read_snapshot_can_recover_wal_sidecars(bridge, db_path, monkeypatch):
+    original = sqlite3.connect
+    modes = []
+
+    class MissingShm(sqlite3.Connection):
+        def execute(self, sql, parameters=(), /):
+            if not sql.startswith(("BEGIN", "PRAGMA query_only")):
+                error = sqlite3.OperationalError("attempt to write a readonly database")
+                error.sqlite_errorcode = sqlite3.SQLITE_READONLY_CANTINIT
+                raise error
+            return super().execute(sql, parameters)
+
+    def connect(database, **kwargs):
+        modes.append(database.rsplit("=", 1)[-1])
+        if modes[-1] == "ro":
+            kwargs["factory"] = MissingShm
+        return original(database, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    with bridge.claims.snapshot() as conn:
+        assert conn.execute("SELECT count(*) FROM bridge_claims").fetchone()[0] == 0
+        assert conn.execute("PRAGMA query_only").fetchone()[0] == 1
+    assert modes == ["ro", "rw"]
+
+
 def test_gate_probes_outside_writer_and_rechecks_changed_claim(bridge, db_path, monkeypatch):
     with bridge.claims.transaction() as conn:
         conn.execute("INSERT INTO bridge_claims VALUES ('s','cx','owner',1,100,60,'workspace')")
@@ -111,6 +172,34 @@ def test_gate_probes_outside_writer_and_rechecks_changed_claim(bridge, db_path, 
     assert len(probes) == 2
 
 
+@pytest.mark.parametrize("renewed", (False, True))
+def test_reap_rechecks_dead_wrapper_at_snapshot_time(tmp_path, monkeypatch, renewed):
+    db = tmp_path / "core.db"
+    (tmp_path / "workspace.generation").write_text("workspace", encoding="utf-8")
+    store = CoreStore(db)
+    claims = ClaimStore(db, lambda: "workspace")
+    Bridge(store, claims)
+    with claims.transaction() as conn:
+        conn.execute("INSERT INTO bridge_claims VALUES ('s','cx','owner',1,101,60,'workspace')")
+        conn.execute("INSERT INTO bridge_claim_callers VALUES ('s','cx',1,'{}')")
+
+    now = 100
+
+    def probe(_):
+        nonlocal now
+        now = 102
+        if renewed:
+            with claims.transaction() as conn:
+                conn.execute("UPDATE bridge_claims SET expires_at=161")
+        return False
+
+    monkeypatch.setattr(bridge_ledger.time, "time", lambda: now)
+    monkeypatch.setattr(bridge_ledger, "claim_wrapper_alive", probe)
+    assert bridge_ledger.reap_dead_asks(db) == (0 if renewed else 1)
+    with claims.snapshot() as conn:
+        assert conn.execute("SELECT expires_at FROM bridge_claims").fetchone()[0] == (161 if renewed else 100)
+
+
 def test_new_indexes_install_on_existing_store(bridge, db_path):
     indexes = ("idx_bc_workspace_expiry", "idx_bd_seq", "idx_bd_scope_seq", "idx_bd_scope_unresolved",
                "idx_records_ask_target", "idx_bd_confirmed_end")
@@ -123,6 +212,52 @@ def test_new_indexes_install_on_existing_store(bridge, db_path):
     with claims.snapshot() as conn:
         assert set(indexes) <= {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
         assert conn.execute("SELECT delivery_id FROM bridge_deliveries").fetchone()[0] == "d1"
+
+
+def test_legacy_registry_reopen_completes_migration(bridge, monkeypatch):
+    with bridge.claims.transaction() as conn:
+        downgrade_registry(conn)
+        conn.execute("INSERT INTO bridge_sessions VALUES "
+                     "('s','cx','cx','external',4,'fp','binding',1,'ACTIVE',1,'workspace','native',NULL,NULL,NULL,0)")
+        conn.execute("CREATE TRIGGER legacy_session_update BEFORE UPDATE ON bridge_sessions "
+                     "BEGIN SELECT RAISE(ABORT,'obsolete session trigger'); END")
+        conn.execute("DROP INDEX idx_bd_session")
+        for column in ("session_handle", "session_snapshot_json"):
+            conn.execute(f"ALTER TABLE bridge_deliveries DROP COLUMN {column}")
+        _insert_deliveries(conn, [("d1", 1, None)])
+        conn.execute("UPDATE bridge_deliveries SET session_generation=4")
+
+    Bridge(bridge.store, bridge.claims)
+    with bridge.claims.snapshot() as conn:
+        mapping = bridge_registry.current(conn, "s", "cx")
+        assert mapping is not None
+        assert (mapping["external_session_id"], mapping["state"], mapping["context_watermark_version"]) == ("external", "LOST", 1)
+        assert conn.execute("SELECT next_generation FROM bridge_session_counters").fetchone()[0] == 5
+        assert conn.execute("SELECT session_handle FROM bridge_session_monitor_stats").fetchone()[0] == mapping["session_handle"]
+        assert conn.execute("SELECT kind FROM bridge_evidence").fetchall() == []
+        assert conn.execute("SELECT event FROM bridge_session_events").fetchone()[0] == "session_lost"
+        assert tuple(conn.execute("SELECT delivery_id,session_handle,session_snapshot_json FROM bridge_deliveries").fetchone()) == ("d1", None, None)
+        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='legacy_session_update'").fetchone() is None
+        assert conn.execute("PRAGMA index_info(idx_bd_session)").fetchone()[2] == "session_handle"
+
+    monkeypatch.setattr(ClaimStore, "_tx", lambda *_: pytest.fail("migrated store took the writer lock"))
+    Bridge(bridge.store, bridge.claims)
+
+
+def test_registry_reopen_repairs_missing_delivery_snapshot_column(bridge):
+    with bridge.claims.transaction() as conn:
+        conn.execute("ALTER TABLE bridge_deliveries DROP COLUMN session_snapshot_json")
+    Bridge(bridge.store, bridge.claims)
+    with bridge.claims.snapshot() as conn:
+        assert conn.execute("SELECT session_snapshot_json FROM bridge_deliveries").fetchall() == []
+
+
+def test_registry_reopen_removes_obsolete_registry_trigger(bridge):
+    with bridge.claims.transaction() as conn:
+        conn.execute("CREATE TRIGGER old_registry_trigger BEFORE UPDATE ON bridge_session_history BEGIN SELECT 1; END")
+    Bridge(bridge.store, bridge.claims)
+    with bridge.claims.snapshot() as conn:
+        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='old_registry_trigger'").fetchone() is None
 
 
 def test_observation_reopen_repairs_changed_trigger_definition(db_path):
@@ -159,6 +294,7 @@ def test_light_preflight_keeps_full_check_for_existing_migration(migration_db):
     statements.clear()
     assert CoreStore(db, light_preflight=True).preflight_mode == "light"
     assert not any("PRAGMA quick_check" in sql for sql in statements)
+    assert statements.index("BEGIN") < statements.index("ROLLBACK")
     assert CoreStore(db).preflight_mode == "full"
     assert any("PRAGMA quick_check" in sql for sql in statements)
 
