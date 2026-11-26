@@ -20,7 +20,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: ag, agy, recipe, permission, permissions, writable, read-only, sandbox, limit, failed_not_started, empty, reply, denied_empty, delivered, trustedWorkspaces, allow, allow-list, scope, glob, wildcard, grep, cat, inline, regex, command, files, binary, prompt, query-file, resume
 - Symptom: ag fails or returns an empty reply: delivered/TERMINAL with no text, denied_empty after a denied shell or read_file, a resumed stream that fabricates paths, or failed_not_started without write permission.
-- Fix: Put the task text inline via --query-file and say "no tools". Use the trusted project root and pass --writable on every turn. After an empty or denied_empty reply, start a new stream with the content inlined. See [docs/adapters/ag.md#empty-responses-and-denied-tools](adapters/ag.md#empty-responses-and-denied-tools).
+- Fix: Put the task text inline via --query-file and say "no tools". Pass the trusted project root with -w and use --writable on every turn. After an empty or denied_empty reply, always start a new stream with the content inlined. See [docs/adapters/ag.md#empty-responses-and-denied-tools](adapters/ag.md#empty-responses-and-denied-tools).
 - Issue: #140, #284, #287, #300, #302, #391, #406
 
 ## ag asks require explicit --writable, including pings and reviews (`ag-requires-writable`)
@@ -76,15 +76,15 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: review, findings, batch, mechanical, sweep, draft, verify, script
 - Symptom: Reviewers surface one mechanical discrepancy per round, or a draft evidence table contains unverified errors.
-- Fix: Ask for the complete mechanical sweep in one list and compare identifiers with a small script before voting. Treat drafts as unverified; check evidence and values against live files with commands, and have a second reviewer triage objections. See [CONTRIBUTING.md#working-with-ai-peers](../CONTRIBUTING.md#working-with-ai-peers).
+- Fix: Ask for the complete mechanical sweep in one list and compare identifiers with a small script before voting. Check drafts against files and command output, then have a second reviewer triage objections. Give editing lanes disjoint files, keep reviewers read-only, and give Git writes to one lead. See [CONTRIBUTING.md#working-with-ai-peers](../CONTRIBUTING.md#working-with-ai-peers).
 - Issue: #297, #298
 
 ## Shell batching on Windows (CRLF, last line) (`batch-shell-crlf`)
 
-- Keywords: batch, shell, crlf, profile, newline, windows, read, job, ALL_DONE, dry-run
-- Symptom: A shell loop over a job list passes the profile with a trailing carriage return (unknown profile), drops the last line when it has no trailing newline, and prints ALL_DONE although jobs failed.
-- Fix: Validate with peerhub batch run --dry-run ([docs/batch.md](batch.md)). See [docs/windows.md#job-lists](windows.md#job-lists) for shell loops that handle CRLF and the final line.
-- Issue: #289
+- Keywords: batch, shell, crlf, profile, newline, windows, read, job, ALL_DONE, dry-run, bash, heredoc, backslash, escaping
+- Symptom: A shell loop passes a profile with a trailing carriage return, drops the final line, or prints ALL_DONE despite failures. A Windows Bash runner passed a doubled backslash through a quoted heredoc as a single backslash.
+- Fix: Validate with peerhub batch run --dry-run. Stage scripts that contain escapes in a file and use newline="\n" for Python text writes that require LF. See [docs/windows.md#job-lists](windows.md#job-lists) and [docs/windows.md#script-files-and-escapes](windows.md#script-files-and-escapes).
+- Issue: #289 and Windows shell check, 2026-11-14
 
 ## Identify your session's running asks (`caller-ownership`)
 
@@ -111,7 +111,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: cc, concurrent, lanes, memory, reaper, supervisor, parent, shell
 - Symptom: On Windows, memory pressure can reap parent shells and kill long cc asks when concurrent lanes load large indexes.
-- Fix: Keep 2-3 concurrent cc lanes on a 32 GB host when a lane may load large indexes. Long asks die with their parent shell: run them from one supervisor, wait for completion, and do not restart reaped work blindly. Check peerhub diag running, then inspect results and effects before deciding how to continue. This is an operational lesson, not an enforced concurrency or free-memory guard.
+- Fix: Size memory-heavy lanes from the load line in peerhub diag --plan. For any peer, run long jobs under a background supervisor and check completion in short polls so user updates can arrive. If the supervisor is reaped, check peerhub diag running and inspect receipts and partial effects before starting new work.
 - Issue: #352
 
 ## cx sandbox facts and prompt hygiene (`cx-sandbox-and-prompt-hygiene`)
@@ -222,7 +222,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: monitor, view, order, rich, plain, glyph, glyphs, colour, color, colours, bar, pill, rule, rules, meter, palette, NO_COLOR, unicode
 - Symptom: The order of the compact monitor frame, the plain or rich view, or a glyph, bar, pill, rule or colour of the rich view needs explanation.
-- Fix: Use --expand for the full DB path and detail rows. PEERHUB_NO_LINKS disables OSC 8 and prints a copyable Guide: line when it fits. See [docs/monitor.md](monitor.md) for layout and refresh timing.
+- Fix: Use --expand for the full DB path and detail rows. PEERHUB_NO_LINKS disables OSC 8 and prints a copyable Guide: line when it fits. Check monitor changes in both layouts at narrow and wide widths. See [docs/monitor.md](monitor.md) for layout and refresh timing.
 - Issue: #376 (P21, 0.24.18), P23, #412, #414, #422
 
 ## Quota shaping across peers (`multi-peer-quota-shaping`)
@@ -236,7 +236,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: parallel, quota, pace, pools, batch, loop, distribute, minimal, ram, free, memory, slots, load, diag, plan, resource, resources
 - Symptom: Several tasks can run at once and the caller wants them spread over the pools with the most spare quota, spending as little as possible.
-- Fix: Read peerhub diag --plan and choose usable pools by lowest 7D PACE first. Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Refresh only the peers the next wave may use (peerhub observation refresh --peers cx ag) and read the plan after each wave. See [docs/batch.md#parallel-work-over-the-least-quota](batch.md#parallel-work-over-the-least-quota).
+- Fix: Read peerhub diag --plan and choose usable pools by lowest 7D PACE first, spreading work across eligible pools (distinct pools of one peer count). Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Refresh only the peers the next wave may use (peerhub observation refresh --peers cx ag) and read the plan after each wave. Spend spare quota near reset on needed review or preparation. See [docs/batch.md#parallel-work-over-the-least-quota](batch.md#parallel-work-over-the-least-quota).
 - Issue: owner decisions 2026-11-22 and 2026-11-25
 
 ## Peer sub-agents inside one ask (`peer-subagents`)
@@ -264,7 +264,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: report, issue, issues, github, bug
 - Symptom: Something behaves wrongly and the problem should be filed without leaking secrets.
-- Fix: Check for an existing report. Include peerhub --version, the OS, the exact command, the outcome or exit code, and any workaround. See [CONTRIBUTING.md#reporting-issues-and-requesting-features](../CONTRIBUTING.md#reporting-issues-and-requesting-features).
+- Fix: Check for an existing report. Include peerhub --version, the OS, the exact command, the outcome or exit code, and any workaround. Use neutral examples and redact shared-store paths, stream names, labels and prompt or reply text. See [CONTRIBUTING.md#reporting-issues-and-requesting-features](../CONTRIBUTING.md#reporting-issues-and-requesting-features).
 - Issue: 0.25.0 plan D5
 
 ## Review recipe for release candidates (`review-recipe`)
@@ -299,7 +299,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: stream, reuse, resume, session, context, tokens, quota, cost, vote
 - Symptom: Quota drains fast although prompts are short: a long-lived --stream is reused across many tasks, so later asks can resend earlier context.
-- Fix: Reuse only within one task. Move a new task to a new stream. See [docs/commands.md#ask](commands.md#ask).
+- Fix: Reuse only within one task. Start a new stream for a new task or an independent vote. For a handoff, include a short summary of decisions and relevant file paths. See [docs/commands.md#ask](commands.md#ask).
 - Issue: #340
 
 ## Recommend a profile and ask command (`suggest`)

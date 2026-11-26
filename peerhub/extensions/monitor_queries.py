@@ -119,17 +119,18 @@ _SUPERSEDED_INDEX = "idx_bd_scope_unresolved"
 _ACTIVITY_SQL = (
     "WITH s AS (SELECT c.stream_id,c.peer_id,c.generation AS c_generation,c.expires_at,c.lease_sec,c.workspace_generation AS c_wsgen,"
     "ROW_NUMBER() OVER (ORDER BY c.expires_at DESC,c.stream_id,c.peer_id) AS scope_rank,COUNT(*) OVER () AS scope_total "
-    "FROM bridge_claims c WHERE c.expires_at>=:since ORDER BY c.expires_at DESC,c.stream_id,c.peer_id LIMIT :scope_limit), "
+    "FROM bridge_claims c WHERE c.expires_at>=:since), "
     # One seek per scope, plus a range of unresolved deliveries. Legacy stores
     # can execute the same statement before the Bridge installs the indexes.
-    f"latest AS (SELECT s.*,(SELECT d.delivery_id FROM bridge_deliveries d INDEXED BY {_LATEST_INDEX} "
+    f"latest AS (SELECT s.*,s.scope_rank<=:scope_cap AS is_detail,(SELECT d.delivery_id FROM bridge_deliveries d INDEXED BY {_LATEST_INDEX} "
     "WHERE d.stream_id=s.stream_id AND d.peer_id=s.peer_id ORDER BY d.seq DESC LIMIT 1) AS latest_id "
-    "FROM s WHERE s.scope_rank<=:scope_cap), "
+    "FROM s), "
+    # Beyond the detail cap, only the latest deliveries without a result can count as running.
     "pick AS (SELECT l.*,d.delivery_id,d.seq,d.certainty,0 AS sup FROM latest l "
-    "CROSS JOIN bridge_deliveries d ON d.delivery_id=l.latest_id UNION ALL "
+    "CROSS JOIN bridge_deliveries d ON d.delivery_id=l.latest_id WHERE l.is_detail OR d.result_json IS NULL UNION ALL "
     f"SELECT l.*,d.delivery_id,d.seq,d.certainty,1 AS sup FROM latest l CROSS JOIN bridge_deliveries d INDEXED BY {_SUPERSEDED_INDEX} "
     "ON d.stream_id=l.stream_id AND d.peer_id=l.peer_id "
-    "WHERE d.certainty IN ('STARTED','MAY_HAVE_STARTED') AND d.result_json IS NULL AND d.delivery_id<>l.latest_id), "
+    "WHERE l.is_detail AND d.certainty IN ('STARTED','MAY_HAVE_STARTED') AND d.result_json IS NULL AND d.delivery_id<>l.latest_id), "
     "ranked AS (SELECT pick.*,ROW_NUMBER() OVER (PARTITION BY pick.sup ORDER BY pick.seq DESC) AS sup_rank,"
     "SUM(pick.sup) OVER () AS sup_total FROM pick), "
     # Keep the ranked rows on the outside so SQLite seeks each kept delivery by ID.
@@ -140,8 +141,8 @@ _ACTIVITY_SQL = (
     "kept.claim_generation) AS invocation_generation,"
     "(SELECT e.kind FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind NOT IN (" + _sql_list(_BOOKKEEPING_KINDS) + ") "
     "ORDER BY e.seq DESC LIMIT 1) AS last_kind,"
-    "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='session_call' AND e.certainty='STARTED' "
-    "ORDER BY e.seq DESC LIMIT 1) AS start_detail,"
+    "CASE WHEN kept.is_detail THEN (SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id "
+    "AND e.kind='session_call' AND e.certainty='STARTED' ORDER BY e.seq DESC LIMIT 1) END AS start_detail,"
     + invocation_process_fields("kept.delivery_id") + ","
     "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='processes_dead' "
     "ORDER BY e.seq DESC LIMIT 1) AS abandonment,"
@@ -153,18 +154,20 @@ _ACTIVITY_SQL = (
     "AND ev.expires_at>=:window_start "  # an overdue row is open only for ALERT_WINDOW_S after its lease expired
     "AND (ev.last_kind IS NULL OR ev.last_kind IN (" + _sql_list(START_KINDS + PRESTART_KINDS) + ")) THEN 1 ELSE 0 END AS is_open FROM ev), "
     # Superseded rows rank apart, so they never take the "20 newest ended" text ranks of real ended rows.
-    "rk AS (SELECT op.*,ROW_NUMBER() OVER (PARTITION BY op.is_open,op.sup ORDER BY op.end_bound DESC,op.seq DESC) AS end_rank FROM op), "
-    "tx AS (SELECT rk.*,CASE WHEN :text_on=1 AND (rk.is_open=1 OR (rk.sup=0 AND rk.end_bound>=:window_start) OR rk.end_rank<=:newest) "
+    "rk AS (SELECT op.*,ROW_NUMBER() OVER (PARTITION BY op.is_detail,op.is_open,op.sup ORDER BY op.end_bound DESC,op.seq DESC) AS end_rank FROM op), "
+    "tx AS (SELECT rk.*,CASE WHEN rk.is_detail AND :text_on=1 AND "
+    "(rk.is_open=1 OR (rk.sup=0 AND rk.end_bound>=:window_start) OR rk.end_rank<=:newest) "
     "THEN 1 ELSE 0 END AS want_text,"
     # RECENT's rows (the newest ended rows, as for the text) are joined to the newest session of their stream (#412).
-    "CASE WHEN rk.is_open=0 AND rk.sup=0 AND rk.end_rank<=:newest THEN 1 ELSE 0 END AS want_join FROM rk), "
+    "CASE WHEN rk.is_detail AND rk.is_open=0 AND rk.sup=0 AND rk.end_rank<=:newest THEN 1 ELSE 0 END AS want_join FROM rk), "
     "se AS (SELECT h.stream_id,h.peer_id,h.session_handle,h.session_generation,h.runtime_kind,h.state,h.tombstoned_at,"
     "ROW_NUMBER() OVER (PARTITION BY h.stream_id,h.peer_id ORDER BY h.session_generation DESC) AS srn "
     "FROM bridge_session_history h WHERE EXISTS (SELECT 1 FROM tx WHERE tx.want_join=1 AND tx.stream_id=h.stream_id "
     "AND tx.peer_id=h.peer_id)) "
     "SELECT tx.stream_id,tx.peer_id,tx.c_generation,tx.expires_at,tx.lease_sec,"
     "CASE WHEN :wsgen IS NULL THEN 1 WHEN tx.c_wsgen=:wsgen THEN 1 ELSE 0 END AS wsgen_match,"
-    "tx.scope_total,tx.sup_total,tx.seq,tx.certainty,tx.invocation_generation AS claim_generation,tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
+    "scope.scope_total,tx.sup_total,tx.is_detail,tx.seq,tx.certainty,tx.invocation_generation AS claim_generation,"
+    "tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
     "tx.caller_detail,tx.provider_detail,tx.abandonment,tx.result_ok,tx.want_text,r.record_id,"
     "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.response') END AS response_type,"
     "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' "
@@ -198,7 +201,9 @@ _ACTIVITY_SQL = (
         "THEN json_extract({c},'{p}') END END") + " END AS ask_text,"
     "CASE WHEN tx.want_text=1 AND tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' THEN CASE WHEN "
     "length(json_extract(" + _R + ",'$.response'))<=:max_text THEN json_extract(" + _R + ",'$.response') END END END AS reply_text "
-    "FROM tx LEFT JOIN records r ON r.record_id=tx.record_id "
+    # Carry scope coverage even when no sampled claim has a delivery.
+    "FROM (SELECT scope_total FROM s LIMIT 1) scope LEFT JOIN tx ON 1 "
+    "LEFT JOIN records r ON tx.is_detail AND r.record_id=tx.record_id "
     "LEFT JOIN se ON tx.want_join=1 AND se.stream_id=tx.stream_id AND se.peer_id=tx.peer_id AND se.srn=1 "
     "LEFT JOIN bridge_session_monitor_stats ms ON ms.session_handle=se.session_handle "
     "LEFT JOIN bridge_evidence te ON te.seq=ms.latest_telemetry_seq AND te.kind='session_telemetry' "
@@ -216,7 +221,7 @@ _ACTIVITY_SQL_NO_SESSIONS = (
 
 
 def _activity_params(now: float, workspace_generation: str | None, text_on: bool) -> dict[str, Any]:
-    return {"since": now - ACTIVITY_SPAN_S, "scope_limit": ACTIVITY_SCOPE_CAP + 1, "scope_cap": ACTIVITY_SCOPE_CAP,
+    return {"since": now - ACTIVITY_SPAN_S, "scope_cap": ACTIVITY_SCOPE_CAP,
             "sup_cap": SUPERSEDED_CAP, "window_start": now - ALERT_WINDOW_S, "newest": TEXT_NEWEST_ROWS,
             "text_on": 1 if text_on else 0, "wsgen": workspace_generation, "max_text": TEXT_MAX_CHARS}
 

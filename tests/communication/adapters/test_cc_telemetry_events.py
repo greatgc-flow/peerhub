@@ -10,7 +10,7 @@ from peerhub.extensions.adapters import CliRuntimeTarget, event_parser, telemetr
 from peerhub.extensions.adapters.event_parser import IncrementalEventParser
 from peerhub.extensions.adapters.telemetry import parse_provider_usage
 from peerhub.extensions.usage_normalization import unknown_usage
-from tests.communication.bridge_helpers import bseed
+from tests.communication.bridge_helpers import FAKE_CLI_DELIVERY_TIMEOUT_S, bseed
 
 
 pytestmark = pytest.mark.unit
@@ -104,7 +104,8 @@ def _cc_target(tmp_path, stdout: str, exit_code: int) -> CliRuntimeTarget:
     script = tmp_path / "provider.py"
     script.write_text(f"import sys\nsys.stdout.buffer.write({stdout.encode('utf-8')!r})\nsys.exit({exit_code})\n",
                       encoding="utf-8", newline="\n")
-    return CliRuntimeTarget("cc", tmp_path, command=[sys.executable, str(script)], timeout_s=15)
+    return CliRuntimeTarget("cc", tmp_path, command=[sys.executable, str(script)],
+                            timeout_s=FAKE_CLI_DELIVERY_TIMEOUT_S)
 
 
 def test_successful_cc_run_with_rate_limit_event_is_delivered(tmp_path, bridge_h):

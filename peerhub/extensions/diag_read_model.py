@@ -255,7 +255,8 @@ PLAN_STALE_TAG = "(stale)"  # one spelling, shown first in the reason of a stale
 PLAN_PACE_LEGEND = f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f} | hold | rest PACE>+{PLAN_REST_PACE_PT:.0f}"
 PLAN_LEGEND = PLAN_PACE_LEGEND + "/exhausts early | blocked 0%/unknown | - n/a | TARGET=left%/h"
 PLAN_GATE_TAG = "gate"
-_PLAN_ZERO_REASONS = {"out": "out", "aged": "stale zero; refresh", "reset": "window reset; refresh"}
+_PLAN_ZERO_REASONS = {"out": "out", "aged": "stale zero; refresh"}
+_PLAN_RESET_ADVICE = ("hold", "window reset; refresh")
 _PLAN_RANK = {"spend": 0, "hold": 1, "rest": 2, "blocked": 3}
 _PlanWindow = tuple[QuotaRow, float | None, str, str]
 _PlanPool = tuple[str | None, dict[str, object], "PoolHealth"]
@@ -273,12 +274,12 @@ def plan_budget(left: float | None, reset: float | None) -> float | None:
 def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) -> tuple[str, str]:
     """#339: one window's action from stored evidence and the existing PACE/forecast; never re-derived."""
     stale = PLAN_STALE_TAG + " " if forecast == "stale" else ""  # leads the reason: a narrow terminal cuts the end
+    if forecast == "expired":
+        return _PLAN_RESET_ADVICE
     if left_pct is None:
         return "blocked", "left unknown; refresh"
     if left_pct <= 0 or forecast == "exhausted":
         return "blocked", _PLAN_ZERO_REASONS["out"]
-    if forecast == "expired":
-        return "blocked", _PLAN_ZERO_REASONS["reset"]
     if forecast == "threat":
         return "rest", stale + "forecast exhausts before reset"
     if pace_pt is None:
@@ -347,7 +348,7 @@ def _plan_gate_windows(own: list[_PlanWindow], consumers: Mapping[str, list[str]
     for entry in own:
         row = entry[0]
         gate = exhausted.get(row.ref, entry)
-        if gate[2] != "n/a" and gate[0].subject_ref is not None:
+        if gate[2] != "n/a" and gate[2:] != _PLAN_RESET_ADVICE and gate[0].subject_ref is not None:
             accounts.setdefault(_plan_scope(row)[1], []).append(gate)
     gates: dict[str, list[_PlanWindow]] = {}
     for r, _, action, _ in own:
@@ -370,6 +371,8 @@ def _plan_advice(window: _PlanWindow, parent: QuotaRow | None, facts: PoolHealth
     r, left, own_action, own_reason = window
     if own_action == "n/a":
         return {"action": own_action, "reason": own_reason, "binding": None, "gates": []}
+    if (own_action, own_reason) == _PLAN_RESET_ADVICE:
+        return {"action": own_action, "reason": own_reason, "binding": r.pool, "gates": []}
 
     # When the parent only changes the state, the effective pace is still the child's.
     # The parent's own reading votes through the gate list in that case.
@@ -395,12 +398,12 @@ def _plan_advice(window: _PlanWindow, parent: QuotaRow | None, facts: PoolHealth
         reason = f"{source.pool}: {why}"
     else:
         reason = plan_gate_reason(source.pool, why)
-    if left != 0 and own_health["state"] != "reset" and own_health["stale"] and r.used is not None:
+    if left != 0 and own_health["stale"] and r.used is not None:
         reason = f"{PLAN_STALE_TAG} {reason}"
 
     shown = [entry for entry in applicable if not use_family or entry[0].ref in exhausted]
     if parse_window(r.pool)[0] == WEEK_SECONDS:
-        # Reset and unknown windows remain weekly evidence. Their block applies only to their own row.
+        # Unknown windows remain weekly evidence. Their block applies only to their own row.
         shown.extend(entry for entry in windows if entry not in shown
                      and _plan_family(r) == _plan_family(entry[0]) and entry[2] in {"rest", "blocked"})
     if parent_vote is not None:
@@ -408,7 +411,7 @@ def _plan_advice(window: _PlanWindow, parent: QuotaRow | None, facts: PoolHealth
     if decided is gate and decided not in shown:
         shown.append(decided)
     return {"action": action, "reason": reason, "binding": source.pool,
-            "gates": [{"pool": other.pool, "action": action, "reason": "reset" if why == _PLAN_ZERO_REASONS["reset"] else why}
+            "gates": [{"pool": other.pool, "action": action, "reason": why}
                       for other, _, action, why in shown]}
 
 
@@ -437,7 +440,9 @@ def plan_pools(report: DiagnosticReport, *,
         if state == "n/a":
             # The monitor's n/a: the plan omits the window or the provider disabled it; not a budget, never a gate.
             own.append((r, None, "n/a", "n/a (disabled by provider)" if r.reason.startswith(DISABLED_REASON) else "n/a (plan omits)"))
-        elif state == "reset" or left == 0:
+        elif state == "reset":
+            own.append((r, left, *_PLAN_RESET_ADVICE))
+        elif left == 0:
             own.append((r, left, "blocked", _PLAN_ZERO_REASONS[state]))
         else:
             own.append((r, left, *plan_action(left, facts["pace_pt"], facts["forecast"])))

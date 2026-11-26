@@ -34,7 +34,7 @@ PLAN_TEXT_CHARS_PER_TOKEN = 3  # Character budget proxy for the sample's punctua
     (None, None, "unknown", "blocked"),        # unknown / n/a evidence
     (0.0, 30.0, "exhausted", "blocked"),       # out
     (0.0, None, "unknown", "blocked"),         # 0% left even without a projection
-    (55.0, -5.0, "expired", "blocked"),        # window already reset: left is not current
+    (55.0, -5.0, "expired", "hold"),           # window already reset: left is not current
     (40.0, 2.0, "threat", "rest"),             # forecast exhausts before reset
     (40.0, -12.0, "threat", "rest"),           # forecast wins over a spend-sized PACE
     (40.0, 20.0001, "on_pace", "rest"),        # just above +20 (owner 2026-11-22: up to +20 is fine)
@@ -112,11 +112,11 @@ def test_unknown_or_na_5h_does_not_gate_its_7d(state):
     assert rows[("cx", "X-7D")]["action"] == "spend" and rows[("cx", "X-7D")]["binding"] == "X-7D"
 
 
-def test_expired_5h_blocks_only_its_own_row():
+def test_expired_5h_does_not_block():
     # Stored 10 min ago, the 5H window reset 5 min ago: its 10% left is no longer current.
     rows = _by_pool(_report(_item("cx", "X-5H", .10, span=5 * HOUR, elapsed=5 * HOUR - 300, age=600.0),
                             _item("cx", "X-7D", .90, span=7 * DAY, elapsed=3.5 * DAY)))
-    assert rows[("cx", "X-5H")]["forecast"] == "expired" and rows[("cx", "X-5H")]["action"] == "blocked"
+    assert rows[("cx", "X-5H")]["forecast"] == "expired" and rows[("cx", "X-5H")]["action"] == "hold"
     assert rows[("cx", "X-7D")]["action"] == "spend" and rows[("cx", "X-7D")]["binding"] == "X-7D"
     assert "X-5H" not in rows[("cx", "X-7D")]["reason"]
 

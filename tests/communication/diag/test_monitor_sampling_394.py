@@ -103,13 +103,13 @@ def first_seen(lines: list[str], pattern: str) -> list[str]:
 
 
 @pytest.mark.parametrize("view", ["plain", "rich"])
-def test_quota_details_keep_the_most_urgent_peer_first(view):
+def test_quota_details_keep_the_best_ranked_peer_first(view):
     frame = eight_pools_payload()
     lines = render(frame, view).splitlines()
     quota = re.escape(monitor_legend.FRAME_SECTIONS["capacity"])
     start = next(i for i, line in enumerate(lines) if re.match(rf"(?:--|──) {quota}(?= |$)", line))
     end = next((i for i in range(start + 1, len(lines)) if re.match(r"(?:--|──) ", lines[i])), len(lines))
-    assert first_seen(lines[start + 2:end], r"\s*(ag|cc|cx) ") == ["cx", "ag", "cc"]  # X-5H is out
+    assert first_seen(lines[start + 2:end], r"\s*(ag|cc|cx) ") == ["cc", "ag", "cx"]  # X-5H puts CX last
 
 
 # ---- 5: two dates, two labels --------------------------------------------------------------------------------------

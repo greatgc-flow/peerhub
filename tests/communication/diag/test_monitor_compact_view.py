@@ -697,7 +697,7 @@ def _compact_pool_order(screen):
 
 
 def test_compact_and_expand_each_keep_their_pool_order(compact_frame):
-    # Unknown-PACE roots tie by peer and name in POOLS. The QUOTA detail lists the most urgent peer first.
+    # Unknown-PACE roots tie by peer and name in POOLS and QUOTA uses that rank within peer groups.
     compact = _compact_pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
     expanded = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=120, expand=True))
     assert compact == ["ag 3P-7D", "ag 3P-5H", *sorted(["ag G-7D", "cc F-7D", "cx X-7D", "ag A-7D"])]

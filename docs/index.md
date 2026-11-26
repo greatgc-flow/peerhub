@@ -38,6 +38,7 @@
 - [Retained session implementation](implementation/RETAINED_SESSIONS.md) records registry migration, replay, and receipts.
 - [Observation probe implementation](implementation/OBSERVATION_PROBES.md) records provider probe behavior and usage costs.
 - [History](history/) holds work logs, audits, and the [archival ledger](history/ledger-2026-10-17.md).
+- [2026-11-26 work log](history/work-log-2026-11-26.md) records the requirements audit and follow-ups.
 - [Lesson observations](history/observations.md) record the dated measurements behind operational guidance.
 - [Archived M1 skill examples](history/m1_spec/05_SKILLS/) preserve the original skill catalog examples.
 - [Design audits and shipped monitor designs](history/design/) record release and design provenance.

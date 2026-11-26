@@ -17,15 +17,21 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- Monitor: the expanded QUOTA table orders peer groups and families by the POOLS "use first" rank, keeping children under their parent (#488).
 - The release bar in CONTRIBUTING is no functional defect and a mean review score of at least 80; the `review-recipe` lesson refers to it.
 - The `instruction-diet` lesson tells AI agents to read `peerhub diag --plan` each turn (the monitor is the human screen).
 - The monitor legend explains `?` in MARGIN and EXH/RESET (too little data to project).
+- The [November 26 work log](docs/history/work-log-2026-11-26.md) records the requirements audit, prevention measures and follow-ups.
+- Expanded lessons cover parallel lane ownership, Windows shell escaping, supervised waits, and release checks for flaky CI and monitor goldens.
 
 ### Fixed
 
+- `diag --plan`: a short window whose reset has passed holds ("window reset; refresh") instead of `blocked`, and no longer gates its weekly parent; the monitor keeps hiding it in both views (#488).
+- Monitor: RUNNING totals count open asks beyond the 1,000-scope detail sample (#488).
 - Monitor: an unknown API billing state no longer prints a compact-only line above POOLS; an informative billing line (evidence, unreconciled, read error) now appears in the same place in compact and expand.
 - `diag --plan`: the `gap:` line omits pools without PACE (n/a pools), matching the monitor.
 - `tools.release_flow` polls the releases list for a few seconds after `gh release create` before verifying the draft, so a list that lags the create call no longer stops a correct release (#486).
+- Fake cc delivery tests give subprocesses up to 60 seconds on loaded runners and check terminal delivery before decoding the stored result.
 
 ## [0.26.18] - 2026-11-26
 

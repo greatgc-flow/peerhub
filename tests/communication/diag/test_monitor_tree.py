@@ -82,17 +82,16 @@ def test_equal_sets_three_windows_and_equal_window_containment(expand: bool, uni
         stack[depth:] = [match[0]]
 
 
-@pytest.mark.parametrize("members", [
-    {"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "F-7D"], "cc.c": ["F-7D"]},
-    {"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-30D", "C-5H"]},
+@pytest.mark.parametrize("members,expected", [
+    ({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "F-7D"], "cc.c": ["F-7D"]}, ["C-7D", "C-5H", "F-7D"]),
+    ({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-30D", "C-5H"]}, ["C-30D", "C-7D", "C-5H"]),
 ])
-def test_crossing_or_ambiguous_peer_is_flat(members: dict[str, list[str]]) -> None:
+def test_crossing_or_ambiguous_peer_is_flat(members: dict[str, list[str]], expected: list[str]) -> None:
     frame = frame_for(members)
     for expand in (True,):  # the tree is --expand only (#374 F5)
         screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand)
         rows = pool_lines(screen)
         assert not any("|-" in row or "`-" in row for row in rows)
-        expected = sorted({pool for pools in members.values() for pool in pools}, key=lambda p: monitor_format.pool_order("cc", p))
         assert [re.search(r"[CF]-\d+[HD]", row)[0] for row in rows] == expected  # type: ignore[index]
 
 
@@ -123,8 +122,8 @@ def test_g_flat_fallback_uses_shared_cells(expand: bool) -> None:
     frame = frame_for({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "F-7D"], "cc.c": ["F-7D"]})
     rows = pool_lines(mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand))
     # C1/G: the unanchored fixture has reserve and reset. M5 lists configured profiles.
-    expected = [("C-5H", "low", "10%!", "claude: cc.a"),
-                ("C-7D", "ok", "20%", "claude: cc.a,cc.b"),
+    expected = [("C-7D", "ok", "20%", "claude: cc.a,cc.b"),
+                ("C-5H", "low", "10%!", "claude: cc.a"),
                 ("F-7D", "ok", "30%", "fable: cc.b,cc.c")]
     assert len(rows) == len(expected)
     for row, (pool, state, left, family) in zip(rows, expected):
@@ -352,7 +351,8 @@ def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool, monk
     rows = pool_lines(screen)
     assert len(rows) == 3
     assert all("`-" not in row and "|-" not in row for row in rows)
-    assert "5%" in rows[1] and "87%" in rows[2]
+    first, second = [row for row in rows if "C-7D" in row]
+    assert "5%" in first and "87%" in second
     assert frame == before
     compact = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180)  # each keeps its own value
     assert "5%" in compact and "87%" in compact and "10%" in compact

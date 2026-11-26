@@ -38,41 +38,57 @@ def _flash_windows():
             _item("ag", "A-5H", 0, span=SHORT, elapsed=HOUR, age=FRESH_AGE))
 
 
-def test_reset_gate_is_visible_alongside_a_weekly_hold():
-    rows = _rows(_report(*_flash_windows()))
+@pytest.mark.parametrize("with_profiles", [False, True])
+def test_reset_short_window_holds_without_gating_and_is_hidden_in_both_views(with_profiles):
+    from peerhub.cli.monitor_view import render_grouped_frame
+    from tests.communication.diag.test_monitor_activity_view import pool
+    from tests.communication.diag.test_monitor_plain_golden import _payload
+
+    report = _report(*_flash_windows())
+    profiles = {"G-5H": ["ag.effort"], "G-7D": ["ag.effort"]} if with_profiles else None
+    rows = _rows(report, profiles)
     weekly, short, argon = (rows[f"quota:ag:{pool}"] for pool in ("G-7D", "G-5H", "A-5H"))
-    assert weekly["action"] == "hold" and short["action"] == "blocked"
-    assert weekly["gates"] == [{"pool": short["pool"], "action": short["action"], "reason": "reset"}]
+    assert short["action"] == "hold" and short["reason"] == "window reset; refresh"
+    assert short["left_pct"] == 30 and short["pace_pt"] is None and short["resets_in_seconds"] == -FRESH_AGE / 2
+    assert weekly["action"] == "hold" and weekly["binding"] == weekly["pool"] and weekly["gates"] == []
     assert weekly["parent"] is None and short["parent"] == weekly["pool"]
     assert weekly["family"] == short["family"] == FAMILIES["G"]
     assert argon["family"] == FAMILIES["A"] and argon["parent"] is None
     assert short["gates"] == argon["gates"] == []
     assert weekly["age_seconds"] == FRESH_AGE and weekly["ttl_seconds"] == QUOTA_TTL_SECONDS
 
-    out = render_plan(_report(*_flash_windows()), width=100)
-    line = next(line for line in out.splitlines() if line.split()[:2] == [weekly["peer"], weekly["pool"]])
-    assert line.endswith(f"{weekly['reason']} ({PLAN_GATE_TAG}: {short['pool']})")
+    out = render_plan(report, width=100, profiles_by_pool=profiles)
+    lines = {line.split()[1]: line for line in out.splitlines() if line.startswith("ag ")}
+    assert lines["G-5H"].split()[2] == "—" and lines["G-5H"].split()[-4:] == ["hold", "window", "reset;", "refresh"]
+    assert lines["G-7D"].endswith(str(weekly["reason"])) and "G-5H" not in lines["G-7D"]
     assert any(line.endswith(PLAN_TAG_LEGEND) for line in out.splitlines())
 
+    payload = _payload([], [pool("ag", "G-5H", .3, reset=-FRESH_AGE / 2), pool("ag", "G-7D", .5)],
+                       selected_groups=["capacity"])
+    for expand in (False, True):
+        options = dict(view="plain", width=120, expand=expand)
+        assert "G-5H" not in render_grouped_frame(payload, **options)
+        assert "ag G-5H n/a (quota window expired)" in render_grouped_frame(payload, show_quota_notes=True, **options)
 
-def test_weekly_gates_use_each_siblings_own_action_and_skip_na_and_other_accounts():
+
+def test_weekly_gates_use_each_siblings_own_action_and_skip_na_reset_and_other_accounts():
     _, weekly, _ = _flash_windows()
     rested = _item("ag", "G-5H", .3, span=SHORT, elapsed=HOUR, age=FRESH_AGE)
     usable = _item("ag", "G-1H", .9, span=HOUR, elapsed=HOUR / 2, age=FRESH_AGE)
     absent = _item("ag", "G-1D", None, span=DAY, elapsed=HOUR, state="ABSENT",
                    reason="not reported by provider", age=FRESH_AGE)
     other_account = {**rested, "resource_pool_ref": "quota:other:G-2H"}
-    blocked = _item("ag", "G-3H", .3, span=3 * HOUR, elapsed=3 * HOUR - FRESH_AGE / 2, age=FRESH_AGE)
-    report = _report(weekly, rested, usable, absent, other_account, blocked)
+    reset = _item("ag", "G-3H", .3, span=3 * HOUR, elapsed=3 * HOUR - FRESH_AGE / 2, age=FRESH_AGE)
+    report = _report(weekly, rested, usable, absent, other_account, reset)
     rows = _rows(report)
     assert rows[usable["resource_pool_ref"]]["action"] == "rest"  # inherits the 5H action
     assert rows[absent["resource_pool_ref"]]["action"] == "n/a"
     gates = rows[weekly["resource_pool_ref"]]["gates"]
     rested_row = _rows(_report(rested))[rested["resource_pool_ref"]]
     assert gates == [
-        {"pool": rows[blocked["resource_pool_ref"]]["pool"], "action": "blocked", "reason": "reset"},
         {"pool": rested_row["pool"], "action": rested_row["action"], "reason": rested_row["reason"]},
     ]
+    assert rows[reset["resource_pool_ref"]]["action"] == "hold"
     line = next(line for line in render_plan(report, width=120).splitlines()
                 if line.split()[:2] == [weekly["subject_ref"], rows[weekly["resource_pool_ref"]]["pool"]])
     assert line.endswith(" ".join(f"({PLAN_GATE_TAG}: {gate['pool']})" for gate in gates))
@@ -185,8 +201,7 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     out = capsys.readouterr().out
     assert all(field not in out for field in FACT_FIELDS - {"fast"})
     weekly = next(row for row in data["pools"] if row["pool"] == "G-7D")
-    assert weekly["gates"]
-    assert all(f"({PLAN_GATE_TAG}: {gate['pool']})" in out for gate in weekly["gates"])
+    assert weekly["gates"] == [] and f"({PLAN_GATE_TAG}: G-5H)" not in out
     assert profile_reads == [Path.cwd(), Path.cwd()]
     groups = [f"{row['pool']} {','.join(row['profiles'])}" for row in data["pools"]
               if row["action"] != "n/a" and row["profiles"]]
@@ -258,7 +273,7 @@ def test_the_stale_tag_leads_the_reason_so_a_narrow_terminal_cannot_cut_it_off()
 def test_zero_reason_uses_shared_state(age, remaining_time, expected_state, expected_reason):
     item = _item("cc", "C-7D", 0, span=WEEK, elapsed=WEEK - age - remaining_time, age=age)
     row = _rows(_report(item))[item["resource_pool_ref"]]
-    assert row["reason"] == expected_reason and row["action"] == "blocked"
+    assert row["reason"] == expected_reason and row["action"] == ("hold" if expected_state == "reset" else "blocked")
     assert row["health"]["state"] == expected_state
 
 
@@ -503,14 +518,14 @@ def test_parent_forecast_votes_when_only_its_state_limits_the_child():
     assert row["reason"] == f"{PLAN_GATE_TAG}: {parent} {gate['reason']}"
 
 
-@pytest.mark.parametrize("age,elapsed", [(AGED, HOUR), (FRESH_AGE, SHORT - FRESH_AGE / 2)])
-def test_stale_or_reset_zero_does_not_gate_the_profile(age, elapsed):
+@pytest.mark.parametrize("age,elapsed,action", [(AGED, HOUR, "blocked"), (FRESH_AGE, SHORT - FRESH_AGE / 2, "hold")])
+def test_stale_or_reset_zero_does_not_gate_the_profile(age, elapsed, action):
     gate, pool = "G-5H", "G-7D"
     empty = _item("ag", gate, 0, span=SHORT, elapsed=elapsed, age=age)
     available = _item("ag", pool, .8, span=WEEK, elapsed=WEEK / 2)
     profiles = dict.fromkeys((gate, pool), ["ag.neon"])
     rows = _rows(_report(empty, available), profiles)
-    assert rows[empty["resource_pool_ref"]]["action"] == "blocked"
+    assert rows[empty["resource_pool_ref"]]["action"] == action
     weekly = rows[available["resource_pool_ref"]]
     assert weekly["action"] == "spend" and weekly["binding"] == pool
 

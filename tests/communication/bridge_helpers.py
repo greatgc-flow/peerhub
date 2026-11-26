@@ -7,6 +7,9 @@ from contextlib import closing
 from tests.communication.helpers import req
 
 
+FAKE_CLI_DELIVERY_TIMEOUT_S = 60.0
+
+
 def sql(h, query: str, args: tuple = ()) -> list[tuple]:
     with closing(sqlite3.connect(h.db_path)) as c:
         return c.execute(query, args).fetchall()
