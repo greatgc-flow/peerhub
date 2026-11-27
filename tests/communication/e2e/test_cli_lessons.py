@@ -107,7 +107,19 @@ def test_no_match_hint(capsys):
     assert "No matching lessons" in captured.err
     assert "Try fewer keywords" in captured.err
     assert "peerhub explain lessons" in captured.err
+    assert ".; next:" not in captured.err
+    assert captured.err.strip().endswith("; next: peerhub explain lessons")
     assert len(captured.err.splitlines()) == 1
+
+
+def test_explain_exit_codes_renders_scannable_table_matching_actual_behavior(capsys):
+    assert main(["explain", "exit-codes"]) == 0
+    out = capsys.readouterr().out
+    assert "COMMAND" in out and "EXIT 0" in out and "OTHER EXITS" in out
+    assert "peer_not_found" in out
+    assert "OK (including PARTIAL)" in out
+    assert "update --check" in out and "update --plan" in out
+    assert len(out.splitlines()) >= 12
 
 
 @pytest.mark.parametrize("query", [[], ["lessons"], ["list"]])
@@ -384,7 +396,7 @@ def test_catalog_and_rendering():
     for lesson in lessons:
         assert all(lesson.values())
         rendered = render_lesson(lesson)
-        if not lesson.get("aliases"):
+        if not lesson.get("aliases") and lesson["id"] != "exit-codes":
             assert len(rendered.splitlines()) <= 5
         assert lesson["issue"] in rendered
 

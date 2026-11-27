@@ -385,7 +385,7 @@ def register_update_parser(subparsers: Subparsers) -> None:
     update_parser = subparsers.add_parser(
         "update", help="Check versions or print an upgrade plan (read-only)",
         description="Check local versions, the bundled Codex catalog and public release metadata, or print a plan for the selected store. "
-                    "Exit 1 if asks are running, 4 or 5 if the store cannot be read, and 6 for an unsupported store schema.",
+                    "With --plan, exit 1 if asks are running, 4 or 5 if the store cannot be read, and 6 for an unsupported store schema.",
     )
     update_mode = update_parser.add_mutually_exclusive_group(required=True)
     update_mode.add_argument("--check", dest="update_check", action="store_true", help="Check versions and packaged model defaults")

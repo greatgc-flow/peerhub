@@ -152,6 +152,15 @@ def test_health_dashboard_uses_truthful_versioned_stream_sample(ws, capsys):
     assert "stream_sample" in report and "active_streams" not in report
 
 
+def test_health_text_mode_renders_human_key_value_lines_and_one_db_path(ws, capsys):
+    assert main(["--db", str(ws.db_path), "diag", "health"]) == 0
+    out = capsys.readouterr().out
+    assert "schema_version" not in out and "{" not in out and "[" not in out
+    assert out.count(str(ws.db_path)) == 1
+    assert f"store: {ws.db_path} (explicit)" in out
+    assert "observations: OK latest=4 (MEASURED=2, STALE=1, UNAVAILABLE=1)" in out
+
+
 def test_quota_db_without_observation_tables_or_evidence(tmp_path, capsys):
     core = CoreHarness(tmp_path / "core")
     with closing(sqlite3.connect(core.db_path)) as c:

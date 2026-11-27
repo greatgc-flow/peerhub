@@ -158,7 +158,9 @@ def run_batch(args: argparse.Namespace) -> int:
             if warnings is not None:
                 error["warnings"] = warnings
             print(json.dumps(error, ensure_ascii=True))
-        error_line("invalid_manifest", str(exc), "peerhub batch run --help")
+        hint = (f"check manifest path {args.manifest!r} (or run peerhub batch run --help)"
+                if str(exc).startswith("cannot read manifest ") else "peerhub batch run --help")
+        error_line("invalid_manifest", str(exc), hint)
         if not args.json and warnings:
             print_warnings({"warnings": warnings})
         return 1

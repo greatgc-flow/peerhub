@@ -110,15 +110,23 @@ def test_manifest_rejects_invalid(tmp_path, doc):
         batch.load_manifest(write(tmp_path, doc), batch_id="b1")
 
 
-def test_manifest_rejects_missing_prompt_file_and_bad_json(tmp_path):
-    with pytest.raises(ManifestError):
+def test_manifest_rejects_missing_prompt_file_and_bad_json(tmp_path, capsys):
+    from peerhub.cli.app import main
+
+    with pytest.raises(ManifestError) as exc_pf:
         batch.load_manifest(write(tmp_path, {"tasks": [{"task_id": "a", "peer": "cc", "prompt_file": "nope.txt"}]}), batch_id="b1")
+    assert "[Errno" not in str(exc_pf.value)
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
     with pytest.raises(ManifestError):
         batch.load_manifest(bad, batch_id="b1")
-    with pytest.raises(ManifestError):
+    with pytest.raises(ManifestError) as exc_mf:
         batch.load_manifest(tmp_path / "missing.json", batch_id="b1")
+    assert "[Errno" not in str(exc_mf.value)
+    assert main(["batch", "run", "nofile.json", "--batch-id", "b1", "--max-parallel", "1"]) == 1
+    err = capsys.readouterr().err
+    assert "[Errno" not in err
+    assert "next: check manifest path 'nofile.json' (or run peerhub batch run --help)" in err
 
 
 @pytest.mark.parametrize("n", [0, -1, True, 1.5, float("nan"), "2"])

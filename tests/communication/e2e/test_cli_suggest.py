@@ -97,6 +97,17 @@ def test_deprecation_notice_is_one_stderr_line_and_points_to_diag_plan(quota, ca
     assert lines == ["Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release."]
 
 
+def test_suggest_help_and_explain_lessons_show_deprecation(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["suggest", "--help"])
+    assert exc.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release." in help_text
+    assert main(["explain", "lessons"]) == 0
+    lessons_out = capsys.readouterr().out
+    assert "suggest: Deprecated: recommend a profile and ask command (use peerhub diag --plan)" in lessons_out
+
+
 def test_candidates_show_tier_facts_without_changing_the_recommendation(quota, capsys):
     items, _, calls = quota
     items.extend(readings("ag", used_5h=MAX_5H_USAGE) + readings("cc", used_7d=.65) + readings("cx"))

@@ -12,4 +12,5 @@ def print_warnings(result: dict[str, Any]) -> None:
 
 def error_line(code: str, message: str, hint: str | None = None) -> None:
     hint = hint or f"peerhub explain {code}"
-    print(f"[{code}] {' '.join(str(message).split())}; next: {' '.join(hint.split())}", file=sys.stderr)
+    clean_msg = " ".join(str(message).split()).rstrip(".")
+    print(f"[{code}] {clean_msg}; next: {' '.join(hint.split())}", file=sys.stderr)

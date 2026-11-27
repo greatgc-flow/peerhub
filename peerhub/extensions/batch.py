@@ -118,12 +118,16 @@ def manifest_help() -> str:
     ))
 
 
+def _os_reason(exc: BaseException) -> str:
+    return str(exc.strerror or type(exc).__name__).lower() if isinstance(exc, OSError) else str(exc)
+
+
 def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
     path = Path(path)
     try:
         doc: Any = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
-        raise ManifestError(f"cannot read manifest {path}: {exc}") from exc
+        raise ManifestError(f"cannot read manifest {path}: {_os_reason(exc)}") from exc
     if not isinstance(doc, dict) or set(cast(dict[str, Any], doc)) != {"tasks"} or not isinstance(doc["tasks"], list):
         raise ManifestError('manifest must be {"tasks": [...]}')
     rows = cast(list[Any], doc["tasks"])
@@ -155,7 +159,7 @@ def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
                     raise ManifestError(f"task {tid}: {_PROMPT_FILE_KEY} exceeds {PROMPT_FILE_CAP} bytes")
                 prompt = file.read_text(encoding="utf-8-sig")
             except (OSError, ValueError, TypeError) as exc:
-                raise ManifestError(f"task {tid}: cannot read {_PROMPT_FILE_KEY}: {exc}") from exc
+                raise ManifestError(f"task {tid}: cannot read {_PROMPT_FILE_KEY}: {_os_reason(exc)}") from exc
         if not isinstance(prompt, str) or not prompt.strip():
             raise ManifestError(f"task {tid}: {_PROMPT_KEY} must be non-empty text")
         timeout = row.get("timeout_s", DEFAULT_TIMEOUT_S)
