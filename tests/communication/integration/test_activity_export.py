@@ -58,6 +58,7 @@ def test_scoped_show_linkage_privacy_and_no_writes(tmp_path, capsys):
     assert {e["stream_id"] for e in events} == {"z"}
     prompt, response = [e for e in events if e["kind"].startswith("ai.")]
     assert response["reply_to"] == prompt["record_id"] == rid
+    assert response["delivery_id"] == next(e["delivery_id"] for e in events if e.get("event") == "started")
     assert prompt["request_id"] == "fixture-request"
     assert any(e.get("event") == "offset_acked" and e["acked"] for e in events)
     assert any(e["kind"] == "peer.usage" and e["usage"]["coverage"]["state"] == "UNKNOWN" for e in events)
@@ -85,3 +86,11 @@ def test_requires_existing_explicit_store(tmp_path, capsys, monkeypatch):
     page(capsys, None, "export", code=2)
     page(capsys, db, "export", code=5)
     assert not db.exists()
+
+
+def test_show_exact_stream_enrollment_is_checked_before_disclosure(tmp_path, capsys):
+    db = tmp_path / "source.db"
+    first = deliver(db, "approved")
+    other = deliver(db, "other", "other")
+    assert page(capsys, db, "show", first, "--stream", "approved")["items"]
+    assert page(capsys, db, "show", other, "--stream", "approved", code=1)["error"] == "ASK_NOT_FOUND"

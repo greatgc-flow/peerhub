@@ -5,6 +5,8 @@ import base64
 import hashlib
 import hmac
 import json
+import os
+import stat
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,16 +27,24 @@ class ActivityError(ValueError):
 
 
 def identity(path: Path) -> tuple[str, str | None]:
-    stat = path.stat()
-    store = json_digest([str(path.resolve()), str(stat.st_dev), str(stat.st_ino)])
+    db_stat = path.stat()
+    store = json_digest([str(path.resolve()), str(db_stat.st_dev), str(db_stat.st_ino)])
     markers: list[str | None] = []
     for name in ("workspace.generation", "restore.epoch"):
+        marker = path.parent / name
         try:
-            with (path.parent / name).open("rb") as handle:
-                data = handle.read(129)
+            before = marker.lstat()
         except FileNotFoundError:
             markers.append(None)
             continue
+        if not stat.S_ISREG(before.st_mode) or getattr(before, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise ActivityError("SOURCE_UNAVAILABLE", "diag_unavailable", 5)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        with os.fdopen(os.open(marker, flags), "rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened):
+                raise ActivityError("RESNAPSHOT_REQUIRED")
+            data = handle.read(129)
         if not data.strip() or len(data) > 128:
             raise ActivityError("RESNAPSHOT_REQUIRED")
         markers.append(hashlib.sha256(data).hexdigest())

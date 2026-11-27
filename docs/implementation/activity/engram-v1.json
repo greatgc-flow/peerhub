@@ -1,0 +1,161 @@
+{
+  "contract": "peerhub.activity/1.0",
+  "drain": {
+    "channels": {
+      "delivery_evidence": "AVAILABLE",
+      "outcome": "AVAILABLE",
+      "record": "AVAILABLE"
+    },
+    "coverage": {
+      "content": "OMITTED",
+      "incremental": "SUPPORTED",
+      "reason": "metadata_only",
+      "state": "PARTIAL",
+      "verification": "UNKNOWN"
+    },
+    "has_more": false,
+    "items": [
+      {
+        "acked": null,
+        "attempt": 1,
+        "certainty": "NOT_STARTED",
+        "delivery_id": "d1",
+        "event": "attempt_created",
+        "kind": "peer.evidence",
+        "occurred_at": null,
+        "peer_id": "b",
+        "reconcile_record_id": null,
+        "record_id": "rec-fixture",
+        "source_digest": "a717c4b8e57cf8c412d379546a6f9a63ee0e7c479d53bc5b15bd17028974eea7",
+        "source_event_id": "evidence:1",
+        "source_revision": "1",
+        "stream_id": "s"
+      },
+      {
+        "acked": null,
+        "attempt": 1,
+        "baseline_evidence_seq": null,
+        "certainty": "TERMINAL",
+        "delivery_id": "d1",
+        "delivery_measurement": {
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "input_tokens": 8,
+          "output_tokens": 0,
+          "prompt_tokens": 8
+        },
+        "event": "session_telemetry",
+        "kind": "peer.usage",
+        "measurement_state": "MEASURED",
+        "occurred_at": "2026-11-28T00:00:00Z",
+        "peer_id": "b",
+        "provider": "oa",
+        "record_id": "rec-fixture",
+        "session_generation": 1,
+        "session_handle": "sess_fixture",
+        "source_digest": "c27c2f80b8067711e418a2148844b9526c1bdcea40eab9adee531a1078ad8409",
+        "source_event_id": "evidence:2",
+        "source_revision": "1",
+        "stream_id": "s",
+        "usage": {
+          "attribution": "delivery",
+          "coverage": {
+            "reason": null,
+            "state": "MEASURED"
+          },
+          "field_evidence": {},
+          "normalized": {
+            "output_tokens": 0,
+            "provider_input_tokens": 8
+          },
+          "reported": {
+            "input_tokens": 8,
+            "output_tokens": 0
+          },
+          "schema_version": 1,
+          "scope": "delivery",
+          "source": "oa.response.usage"
+        }
+      }
+    ],
+    "lineage": "fixture-generation",
+    "next_cursor": "BUDqdGp_Tptay1-IlNbxNbfshtlCpUL0JFp-ywrlvzJbMSwiZml4dHVyZS1zdG9yZSIsImZpeHR1cmUtZ2VuZXJhdGlvbiIsIjU0NzE5ZDA5MTljYzE3ZjNjNjRkODZhMDg3MGI1Nzc2YjJjZWEwNjhkZjhhNDFiMzZlYTVlYjE5NTg4YTE1ZmYiLHsiZXZpZGVuY2UiOjIsIm91dGNvbWUiOjAsInI6cyI6MX0sbnVsbF0=",
+    "schema_version": "1.0",
+    "source": "peerhub",
+    "store_ref": "fixture-store"
+  },
+  "first": {
+    "channels": {
+      "delivery_evidence": "AVAILABLE",
+      "outcome": "AVAILABLE",
+      "record": "AVAILABLE"
+    },
+    "coverage": {
+      "content": "OMITTED",
+      "incremental": "SUPPORTED",
+      "reason": "metadata_only",
+      "state": "PARTIAL",
+      "verification": "UNKNOWN"
+    },
+    "has_more": true,
+    "items": [
+      {
+        "author_peer": "a",
+        "content": {
+          "mode": "OMITTED",
+          "reason": "METADATA_ONLY"
+        },
+        "delivery_id": null,
+        "kind": "ai.prompt",
+        "occurred_at": "2026-11-28T00:00:00Z",
+        "output_truncated": null,
+        "position": 1,
+        "record_id": "rec-fixture",
+        "reply_to": null,
+        "request_id": "fixture",
+        "source_digest": "fc967d3fd756b040cfcb228fea67056c96438db429430936dad9f401cadaaa2e",
+        "source_event_id": "record:rec-fixture",
+        "source_revision": "1",
+        "stream_id": "s",
+        "target_peer": "b"
+      }
+    ],
+    "lineage": "fixture-generation",
+    "next_cursor": "IZxEiOEMDcd3h73TjWqNUE__9aFClXx8tJlv_l8hUdlbMSwiZml4dHVyZS1zdG9yZSIsImZpeHR1cmUtZ2VuZXJhdGlvbiIsIjU0NzE5ZDA5MTljYzE3ZjNjNjRkODZhMDg3MGI1Nzc2YjJjZWEwNjhkZjhhNDFiMzZlYTVlYjE5NTg4YTE1ZmYiLHsiZXZpZGVuY2UiOjAsIm91dGNvbWUiOjAsInI6cyI6MX0seyJldmlkZW5jZSI6Miwib3V0Y29tZSI6MCwicjpzIjoxfV0=",
+    "schema_version": "1.0",
+    "source": "peerhub",
+    "store_ref": "fixture-store"
+  },
+  "late": {
+    "channels": {
+      "delivery_evidence": "AVAILABLE",
+      "outcome": "AVAILABLE",
+      "record": "AVAILABLE"
+    },
+    "coverage": {
+      "content": "OMITTED",
+      "incremental": "SUPPORTED",
+      "reason": "metadata_only",
+      "state": "PARTIAL",
+      "verification": "UNKNOWN"
+    },
+    "has_more": false,
+    "items": [
+      {
+        "kind": "peer.outcome",
+        "occurred_at": "2026-11-28T00:01:00Z",
+        "outcome": "accepted",
+        "record_id": "rec-fixture",
+        "source_digest": "4a5e86fc59cab3a34013eacf6219843a4c1d38dd2f3df7af9e55ee6ff1cb5a69",
+        "source_event_id": "outcome:1",
+        "source_revision": "1",
+        "stream_id": "s"
+      }
+    ],
+    "lineage": "fixture-generation",
+    "next_cursor": "V-ZqfTZRbM9FFlYd-XGXnzCYgg47wmZLFkEzWfulHSdbMSwiZml4dHVyZS1zdG9yZSIsImZpeHR1cmUtZ2VuZXJhdGlvbiIsIjU0NzE5ZDA5MTljYzE3ZjNjNjRkODZhMDg3MGI1Nzc2YjJjZWEwNjhkZjhhNDFiMzZlYTVlYjE5NTg4YTE1ZmYiLHsiZXZpZGVuY2UiOjIsIm91dGNvbWUiOjEsInI6cyI6MX0sbnVsbF0=",
+    "schema_version": "1.0",
+    "source": "peerhub",
+    "store_ref": "fixture-store"
+  }
+}

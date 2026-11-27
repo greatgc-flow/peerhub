@@ -11,3 +11,45 @@ F02 baseline on Linux, Python 3.12: pytest on test_ask_metrics.py, test_cc_telem
 ## Contract freeze for first RED
 
 Metadata-only export/show with a per-stream record head and independent bridge evidence/outcome heads, frozen until drained. Return a consumer-owned checkpoint at exhaustion for stores with lineage. Bind the token to schema, store, restore generation and epoch, and exact scope. Cap wildcard partitions and require explicit per-stream enrollment above the cap. Legacy lineage permits only a bounded snapshot. Unknown tables, private payloads, missing receipts and incomplete evidence must remain explicit. Decode only allowlisted receipt fields. Feedback and delivery cannot populate a verified task result. The consumer owns logical source enrollment and conflict quarantine. F08 is a producer contract test; Engram runtime agreement requires a separate consumer run.
+
+## PH-W1 and PH-W2 implementation
+
+The first six CLI tests failed because the activity namespace was absent. They passed after installing the reader and CLI dispatch. Subsequent RED cases identified a separate failed-API usage path, a spoofable delivery ID in arbitrary record metadata, a frozen page that could be stranded by a newly created 33rd stream, linked lineage markers, missing denied-empty status and scope enforcement on single-prompt reads. Each regression now drives the normal source or CLI. Scope is checked in the prompt lookup and in each channel. The first full Linux run found three CLI contract regressions (the explicit leaf inventory, help defaults and exception inventory). The fixes passed the three original gates. Existing Core, bridge/claims, provider execution, CLI defaults and requirements-owner rows have no implementation changes.
+
+The independent 20,000-event fixture drained 10,000 Record and 10,000 evidence rows in 200-item pages with zero repeated or missing event keys. The open writer completed a truncate checkpoint while the last returned page was still retained. The dedicated local test took 1.13 s including its fixture and all assertions. This measures a synthetic workload on this runner. Representative production latency, Windows timing and peak resident memory remain unmeasured.
+
+## Feasibility disposition
+
+| Check | Decision and evidence |
+|---|---|
+| F01 | G1 supported envelope. Per-stream heads, independent evidence/feedback heads, short WAL readers, restore epoch + generation and physical file identity. Tests cover both crash boundaries and explicit reconciliation across attempts. |
+| F02 | Six fake provider families exercised through actual writer and exporter. A failed started API call can persist measured usage in runtime_error instead of session_telemetry. Project that receipt without promoting certainty. Existing quota and parser code stays with its owner. |
+| F03–04 | Source review found the stdout callback sets parser_failed on exceptions; AG streaming uses a separate transport. Local path inventory found codex-cli 0.172.0-alpha.2, no claude or agy. Exact observable event grammar, isolated sink and real cross-version parity are NOT_RUN. No G3. |
+| F05–06 | Git/file attribution on a shared dirty tree, Windows link containment and protected artifact lifecycle are NOT_RUN. Existing ArtifactStore staging and Eval trace export are available, but their presence establishes neither observation nor permission. No capture writer or redundant journal added. |
+| F07 | G5 deferred. A separate PeerHub manual packet has no demonstrated advantage over the planned Engram enrollment/import path. No Web runtime, browser session or archive importer was added. Provider-specific downstream rights have not been assessed on this branch. |
+| F08 | Producer publishes version 1.0 and a reproducible three-page exchange. An independent consumer oracle checks retries, digest verification, conflict quarantine and late feedback. Engram-side execution and owner acceptance are pending. |
+
+## Acceptance cross-check against the immutable catalog
+
+The IDs in the middle column abbreviate PHT numbers. A group marked partial below contains at least one limit or unrun case. The listed evidence is scoped to the indicated tests. Original catalog statuses remain the design baseline.
+
+| Requirement | Cases | Candidate evidence and remaining limits |
+|---|---|---|
+| PHR01 | 001–005 | Core/module graph and M2/M3-disabled exit gates, ordinary ask/replay, logical database dump comparison and offline suite. No new runtime dependencies or ask-path observer. |
+| PHR02 | 006–014 | Activity export, bounds and receipts tests exercise explicit DB, filtering, links, pagination, byte budgets, concurrent changes, both recovery boundaries and multi-attempt show. Current Core schema 4 only. Legacy lineage supports one bounded metadata page. Wildcard checkpoints cap at 32 streams. |
+| PHR03 | 015–022 | Two real subprocess crash/recovery seams, uncertain followed by authorized retry, accepted→rejected→retried, valid/damaged/wrong-scope tokens, clone and both lineage markers. Consumer oracle quarantines a divergent digest. Unmanaged in-place edits that preserve fences remain outside the contract. |
+| PHR04 | 023–031 | Real receipt writes via six scripted runtimes; zero versus absent, first fresh, resumed delta, reset, generation change, failure and replay. Existing ask metrics and cc parser regressions cover cache semantics. Quota, billing, context estimates and Web tokens are outside this export. Actual provider versions/usage remain unmeasured. |
+| PHR05 | 032–037 | Negative coverage for private prompt/reply/native identifiers, spoofed metadata, out-of-scope show, linked marker, count/byte boundaries, malformed inputs, future schema and bounded-transaction load. PHT033–034 content consent/redaction is deferred: v1 omits all content. PHT037 peak RSS and production performance remain NOT_RUN. |
+| PHR06 | 038–046 | New observer off by construction. P1 grammar, backpressure, fault and replay tests NOT_RUN. Existing fake asks still exercise native parser behavior. |
+| PHR07 | 047–052 | DEFERRED. No workspace delta capture or attribution. Windows reparse cases for a future file observer NOT_RUN. |
+| PHR08 | 053–058 | DEFERRED. No command executor or report importer. Export identifies user feedback and returns verification UNKNOWN. An accepted response supplies no independently verified test outcome. |
+| PHR09 | 059–064 | DEFERRED. No owned trace storage or retention policy; fault, backup and optional observer overhead tests NOT_RUN. |
+| PHR10 | 065–070 | DEFERRED. No consumer Web adapter. Optional manual packet tests NOT_RUN. |
+| PHR11 | 071–073 | DEFERRED. Bulk history belongs to Engram. Rights checks and cloud coding are separate. |
+| PHR12 | 074–077 | Producer fixture and typed consumer mapping delivered. Actual Engram ingestion, multi-source task correlation, real-provider evidence and release gates are open. |
+
+Architecture cross-check: PH-01–04 and PH-13/14 govern the shipped read boundary. PH-05–09 gate the optional observer, Git, command and test evidence; PH-10–12 assign manual cooperation and bulk imports. RSK01/02/04/06/17 have repeatable late-event, lineage, resource, usage and regression checks. RSK03/08/18 are addressed through narrow published fields and independent verification. RSK05/07/09–16 remain relevant if an observer, Web route or Engram promotion is added. Cross-source dedup and permission decisions remain in Engram.
+
+## Engram WP6 handoff
+
+Use [the transport contract](CONTRACT.md) and [the synthetic reference exchange](engram-v1.json) for T92–T99. The fixture SHA-256 is `79f508de7772fcba6650c15a3cf7b8680b573c633c38c32e4209e74ad0fee787`. Run `python -m pytest -q tests/communication/integration/test_activity_contract.py` to regenerate the exchange in memory and compare it field for field with the checked-in vector. The consumer's first probe should transactionally apply first, drain, drain, late, late, require four unique keys and one user outcome, then change a digest and confirm quarantine. The source remains read-only throughout. A real Engram-side run is the next interoperability gate. Private activity and optional P1/P2 routes are unnecessary for this probe.

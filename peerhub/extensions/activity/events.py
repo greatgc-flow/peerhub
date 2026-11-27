@@ -64,12 +64,10 @@ def event(channel: str, key: object, kind: str, row: sqlite3.Row, **facts: Any) 
 def record(row: sqlite3.Row) -> dict[str, Any]:
     name, key = row["kind"], row["request_key"]
     kind = {"prompt": "ai.prompt", "response": "ai.response", "control.reconcile": "peer.reconciliation"}.get(name, "peer.record")
-    metadata = obj(row["metadata"])
-    delivery = metadata.get("delivery_id") if name == "response" else None
     return event("record", row["record_id"], kind, row, position=row["position"], author_peer=row["author_peer_id"],
-                 target_peer=row["target_peer"], reply_to=row["reply_to"], delivery_id=delivery if isinstance(delivery, str) else None,
+                 target_peer=row["target_peer"], reply_to=row["reply_to"], delivery_id=row["delivery_id"],
                  request_id=key[len(ASK_KEY_PREFIX):] if name == "prompt" and key and key.startswith(ASK_KEY_PREFIX) else None,
-                 output_truncated=metadata.get("output_truncated") is True or None,
+                 output_truncated={"true": True, "false": False}.get(row["truncation"]) if row["delivery_id"] else None,
                  occurred_at=time_text(row["created_at"]), content={"mode": "OMITTED", "reason": "METADATA_ONLY"})
 
 
@@ -80,9 +78,16 @@ def validated(detail: dict[str, Any], row: sqlite3.Row) -> dict[str, Any]:
             or detail.get("handle") != row["session_handle"] or type(detail.get("generation")) is not int
             or detail["generation"] != row["session_generation"]):
         return unknown_usage("unverified_receipt", receipt=True)
-    source = cast(dict[str, Any], raw)
+    return _usage(cast(dict[str, Any], raw), provider)
+
+
+def _usage(raw: dict[str, Any], provider: str) -> dict[str, Any]:
+    source = raw
     candidate = {k: source.get(k) for k in ("schema_version", "scope", "source", "reported", "normalized", "coverage")}
-    result = validate_provider_usage(candidate, provider)
+    try:
+        result = validate_provider_usage(candidate, provider)
+    except (TypeError, ValueError):
+        return unknown_usage("unverified_receipt", receipt=True)
     coverage = result["coverage"]
     if coverage["reason"] is not None and coverage["reason"] not in USAGE_REASONS:
         coverage["reason"] = "unverified_receipt"
@@ -128,6 +133,8 @@ def evidence(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                              "certainty": row["certainty"] if row["certainty"] in CERTAINTIES else None,
                              "acked": True if name == "offset_acked" else None,
                              "occurred_at": time_text(detail.get("observed_at", detail.get("started_at")))}
+    if name == "started" and isinstance(detail.get("execution_id"), str):
+        facts["execution_ref"] = json_digest(["execution", detail["execution_id"]])
     kind = "peer.evidence"
     if name in ("about_to_invoke", "started", "prespawn_failure", "invocation_unresolved_recovered"):
         facts["invocation_no"] = detail.get("invocation_no") if type(detail.get("invocation_no")) is int else None
@@ -140,14 +147,21 @@ def evidence(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     elif name == "session_telemetry":
         kind = "peer.usage"
         facts.update(usage_facts(conn, row, detail))
+    elif name == "runtime_error" and isinstance(detail.get("usage"), dict) and row["prompt_provider"] in ("ca", "oa", "ga"):
+        kind = "peer.usage"
+        provider = row["prompt_provider"]
+        usage = _usage(detail["usage"], provider)
+        counts = ask_tokens({"provider_kind": provider, "usage": usage})
+        facts.update(provider=provider, usage=usage, delivery_measurement=counts, baseline_evidence_seq=None,
+                     measurement_state="MEASURED" if any(n is not None for n in counts.values()) else "UNKNOWN")
     elif name == "response_appended":
         facts["response_record_id"] = detail.get("record_id") if isinstance(detail.get("record_id"), str) else None
     elif name in ("attempt_created", "reconcile_registered"):
         facts["reconcile_record_id"] = detail.get("reconcile_record_id") if isinstance(detail.get("reconcile_record_id"), str) else None
     if name == "offset_acked":
         code = row["settled_reason"]
-        facts["status"] = ("failed_not_started" if row["certainty"] == "NOT_STARTED" else
-                           
+        facts["status"] = ("denied_empty" if row["denied_empty"] else
+                           "failed_not_started" if row["certainty"] == "NOT_STARTED" else
                            "not_executed" if row["not_executed"] else code if code in ("incomplete", "truncated") else None)
         facts["reason"] = code if code in REASONS else None
     return event("evidence", row["seq"], kind, row, **facts)

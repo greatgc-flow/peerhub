@@ -215,6 +215,16 @@
         },
         {
           "default": null,
+          "dest": "stream",
+          "flags": [
+            "--stream"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
           "dest": "ask_id",
           "flags": [
             "ask_id"

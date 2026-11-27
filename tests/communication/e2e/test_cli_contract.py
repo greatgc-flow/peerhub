@@ -20,7 +20,7 @@ def test_inventory_file_equals_the_real_parser():
     committed = json.loads(inv.INVENTORY.read_text(encoding="utf-8"))
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
-        "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor open", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
+        "account bind", "account list", "account show", "activity export", "activity show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor open", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
         "profile check", "profile list", "profile show", "profile stats", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "update"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
@@ -466,7 +466,10 @@ def _activity_effect(e, action, flag):
         code, out, _ = e.run(db, *argv)
         assert code == 0 and json.loads(out)["source"] == "peerhub"
     elif flag == "--stream":
-        assert e.j(db, *argv)["items"] and not e.j(db, *argv, flag, "other")["items"]
+        if action == "show":
+            assert e.j(db, *argv, flag, "other", code=1)["error"] == "ASK_NOT_FOUND"
+        else:
+            assert e.j(db, *argv)["items"] and not e.j(db, *argv, flag, "other")["items"]
     elif flag == "--limit":
         assert len(e.j(db, *argv, flag, "1")["items"]) == 1 < len(e.j(db, *argv)["items"])
     elif flag == "--max-bytes":
@@ -481,7 +484,7 @@ def _activity_effect(e, action, flag):
 
 
 for _action, _flags in (("group", ["--json"]), ("export", ["--stream", "--limit", "--max-bytes", "--cursor", "--json"]),
-                        ("show", ["ask_id", "--limit", "--max-bytes", "--cursor", "--json"])):
+                        ("show", ["ask_id", "--stream", "--limit", "--max-bytes", "--cursor", "--json"])):
     for _flag in _flags:
         _key = "activity" if _action == "group" else "activity " + _action
         EFFECT[f"{_key} {_flag}"] = lambda e, a=_action, f=_flag: _activity_effect(e, a, f)
