@@ -11,7 +11,8 @@ Updated: 2026-11-27
 
 ## Next (ordered)
 
-1. cc telemetry: 90 of 132 recent cc rows are UNKNOWN (`output_incomplete`); look at it only if cc is dispatched again.
-2. #497 item 5 (monitor `--json` size and PARTIAL exit) is deferred until a concrete consumer appears.
-3. Engram and VerySimpleGuide adopt NOW.md and AGENTS.md lane rules once this file has stayed accurate for one release.
-4. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
+1. [#504](https://github.com/greatgc-flow/peerhub/issues/504) Low-impact 0.28.2 review leftovers.
+2. cc telemetry: 90 of 132 recent cc rows are UNKNOWN (`output_incomplete`); look at it only if cc is dispatched again.
+3. #497 item 5 (monitor `--json` size and PARTIAL exit) is deferred until a concrete consumer appears.
+4. Engram and VerySimpleGuide adopt NOW.md and AGENTS.md lane rules once this file has stayed accurate for one release.
+5. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.

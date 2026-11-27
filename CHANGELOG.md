@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.28.2] - 2026-11-27
+
 ### Changed
 
 - The stream budget warning before a resumed ask counts resumed turns only (`[stream_budget] resumed_turns`, default 12). The `prompt_tokens` key is ignored: a peer CLI's per-ask prompt total sums every model call of the turn, so it warned on about half of resumed cx asks and pushed them to drop a cached session (#502).
