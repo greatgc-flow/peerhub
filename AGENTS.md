@@ -1,11 +1,11 @@
-Read NOW.md first for recent flow, current state and next steps.
+Read NOW.md first for the current state and next steps; recent flow is the top of CHANGELOG.md.
 
 # Working in PeerHub
 
 Start with [README.md](README.md) for commands and the doc map, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for maintainer and release guidance.
 
-- Update [NOW.md](NOW.md) in the same PR when state, flow or next steps change.
+- Update [NOW.md](NOW.md) in the same PR when the state or next steps change.
 - Install development dependencies with `python -m pip install -e ".[dev]"`.
 - Run deterministic tests with `python -m pytest -q`; run `pyright` for typing.
   Live tests spend provider quota and require explicit opt-in; see CONTRIBUTING.
@@ -21,3 +21,9 @@ Start with [README.md](README.md) for commands and the doc map, and
   `tests/continuity/test_m2_m3_exit_gates.py`. Register module classification and
   permitted imports in `tests/communication/architecture/test_arch_extension_graph.py`;
   keep both gates consistent with the extension boundaries.
+
+## Lane rules (every AI lane reads these; prompts carry only the task)
+
+- All peers: work only in your workspace (a git worktree on its own branch); do not commit, push or edit `NOW.md` (the lead merges and updates it). Every fix ships with a regression test. A durable behaviour adds a `docs/requirements.md` row with a unique slug ID (`R-<topic>`). Never change an owner row (listed in `tests/communication/package/owner_requirements.json`) or that file; propose the change in your report instead; do not rewrite a test pinned there unless the task changes that requirement, and list any pinned test you edited. Add one CHANGELOG line per change under `## [Unreleased]`. Report: files changed, tests run with results, pinned tests edited.
+- cx: read-only shell commands (`rg`, `Get-Content`, `git diff/log/show/status`) and `python -m pytest <paths> -q -p no:cacheprovider` are fine; no git writes; no network in read-only asks.
+- ag: read files with your file reader (no shell fallbacks); the only shell command is `python -m pytest <paths> -q -p no:cacheprovider`; every file you need is inside your `-w`; no git.

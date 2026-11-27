@@ -24,6 +24,10 @@ HIDDEN_COMPAT_OPTIONS = {
 
 # The parser leaves these values unresolved. The help describes the runtime rule.
 CONTEXTUAL_DEFAULTS = {
+    ("ask", "--effort"): None,
+    ("ask", "--silence-timeout-seconds"): None,
+    ("diag running", "--limit"): None,
+    ("record append", "--created-at"): None,
     ("ask", "--stream"): None,  # stream depends on peer and request ID
     ("ask", "-w"): None,  # the current directory
     ("ask", "--writable"): False,  # read-only without the flag
@@ -35,11 +39,9 @@ CONTEXTUAL_DEFAULTS = {
     **{(f"profile {action}", flag): None for action in ("list", "show", "stats", "check") for flag in ("--workspace", "-w")},
 }
 REQUIRED_DEFAULTS = {
-    ("ask", "--effort"),
-    ("ask", "--silence-timeout-seconds"),
+    ("monitor", "--peers"),
     ("monitor", "--interval-seconds"),
     ("monitor", "--timeout-seconds"),
-    ("record append", "--created-at"),
 }
 
 
@@ -51,8 +53,12 @@ def test_monitor_help_fits_narrow_terminal(capsys, monkeypatch):
     assert exc.value.code == 0
     lines = capsys.readouterr().out.splitlines()
     assert "--group GROUP" in " ".join(" ".join(lines).split())
-    from peerhub.core.monitor_groups import GROUP_IDS
-    assert all(group in " ".join(lines) for group in (*GROUP_IDS, "all"))
+    from peerhub.core.monitor_groups import GROUP_DESCRIPTIONS
+    from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
+
+    flat = " ".join(" ".join(lines).split())
+    assert all(f"{group}: {meaning}" in flat for group, meaning in GROUP_DESCRIPTIONS.items())
+    assert f"(default: {' '.join(QUOTA_CAPABLE_PEERS)})" in flat
     assert all(len(line) <= columns for line in lines)
 
 
@@ -98,7 +104,9 @@ def test_named_defaults_match_argparse(commands):
             default = action.default
             key = command, flag
             if key in CONTEXTUAL_DEFAULTS:
-                assert claims and default == CONTEXTUAL_DEFAULTS[key], key
+                assert default == CONTEXTUAL_DEFAULTS[key], key
+                if key != ("diag running", "--limit"):  # its formatter adds the default in add_argument
+                    assert re.search(r"\bdefault\b", help_text, re.IGNORECASE), key
                 continue
             if flag == "--limit" or key in REQUIRED_DEFAULTS:
                 assert claims, key
@@ -123,7 +131,6 @@ def test_named_defaults_match_argparse(commands):
     ("record append", "--kind", (AppendRequest.model_json_schema()["properties"]["kind"]["pattern"],)),
     ("record append", "--body", ("JSON", "stored as text")),
     ("record append", "--created-at", ("current UTC time",)),
-    ("suggest", "--task", ("<task>.txt", "--writable")),
 ])
 def test_help_explains_requested_arguments(commands, command, flag, fragments):
     action = dict(_arguments(commands[command]))[flag]
@@ -132,6 +139,18 @@ def test_help_explains_requested_arguments(commands, command, flag, fragments):
 
 def test_diagnostic_and_account_help_matches_the_commands(commands):
     running_help = " ".join(commands["diag running"].format_help().split())
-    assert f"read up to {MAX_ROWS} rows" in running_help
+    assert f"By default, read up to {MAX_ROWS} rows" in running_help
+    assert "SQLite" not in running_help and "VM steps" not in running_help
     account_help = " ".join(commands["account"].format_help().split())
     assert "Show one account binding" in account_help
+
+
+@pytest.mark.parametrize(("command", "default"), [
+    ("ask", "use the selected profile's effort if set"),
+    ("ask", "no silence timeout"),
+    ("diag running", f"read up to {MAX_ROWS} rows"),
+    ("record append", "current UTC time"),
+])
+def test_unset_options_describe_the_runtime_default(commands, command, default):
+    help_text = " ".join(commands[command].format_help().split())
+    assert default in help_text and "default None" not in help_text

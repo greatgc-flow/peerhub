@@ -12,9 +12,15 @@ def metric_cell(value: int | float | None, suffix: str = "") -> str:
     return f"{value:.3f}".rstrip("0").rstrip(".") + suffix
 
 
+PROFILE_STATS_LEGEND = "TOK% = share of asks with both input and output token telemetry (not reply length)"
+_REQUIRED_STAT_COLUMNS = 2  # always keep PROFILE and N
+
+
 def _duration_cell(seconds: float | None) -> str:
     if seconds is None:
         return "-"
+    if 0 < seconds < 1:
+        return "<1s"
     minutes, remaining_seconds = divmod(round(seconds), 60)
     hours, minutes = divmod(minutes, 60)
     if hours:
@@ -51,13 +57,19 @@ def render_profile_stats(stats: list[dict[str, Any]]) -> str:
                      _tokens_cell(tokens["output_tokens"]), metric_cell(row["pool_pct_per_accepted_answer"], "pp"),
                      (row["last_benchmark_run"] or "-")[:10], "yes" if row["stale"] else "-",
                      _percent_cell(row["token_coverage_pct"])))
+    keep = [index for index in range(len(rows[0]))
+            if index < _REQUIRED_STAT_COLUMNS or any(row[index] != "-" for row in rows[1:])]
+    rows = [tuple(row[index] for index in keep) for row in rows]
     widths = [max(map(visible_len, column)) for column in zip(*rows)]
     profile_width = min(widths[0], 119 - sum(widths[1:]) - 2 * (len(widths) - 1))
-    return "\n".join(
+    lines = [
         "  ".join([format_text_cell(name, profile_width),
                    *(cell.rjust(width) for cell, width in zip(cells, widths[1:]))])
         for name, *cells in rows
-    )
+    ]
+    if "TOK%" in rows[0]:
+        lines.append(PROFILE_STATS_LEGEND)
+    return "\n".join(lines)
 
 
 def render_ask_receipt(ask_id: str | None, profile: str | None, metrics: Mapping[str, Any]) -> str:

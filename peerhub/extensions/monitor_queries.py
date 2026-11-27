@@ -22,16 +22,15 @@ _ROW_JOINS = ("FROM observation_rollups r JOIN observations o ON o.capture_seq=r
               "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref ")
 
 
-def read_ask_prompt(db_path: str, short_id: str) -> str | None:
-    """Read the immutable prompt by its complete generated ID, with the common prefix omitted."""
+def read_ask_prompt(db_path: str, short_id: str) -> tuple[bool, str | None]:
+    """Return record existence and its prompt body, accepting the generated ID without its prefix."""
     record_id = f"rec-{short_id}" if re.fullmatch(r"[0-9a-f]{12}", short_id) else short_id
     with closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         schema = conn.execute("PRAGMA user_version").fetchone()[0]
         if schema > SUPPORTED_SCHEMA_VERSION:
             raise SchemaVersionError(future_schema_message(schema, SUPPORTED_SCHEMA_VERSION))
-        row = conn.execute("SELECT body_json FROM records WHERE record_id=? AND kind='prompt'",
-                           (record_id,)).fetchone()
-    return row[0] if row else None
+        row = conn.execute("SELECT kind,body_json FROM records WHERE record_id=?", (record_id,)).fetchone()
+    return row is not None, row[1] if row is not None and row[0] == "prompt" else None
 
 
 def _guarded(json_column: str, path: str, value: str) -> str:

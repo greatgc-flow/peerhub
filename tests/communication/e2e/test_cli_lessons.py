@@ -39,7 +39,7 @@ MONITOR_LESSON = "monitor-states"
     ("colour bar", [MONITOR_LESSON]),
     ("pill", [MONITOR_LESSON]),
     ("quota unknown", [MONITOR_LESSON]),
-    ("low fast aged suggest alternative cycles tty legend", [MONITOR_LESSON]),
+    ("low fast aged cycles tty legend", [MONITOR_LESSON]),
     ("accounts", [MONITOR_LESSON]),
     ("review-loop", ["independent-peer-votes"]),
     ("review-scores-to-100", ["independent-peer-votes"]),
@@ -56,7 +56,7 @@ MONITOR_LESSON = "monitor-states"
     ("ant install", ["setup"]),
     ("executable not found", ["setup"]),
     ("codex sign-in", ["setup"]),
-    ("handoff", []),
+    ("handoff", ["parallel-quota"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -101,12 +101,14 @@ def test_cc_allow_rules_lesson_states_exact_match_and_prefix_fix():
 
 
 def test_no_match_hint(capsys):
-    assert main(["explain", "ag", "checkout"]) == 1
+    assert main(["explain", "ag", "checkout"]) == 2
     captured = capsys.readouterr()
     assert not captured.out
     assert "No matching lessons" in captured.err
     assert "Try fewer keywords" in captured.err
     assert "peerhub explain lessons" in captured.err
+    assert ".; next:" not in captured.err
+    assert captured.err.strip().endswith("; next: peerhub explain lessons")
     assert len(captured.err.splitlines()) == 1
 
 
@@ -333,7 +335,7 @@ def test_all_old_lesson_names_open_their_cluster(capsys):
         "api-peers", "ask-basics", "ask-metrics", "ask-timeouts", "batch-shell-crlf", "caller-ownership",
         "caller-timeout-claim-held", "discovery-commands", "exit-codes", "installed-vs-checkout", "instruction-diet",
         "invalid-arguments", "peer-subagents", "report-issues", "setup", "store-and-upgrade", "store-missing",
-        "suggest", "writes-and-uncertain",
+        "writes-and-uncertain",
     }
     by_id = {lesson["id"]: lesson for lesson in load_lessons()}
     assert not {alias for names in old_names.values() for alias in names} & by_id.keys()
@@ -379,7 +381,7 @@ def test_catalog_and_rendering():
     aliases = [alias for lesson in lessons for alias in lesson.get("aliases", ())]
     assert len(lessons) == len(ids)
     assert len(aliases) == len(set(aliases)) and ids.isdisjoint(aliases)
-    assert {"ask-metrics", "caller-ownership", "suggest"} <= ids
+    assert {"ask-metrics", "caller-ownership"} <= ids
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & ids
     for lesson in lessons:
         assert all(lesson.values())
@@ -420,3 +422,14 @@ def test_monitor_view_explains_guide_trailer_and_matches_reference(capsys):
 def test_lesson_ids_and_aliases_match_case_insensitively():
     assert [lesson["id"] for lesson in lesson_by_id("AG-REQUIRES-WRITABLE")] == ["ag-recipe"]
     assert [lesson["id"] for lesson in lesson_by_id("Ag-Recipe")] == ["ag-recipe"]
+
+
+def test_monitor_states_uses_canonical_legend_and_drops_removed_states_and_dev_note(capsys):
+    from peerhub.cli.monitor_legend import POOL_STATE_LEGEND, RESET_PENDING_NOTE
+
+    assert main(["explain", "a1"]) == 0
+    out = capsys.readouterr().out
+    assert POOL_STATE_LEGEND in out
+    assert "blocked" in out and RESET_PENDING_NOTE in out and "version_drift" in out
+    for stale in ("INSUFF", "STALE:window", "failed PROBE", "Check monitor changes"):
+        assert stale not in out, stale

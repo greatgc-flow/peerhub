@@ -147,7 +147,7 @@ def test_section_h_and_j_say_which_ranking_each_one_is_for():
     doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
     h = doc[doc.index("**H. Balancing rule**"):doc.index("**I. Concurrency**")]
     j = doc[doc.index("### Parallel work over the least quota"):]
-    assert "`suggest:`" in h and "single ask" in h and "wave" in h and "lowest 7D PACE" in h
+    assert "wave" in h and "lowest 7D PACE" in h
     assert "Rule H" in j and "single ask" in j
 
 

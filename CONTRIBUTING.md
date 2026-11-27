@@ -95,7 +95,7 @@ explains the change and the checks you ran.
 Finish related changes and tests locally, then open one focused PR. Repeat the
 closing keyword for each issue the PR resolves. When deferring a proposal,
 record the reason and the condition that would reopen it on its issue.
-Update [NOW.md](NOW.md) in the same PR when state, flow or next steps change.
+Update [NOW.md](NOW.md) in the same PR when the state or next steps change.
 For security vulnerabilities, see [SECURITY.md](SECURITY.md); for Dependabot PRs, review the changelog and run tests (majors need cx review).
 
 ## Knowledge placement
@@ -317,6 +317,7 @@ gh auth refresh -h github.com -s workflow
 ### Release lessons
 
 - Release only when there are no functional defects and the mean review score is at least 80. Re-run G3 on the final target.
+- Before the release review, list the test functions named in [docs/requirements.md](docs/requirements.md) whose source changed since the last release tag (compare the `tests/` diff against the table). Give the list to a reviewer, who checks each changed test against its requirement row. A lane that rewrites a pinned test must name it in its report (#493).
 - When main CI fails in a test the change did not touch, rerun the failed job
   once with `gh run rerun <RUN-ID> --failed`. Treat a repeated failure as a
   defect. Either way, record the failure in an issue with the failing log line

@@ -10,7 +10,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
-from peerhub.cli.arguments import WORKSPACE_OPTIONS
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
+from peerhub.cli.arguments import WORKSPACE_OPTIONS, ArgumentParser
 from peerhub.cli.output import emit
 from peerhub.cli.support import error_line
 from peerhub.core import load_limits
@@ -38,13 +39,13 @@ def register_ask_parser(subparsers: Subparsers) -> None:
     ask_parser.add_argument("--author-peer", dest="author", default="user", help="Peer ID recorded as the prompt author (auto-registered)")
     ask_parser.add_argument(*WORKSPACE_OPTIONS, help="Provider working directory; default: current directory")
     ask_parser.add_argument("--model", help="Model to run; overrides the profile model")
-    ask_parser.add_argument("--effort", help="Provider-specific reasoning effort override (default %(default)s, use the selected profile's effort if set)")
+    ask_parser.add_argument("--effort", help="Provider-specific reasoning effort override (default: use the selected profile's effort if set)")
     ask_parser.add_argument("-p", "--profile", help="Explicit Runtime Target profile; model/effort override its defaults")
     ask_parser.add_argument("--writable", action="store_true", help="Let the peer write files in the workspace (default: read-only)")
     ask_parser.add_argument("--timeout-seconds", type=float, default=600,
                             help="Abort after this many seconds (default %(default)s); long asks: 1800-3600, ag up to 7200")
     ask_parser.add_argument("--silence-timeout-seconds", type=float, default=None,
-                            help="Abort after this many seconds without stdout or stderr (default %(default)s, no silence timeout). "
+                            help="Abort after this many seconds without stdout or stderr (default: no silence timeout). "
                                  "Execution remains uncertain after an abort.")
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000,
                             help="Stop collecting reply output after this many bytes (default %(default)s)")
@@ -68,7 +69,11 @@ def validate_ask_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
 
     normalize_session_selector(fresh=args.fresh, session=args.session)
     if (args.prompt is None) == (args.query_file is None):
-        parser.error(f"ask requires exactly one of prompt or {ASK_QUERY_FILE_OPTIONS[0]}")
+        opts = " or ".join(ASK_QUERY_FILE_OPTIONS)
+        hint = f'peerhub ask {args.peer} "prompt" (or --query-file PATH)'
+        if isinstance(parser, ArgumentParser):
+            parser.error(f"ask requires exactly one of prompt or {opts}", hint=hint)
+        parser.error(f"ask requires exactly one of prompt or {opts}")
     if args.final_only and args.dry_run:
         parser.error("ask --final-only applies to execution; remove --dry-run to use it")
 
@@ -80,6 +85,19 @@ def report_ask_parse_error(exc: SystemExit) -> int:
     print(json.dumps(dict(status="error", response=None, session=None,
                           error=dict(code="invalid_arguments", message="Invalid ask arguments."),
                           guidance=make_guidance_payload(guidance_code))))
+    return INVALID_ARGUMENTS_EXIT
+
+
+def report_ask_validation_error(exc: SystemExit) -> int:
+    from peerhub.cli.recovery_render import make_guidance_payload
+    message = getattr(exc, "argument_error", "") or "Invalid ask arguments."
+    hint = getattr(exc, "argument_hint", None)
+    guidance = make_guidance_payload("invalid_arguments")
+    if isinstance(hint, str) and hint:
+        guidance["summary"] = f"Next: {hint}."
+    print(json.dumps(dict(status="error", response=None, session=None,
+                          error=dict(code="invalid_arguments", message=message),
+                          guidance=guidance), ensure_ascii=True))
     return 2
 
 
@@ -238,27 +256,49 @@ def _wait_for_ask_resources(
         sleep(min(ASK_RESOURCE_POLL_SECONDS, remaining))
 
 
-def run_ask(args: argparse.Namespace) -> int:
-    from peerhub.cli.monitor_refresh import refresh_dispatch_quota
-    from peerhub.extensions.ask import ask, open_ask_snapshot
+def read_ask_prompt(args: argparse.Namespace) -> str | None:
+    """Resolve the prompt after argument validation, before opening or selecting a store."""
     query_files: list[str] = args.query_file or []
     if query_files:
         parts: list[str] = []
         total_bytes = 0
         for index, path in enumerate(query_files):
-            contents = Path(path).read_bytes()
+            try:
+                contents = Path(path).read_bytes()
+                part = contents.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+            except (OSError, ValueError) as exc:
+                reason = (str(exc.strerror or type(exc).__name__).lower()
+                          if isinstance(exc, OSError) else "not valid UTF-8")
+                message = f"cannot read --query-file {path}: {reason}"
+                hint = f"check the path {path} (or run peerhub ask --help)"
+                if args.final_only:
+                    _print_final_result({"status": "error", "session": None})
+                elif args.json:
+                    from peerhub.cli.recovery_render import make_guidance_payload
+                    guidance = make_guidance_payload("invalid_arguments")
+                    guidance["summary"] = f"Next: {hint}."
+                    print(json.dumps(dict(status="error", response=None, session=None,
+                                          error=dict(code="invalid_arguments", message=message),
+                                          guidance=guidance), ensure_ascii=True))
+                error_line("invalid_arguments", message, hint)
+                return None
             total_bytes += len(contents)
-            part = contents.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
             if index:
                 part = part.lstrip("\n")
             if index < len(query_files) - 1:
                 part = part.rstrip("\n")
             parts.append(part)
-        prompt = "\n\n".join(parts)
         if total_bytes > 64 * 1024:
             print("Warning: inlined query exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
-    else:
-        prompt = args.prompt
+        return "\n\n".join(parts)
+    return cast(str, args.prompt)
+
+
+def run_ask(args: argparse.Namespace) -> int:
+    from peerhub.cli.monitor_refresh import refresh_dispatch_quota
+    from peerhub.extensions.ask import ask, open_ask_snapshot
+
+    query_files: list[str] = args.query_file or []
     text_output = not (args.json or args.final_only)
     terminal_notices = not args.dry_run and text_output and sys.stderr.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1"
     has_streamed = False
@@ -285,7 +325,7 @@ def run_ask(args: argparse.Namespace) -> int:
             print(render_ask_receipt(ask_id, args.profile, metrics), file=sys.stderr)
 
     try:
-        result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
+        result = ask(args.db, args.peer, args.prompt, stream_id=args.stream_id, request_id=args.request_id,
                      author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,

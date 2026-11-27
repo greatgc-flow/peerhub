@@ -86,16 +86,19 @@ def test_cross_view_health_equivalence() -> None:
         pace_cell = monitor_format.format_pool_pace(effective["effective_pace_pt"]) + (
             "!" if effective["pace_band"] == "rest" else "")
         facts = pool_health(item, exhausted if name == child else None, NOW)
-        assert row["exhaust_in_seconds"] == facts["exhaust_in_seconds"]
         assert row["exhaust_before_reset"] == facts["exhaust_before_reset"]
-        assert row["exhaust_margin_seconds"] == facts["exhaust_margin_seconds"]
-        assert effective["effective_reset_in_seconds"] == facts["reset_in_seconds"]
+        for actual, expected in (
+            (row["exhaust_in_seconds"], facts["exhaust_in_seconds"]),
+            (row["exhaust_margin_seconds"], facts["exhaust_margin_seconds"]),
+            (effective["effective_reset_in_seconds"], facts["reset_in_seconds"]),
+        ):
+            assert actual == (None if expected is None else round(expected, 2))
         exhaust_cell = monitor_format.format_exhaust_reset(facts)
         margin_cell = monitor_format.format_exhaust_margin(facts["exhaust_margin_seconds"])
         assert plan_rows[name][:3] == [left, pace_cell, exhaust_cell]
         for screen, count in ((compact, 1), (expanded, 2)):
             cells = pool_cells(screen, name)
-            assert len(cells) == count
+            assert len(cells) == (0 if name == expired else count)
             assert all((row_cells[0], row_cells[2:6]) == (state, [left, pace_cell, margin_cell, exhaust_cell])
                        for row_cells in cells)
     child_json = json_rows[child]
@@ -103,13 +106,13 @@ def test_cross_view_health_equivalence() -> None:
     assert child_json["left_pct"] == child_json["own_left_pct"] == CHILD_LEFT * 100
     assert child_json["pace_pt"] != child_json["health"]["effective_pace_pt"]
     assert child_json["resets_in_seconds"] != child_json["health"]["effective_reset_in_seconds"]
-    assert child_json["target_pct_per_hour"] == pytest.approx(CHILD_LEFT * 100 / (child_json["resets_in_seconds"] / HOUR))
+    assert child_json["target_pct_per_hour"] == round(CHILD_LEFT * 100 / (child_json["resets_in_seconds"] / HOUR), 2)
     assert child_json["action"] == "blocked" and child_json["binding"] == parent
     assert child_json["reason"] == f"gate: {parent} out"
     assert plan_rows[child][3].startswith("0.00")
     assert plan_rows[child][4:] == ["blocked", child_json["reason"]]
     for screen in (compact, expanded):
-        assert (old_pool in screen) == (screen == expanded) and "(stale)" not in screen
+        assert old_pool not in screen and "(stale)" not in screen
         assert all(f"~{QUOTA_TTL_SECONDS // 60}m" in " ".join(cells) for cells in pool_cells(screen, stale_pool))
     retired = json_rows[old_pool]
     assert retired["action"] == retired["health"]["state"] == "n/a"
@@ -332,7 +335,7 @@ def test_m9_and_g_gap_order_and_single_legend_match_docs() -> None:
     for expand in (False, True):
         screen = " ".join(mv.render_grouped_frame(frame(*readings.values()), width=160, expand=expand).split())
         assert screen.count(monitor_legend.POOL_LEGEND) == 1
-        assert screen.index(line) < screen.index(monitor_legend.POOL_LEGEND) < screen.index("suggest:")
+        assert screen.index(line) < screen.index(monitor_legend.POOL_LEGEND)
     assert POOL_MARGIN_LEGEND in monitor_legend.POOL_LEGEND
     assert monitor_legend.POOL_LEGEND in " ".join(Path("docs/monitor.md").read_text(encoding="utf-8").split())
 
@@ -346,9 +349,7 @@ def test_projection_placeholder_is_explained_within_the_118_by_37_budget(expand:
     screen = mv.render_grouped_frame(frame(item), width=cols, height=rows, expand=expand, view=view, unicode=False)
     lines = screen.splitlines()
     legend_start = next(i for i, line in enumerate(lines) if line.startswith("PACE(pp)="))
-    suggest_start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    assert suggest_start - legend_start == 2
-    assert "? = too little data" in " ".join(lines[legend_start:suggest_start])
+    assert "? = too little data" in " ".join(lines[legend_start:legend_start + 2])
     shown = pool_cells(screen, "G-7D")
     assert len(shown) == (2 if expand else 1)
     assert all(cells[4] == "?" and cells[5].startswith("?/") for cells in shown)
@@ -380,9 +381,7 @@ def test_missing_pool_cells_match_the_record_and_docs(unicode: bool) -> None:
     assert all(f"`{placeholder}`" in line for line in (left_doc, margin_doc, pair_doc))
     for expand in (False, True):
         screen = mv.render_grouped_frame(frame(item), width=100, unicode=unicode, expand=expand)
-        assert ("gap vs " in screen) == expand
-        if expand:
-            assert f"{pool} {placeholder}" in next(line for line in screen.splitlines() if line.startswith("gap vs "))
+        assert f"{pool} {placeholder}" in next(line for line in screen.splitlines() if line.startswith("gap vs "))
         rows = pool_cells(screen, pool)
         assert rows and all(placeholder in cells for cells in rows)
         for cells in rows:

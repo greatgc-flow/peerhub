@@ -313,7 +313,7 @@ def test_profile_list_and_explain_show_the_api_profiles(tmp_path, monkeypatch, c
     for pid in ("ca.standard", "oa.deepthink", "ga.standard", "ga.effort"):
         assert run_explain_cli(pid) == 0
         assert capsys.readouterr().out.startswith(f"Profile: {pid}")
-    assert run_explain_cli("ga.deepthink") == 1  # not packaged
+    assert run_explain_cli("ga.deepthink") == 2  # not packaged
     assert "unknown profile" in capsys.readouterr().err
 
 
@@ -333,18 +333,6 @@ def test_guide_names_the_api_peers_and_points_to_their_topic(capsys):
     assert "docs/batch.md" in load_topic
     batch = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
     assert "PeerHub does not cap" in batch and "RAM and CPU load" in batch
-
-
-def test_suggest_never_names_an_api_peer(tmp_path):
-    from peerhub.cli.monitor_quota_view import compact_suggestions  # pyright: ignore[reportPrivateUsage]
-    from peerhub.extensions.adapters.profiles import list_profiles
-
-    profiles = list_profiles(tmp_path)
-    assert {"ca.standard", "oa.standard", "ga.standard"} <= {p["profile"] for p in profiles}
-    rows = [{"peer": peer, "pool": pool, "aged": False, "state": "ok", "remaining": 0.9, "reset_seconds": 3600.0}
-            for p in profiles for peer in [p["profile"].split(".", 1)[0]] for pool in (p["fields"]["pools"]["value"] or [])]
-    text = compact_suggestions(profiles, rows)
-    assert text.startswith("suggest: eco=") and not any(f"{kind}." in text for kind in API_KINDS)
 
 
 def test_cached_readiness_lists_no_api_profile(tmp_path):

@@ -193,13 +193,6 @@ def test_both_views_show_the_same_tree_parent_then_child(view):
         assert re.search(r"(`-|\|-) F-7D", quota)
 
 
-def test_the_suggestion_uses_the_effective_values():
-    low = mv.render_grouped_frame(scoped(.03, .26), view="plain", unicode=False, width=160)
-    assert "top=cc.fable" not in low  # the parent is below the 5% floor, whatever the child says
-    high = mv.render_grouped_frame(scoped(.80, .26), view="plain", unicode=False, width=160)
-    assert "top=cc.fable" in high
-
-
 def test_an_aged_parent_never_limits_the_child():
     frame = scoped(.08, .26)
     frame["_human_observations"][0].update(state="STALE", age_seconds=600)

@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_TAG_LEGEND, render_plan
-from peerhub.extensions.diag_read_model import PLAN_GATE_TAG, plan_data
+from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_TAG_LEGEND, render_plan, render_view
+from peerhub.extensions.diag_read_model import PLAN_GATE_TAG, dashboard_data, plan_data
 from peerhub.extensions.quota_windows import FAMILIES
 from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, ResourceSample, load_snapshot
 from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS, format_pace
@@ -26,10 +26,39 @@ SHORT = 5 * HOUR
 WEEK = 7 * DAY
 FACT_FIELDS = {"age_seconds", "ttl_seconds", "fast", "family", "parent", "gates"}
 HEALTH_FIELDS = {"even_left_pct", "exhaust_in_seconds", "exhaust_before_reset", "stale", "limited_by", "own_left_pct"}
+WEEKLY_PROFILES = {"C-7D": ["cc.standard", "cc.fable"], "F-7D": ["cc.fable"]}
 
 
 def _rows(report, profiles=None):
     return {r["resource_pool_ref"]: r for r in plan_data(report, {}, profiles_by_pool=profiles)["pools"]}
+
+
+def test_dashboard_ignores_a_weekly_cap_after_a_relative_reset():
+    parent = _item("cc", "C-7D", 0, span=WEEK, elapsed=WEEK - 30, age=60)
+    parent["payload"].pop("resets_at")
+    parent["payload"]["reset_in_seconds"] = 30
+    child = _item("cc", "F-7D", .8, span=WEEK, elapsed=WEEK / 2)
+    report = _report(parent, child)
+    row = _rows(report, WEEKLY_PROFILES)[child["resource_pool_ref"]]
+    assert row["limited_by"] is None and row["left_pct"] == 80
+    rendered = render_view(report, width=140, profiles_by_pool=WEEKLY_PROFILES)
+    line = next(line for line in rendered.splitlines() if line.startswith("cc   F-7D"))
+    assert "80%" in line and "exhausted" not in line and "(cap C-7D)" not in line
+    assert dashboard_data(report, profiles_by_pool=WEEKLY_PROFILES)["threats"]["exhausted_pools"] == []
+
+
+def test_dashboard_uses_the_effective_reset_for_a_weekly_cap_forecast():
+    parent = _item("cc", "C-7D", .11, span=WEEK, elapsed=.8 * WEEK, age=0)
+    child = _item("cc", "F-7D", .8, span=WEEK, elapsed=WEEK - 3 * HOUR, age=0)
+    report = _report(parent, child)
+    row = _rows(report, WEEKLY_PROFILES)[child["resource_pool_ref"]]
+    assert row["limited_by"] == parent["resource_pool_ref"]
+    assert row["health"]["effective_reset_in_seconds"] == 3 * HOUR
+    assert row["exhaust_in_seconds"] > 10 * HOUR and not row["exhaust_before_reset"]
+    rendered = render_view(report, width=140, profiles_by_pool=WEEKLY_PROFILES)
+    line = next(line for line in rendered.splitlines() if line.startswith("cc   F-7D"))
+    assert "11%" in line and "3h" in line and "= on pace (cap C-7D)" in line
+    assert dashboard_data(report, profiles_by_pool=WEEKLY_PROFILES)["threats"]["threatened_pools"] == [parent["resource_pool_ref"]]
 
 
 def _flash_windows():
@@ -39,7 +68,7 @@ def _flash_windows():
 
 
 @pytest.mark.parametrize("with_profiles", [False, True])
-def test_reset_short_window_holds_without_gating_and_is_hidden_in_both_views(with_profiles):
+def test_reset_short_window_holds_without_gating_and_keeps_a_placeholder_row_in_both_views(with_profiles):
     from peerhub.cli.monitor_view import render_grouped_frame
     from tests.communication.diag.test_monitor_activity_view import pool
     from tests.communication.diag.test_monitor_plain_golden import _payload
@@ -66,8 +95,11 @@ def test_reset_short_window_holds_without_gating_and_is_hidden_in_both_views(wit
     payload = _payload([], [pool("ag", "G-5H", .3, reset=-FRESH_AGE / 2), pool("ag", "G-7D", .5)],
                        selected_groups=["capacity"])
     options = dict(view="plain", width=120)
-    assert "G-5H" not in render_grouped_frame(payload, expand=False, **options)
-    assert "ag G-5H n/a (quota window expired)" in render_grouped_frame(payload, expand=True, **options)
+    for expand in (False, True):
+        lines = render_grouped_frame(payload, expand=expand, **options).splitlines()
+        parent = next(i for i, line in enumerate(lines) if " G-7D " in line)
+        assert re.fullmatch(r"\s+└─ G-5H reset · refresh pending", lines[parent + 1])
+    assert "ag G-5H n/a (quota window expired)" not in render_grouped_frame(payload, expand=True, **options)
 
 
 def test_weekly_gates_use_each_siblings_own_action_and_skip_na_reset_and_other_accounts():
@@ -315,7 +347,7 @@ def test_limited_child_budget_uses_effective_left_and_nearer_reset():
     cells = next(line.split(maxsplit=7) for line in text.splitlines() if line.startswith(f"cc   {child_pool}"))
     hrs = own["health"]["effective_reset_in_seconds"] / HOUR
     assert cells[5] == f"{effective['left_pct'] / hrs:.2f}"
-    assert own["target_pct_per_hour"] == pytest.approx(own["left_pct"] / hrs)
+    assert own["target_pct_per_hour"] == round(own["left_pct"] / hrs, 2)
     assert cells[6] == "rest" and cells[7].startswith(f"{parent_pool}: ")
 
 

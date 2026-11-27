@@ -118,12 +118,16 @@ def manifest_help() -> str:
     ))
 
 
+def _os_reason(exc: BaseException) -> str:
+    return str(exc.strerror or type(exc).__name__).lower() if isinstance(exc, OSError) else str(exc)
+
+
 def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
     path = Path(path)
     try:
         doc: Any = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
-        raise ManifestError(f"cannot read manifest {path}: {exc}") from exc
+        raise ManifestError(f"cannot read manifest {path}: {_os_reason(exc)}") from exc
     if not isinstance(doc, dict) or set(cast(dict[str, Any], doc)) != {"tasks"} or not isinstance(doc["tasks"], list):
         raise ManifestError('manifest must be {"tasks": [...]}')
     rows = cast(list[Any], doc["tasks"])
@@ -155,7 +159,7 @@ def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
                     raise ManifestError(f"task {tid}: {_PROMPT_FILE_KEY} exceeds {PROMPT_FILE_CAP} bytes")
                 prompt = file.read_text(encoding="utf-8-sig")
             except (OSError, ValueError, TypeError) as exc:
-                raise ManifestError(f"task {tid}: cannot read {_PROMPT_FILE_KEY}: {exc}") from exc
+                raise ManifestError(f"task {tid}: cannot read {_PROMPT_FILE_KEY}: {_os_reason(exc)}") from exc
         if not isinstance(prompt, str) or not prompt.strip():
             raise ManifestError(f"task {tid}: {_PROMPT_KEY} must be non-empty text")
         timeout = row.get("timeout_s", DEFAULT_TIMEOUT_S)
@@ -276,6 +280,20 @@ def classify_worker(returncode: int | None, stdout: str, *, overflow: bool = Fal
 
 def exit_code(report: Mapping[str, Any]) -> int:
     return 0 if all(r["status"] == "COMPLETED" for r in report["tasks"]) else 1
+
+
+def _denied_action_names(denied: object) -> list[str]:
+    """Return unique tool names in first-seen order without detail suffixes (e.g. cc `Edit: a.py` -> `Edit`)."""
+    if not isinstance(denied, list):
+        return []
+    names: list[str] = []
+    for item in cast(list[Any], denied):
+        if not isinstance(item, str):
+            continue
+        name = item.split(":", 1)[0].strip()
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def _outcome_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
@@ -460,6 +478,9 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             out_row["session"] = session["handle"]
         guidance = result.get("guidance") if result is not None else None
         explain = cast(dict[str, Any], guidance).get("explain_cmd") if isinstance(guidance, dict) else None
+        denied = _denied_action_names(result.get("denied_actions") if result is not None else None)
+        if denied:  # tool names only, no paths or command details (#371, #391, #493)
+            out_row["denied_actions"] = denied
         if status != "COMPLETED" and isinstance(explain, str) and explain:
             out_row["next"] = [explain]
         if responses and status == "COMPLETED" and result is not None:
@@ -542,6 +563,9 @@ def render_text(report: Mapping[str, Any]) -> str:
     lines = [f"batch {report['batch_id']} max-parallel {report['max_parallel']}"]
     for r in report["tasks"]:
         lines.append(f"{r['task_id']:<24} {r['peer']:<8} {r['status']:<10} {r.get('reason') or ''}".rstrip())
+        denied = _denied_action_names(r.get("denied_actions"))
+        if denied:
+            lines.append(f"    denied: {', '.join(denied)}")
         if r.get("next"):
             lines.append(f"    next: {', '.join(r['next'])} (request_id={r['request_id']})")
     outcomes = report.get("outcomes")

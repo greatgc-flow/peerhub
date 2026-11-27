@@ -358,6 +358,27 @@ def test_cli_actions_parser_overflow_and_no_probe(store, capsys, monkeypatch):
     assert exc.value.code == 2
 
 
+def test_readiness_help_and_output_explain_states_next_and_human_durations(store, capsys):
+    delivery(store)
+    rep = report(store)
+    profile(rep)["last"]["age"] = 950073.0
+    pool = next(iter(rep["pools"].values()))
+    pool["reset_in"] = 515019.0
+    pool["age"] = 60.0
+    text = format_readiness(rep)
+    assert "UNKNOWN/UNVERIFIED=uncached, not broken" in text
+    assert "STATE: READY=" in text and "NEXT: -=ready | facts->`peerhub observation refresh`" in text
+    assert "terminal@10d23h" in text and "950073s" not in text
+    assert "reset=5d23h" in text and "515019s" not in text and "age=1m" in text
+    assert len(text.split()) < 200
+    with pytest.raises(SystemExit) as exc:
+        main(["diag", "readiness", "--help"])
+    assert exc.value.code == 0
+    help_out = " ".join(capsys.readouterr().out.split())
+    assert "UNKNOWN and UNVERIFIED mean a check is uncached or stale, not that the profile is broken" in help_out
+    assert "peerhub observation refresh" in help_out and "--writable" in help_out and "peerhub diag health --stream STREAM" in help_out
+
+
 def test_missing_store_never_created(tmp_path, capsys):
     db = tmp_path / "missing/core.db"
     assert main(["--db", str(db), "diag", "readiness", "--json"]) == 5

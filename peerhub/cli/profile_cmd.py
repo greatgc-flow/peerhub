@@ -5,9 +5,11 @@ import argparse
 import json
 import sqlite3
 import textwrap
+from tomllib import TOMLDecodeError
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub.cli.arguments import WORKSPACE_OPTIONS
 from peerhub.cli.output import emit
 from peerhub.cli.support import error_line
@@ -26,7 +28,11 @@ def register_profile_parser(subparsers: Subparsers) -> None:
     profile_show.add_argument("profile", help="Profile ID to inspect (for example, cx.standard)")
     profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
     profile_stats = profile_sub.add_parser("stats", help="Aggregate stored ask measurements by profile")
-    profile_check = profile_sub.add_parser("check", help="Check installed model IDs and measurement age")
+    profile_check = profile_sub.add_parser(
+        "check",
+        help="Check installed model IDs and measurement age",
+        description="Compare configured profile model IDs with installed provider catalogs and flag profiles without a current measurement in 30 days.",
+    )
     for profile_action in (profile_list, profile_show, profile_stats, profile_check):
         profile_action.add_argument(*WORKSPACE_OPTIONS, type=Path, default=None,
                                     help="Workspace whose profile files apply (default: current directory)")
@@ -45,14 +51,12 @@ def _card_value(value: object) -> str:
 
 
 def _profile_notes(fields: dict[str, Any]) -> str:
-    """`profile list` NOTES: a deprecated alias, a profile that is not suggested, an unmeasured model id; `-` when none."""
+    """`profile list` NOTES: a deprecated alias or an unmeasured model ID; `-` when none."""
     notes: list[str] = []
     alias = fields["alias_of"]["value"]
     if alias:
         override = fields["effort_override"]["value"]
         notes.append(f"alias of {alias} ({override})" if override else f"alias of {alias}")
-    if fields["suggest"]["value"] is False:
-        notes.append("not suggested")
     if fields["measurement"]["value"] == "unmeasured":
         notes.append("unmeasured")
     return "; ".join(notes) or "-"
@@ -87,8 +91,11 @@ def run_profile(args: argparse.Namespace) -> int:
                     emit({**findings, "workspace": str(workspace)}, True)
                 else:
                     missing = ", ".join(f"{name} ({model})" for name, model in findings["missing_models"].items())
+                    overdue = ", ".join(findings["measurement_overdue"])
                     print("Missing from installed model lists | " + (missing or "-"))
-                    print("No current measurement in 30 days | " + (", ".join(findings["measurement_overdue"]) or "-"))
+                    print("No current measurement in 30 days | " + (overdue or "-"))
+                    if not missing and not overdue:
+                        print(f"OK: {len(profiles)} profiles checked; no missing models or overdue measurements.")
                 return 0
             for profile, stat in zip(profiles, stats):
                 profile["stats"] = {key: stat[key] for key in ("n", "stale")}
@@ -98,8 +105,11 @@ def run_profile(args: argparse.Namespace) -> int:
         error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
+        if isinstance(exc, (TOMLDecodeError, UnicodeDecodeError)):
+            error_line("profile_config_error", str(exc), "peerhub explain profile_config_error")
+            return 1
         error_line("invalid_arguments", str(exc))  # the message only: no Python class name (#401)
-        return 1
+        return INVALID_ARGUMENTS_EXIT
     if use_json:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0

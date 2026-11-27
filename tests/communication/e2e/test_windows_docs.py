@@ -104,8 +104,8 @@ def test_ask_rejects_simultaneous_prompt_and_query_file_at_runtime(tmp_path, mon
 
 @pytest.mark.parametrize("options,raises,expected", [
     ([], True, "ask requires exactly one of prompt or --query-file"),
-    (["prompt", "--query-file", "query.txt", "--json"], False, "Invalid ask arguments"),
-    (["--json"], False, "Invalid ask arguments"),
+    (["prompt", "--query-file", "query.txt", "--json"], False, "ask requires exactly one of prompt or --query-file"),
+    (["--json"], False, "ask requires exactly one of prompt or --query-file"),
     (["prompt", "--fresh", "--session", "sess_0123456789abcdef"], False, "fresh and session are mutually exclusive"),
     (["prompt", "--timeout-seconds", "invalid"], True, "invalid_arguments"),
     (["prompt", "--session", "invalid"], False, "session must be a full handle"),

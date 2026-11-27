@@ -13,6 +13,7 @@ import pytest
 from peerhub.cli import monitor_compact, monitor_format, monitor_layout, monitor_legend, monitor_links, monitor_running_view
 from peerhub.cli.monitor_layout import cell_width
 from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
+from peerhub.cli.monitor_quota_view import POOLS_CAP
 from peerhub.cli.monitor_view import render_grouped_frame
 from peerhub.extensions import monitor_queries
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE
@@ -82,8 +83,7 @@ def detail_payload() -> dict[str, Any]:
 
 def eight_pools_payload() -> dict[str, Any]:
     """Eight pools that the compact frame shows whole (six 7-day pools and two binding 5-hour rows), nothing to
-    refresh, one suggestion line (two below 100 columns): the compact frame's first 12 lines are line 1, line 2,
-    POOLS and the suggestion."""
+    refresh: the compact top contains line 1, line 2 and POOLS."""
     observations = [pool("ag", "3P-5H", .05), pool("ag", "3P-7D", .31, pace=11), pool("ag", "A-7D", .79, pace=14),
                     pool("ag", "G-7D", .97, pace=-4), pool("cc", "C-7D", .63, pace=-20), pool("cc", "F-7D", .57),
                     pool("cx", "X-5H", 0.0, reset=3600), pool("cx", "X-7D", .42, fast=True, pace=31)]
@@ -159,41 +159,21 @@ def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
     small = compact(payload, width=140).splitlines()
     big = expand(payload, width=140).splitlines()
-    assert block("\n".join(small), "pools")[0].startswith("── POOLS 8 ─")
-    assert block("\n".join(big), "pools")[0].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
-    rows = block("\n".join(big), "pools")[1:]
+    assert block("\n".join(small), "pools")[0].startswith("── POOLS 9")
+    assert block("\n".join(big), "pools")[0].startswith("── POOLS 9") and not any(re.match(r"^\+\d+ pools", line) for line in big)
+    rows = [row for row in block("\n".join(big), "pools")[1:] if re.match(r"^ +(?:\w+ |[└├]─ )[A-Z0-9]+-\d+[HD] +", row)]
     names = [" ".join(row.replace("└─ ", "").split()[:2]) for row in rows]
-    assert len(rows) == 10 and len(set(names)) == 10  # every observation of the payload but the n/a one (#400) has its row
-    # Expanded POOLS adds non-binding 5-hour rows directly under their weekly parents.
+    assert len(rows) == 9 and len(set(names)) == 9  # the unavailable and reset weekly windows are hidden
+    # Both layouts group short windows under their weekly parents. Compact caps the list.
     for index, row in enumerate(rows):
         if "└─" in row:
             assert rows[index - 1].split()[1] == row.split()[1].replace("-5H", "-7D")
-    assert {row.split()[1] for row in rows if "└─" in row} == {"X-5H", "3P-5H", "C-5H", "G-5H"}
-    compact_rows = [" ".join(row.split()[:3]) for row in block("\n".join(small), "pools")[1:]]
-    order = [" ".join(row.split()[:3]) for row in rows]
-    assert [row for row in order if row in compact_rows] == compact_rows  # the same order, with the hidden rows added
-    assert any("(X-30D n/a)" in row for row in rows)
-
-
-def test_the_suggestion_wraps_without_a_cap():
-    payload = full_payload()
-    payload["configured_profiles"] = [
-        {"profile": f"{peer}.{suffix}", "fields": {"pools": {"value": [pool_name]}}}
-        for peer, pool_name in (("cc", "C-7D"), ("cx", "X-7D"), ("ag", "A-7D"))
-        for suffix in ("standard", "effort", "deepthink", "a-very-long-top-profile-name")]
-    wide = compact(payload, width=250).splitlines()  # the compact frame stops at 100 columns: two whole lines
-    first = next(i for i, line in enumerate(wide) if line.startswith("suggest:"))
-    whole = flat(" ".join(wide[first:next(i for i in range(first, len(wide)) if wide[i].startswith("─"))]))
-    assert whole.count("=") == 4 and "…" not in whole
-    narrow = compact(payload, width=30).splitlines()
-    at = next(i for i, line in enumerate(narrow) if line.startswith("suggest:"))
-    end = next((i for i in range(at + 1, len(narrow)) if narrow[i].startswith(("── ", "+"))), len(narrow))
-    assert end - at <= 2
-    lines = expand(payload, width=30).splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("── "))
-    assert end - start > 2 and "…" not in "".join(lines[start:end])
-    assert "".join(lines[start:end]).replace(" ", "") == whole.replace(" ", "")  # nothing is lost at 30 columns
+    assert {row.split()[1] for row in rows if "└─" in row} == {"X-5H", "3P-5H", "C-5H"}
+    compact_rows = [" ".join(row.split()[:2]) for row in block("\n".join(small), "pools")[1:]
+                    if re.match(r"^ +(?:\w+ |[└├]─ )[A-Z0-9]+-\d+[HD] +", row)]
+    assert compact_rows == [" ".join(row.split()[:2]) for row in rows if not re.search(r"\b3P-5H\b", row)]
+    assert len(compact_rows) == POOLS_CAP
+    assert not any(name in row for row in rows for name in ("X-30D", "G-7D"))
 
 
 def test_the_header_drops_the_fields_hidden_text_and_the_conditional_db_part():
@@ -213,7 +193,7 @@ def test_without_capacity_data_the_store_line_stays_in_the_header():
     payload["selected_groups"] = ["activity"]
     lines = expand(payload).splitlines()
     assert lines[1].startswith("PeerHub Monitor 2026-11-14 23:46Z") and "DB:env" in lines[1]
-    assert heads("\n".join(lines)) == [head for head in FRAME_HEADS if head not in {"POOLS", "suggest:"}]
+    assert heads("\n".join(lines)) == [head for head in FRAME_HEADS if head != "POOLS"]
     at = lines.index(DB_LINE)
     assert at == 2
     payload["_store_note"] = "--db overrides PEERHUB_DB (/other/core.db)"
@@ -241,8 +221,8 @@ def test_one_db_line_at_100_columns_then_the_sections_in_the_agreed_order():
     assert heads(screen) == ORDER
     assert lines[1].startswith("PeerHub Monitor") and "DB:env" in lines[1]  # the title names the store (#412)...
     assert lines[2] == DB_LINE
-    suggest = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    assert lines[suggest + 1].startswith("── ALERTS 2 ─")
+    alerts = next(i for i, line in enumerate(lines) if line.startswith("── ALERTS 2 ─"))
+    assert "EVN=even-burn left" in lines[alerts - 1]
     assert sum(line.startswith("PeerHub Monitor") for line in lines) == 1  # the grouped frame's own title line is gone
     assert not any("ACTIVITY [" in line or "PeerHub Monitor | " in line for line in lines)
     assert lines[-2] == "Coverage: partial; peerhub explain <code>"
@@ -264,7 +244,7 @@ def test_the_order_does_not_depend_on_the_selection_order_and_an_unknown_group_s
 def test_the_expanded_section_rules_match_the_compact_style():
     screen = expand(detail_payload(), color=True)
     rules = [line for line in screen.splitlines() if strip(line).startswith("── ")]
-    assert heads("\n".join(rules)) == [head for head in ORDER if head != "suggest:"]
+    assert heads("\n".join(rules)) == list(ORDER)
     dim, title = monitor_layout.RICH_SGR["dim"], monitor_layout.RICH_SGR["title"]
     assert all(line.startswith(f"\x1b[{dim}m──\x1b[0m \x1b[{title}m") and cell_width(line) == 99 for line in rules)
     texts = [strip(line) for line in rules]
@@ -308,7 +288,7 @@ def test_g_quota_details_match_pools_vocabulary_and_bar():
     columns = ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
     assert table[1].split()[:len(columns)] == columns
     rows = quota_rows(screen)
-    assert len(rows) == 10  # X-30D remains a folded note.
+    assert len(rows) == 9 and "G-7D" not in rows and "X-30D" not in rows
     for name, cells in rows.items():
         row = next(line for line in block(screen, "pools")[1:]
                    if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ )?{name} +", line))
@@ -339,25 +319,25 @@ def test_stale_duplicate_pool_names_keep_each_human_observations_state(unicode):
 
 
 @pytest.mark.parametrize("elapsed", [0, 2])
-def test_quota_hides_the_window_after_reset_and_names_it_in_notes(elapsed):
+def test_quota_hides_the_window_after_reset(elapsed):
     payload = _payload([], [pool("cc", "C-7D", .10, fast=True, pace=31.0, reset=-1 if elapsed == 0 else 1)],
                        display_elapsed_seconds=elapsed)
     screen = expand(payload, width=160)
-    notes = screen
-    assert "cc C-7D n/a (quota window expired)" in [line.strip() for line in block(notes, "capacity")]
+    assert "C-7D" not in screen
 
 
 def test_g_one_even_burn_legend_follows_pools_and_gap():
     for view in ("plain", "rich"):
         screen = " ".join(render_grouped_frame(detail_payload(), view=view, width=140, expand=True).split())
-        assert screen.index("gap vs ") < screen.index(monitor_legend.POOL_LEGEND) < screen.index("suggest:")
+        assert screen.index("gap vs ") < screen.index(monitor_legend.POOL_LEGEND)
         assert "FORECAST" not in screen
 
 
 def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns():
     screen = expand(detail_payload(), width=140)
     quota = block(screen, "capacity")
-    for row in (" cx X-30D n/a not reported (plan prolite)", " ag STALE:window; next: peerhub observation refresh --peers ag",
+    assert not any("X-30D" in line for line in quota)
+    for row in (" ag STALE:window; next: peerhub observation refresh --peers ag",
                 " cc F-7D evidence UNKNOWN; next: peerhub observation refresh --peers cc",
                 " cx reset credits: 0 · soonest - [MEASURED]",
                 " ACCOUNTS (plan is display data; the expiry is the login token's, not billing)"):
@@ -373,9 +353,9 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
     lines = screen.splitlines()
     start = next(i for i, line in enumerate(lines) if "QUOTA [" in line)
     first = next(i for i, line in enumerate(lines) if strip(line).startswith("── POOLS "))
-    pools = lines[first + 1:next(i for i, line in enumerate(lines) if strip(line).startswith("suggest:"))]
+    pools = lines[first + 1:next(i for i, line in enumerate(lines) if strip(line).startswith("gap vs "))]
     pools = [line for line in pools if re.match(r"^\s*(?:\w+ +)?(?:[└├]─ )?[0-9A-Z]+-\d+[HD] +", strip(line))]
-    assert len(pools) == 10
+    assert len(pools) == 9
     details = [line for line in lines[start + 1:] if re.match(r"^\s*(?:\w+ +)?(?:[└├]─ )?[0-9A-Z]+-\d+[HD] {2,}", strip(line))]
 
     def state_code(line: str) -> tuple[str, str]:
@@ -522,7 +502,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     assert heads(screen) == ORDER
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
-    assert any(line.startswith("-- POOLS 11 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
+    assert any(line.startswith("-- POOLS 9") for line in lines) and any("`- 3P-5H" in line for line in lines)
     assert [row.split()[0] for row in entries(block(screen, "running"))] == [A["run"], A["gone"], "?", "!"]
     assert all(re.match(rf" {re.escape(A['dot'])} (ok|empty|unsure|error) ", row) for row in entries(block(screen, "recent")))
     if width == 100:
@@ -637,7 +617,7 @@ def test_the_plain_expand_goldens_cover_every_case():
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in plain_cases()])
 def test_plain_expand_matches_its_golden(case, payload, kwargs):
     # C1, M3–M5 and G: QUOTA shares POOLS' state, tick, durations and profile labels.
-    # M9/G8 add the same gap and legend above suggest, moving the height cut.
+    # M9/G8 add the same gap and legend after the pool rows, moving the height cut.
     screen = render_grouped_frame(payload, **kwargs)
     actual, expected = blocks(screen, expanded=True), blocks(GOLDENS[case], expanded=True)
     pools = FRAME_SECTIONS["pools"]

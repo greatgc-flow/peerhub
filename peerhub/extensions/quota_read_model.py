@@ -33,13 +33,13 @@ class PoolRow:
 
 
 def project_pool_rows(readings: list[PoolReading], frame_time: float, *,
-                      exclude_unavailable: bool = False) -> list[PoolRow]:
+                      exclude_unavailable: bool = False, require_consumers: bool = True) -> list[PoolRow]:
     """Project each reading and apply the scoped weekly dependency to its effective facts."""
     healths = [pool_health(row["reading"], None, frame_time) for row in readings]
     descriptors: list[PoolReading] = readings
     if exclude_unavailable:
         descriptors = [{**row, "state": own["state"]} for row, own in zip(readings, healths)]
-    parents = scoped_weekly_parents(descriptors)
+    parents = scoped_weekly_parents(descriptors, require_consumers=require_consumers)
     health_by_row = {id(row): own for row, own in zip(descriptors, healths)}
     result: list[PoolRow] = []
     for row, own in zip(descriptors, healths):

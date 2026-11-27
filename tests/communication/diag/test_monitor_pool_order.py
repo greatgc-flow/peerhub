@@ -35,7 +35,7 @@ def test_pools_use_parent_pace_keep_the_tree_and_cap_the_tail(view: str, expand:
     original = deepcopy(payload)
     render = {"view": view, "unicode": view == "rich", "expand": expand, "width": 100}
     screen = mv.render_grouped_frame(payload, **render)
-    pools = screen.split(monitor_legend.FRAME_SECTIONS["suggest"], 1)[0].split(monitor_legend.FRAME_SECTIONS["pools"], 1)[1]
+    pools = screen.split(monitor_legend.POOL_LEGEND.split(",", 1)[0], 1)[0].split(monitor_legend.FRAME_SECTIONS["pools"], 1)[1]
     direction = 1 if monitor_format.POOLS_USE_FIRST_ASCENDING else -1
     expected = [row[1] for row in sorted(known, key=lambda row: (direction * row[3], *row[:2]))]
     expected.extend(("U-7D", "E-7D", "C-7D", "C-5H", "F-7D", "O-7D"))
@@ -66,7 +66,7 @@ def test_a_monthly_pool_without_a_weekly_parent_sorts_by_its_own_pace(expand: bo
     payload = _payload([], [pool("cx", "X-7D", .60, pace=-3), pool("ag", "A-7D", .90, pace=8),
                             pool("cx", "X-30D", .93, pace=5)])
     screen = mv.render_grouped_frame(payload, view="plain", expand=expand, width=100)
-    pools = screen.split(monitor_legend.FRAME_SECTIONS["suggest"], 1)[0].split(monitor_legend.FRAME_SECTIONS["pools"], 1)[1]
+    pools = screen.split(monitor_legend.POOL_LEGEND.split(",", 1)[0], 1)[0].split(monitor_legend.FRAME_SECTIONS["pools"], 1)[1]
     assert re.findall(r"(?m)^ +(?:\S+ +)?([A-Z]+-(?:30D|7D|5H))(?= +)", pools) == ["X-7D", "X-30D", "A-7D"]
 
 
@@ -78,7 +78,7 @@ def test_quota_groups_peers_and_families_by_pools_rank(view: str) -> None:
     for expand in (False, True):
         screen = mv.render_grouped_frame(payload, view=view, unicode=True, expand=expand, width=140)
         heads = monitor_legend.FRAME_SECTIONS
-        pools = screen.split(heads["suggest"], 1)[0].split(heads["pools"], 1)[1]
+        pools = screen.split(monitor_legend.POOL_LEGEND.split(",", 1)[0], 1)[0].split(heads["pools"], 1)[1]
         assert re.findall(r"(?m)^ +(?:\S+ +)?([A-Z]+-(?:30D|7D|5H)) +", pools) == [
             "X-7D", "G-7D", "G-5H", "C-7D", "A-7D", "X-30D"]
         if expand:
@@ -97,6 +97,24 @@ def test_quota_family_ranks_by_its_best_member_not_its_root() -> None:
 
     rows = [row("A-30D", ["cx.a", "cx.b"]), row("A-7D", ["cx.a"]), row("B-7D", ["cx.c"])]
     order = {("cx", "quota:cx:A-7D"): 0, ("cx", "quota:cx:B-7D"): 1, ("cx", "quota:cx:A-30D"): 2}
-    layout, _ = quota_layout(rows, False, show_quota_notes=False, order=order)
+    layout = quota_layout(rows, False, order=order)
     assert [r["display_pool"].split()[-1] if " " in r["display_pool"] else r["display_pool"] for r in layout] == [
         "A-30D", "A-7D", "B-7D"]
+
+
+@pytest.mark.parametrize("view", ["plain", "rich"])
+def test_quota_nests_same_named_windows_under_their_own_accounts(view: str) -> None:
+    observations = [
+        {**pool("cc", name, left, pace=pace), "pool_ref": f"quota:cc:{account}:{name}"}
+        for account, name, left, pace in (
+            ("a", "C-5H", .20, 0), ("b", "C-7D", .80, -10),
+            ("b", "C-5H", .40, 0), ("a", "C-7D", .60, 10),
+        )
+    ]
+    payload = _payload([], observations)
+    screen = mv.render_grouped_frame(payload, view=view, unicode=True, expand=True, width=140)
+    pools, quota = screen.split("QUOTA [", 1)
+    pattern = r"(?m)^ *(?:cc +)?(└─ )?(C-(?:7D|5H)) +[^\n]*? (\d+)%"
+    expected = [("", "C-7D", "80"), ("└─ ", "C-5H", "40"), ("", "C-7D", "60"), ("└─ ", "C-5H", "20")]
+    assert re.findall(pattern, pools) == expected
+    assert re.findall(pattern, quota) == expected

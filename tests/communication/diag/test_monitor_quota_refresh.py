@@ -127,7 +127,7 @@ def test_stored_relative_reset_stops_aging_the_title(quota_age_connection, group
         screen = monitor_view.render_grouped_frame(frame, width=120, expand=True)
         assert "quota age 16s" in screen.splitlines()[1]
         if groups == ["capacity"]:
-            assert "cc C-7D n/a (quota window expired)" in screen
+            assert "C-7D" not in screen
 
 
 def test_json_minimum_and_alerts_retire_relative_resets(quota_age_connection):

@@ -141,7 +141,7 @@ def test_compact_frame_order_and_width_with_korean_text(frame, width, unicode_mo
     assert lines[1] == "PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age 10s"
     heads = [line.split()[0] for line in lines if line.startswith(FRAME_HEADS)]
     assert heads == [head for head in FRAME_HEADS if head not in {"ALERTS", "LEADS"}]  # M9/G8
-    assert any(line.startswith("POOLS 8 ") for line in lines) and "RUNNING 3 | cc 2 cx 1" in lines
+    assert any(line.startswith("POOLS 10 ") for line in lines) and "RUNNING 3 | cc 2 cx 1" in lines
     assert all(cell_width(line) <= width - 1 for line in lines), screen
     korean = next(line for line in lines if "activity-374-cc" in line or "평가" in line or "?? ??" in line)
     assert korean.startswith(" ") and "cc.fable" in korean
@@ -442,10 +442,10 @@ def test_missing_alert_sources_never_claim_ok(frame):
     assert lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))[0].startswith("OK? (alerts not read)")
 
 
-def test_pools_five_hour_rule_and_columns(frame):
+def test_pools_cap_keeps_tighter_five_hour_children_and_columns(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     pools = section(lines, "POOLS")
-    assert pools[0].split() == ["POOLS", "8", "STATE", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY", *POOLS_USE_FIRST_HINT.split()]  # G4
+    assert pools[0].split() == ["POOLS", "10", "STATE", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY", *POOLS_USE_FIRST_HINT.split()]  # G4
     rows = {re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1]: line for line in pools[1:] if line.startswith(" ")}
     assert {"low", "1%!", "+71.00!"} <= set(rows["3P-7D"].split()) and "claude-via-ag" in rows["3P-7D"]
     for parent, child in (("G-7D", "G-5H"), ("X-7D", "X-5H")):
@@ -474,29 +474,19 @@ def test_pools_cap_at_eight_rows_with_an_overflow_line(frame):
     observations.extend(pool("zz", f"F-{i}D", .5) for i in (1, 2, 3))
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     pools = section(lines, "POOLS")
-    assert pools[0].startswith("POOLS 11 ") and sum(row.startswith(" ") for row in pools) == 8
-    assert "+3 pools (--expand)" in pools and POOL_LEGEND in " ".join(pools)  # M9/G8
+    assert pools[0].startswith("POOLS 13 ") and sum(row.startswith(" ") for row in pools) == 8
+    assert "+5 pools (--expand)" in pools and POOL_LEGEND in " ".join(pools)  # M9/G8
 
 
-def test_suggestion_belongs_to_capacity_and_wraps_to_two_lines(frame):
-    lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=50))
-    start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    assert lines[start + 1].lstrip().startswith("quality=") and lines[start + 2].startswith(FRAME_HEADS)
-    assert POOL_LEGEND in " ".join(lines[:start])  # M9/G8: suggest follows the pool notes.
-    frame["selected_groups"] = ["activity"]
-    assert "suggest:" not in render_grouped_frame(frame, view="plain", unicode=False, width=100)
-
-
-def test_group_capacity_prints_lines_1_2_the_suggestion_and_pools(frame):
+def test_group_capacity_prints_header_and_pools(frame):
     frame["selected_groups"] = ["capacity"]
     frame["groups"].pop("activity")
     frame["alert_sources"]["activity"] = "not_selected"
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     assert lines[0] == "OK? (asks not read) | min quota 1% ag 3P-7D low"
     assert lines[1].startswith("PeerHub Monitor")
-    assert lines[2].startswith("POOLS 8")
-    suggest = section(lines, FRAME_SECTIONS["suggest"])
-    assert suggest and POOL_LEGEND in " ".join(lines[:lines.index(suggest[0])])  # G8
+    assert lines[2].startswith("POOLS 10")
+    assert POOL_LEGEND in " ".join(lines)
     assert not any(line.startswith(("RUNNING", "RECENT")) for line in lines)
 
 

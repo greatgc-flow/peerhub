@@ -11,7 +11,7 @@ from peerhub.core.text import strip_controls
 from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS, format_pace
 from peerhub.extensions.billing_port import billing_consumer
 from peerhub.extensions.observation_model import BILLING_KINDS
-from peerhub.extensions.quota_projection import observation_projection
+from peerhub.extensions.quota_projection import ProjectionState, observation_projection
 from peerhub.extensions.quota_read_model import PoolReading, PoolRow, project_pool_rows
 from peerhub.extensions.quota_windows import (
     FAMILIES,
@@ -55,7 +55,7 @@ def section_data(rep: DiagnosticReport, name: str) -> Obj:
 
 
 class QuotaRow:
-    def __init__(self, item: Obj, read_at: float) -> None:
+    def __init__(self, item: Obj) -> None:
         self.item = item
         payload = as_object(item.get("payload"))
         subject = item.get("subject_ref")
@@ -68,7 +68,14 @@ class QuotaRow:
         self.ttl = report_number(item.get("ttl_seconds"))
         self.reason = strip_controls(payload.get("reason") or "")
         rf = report_number(payload.get("remaining_fraction"))
-        self.used = 1 - rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
+        self.left_fraction = rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
+        self.used = 1 - rf if self.left_fraction is not None and rf is not None else None
+        self.na = False
+        self.limited_by: str | None = None
+        self.forecast: ProjectionState = "unknown"
+        self.exhaustion_at: float | None = None
+        self.diff: float | None = None
+        self.left: float | None = None
         start, reset = report_number(payload.get("window_started_at")), report_number(payload.get("resets_at"))
         self.span = reset - start if reset is not None and start is not None and reset > start else float("inf")
         # A declared suffix supplies a display/sort window for a registered
@@ -76,12 +83,9 @@ class QuotaRow:
         suffix = re.search(r"(\d+)([HD])$", self.pool.upper())
         if self.span == float("inf") and suffix and int(suffix[1]) > 0:
             self.span = float(int(suffix[1]) * (3600 if suffix[2] == "H" else 86400))
-        self.left = None if reset is None else reset - read_at
-        self.projection = observation_projection({**item, "state": self.state, "payload": dict(payload)}, read_at)
-        self.diff = self.projection["pace_pt"]
 
 
-def quota_rows(items: list[Obj], pools: list[Obj], read_at: float) -> list[QuotaRow]:
+def _select_quota_rows(items: list[Obj], pools: list[Obj]) -> list[QuotaRow]:
     # A probe without a pool belongs to F. Collapse shared pool evidence to one row.
     selected: dict[str, Obj] = {}
     for item in items:
@@ -95,8 +99,49 @@ def quota_rows(items: list[Obj], pools: list[Obj], read_at: float) -> list[Quota
         ref = pool.get("resource_pool_id")
         if ref and pool.get("kind") in ("QUOTA", "RATE_LIMIT"):
             selected.setdefault(str(ref), {"subject_ref": pool.get("provider"), "resource_pool_ref": ref, "state": "UNKNOWN", "payload": {}})
-    return sorted((QuotaRow(i, read_at) for i in selected.values()),
-                  key=lambda r: (r.peer, _family(r.pool), r.span, r.ref))
+    return sorted((QuotaRow(i) for i in selected.values()), key=lambda r: (r.peer, _family(r.pool), r.span, r.ref))
+
+
+def _quota_consumers(rows: list[QuotaRow], profiles_by_pool: Mapping[str, list[str]] | None) -> dict[str, list[str]]:
+    return {r.ref: [profile for profile in (profiles_by_pool or {}).get(r.pool, [])
+                    if profile.partition(".")[0] == r.subject_ref] for r in rows}
+
+
+def _project_quota_rows(rows: list[QuotaRow], read_at: float, consumers: Mapping[str, list[str]], *,
+                        require_consumers: bool) -> list[PoolRow]:
+    readings = [PoolReading(peer=r.peer, pool=r.pool, pool_ref=r.ref, reading=r.item,
+                            profiles=tuple(consumers[r.ref]), retired=bool(r.item.get("display_retired")))
+                for r in rows]
+    return project_pool_rows(readings, read_at, require_consumers=require_consumers)
+
+
+def quota_rows(items: list[Obj], pools: list[Obj], read_at: float, *,
+               profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[QuotaRow]:
+    rows = _select_quota_rows(items, pools)
+    projected = _project_quota_rows(rows, read_at, _quota_consumers(rows, profiles_by_pool),
+                                    require_consumers=profiles_by_pool is not None)
+    for row, pool in zip(rows, projected):
+        health = pool.health
+        row.na = health["state"] == "n/a"
+        row.left = health["reset_in_seconds"]
+        row.diff = health["pace_pt"]
+        row.forecast = "expired" if health["state"] == "reset" else health["forecast"]
+        exhaust = health["exhaust_in_seconds"]
+        row.exhaustion_at = None if exhaust is None else read_at + exhaust
+        if health["limited_by"] is not None:
+            row.limited_by = strip_controls(health["limited_by"]).rsplit(":", 1)[-1]
+            left_pct = health["left_pct"]
+            row.left_fraction = None if left_pct is None else left_pct / 100
+    return rows
+
+
+def dashboard_quota_rows(report: DiagnosticReport, *,
+                         profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[QuotaRow]:
+    items = _plan_observations(report)
+    items.extend(item for item in object_items(section_data(report, "observations").get("items"))
+                 if item.get("kind") == "rate_limit")
+    pools = object_items(section_data(report, "resource_pools").get("pools"))
+    return quota_rows(items, pools, report.read_at, profiles_by_pool=profiles_by_pool)
 
 
 def _family(pool: str) -> str:
@@ -105,15 +150,16 @@ def _family(pool: str) -> str:
 
 
 def threat_summary(rows: list[QuotaRow]) -> dict[str, object]:
-    fresh = sum(r.projection["state"] in ("threat", "on_pace", "insufficient", "exhausted") for r in rows)
+    fresh = sum(r.forecast in ("threat", "on_pace", "insufficient", "exhausted") for r in rows)
     stale = [r for r in rows if r.state == "STALE"]
-    threats = [r for r in rows if r.projection["state"] == "threat"]
-    exhausted = [r for r in rows if r.projection["state"] == "exhausted"]
+    na = sum(1 for r in rows if r.na)
+    threats = [r for r in rows if r.forecast == "threat"]
+    exhausted = [r for r in rows if r.forecast == "exhausted"]
     oldest = max((r.age for r in stale if r.age is not None), default=None)
     state = "threat" if threats or exhausted else "clear" if fresh else "unknown"
     reason = None if fresh else "evidence is stale" if stale else "evidence is missing or invalid"
     return {"state": state, "reason": reason, "fresh_pools": fresh, "stale_pools": len(stale),
-            "unknown_pools": len(rows) - fresh - len(stale), "oldest_stale_seconds": oldest,
+            "unknown_pools": max(0, len(rows) - fresh - len(stale) - na), "oldest_stale_seconds": oldest,
             "threatened_pools": [r.ref for r in threats], "exhausted_pools": [r.ref for r in exhausted]}
 
 
@@ -184,7 +230,19 @@ def _serialize_obs_item(item: object, read_at: float) -> dict[str, object]:
     }
     obs["payload"] = _scrub_payload(kind, it.get("payload"))
     if kind in ("quota", "rate_limit"):
-        obs["projection"] = observation_projection(obs, read_at)
+        basis = obs
+        relative = it.get("reset_in_seconds")
+        payload_obj = obs.get("payload")
+        if isinstance(relative, (int, float)) and isinstance(payload_obj, dict) and obs.get("observed_at"):
+            payload = cast(dict[str, Any], payload_obj)
+            if payload.get("resets_at") is None:  # a relative reset counts in the projection, as in the summary
+                from peerhub.extensions.observation_model import instant_us
+                try:
+                    anchor = instant_us(str(obs["observed_at"])) / 1_000_000
+                    basis = {**obs, "payload": {**payload, "resets_at": anchor + float(relative)}}
+                except (ValueError, OverflowError):
+                    pass
+        obs["projection"] = observation_projection(basis, read_at)
     return obs
 
 
@@ -229,7 +287,8 @@ def _serialize_section(name: str, sec: Section, read_at: float, *, include_billi
     return {"name": sec.name, "status": sec.status, "data": data, "errors": errors}
 
 
-def dashboard_data(report: DiagnosticReport, *, include_billing: bool = True) -> dict[str, object]:
+def dashboard_data(report: DiagnosticReport, *, include_billing: bool = True,
+                   profiles_by_pool: Mapping[str, list[str]] | None = None) -> dict[str, object]:
     """Dashboard JSON uses the same evidence coverage and projections as text."""
     sections_dict = {
         name: _serialize_section(name, sec, report.read_at, include_billing=include_billing)
@@ -243,9 +302,7 @@ def dashboard_data(report: DiagnosticReport, *, include_billing: bool = True) ->
         "sections": sections_dict,
         "error": "diagnostic snapshot failed" if report.error is not None else None,
     }
-    observations = as_object(sections_dict.get("observations"))
-    items = as_object(observations.get("data")).get("items")
-    rows = quota_rows(object_items(items), object_items(section_data(report, "resource_pools").get("pools")), report.read_at)
+    rows = dashboard_quota_rows(report, profiles_by_pool=profiles_by_pool)
     data["threats"] = threat_summary(rows)
     data["forecast_basis"] = "conditional window-average (cond)"
     return data
@@ -382,10 +439,7 @@ def _plan_advice(window: _PlanWindow, parent: QuotaRow | None, facts: PoolHealth
     gate = max(applicable, key=lambda entry: (_PLAN_RANK[entry[2]], entry[0].span), default=None)
     parent_vote = None
     if parent is not None and effective_parent_ref and parent.ref not in exhausted:
-        forecast = facts["forecast"]
-        if forecast == "threat" and not facts["exhaust_before_reset"]:
-            forecast = "on_pace"
-        parent_vote = (parent, facts["left_pct"], *plan_action(facts["left_pct"], facts["pace_pt"], forecast))
+        parent_vote = (parent, facts["left_pct"], *plan_action(facts["left_pct"], facts["pace_pt"], facts["forecast"]))
 
     # Equal actions prefer the effective parent, then the pool's own evidence.
     # In particular, another exhausted gate cannot replace a zero's refresh reason.
@@ -422,13 +476,9 @@ def plan_pools(report: DiagnosticReport, *,
 
     items = _plan_observations(report)
     pools = [p for p in object_items(section_data(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
-    rows = quota_rows(items, pools, report.read_at)
-    consumers = {r.ref: [profile for profile in (profiles_by_pool or {}).get(r.pool, [])
-                         if profile.partition(".")[0] == r.subject_ref] for r in rows}
-    readings = [PoolReading(peer=r.peer, pool=r.pool, pool_ref=r.ref, reading=r.item,
-                            profiles=tuple(consumers[r.ref]), retired=bool(r.item.get("display_retired")))
-                for r in rows]
-    projected = project_pool_rows(readings, report.read_at)
+    rows = _select_quota_rows(items, pools)
+    consumers = _quota_consumers(rows, profiles_by_pool)
+    projected = _project_quota_rows(rows, report.read_at, consumers, require_consumers=profiles_by_pool is not None)
     healths = {r.ref: row.own_health for r, row in zip(rows, projected)}
     rows_by_ref = {r.ref: r for r in rows}
     parents = {r.ref: rows_by_ref[row.parent["pool_ref"]] for r, row in zip(rows, projected) if row.parent is not None}
@@ -460,7 +510,7 @@ def plan_pools(report: DiagnosticReport, *,
         if ref and ref not in exhausted and as_object(item.get("payload")).get("remaining_fraction") == 0:
             facts = pool_health(item, None, report.read_at)
             if facts["state"] == "out":
-                exhausted[ref] = (QuotaRow(item, report.read_at), facts["left_pct"], "blocked", _PLAN_ZERO_REASONS["out"])
+                exhausted[ref] = (QuotaRow(item), facts["left_pct"], "blocked", _PLAN_ZERO_REASONS["out"])
     _plan_pool_facts(own, out, projected)
     gates = _plan_gate_windows(own, consumers, exhausted, profiles_by_pool)
     result: list[_PlanPool] = []
@@ -499,6 +549,18 @@ def plan_gaps(pools: list[_PlanPool]) -> PaceGaps:
     return pace_gaps({name: health for name, health in by_name.items() if health is not None})
 
 
+def _round_plan_floats(value: object) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return round(value, 2)
+    if isinstance(value, Mapping):
+        return {k: _round_plan_floats(v) for k, v in cast(Mapping[str, object], value).items()}
+    if isinstance(value, list):
+        return [_round_plan_floats(v) for v in cast(list[object], value)]
+    return value
+
+
 def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
               load: Mapping[str, object] | None = None,
               profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset()) -> dict[str, object]:
@@ -507,7 +569,8 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
              if not peers or pool[0] in peers]
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
                                "store_selection": dict(store_selection)}
-    data.update(legend=PLAN_LEGEND, pools=[row for _, row, _ in pools], gaps=plan_gaps(pools))
+    data.update(legend=PLAN_LEGEND, pools=[_round_plan_floats(row) for _, row, _ in pools],
+                gaps=_round_plan_floats(plan_gaps(pools)))
     if load is not None:
-        data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
+        data["load"] = _round_plan_floats(dict(load))  # additive: sampled now, unlike the stored pools
     return data

@@ -1,6 +1,7 @@
 """Terminal output and display cells."""
 from __future__ import annotations
 
+import codecs
 import os
 import re
 import shutil
@@ -25,13 +26,15 @@ class _EncodingWarningStream:
     def write(self, text: str) -> int:
         global _warned_encoding
         encoding = self._stream.encoding
-        if encoding and self._stream.errors == "replace" and not _warned_encoding:
+        if encoding and not _warned_encoding:
             try:
                 text.encode(encoding, "strict")
             except UnicodeEncodeError:
                 _warned_encoding = True
                 sys.stderr.write(f"WARNING: output encoding {encoding} cannot show some characters; "
                                  "they are replaced; use UTF-8 or --json\n")
+        if encoding and self._stream.errors == "strict":
+            text = text.encode(encoding, "replace").decode(encoding)
         return self._stream.write(text)
 
     def writelines(self, lines: list[str]) -> None:
@@ -43,7 +46,7 @@ def tolerant_streams() -> None:
     """Never crash on text the console encoding cannot represent (REL-002/REL-011), without forcing an encoding.
 
     The stream keeps the user's encoding (locale default or an explicit PYTHONIOENCODING); only characters that cannot be encoded
-    are replaced ('?'), unless the user chose an error handler explicitly (PYTHONIOENCODING=enc:errors)."""
+    are replaced ('?') by default. Honor explicit handlers and keep strict ASCII output usable with a replacement fallback."""
     explicit_errors = ":" in os.environ.get("PYTHONIOENCODING", "")
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name)
@@ -52,7 +55,8 @@ def tolerant_streams() -> None:
         try:
             if not explicit_errors:
                 stream.reconfigure(errors="replace")  # type: ignore[union-attr]
-            if stream.errors == "replace":
+            strict_ascii = stream.errors == "strict" and stream.encoding and codecs.lookup(stream.encoding).name == "ascii"
+            if stream.errors == "replace" or strict_ascii:
                 setattr(sys, name, _EncodingWarningStream(stream))
         except (AttributeError, ValueError, OSError):
             pass

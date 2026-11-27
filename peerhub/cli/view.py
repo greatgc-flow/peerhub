@@ -24,12 +24,12 @@ from peerhub.extensions.diag_read_model import (
     Obj,
     QuotaRow,
     as_object,
+    dashboard_quota_rows,
     object_items,
     plan_budget,
     plan_gaps,
     plan_gate_reason,
     plan_pools,
-    quota_rows,
     report_number,
     section_data,
     threat_summary,
@@ -50,19 +50,26 @@ def _eta(at: float, now: float, tz: tzinfo | None) -> str:
 
 
 def _forecast(row: QuotaRow, now: float, tz: tzinfo | None, short: bool) -> str:
-    state = row.projection["state"]
+    if row.na:
+        return "- n/a"
+    state = row.forecast
     glyph = {"threat": "!", "on_pace": "=", "insufficient": ":", "exhausted": "x",
              "unknown": "?", "stale": "~", "expired": "/"}[state]
     if state == "threat":
-        at = row.projection["exhaustion_at"]
+        at = row.exhaustion_at
         assert at is not None
         clock, left = _eta(at, now, tz), _forecast_duration(max(0, at - now))
         if short:
             clock = _local(at, tz).strftime("%a %H:%M" if _local(at, tz).date() != _local(now, tz).date() else "%H:%M")
-            return f"{glyph} exh {clock} ({left})"
-        return f"{glyph} exhausts {clock} (in {left})"
-    return glyph + " " + {"unknown": "unknown", "stale": "stale", "expired": "expired", "exhausted": "exhausted",
-                          "insufficient": "not enough data", "on_pace": "on pace"}[state]
+            text = f"{glyph} exh {clock} ({left})"
+        else:
+            text = f"{glyph} exhausts {clock} (in {left})"
+    else:
+        text = glyph + " " + {"unknown": "unknown", "stale": "stale", "expired": "expired", "exhausted": "exhausted",
+                              "insufficient": "not enough data", "on_pace": "on pace"}[state]
+    if row.limited_by:
+        text += f" (cap {row.limited_by})"
+    return text
 
 
 def _badge(row: QuotaRow) -> str:
@@ -77,20 +84,21 @@ def _quota_table(rows: list[QuotaRow], width: int, *,
     cells = 10 if width >= 100 else 8
     peer_w = max(4, max((visible_len(r.peer) for r in rows), default=4))
     pool_w = max(5, max((visible_len(r.pool) for r in rows), default=5))
-    reset_w = max(5, max((visible_len(human_duration(r.left)) for r in rows), default=5))
+    reset_w = max(5, max((visible_len("-" if r.na else human_duration(r.left)) for r in rows), default=5))
     fresh_w = max(5, max((visible_len(_badge(r)) for r in rows), default=5))
-    def prefix(peer: str, pool: str, usage: str, used: str, pace: str, reset: str) -> str:
+    def prefix(peer: str, pool: str, usage: str, left: str, pace: str, reset: str) -> str:
         return (pad_cell(peer, peer_w) + " " + pad_cell(pool, pool_w) + " " +
-                f"{usage:<{cells + 2}} {used:>4} {pace:>8} " + pad_cell(reset, reset_w) + " ")
-    head_lead = prefix("PEER", "POOL", "USAGE-bar", "USED", "PACE(pt)", "RESET")
+                f"{usage:<{cells + 2}} {left:>4} {pace:>8} " + pad_cell(reset, reset_w) + " ")
+    head_lead = prefix("PEER", "POOL", "USAGE-bar", "LEFT", "PACE(pp)", "RESET")
     forecast_w = max(0, width - visible_len(head_lead) - fresh_w - 1)
     head = head_lead + pad_cell(ellipsize("FORECAST", forecast_w, False), forecast_w) + " FRESH"
     out = [head]
     for row in rows:
-        body = bar(row.used, cells, False)
-        used = "?" if row.used is None else format_percent(row.used, show_tiny=False)
-        pace = "?" if row.diff is None else format_pace(row.diff)
-        lead = prefix(row.peer, row.pool, f"[{body}]", used, pace, human_duration(row.left))
+        body = "-" * cells if row.na else bar(row.left_fraction, cells, False)
+        left = "-" if row.na else ("?" if row.left_fraction is None else format_percent(row.left_fraction, show_tiny=False))
+        pace = "-" if row.na else ("?" if row.diff is None else format_pace(row.diff))
+        reset = "-" if row.na else human_duration(row.left)
+        lead = prefix(row.peer, row.pool, f"[{body}]", left, pace, reset)
         forecast = ellipsize(_forecast(row, now, tz, width < 100), forecast_w, False)
         fresh = _badge(row)
         out.append(lead + pad_cell(forecast, forecast_w) + " " + fresh)
@@ -101,7 +109,7 @@ PLAN_FAST_TAG = "fast"
 PLAN_TAG_LEGEND = f"{PLAN_FAST_TAG}/{PLAN_GATE_TAG} tags"
 PLAN_BUDGET_COLUMN = "BUDGET%/h"
 _PLAN_COLUMNS = ("PEER", "POOL", "LEFT", "PACE(pp)", "EXH/RESET", PLAN_BUDGET_COLUMN, "ACTION", "REASON")
-_PLAN_TEXT_LEGEND = f"{PLAN_PACE_LEGEND}/early | blocked 0%/? | - n/a | {PLAN_BUDGET_COLUMN} | {PLAN_TAG_LEGEND}"
+_PLAN_TEXT_LEGEND = f"{PLAN_PACE_LEGEND}/early | blocked 0%/{{missing}}/? | - n/a | {PLAN_BUDGET_COLUMN} | {PLAN_TAG_LEGEND}"
 PLAN_EARLY_TAG = "!early"
 
 
@@ -148,7 +156,7 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
         lines.extend(_wrap(" ".join([reason, *tags]), width) if tags else [ellipsize(reason, width, False)])
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
-    lines.extend(_wrap(_PLAN_TEXT_LEGEND, width))
+    lines.extend(_wrap(_PLAN_TEXT_LEGEND.format(missing="—" if unicode else "-"), width))
     applicable_pools = [p for _, p, _ in pools if p["action"] != "n/a"]
     profile_groups = [f"{p['pool']} {','.join(cast(list[str], p['profiles']))}"
                       for p in applicable_pools if p.get("profiles")]
@@ -214,7 +222,7 @@ def _credit_lines(items: list[Obj], read_at: float, alerts: list[str], tz: tzinf
         if state != "MEASURED":
             word = "stale" if state == "STALE" else "unknown"
             glyph = "~" if word == "stale" else "?"
-            line += f"; {glyph} {word} {_badge(QuotaRow(item, read_at))}"
+            line += f"; {glyph} {word} {_badge(QuotaRow(item))}"
         out.append(line)
         if exp is not None and 0 <= exp - read_at < 72 * 3600 and isinstance(count, int) and count > 0:
             alerts.append(f"{peer} {expiry} in {human_duration(exp - read_at)}")
@@ -248,7 +256,7 @@ def _ask_lines(report: DiagnosticReport, items: list[Obj]) -> list[str]:
 
 
 def _probe_line(items: list[Obj]) -> str:
-    from peerhub.extensions.observation_model import QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL
+    from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, QUOTA_PROBE_LOAD_DELAY, QUOTA_PROBE_LOAD_LABEL
 
     peers: dict[str, str] = {}
     latest: dict[str, tuple[float, str, int]] = {}
@@ -257,12 +265,14 @@ def _probe_line(items: list[Obj]) -> str:
             continue
         peer = strip_controls(item.get("subject_ref") or "?")
         state, p = item.get("state"), as_object(item.get("payload"))
+        reason_raw = str(p.get("reason") or "")
+        is_na = state == "ABSENT" and reason_raw.startswith(ABSENT_FACT_REASONS)
         key = (report_number(item.get("capture_seq")) or 0,
                str(item.get("captured_at") or item.get("observed_at") or ""),
                0 if item.get("resource_pool_ref") else 1)
         # Last committed successful measurement is an OK probe outcome, even
         # after its quota freshness expires. A newer failure takes precedence.
-        outcome = "OK" if state in ("MEASURED", "STALE") else "?"
+        outcome = "OK" if (state in ("MEASURED", "STALE") or is_na) else "?"
         if not item.get("resource_pool_ref"):
             reason = strip_controls(p.get("reason") or state or "unknown")
             if reason == QUOTA_PROBE_LOAD_DELAY:
@@ -274,24 +284,28 @@ def _probe_line(items: list[Obj]) -> str:
             if not item.get("captured_at") and not item.get("observed_at"):
                 key = (float("inf"), "", 1)
         if peer not in latest or key >= latest[peer]:
+            if outcome == "?" and peer in latest and key[1] and key[1] == latest[peer][1] and peers.get(peer) == "OK":
+                latest[peer] = key
+                continue
             latest[peer], peers[peer] = key, outcome
     return "Probes " + (" ".join(f"{peer}:{status}" for peer, status in sorted(peers.items())) or "outcomes unavailable")
 
 
 def render_view(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None = None,
-                store_path: str = "", store_source: str = "", store_note: str = "") -> str:
+                store_path: str = "", store_source: str = "", store_note: str = "",
+                profiles_by_pool: Mapping[str, list[str]] | None = None) -> str:
     """Render a plain-text diagnostic snapshot."""
     width = max(1, width)
     items = object_items(section_data(report, "observations").get("items"))
-    rows = quota_rows(items, object_items(section_data(report, "resource_pools").get("pools")), report.read_at)
+    rows = dashboard_quota_rows(report, profiles_by_pool=profiles_by_pool)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M:%S%z" if width >= 100 else "%Y-%m-%d %H:%M%z")
     tail = f" ({strip_controls(store_source)})" if store_source else ""
     # #338: the full resolved store path; a narrow terminal wraps it instead of truncating it.
     header = f"PeerHub {strip_controls(report.status)} {when} " + strip_controls(store_path or "workspace") + tail
-    threats = [r for r in rows if r.projection["state"] == "threat"]
-    first = min(threats, key=lambda r: r.projection["exhaustion_at"] or float("inf")) if threats else None
-    earliest_at = cast(float, first.projection["exhaustion_at"]) if first is not None else None
-    exhausted = ", ".join(f"{r.peer}/{r.pool}" for r in rows if r.projection["state"] == "exhausted")
+    threats = [r for r in rows if r.forecast == "threat"]
+    first = min(threats, key=lambda r: r.exhaustion_at or float("inf")) if threats else None
+    earliest_at = first.exhaustion_at if first is not None else None
+    exhausted = ", ".join(f"{r.peer}/{r.pool}" for r in rows if r.forecast == "exhausted")
     credit_alerts: list[str] = []
     credits = _credit_lines(items, report.read_at, credit_alerts, tz)
     summary = threat_summary(rows)
@@ -310,9 +324,11 @@ def render_view(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
         if others:
             alert += "; " + others
     if summary["fresh_pools"] and summary["stale_pools"]:
-        alert += f"; {summary['stale_pools']} pools stale"
+        n_stale = cast(int, summary["stale_pools"])
+        alert += f"; {n_stale} pool{'' if n_stale == 1 else 's'} stale"
     if summary["fresh_pools"] and summary["unknown_pools"]:
-        alert += f"; {summary['unknown_pools']} pools unknown"
+        n_unk = cast(int, summary["unknown_pools"])
+        alert += f"; {n_unk} pool{'' if n_unk == 1 else 's'} unknown"
     if exhausted:
         alert += f"; exhausted {exhausted}"
     if credit_alerts:

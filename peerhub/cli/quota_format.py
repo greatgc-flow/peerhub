@@ -5,6 +5,7 @@ import math
 from typing import TYPE_CHECKING
 
 from peerhub.core.quota_policy import format_pace
+from peerhub.core.text import format_duration as format_duration, human_duration as human_duration
 
 if TYPE_CHECKING:
     from peerhub.extensions.pool_health import PoolHealth
@@ -48,29 +49,6 @@ def quota_bar(remaining: float | None, cells: int = BAR_CELLS, unicode: bool = T
 def format_percent(fraction: float, *, show_tiny: bool = True) -> str:
     """Format a whole percent, with an optional marker for tiny nonzero quota."""
     return "<1%" if show_tiny and 0.0 < fraction <= 0.005 else f"{fraction * 100:.0f}%"
-
-
-def format_duration(seconds: float, *, extra_unit: bool = False) -> str:
-    total_minutes, secs = divmod(math.floor(seconds), 60)
-    hours, minutes = divmod(total_minutes, 60)
-    if hours >= 24:
-        days, hours = divmod(hours, 24)
-        return f"{days}d{hours:02d}h" + (f"{minutes:02d}m" if extra_unit else "")
-    text = f"{hours}h{minutes:02d}m" if hours > 0 else f"{total_minutes}m"
-    return text + (f"{secs:02d}s" if extra_unit else "")
-
-
-def human_duration(seconds: float | None) -> str:
-    """Round to minutes from two minutes onward; missing values stay explicit."""
-    if seconds is None or seconds < 0:
-        return "?"
-    whole = int(seconds) if seconds < 120 else int(seconds / 60 + 0.5) * 60
-    if whole >= 3600:
-        return format_duration(whole)
-    minutes, secs = divmod(whole, 60)
-    if not minutes:
-        return f"{secs}s"
-    return f"{minutes}m{secs:02d}s" if secs else f"{minutes}m"
 
 
 def forecast_duration(seconds: float) -> str:

@@ -78,7 +78,7 @@ Tests: link targets exist; no escapes without a TTY or with `PEERHUB_NO_LINKS`.
 Amended by G: the stale badge sits next to `LEFT`, not `LEFT/EVN`.
 
 Purpose (owner Q9): see stale evidence, the owner's balance goal and limited children at a glance. Evidence: F8 and the owner's goal. Reason: facts for the human beat a composite score (opaque, rejected) or a history sparkline (needs a time series).
-Decision: a stale badge `~Xm` next to `LEFT/EVN`; the limited-by-parent marker stays (computation is C1); one balance line in the POOLS block after the pool rows and before `suggest:`: `gap vs X-7D (pp): C-7D +2.2, G-7D -1.0, A-7D +20.4` = each other weekly parent pool's UNROUNDED 7D `pace_pt` (cc C-7D, every ag 7D pool listed separately) minus cx X-7D's, in that order; `—` when either operand is missing, stale or not measured; the line is evicted with the POOLS block.
+Decision: a stale badge `~Xm` next to `LEFT/EVN`; the limited-by-parent marker stays (computation is C1); one balance line in the POOLS block after the pool rows: `gap vs X-7D (pp): C-7D +2.2, G-7D -1.0, A-7D +20.4` = each other weekly parent pool's UNROUNDED 7D `pace_pt` (cc C-7D, every ag 7D pool listed separately) minus cx X-7D's, in that order; `—` when either operand is missing, stale or not measured; the line is evicted with the POOLS block. Both layouts omit unavailable windows from the comparison (#497).
 Tests: the pairing and order; `—` rules.
 
 ## M10 Whose process is it (caller ownership)

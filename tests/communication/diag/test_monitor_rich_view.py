@@ -24,9 +24,8 @@ SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OUR_CODES = {"0", *monitor_layout.RICH_SGR.values(), *monitor_layout.PILL_SGR.values()}  # #414: a child bar's empty cells
 U, A = monitor_layout.RICH_GLYPHS[True], monitor_layout.RICH_GLYPHS[False]
 POOLS_HEAD = FRAME_SECTIONS["pools"]
-SUGGEST_HEAD = FRAME_SECTIONS["suggest"]
-_RULE_HEADS = "|".join(re.escape(head) for head in FRAME_HEADS if head != SUGGEST_HEAD)
-_PLAIN_HEADS = "|".join(re.escape(FRAME_SECTIONS[key]) for key in FRAME_SECTION_ORDER if key not in {"suggest", "alerts"})
+_RULE_HEADS = "|".join(re.escape(head) for head in FRAME_HEADS)
+_PLAIN_HEADS = "|".join(re.escape(FRAME_SECTIONS[key]) for key in FRAME_SECTION_ORDER if key != "alerts")
 _RULE_HEAD = re.compile(rf"^(?:──|--) ((?:{_RULE_HEADS}) \S+)")
 _PLAIN_HEAD = re.compile(rf"^({_PLAIN_HEADS}) (\S+)")
 
@@ -74,7 +73,7 @@ def test_both_views_keep_the_same_section_order(build):
     plain_heads = [key for key in blocks(plain(build())) if key != "top"]
     assert plain_heads == [key for key in FRAME_HEADS if key in plain_heads] and plain_heads[0] == FRAME_HEADS[0]
     lines = strip(rich(build())).splitlines()
-    heads = [(rule_head(line) or line).split()[0] for line in lines if rule_head(line) or line.startswith(SUGGEST_HEAD)]
+    heads = [(rule_head(line) or line).split()[0] for line in lines if rule_head(line)]
     assert heads == plain_heads
     assert lines[1].startswith("PeerHub Monitor 2026-11-14 23:46Z")
 
@@ -90,8 +89,6 @@ def row_counts(lines: list[str]) -> dict[str, int]:
             counts[key] = 0
         elif key and line.startswith(" "):
             counts[key] += 1
-        elif line.startswith(SUGGEST_HEAD):
-            key = ""
     return counts
 
 
@@ -136,7 +133,7 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
                 assert rule_head(new) or cell_width(old) > min(100, width) - 4, (width, height, old, new)
                 for part in old.split(" | ")[1:]:
                     assert part.replace("~", "…") in new, (width, height, old, new)
-            elif old.startswith(("+", SUGGEST_HEAD, "next:", "no quota evidence", "DB:")):
+            elif old.startswith(("+", "next:", "no quota evidence", "DB:")):
                 assert new == old
             elif old.startswith(" "):  # a data row: the same row (its first cells), whatever the decoration
                 cells = [cell.lstrip("!") for cell in old.split() if re.match(r"^!?[A-Za-z0-9]", cell)][:2]
@@ -145,9 +142,9 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 
 
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
-    width = 110
-    line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 8")
-    assert line.startswith(f"── {POOLS_HEAD} 8 ─") and line.endswith("─") and cell_width(line) == width - 1
+    width = 140
+    line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 9")
+    assert line.startswith(f"── {POOLS_HEAD} 9") and line.endswith("─") and cell_width(line) == width - 1
     assert monitor_quota_view.POOLS_USE_FIRST_HINT in line
     titles = [word for word in line.replace(monitor_quota_view.POOLS_USE_FIRST_HINT, "").split() if word in monitor_format._POOL_COLUMNS]
     assert titles == ["STATE", "LEFT", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
@@ -227,7 +224,7 @@ def test_no_color_keeps_the_rich_layout_with_unicode_and_no_sgr(monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     screen = rich(full_payload(), color=True, width=120)
     assert "\x1b" not in screen and screen == bare
-    assert f"── {POOLS_HEAD} 8 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
+    assert f"── {POOLS_HEAD} 9" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
     assert screen.splitlines()[0].startswith("ATTN 2 · gone: cc.fable activity-view 5m · pool_out: cx X-5H")
 
 
@@ -355,11 +352,10 @@ def test_m1_a_fast_state_and_its_pace_use_separate_colours():
 
 
 @pytest.mark.parametrize("state,glyph", [("ok", "ok"), ("fast", "fast"), ("low", "low"), ("out", "out"), ("aged", "aged"),
-                                         ("?", "aged"), ("reset", "aged")])  # n/a is never a row (#400)
+                                         ("?", "aged")])
 def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
     row = {"ok": pool("cc", "C-7D", .9), "fast": pool("cc", "C-7D", .5, fast=True, pace=12.5), "low": pool("cc", "C-7D", .05),
-           "out": pool("cc", "C-7D", 0.0), "aged": pool("cc", "C-7D", .9), "?": pool("cc", "C-7D", None),
-           "reset": pool("cc", "C-7D", .9, reset=0)}[state]
+           "out": pool("cc", "C-7D", 0.0), "aged": pool("cc", "C-7D", .9), "?": pool("cc", "C-7D", None)}[state]
     if state == "aged":
         row.update(state="STALE", age_seconds=999, measurements=None)
     if state == "?":
@@ -380,7 +376,7 @@ def test_m1_the_family_cell_is_dim_and_left_is_neutral():
 # ---- RUNNING, LEADS and RECENT rows ----------------------------------------------------------------------------------
 def test_running_rows_start_with_their_state_glyph_and_word():
     payload = full_payload()
-    payload["selected_groups"] = ["activity"]  # the 24 lines hold every RUNNING row without POOLS and its suggestion
+    payload["selected_groups"] = ["activity"]  # the 24 lines hold every RUNNING row without POOLS
     screen = rich(payload)
     lines = strip(screen).splitlines()
     start = next(i for i, line in enumerate(lines) if rule_head(line) == "RUNNING 4")
@@ -644,9 +640,8 @@ def test_a_never_refreshed_store_shows_the_no_evidence_wording_not_a_read_error(
     assert lines[0] == "OK? (quota, accounts, facts not read) | 1 running | 1 lead"
     start = lines.index(f"{POOLS_HEAD} 0")
     assert lines[2] == "quota: no reading -> peerhub observation refresh"
-    assert lines[start:start + 3] == [f"{POOLS_HEAD} 0",
-                          "no quota evidence; next: peerhub observation refresh",
-                          f"{SUGGEST_HEAD} no eligible profiles; next: peerhub observation refresh"]
+    assert lines[start:start + 2] == [f"{POOLS_HEAD} 0",
+                          "no quota evidence; next: peerhub observation refresh"]
     assert not any(line.startswith("DB:") for line in lines)  # the store path is printed for a read error only
     assert payload == before
     expanded = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True)

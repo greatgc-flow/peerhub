@@ -52,7 +52,10 @@ Every ag task is writable, even if the manifest says otherwise (#140).
 If either task writes, equal or nested workspaces reject the entire batch.
 Streams and request IDs derive from the batch/task IDs; no stream override exists.
 
-Reports contain identities, sessions, elapsed seconds and statuses. Use
+Reports contain identities, sessions, elapsed seconds and statuses. A task whose ask reports denied tool actions
+(for example `reason: denied_empty` from an ag task) adds `denied_actions`, the denied tool names only, to its JSON
+row and a `denied: NAME, NAME` line under its row in text. The names tell an out-of-workspace read from a denied shell
+command. Use
 `--responses` to include replies.
 
 | Status | Meaning |
@@ -156,14 +159,7 @@ Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepth
    (formatting), `effort` (writing) or `deepthink` (technical claims); code = `effort`, escalate to
    `deepthink`; review = `deepthink` from an independent reviewer; design/debate = `deepthink` or an explicit top.
 2. Drop candidates with any applicable pool that has stale evidence (regardless of `STATE` shown, since a stale pool can display `low` or `fast`; check `AGE` and the `PEERS` `(aged)` tag) or is `?`, `aged`, `reset`, or under 5% LEFT, and prefer candidates without a `fast` pool (see `peerhub monitor`).
-3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`. This rule ranks the candidates for a single ask (the `suggest:` line); a wave of several tasks uses the [parallel wave procedure](#parallel-work-over-the-least-quota) (lowest 7D PACE first, then size n), so the two answer different questions.
-
-The monitor's `suggest:` line lists the best eligible profile per tier. Among
-eligible candidates, those without an applicable `fast` pool rank first, then
-the existing worst-pool score, then profile name. A `|` separates
-the best eligible alternative from a different peer in the same tier, for
-example `eco=cc.standard|ag.standard`. With no eligible alternative, only the
-primary appears. These suggestions do not execute asks or reroute work.
+3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`. For a parallel wave, follow the [parallel wave procedure](#parallel-work-over-the-least-quota) and use the lowest 7D PACE first.
 
 `ag.argon` and Flash draw from the same Gemini windows, `G-5H` and `G-7D`,
 shown in `peerhub diag --plan`. The legacy `A-7D` window shows `n/a` when omitted from a complete report.
@@ -171,12 +167,6 @@ See [Antigravity quota pools](adapters/ag.md#quota-pools) and the
 [0.26.11 release notes](../CHANGELOG.md#02611---2026-11-25) for when Antigravity stopped reporting it.
 
 For an AI planning a parallel wave, `peerhub explain parallel-quota` summarizes the [parallel wave procedure](#parallel-work-over-the-least-quota).
-
-## Suggest an ask
-
-`peerhub suggest` is deprecated, removed in the next release. Use `peerhub diag --plan` for planning. Until removal, it prints an ask and a reason, with optional candidate facts. Its behavior is otherwise unchanged.
-
-`--candidates` shows the quota evidence behind eligibility. Among enabled profiles, a measured 5-hour window must be under 90% used. A fresh provider-reported absence skips that gate. An exhausted 7-day pool excludes the profile. The lowest 7-day PACE wins among profiles with usable evidence, with ties in ag, cx, cc order. Missing or over-15-minute evidence can trigger one refresh attempt and spend quota. Candidates without usable evidence remain fallback choices marked `quota unknown`.
 
 **I. Concurrency**
 
@@ -201,14 +191,14 @@ If a provider throttles, reduce concurrency; do not reroute the same work to ano
 
 Rule H ranks candidates for a single ask. Use the stored quota facts to order the pools and the load line to size the wave.
 
-1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. If old or `(stale)` readings could change your choice, refresh their providers with `peerhub observation refresh --peers PEER ...`, then read again. See [probe costs](implementation/OBSERVATION_PROBES.md) for when agy can consume model tokens.
-   A parent-limited child uses effective quota and time to reset for its displayed `BUDGET%/h`. Advice ranks the pool's own action, its effective parent action, and applicable gates for the same profile on the same account in order of `spend`, `hold`, `rest`, and `blocked`. The most restrictive action wins. A fresh zero for a shared pool can gate other configured pools on the same account even when another reporter supplied the displayed reading. When a gate wins, the reason and JSON `binding` name its pool, and an exhausted gate reports `gate: <pool> out`. A stale zero keeps its refresh reason. In JSON, `target_pct_per_hour`, `left_pct`, `pace_pt` and `resets_in_seconds` describe the child's own window, and `health` carries its effective state, pace and reset.
+1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. Missing or over-15-minute evidence can leave a pool unknown or stale. If refreshing it could change your choice, run `peerhub observation refresh --peers PEER ...`, then read the plan again. See [probe costs](implementation/OBSERVATION_PROBES.md) for when agy can consume model tokens.
+   A parent-limited child uses effective quota and time to reset for its displayed `BUDGET%/h`. Advice ranks the pool's own action, its effective parent action, and applicable gates for the same profile on the same account in order of `spend`, `hold`, `rest`, and `blocked`. The most restrictive action wins. A fresh zero for a shared pool can gate other configured pools on the same account even when another reporter supplied the displayed reading. When a gate wins, the reason and JSON `binding` name its pool, and an exhausted gate reports `gate: <pool> out`. A stale zero keeps its refresh reason. In JSON, floats are rounded to two decimals; `target_pct_per_hour`, `left_pct`, `pace_pt` and `resets_in_seconds` describe the child's own window, `health` carries the pool's own state (with effective pace and reset after any scoped weekly parent cap), and `action` carries the effective gated action.
 2. Order usable pools by 7D PACE, lowest first; rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. JSON rows also include profiles, age_seconds, ttl_seconds, fast, family, and parent. A profile listed under several pools spends each of them.
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
 4. Start with the usable pools in order. Choose `n` based on their quota and the available machine resources, then run `peerhub batch run tasks.json --batch-id ID --max-parallel n`.
 5. After each wave, refresh only the providers whose pools you used or whose freshness could change the next launch. For a wave that used only Codex, run `peerhub observation refresh --peers cx` if you need a fresh reading. Read `peerhub diag --plan` again to check the next wave. Keep a margin for in-flight spend the readings do not show yet. A task refused for quota is reported per task and the rest of that manifest still runs. The same batch ID replays settled tasks. Drop pools that turn `rest` or `blocked` and defer if no usable pools remain.
    Parallel ag asks were seen to spike G-5H, so watch G-5H after each wave.
    The load line lists in-flight counts for pools with applicable table rows. Its
-   `n/a pools` clause lists other mapped in-flight pools, with `+K` for any names
+   `in-flight n/a pools:` clause lists other mapped in-flight pools, with `+K` for any names
    beyond the display limit. Leave margin for in-flight and unmapped asks. JSON `load.by_pool` includes all mapped pools.
 6. After an uncertain ask, check `peerhub diag running` and `peerhub diag health --stream STREAM`, then reconcile the workspace before retrying.

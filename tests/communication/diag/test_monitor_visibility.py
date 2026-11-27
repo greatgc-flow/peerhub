@@ -59,9 +59,9 @@ def frame() -> dict[str, Any]:
 
 def pools_block(screen: str) -> str:
     """The POOLS rows of a compact frame in either view (P21: the rich view draws the head as a rule, and the
-    suggestion follows the rows)."""
+    the gap and legend follow the rows)."""
     pools = re.escape(FRAME_SECTIONS["pools"])
-    return re.split(rf"\n(?:── |-- )?{pools} ", screen, maxsplit=1)[1].split(f"\n{FRAME_SECTIONS['suggest']}", 1)[0]
+    return re.split(rf"\n(?:── |-- )?{pools} ", screen, maxsplit=1)[1].split("\nPACE(pp)=", 1)[0]
 
 
 def test_d1_expanded_rows_remain_under_their_own_header(frame: dict[str, Any]) -> None:
@@ -152,11 +152,7 @@ def test_d5_successful_probe_retires_omitted_window_at_read_time(frame: dict[str
     frame["configured_profiles"] = [p for p in frame["configured_profiles"] if p["profile"].startswith("cx.")]
     before = deepcopy(frame)
     screen = render_grouped_frame(frame, width=120, height=40, view=_view(expand), expand=expand, unicode=False)
-    if expand:  # #400: never a row; the QUOTA details keep the one note of a retired pool
-        row = next(line for line in screen.splitlines() if "X-30D" in line)
-        assert "n/a" in row and "93%" not in row and "23195s" not in row
-        assert "not reported by plan pro" in screen
-    assert ("(X-30D n/a)" in screen) == expand
+    assert "X-30D" not in screen
     assert "next:" not in screen and "6h" not in screen
     if not expand:
         assert "quota age 8s" in screen
@@ -282,11 +278,11 @@ def test_peer_separators_at_100x40_and_data_priority_at_80x24(
         for pool in ("3P-5H", "3P-7D", "A-7D", "G-5H", "G-7D", "C-7D", "F-7D", "X-7D"):  # C-5H and X-5H are n/a (#400)
             assert pool in tight
         assert "rows hidden" in tight
-    else:  # #374 F5: no blank lines between peers; 5-hour rows that do not bind stay in --expand
+    else:  # no blank lines between peers; compact hides unavailable windows
         assert "\n\n" not in spacious
-        for pool in ("3P-7D", "A-7D", "G-7D", "C-7D", "F-7D", "X-7D"):
+        for pool in ("3P-7D", "A-7D", "G-7D", "C-7D", "F-7D", "X-7D", "3P-5H", "G-5H"):
             assert pool in tight
-        assert all(pool not in tight for pool in ("3P-5H", "X-5H", "X-30D"))
+        assert all(pool not in tight for pool in ("X-5H", "X-30D"))
     assert len(lines) < 40 and all(cell_width(line) < 100 for line in lines)
     assert len(tight.splitlines()) < 24 and all(cell_width(line) < 80 for line in tight.splitlines())
     assert round2_frame == before
@@ -425,7 +421,7 @@ def test_r3_compact_snapshot_without_vt_keeps_append_behaviour(
     _print_grouped_snapshot(frame, "plain")
     screen = capsys.readouterr().out
     assert len(screen.splitlines()) > 8 and "rows hidden" not in screen
-    assert "suggest:" in screen and "\nPOOLS " in screen  # #374: no legend or PEERS lines in the compact frame
+    assert "\nPOOLS " in screen  # #374: no legend or PEERS lines in the compact frame
 
 
 def _data_rows(screen: str) -> Counter[str]:
@@ -557,8 +553,6 @@ def test_compact_small_heights_follow_the_single_removal_order(frame: dict[str, 
     full = render_grouped_frame(frame, width=80, height=1000, view="plain", unicode=False).splitlines()
     lines = render_grouped_frame(frame, width=80, height=height, view="plain", unicode=False).splitlines()
     assert lines[:2] == full[:2] and len(lines) < height
-    if any(line.startswith("suggest:") for line in lines):
-        assert any(line.startswith("gap vs ") for line in lines)
     if any(line.startswith("gap vs ") for line in lines):
         assert any(line.startswith("POOLS ") for line in lines)
 
@@ -569,10 +563,9 @@ def test_compact_frame_at_80x24_discloses_line_2_cuts_and_keeps_every_pool(round
     assert lines[0].startswith("OK") and lines[1].startswith("PeerHub Monitor")
     assert lines[2] == "Fields hidden | --expand"  # line 2 lost DB and quota age at 80 columns
     pools = next(i for i, line in enumerate(lines) if line.startswith("POOLS "))
-    # every 7-day pool; no cut, no overflow line (P21: the suggestion follows the rows)
-    assert lines[pools].split()[1] == "6"
+    # every 7-day pool; with its short windows
+    assert lines[pools].startswith("POOLS 8")
     assert lines.index(next(line for line in lines if line.startswith("gap vs "))) > pools
-    assert any(line.startswith("suggest:") for line in lines)  # M9
     assert "Legend:" not in screen and "PEERS" not in screen and "rows hidden" not in screen
 
 

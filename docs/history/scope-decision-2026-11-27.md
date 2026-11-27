@@ -35,3 +35,5 @@ Verdicts are unanimous unless a split is shown; a split is settled by majority.
 | API billing observations | DEFER: no new work (3/3). |
 
 Every removal ships with a CHANGELOG "Removed" line that names the replacement. The version becomes 0.27.0.
+
+Revisited the same day: the `explain handoff` cut assumed the AGENTS.md pointer was enough, but AGENTS.md reaches only contributors to this repository. Installed users get guidance only through the package, so 0.28.0 folds two sentences on lane briefs into `parallel-quota`, which the guide links (aliases `handoff`, `lane-rules`). A value review (cx.astra, cx.deepthink, ag.deepthink) cut a standalone lesson: nothing linked to it. The same review slimmed `NOW.md` to state and next steps (recent flow is the top of CHANGELOG) and dropped the union merge driver, which can silently duplicate entries.

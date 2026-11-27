@@ -4,16 +4,18 @@ from __future__ import annotations
 import argparse
 from typing import NoReturn, TYPE_CHECKING
 
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub.cli.support import error_line
 
 WORKSPACE_OPTIONS = ("-w", "--workspace")
 
 
 class ArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> NoReturn:
-        error_line("invalid_arguments", message)
-        exc = SystemExit(2)
+    def error(self, message: str, hint: str | None = None) -> NoReturn:
+        error_line("invalid_arguments", message, hint)
+        exc = SystemExit(INVALID_ARGUMENTS_EXIT)
         setattr(exc, "argument_error", message)
+        setattr(exc, "argument_hint", hint)
         raise exc
 
 

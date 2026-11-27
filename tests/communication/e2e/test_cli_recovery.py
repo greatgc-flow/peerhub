@@ -442,11 +442,16 @@ def _standalone_validation_error_codes() -> set[str]:
             (["peer", "get", "--peer", "absent"], "peer_not_found"),
             (["stream", "show", "--stream", "absent"], "stream_not_found"),
             (["session", "show", "sess_0000000000000000"], "session_not_found"),
+            (["monitor", "open", "000000000000"], "ask_not_found"),
             (["diag", "health", "--observation-db", missing], "diag_unavailable"),
         ):
             check(["--db", db, *argv], expected)
         check(["--db", missing, "peer", "list"], "store_missing")
         assert not Path(missing).exists()
+        config = Path(scratch) / ".peerhub" / "config" / "models.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text('[profiles."cx.effort"\n', encoding="utf-8")
+        check(["profile", "show", "cx.effort", "--workspace", scratch, "--json"], "profile_config_error")
 
         # Inject storage/dispatch faults at the command boundary, keeping the
         # real top-level exception translation and stderr renderer under test.
@@ -732,13 +737,13 @@ def test_explain_cli_output_and_exit_codes(capsys):
     assert "Guidance Code: ask_uncertain" in capsys.readouterr().out
 
     # Unknown - human
-    assert run_explain_cli("non_existent_code", json_output=False) == 1
+    assert run_explain_cli("non_existent_code", json_output=False) == 2
     err = capsys.readouterr().err
     assert "No matching lessons" in err
     assert "Try fewer keywords" in err
 
     # Unknown - json
-    assert run_explain_cli("non_existent_code", json_output=True) == 1
+    assert run_explain_cli("non_existent_code", json_output=True) == 2
     captured = capsys.readouterr()
     assert "[invalid_arguments]" in captured.err and "next:" in captured.err
     err_data = json.loads(captured.out)
@@ -755,7 +760,7 @@ def test_main_explain_dispatch(capsys):
     assert main(["explain", "ask_uncertain", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["code"] == "ask_uncertain"
 
-    assert main(["explain", "unknown_xyz"]) == 1
+    assert main(["explain", "unknown_xyz"]) == 2
     assert "No matching lessons" in capsys.readouterr().err
 
 

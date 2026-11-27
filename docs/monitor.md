@@ -19,15 +19,13 @@ Cancellation, timeouts and normal completion clean up each job even if its wrapp
 If Windows refuses containment, the probe still runs and cleanup uses the wrapper's process handle to stop it.
 Background refresh includes a warning with the API and WinError in its result.
 
-Continuous watch, automatic collection in scripted watch, suggest, and ask dispatch share the PID lock
+Continuous watch, automatic collection in scripted watch and ask dispatch share the PID lock
 `quota-refresh.lock` in the store's scratch directory. After three seconds of contention they continue with committed
 evidence. Automatic collection rechecks quota under the lock before probing.
-For a command you can run, use `peerhub suggest --tier standard` and see
-`peerhub explain suggest` for its quota rules.
 
 ## Commands and output
 
-- `monitor --help` lists the eleven group IDs under `--group`. The monitor selects nine by default. Repeat `--group GROUP` to select individual groups or use `--group all`.
+- `monitor --help` describes the groups and lists the default peers for watch refresh. The monitor selects nine by default. Repeat `--group GROUP` to select individual groups or use `--group all`.
 - `monitor --snapshot` renders one read-only frame. Use `monitor --snapshot --expand --group sessions --group execution` for the retained-session and execution tables. `monitor --no-probe --interval-seconds 60` watches committed evidence. Pass the global `--db PATH` before `monitor` to choose another store.
 - Without `--cycles`, a terminal watches until interrupted and redirected output runs one cycle. Explicit `--cycles 0` watches everywhere until interrupted. Positive values bound the watch.
 - `--json` emits schema 2.0: one object for a snapshot, or one `initial` frame plus a `complete` frame per watch cycle (NDJSON).
@@ -73,13 +71,11 @@ A quota probe that still times out under high CPU load is labeled `delayed by lo
 
 ## POOLS
 
-`POOLS n` counts pools selected for the current view before row limits are applied. Compact hides unavailable windows. Expanded POOLS counts them and expanded QUOTA includes the reason for each. See [Antigravity quota pools](adapters/ag.md#quota-pools).
-Compact also hides readings past their reset or older than their window. Quota notes show them as `n/a`, and the
-header age excludes them. `diag --plan` shows a reset window as `hold` with `window reset; refresh` and omits it from
+`POOLS n` counts pools selected for the current view before row limits are applied. Both views hide unavailable windows from POOLS and QUOTA. `peerhub diag --plan` lists them as `n/a`.
+Both monitor views hide retired readings, and the header age excludes them. `diag --plan` shows a reset window as `hold` with `window reset; refresh` and omits it from
 other pools' gates. Plan JSON retains the previous window's measured LEFT and reset time.
 
-The compact view applies `POOLS_CAP` and omits nonbinding short windows unless they have a scoped parent.
-The expanded view includes all short windows, with visible rows limited by the frame height.
+Both views include reported short windows. Compact applies `POOLS_CAP`, and a bounded frame can show fewer rows.
 
 | Column | Meaning |
 |---|---|
@@ -116,21 +112,23 @@ PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = earl
 | `blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. <a id="state-blocked"></a> |
 | `aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. <a id="state-aged"></a> |
 | `reset` | `○` | the reset time has passed, so the number is no longer true; refresh. <a id="state-reset"></a> |
-| `n/a` | | the plan no longer reports this window (or the provider switched it off). Shown in the human frame with `--expand`. <a id="state-na"></a> |
+| `n/a` | | the plan no longer reports this window (or the provider switched it off). Listed by `peerhub diag --plan`. <a id="state-na"></a> |
 | `?` | `○` | unknown: no number. <a id="state-unknown"></a> |
 
 **Order.** POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools.
 Ties sort by peer and pool name. The most negative PACE shows the most under-used weekly pool. The heading shows
-`use first` when there is room. Compact POOLS keeps the first `POOLS_CAP` rows and gives the remaining count as `+N pools`.
+`use first` when there is room. Compact POOLS shows up to `POOLS_CAP` rows, giving priority to parents and tighter child windows, and gives the remaining
+count as `+N pools`. The gap line compares reported weekly windows.
 
 **Child pools and the F-7D / C-7D rule.** A 5-hour pool (`C-5H`, `3P-5H`, `G-5H`) is shown under its 7-day pool of the
-same family when it has less left than the 7-day pool or is `low` or `out` (`--expand` shows it always). Fable's
+same family and account in both layouts. After a confirmed reset, a short window keeps a `reset · refresh pending`
+row under that parent until refreshed. A short window retired by age with a future reset stays hidden. Fable's
 scoped weekly pool `F-7D` is a child of the all-models weekly pool `C-7D` only when the configured profiles confirm it:
 exactly one `C-7D` and one `F-7D` for the peer, and the profiles that use `F-7D` are a strict subset of the profiles
 that use `C-7D`. Equal sets, duplicate names or different accounts never make a parent. Then the child's effective
 value is the lower of the two: while `C-7D` has less left, `F-7D` shows its LEFT, PACE and state, the nearer reset, and
 its own value in FAMILY. An aged, unknown, reset or missing parent never limits it. The same rule drives POOLS, QUOTA,
-PEERS, `suggest:` and `peerhub diag quota`.
+PEERS and `peerhub diag quota`.
 
 ### Bar glyphs
 
@@ -143,16 +141,12 @@ PEERS, `suggest:` and `peerhub diag quota`.
 - The `|` tick marks even-burn remaining when that fact is available, including when it covers a filled cell.
 - POOLS and QUOTA right-align the LEFT value and left-align STATE, PACE(pp), MARGIN, EXH/RESET, and FAMILY. After the left data
   columns fit, the bar grows from 8 to 16 cells while FAMILY uses its abbreviated form. FAMILY then expands to show
-  all profile IDs and inline unavailable-window and parent-limit notes as space permits. Any remaining width grows
+  all profile IDs and inline parent-limit notes as space permits. Any remaining width grows
   the bar up to 40 cells. The tick scales with the bar, including on parent-limited child rows.
 - PACE and the bar use cyan for spend, green for ok and yellow for rest. Fresh zero uses bold red.
   LEFT uses neutral text, a yellow low-reserve `!` at 10% or less, or bold red at fresh zero.
 - The bar gives way when its minimum width no longer fits beside the left data and FAMILY labels. Data columns give way in order of AGE,
   FAMILY, EXH/RESET and MARGIN. STATE, LEFT and PACE stay.
-
-`suggest:` (under POOLS) is advisory: `suggest: eco=cc.standard normal=cc.effort|cx.effort ...`. `a|b` is the best
-eligible pick and the best eligible alternative from another peer. Like `peerhub suggest`, this line skips profiles
-with `suggest = false` in the effective profile configuration. Profiles are eligible by default if they meet the quota checks.
 
 ## RECENT
 
@@ -191,6 +185,7 @@ normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller is gone and
 
 Each row starts with the ask's 12-character record ID after the state flag. The RUNNING footer gives
 `peerhub monitor open ID` to print the stored prompt as a JSON string, including inline and file-backed asks.
+An unknown ask ID returns `[ask_not_found]` and exit 1.
 Use the same global `--db PATH` when you selected the monitor store explicitly. The ID still works after the ask ends.
 A dash means the claim has no prompt record to open.
 
@@ -267,7 +262,7 @@ A fresh account plan can fill in a quota note via `display_plan` and `plan_sourc
 ## Compact and expand
 
 - **Compact** (the default) uses `COMPACT_MAX_LINES` and `COMPACT_MAX_BYTES`. The header is followed by POOLS,
-  the suggestion, ALERTS, RUNNING, RECENT and LEADS. POOLS and RUNNING use `POOLS_CAP` and `RUNNING_CAP`.
+  ALERTS, RUNNING, RECENT and LEADS. POOLS and RUNNING use `POOLS_CAP` and `RUNNING_CAP`.
 - **`--expand`** adds the full DB path under the title and lists every pool. After LEADS it shows QUOTA, PEERS,
   EXECUTION, SESSIONS, USAGE, CONTEXT and any other selected group. When space allows, a clipped frame reports
   `+N rows hidden` and gives the command to print the full frame.

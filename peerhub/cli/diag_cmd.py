@@ -29,7 +29,7 @@ class _DiagRunningHelpFormatter(argparse.HelpFormatter):
                 pass
             else:
                 action = copy(action)
-                action.help = f"{action.help} Omit to read up to {MAX_ROWS} rows."
+                action.help = f"{action.help} By default, read up to {MAX_ROWS} rows."
         super().add_argument(action)
 
 
@@ -38,13 +38,15 @@ def register_diag_parser(subparsers: Subparsers) -> None:
     diag_parser.description = "Read-only, one-shot diagnostics for AI agents. Run `diag --plan` once per turn to size parallel work. Humans use `peerhub monitor`."
     diag_parser.add_argument("--json", action="store_true")
     diag_parser.add_argument("--plan", action="store_true",
-                             help="Per-pool spend/hold/rest/blocked with target %%/h until reset, from stored observations only (no refresh)")
+                             help="Per-pool spend/hold/rest/blocked with BUDGET%%/h (JSON target_pct_per_hour) and PACE(pp) (JSON pace_pt) "
+                                  "until reset, from stored observations only (no refresh; —/? marks unknown value, JSON action is effective "
+                                  "and health is pool's own state)")
     diag_parser.add_argument("--peer", dest="plan_peers", action="append", metavar="PEER",
                              help="With --plan, show only these subjects (exact match, repeatable)")
     diag_parser.add_argument("--observation-db", dest="plan_obs_db", metavar="PATH",
                              help="With --plan, read observations from this other workspace database (read-only, never created). "
                                   "Load still comes from the selected store.")
-    diag_parser.epilog = "Examples: peerhub diag --json | peerhub diag --plan --json | peerhub monitor"
+    diag_parser.epilog = "Examples: peerhub diag --plan | peerhub diag --json | peerhub monitor"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
 
     d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
@@ -56,18 +58,30 @@ def register_diag_parser(subparsers: Subparsers) -> None:
     d_health.epilog = "examples: peerhub diag health | peerhub diag health --stream s1"
 
     d_quota = diag_sub.add_parser("quota", help="Show current quota/rate-limit evidence (read-only, never refreshes)",
-                                  description="Latest quota/rate_limit Observation per subject/pool exactly as Diag evaluates it "
-                                              "(MEASURED/STALE/UNKNOWN/UNAVAILABLE). Missing evidence is UNKNOWN, never unlimited. "
+                                  description="Latest quota/rate_limit observation per peer/pool as Diag evaluates it "
+                                              "(MEASURED/STALE/ABSENT/ERROR/UNKNOWN/UNAVAILABLE). Missing evidence is UNKNOWN, never unlimited. "
                                               "Exit: 0 ok, 4 storage fault/corrupt evidence, 5 database or observation tables unavailable, 6 schema version.")
     d_quota.add_argument("--observation-db", dest="obs_db", default=None, metavar="PATH",
                          help="Read observations from this OTHER PeerHub workspace database (opened read-only, never created); default: the --db database")
-    d_quota.add_argument("--peer", default=None, help="Only this subject_ref (exact match)")
-    d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
+    d_quota.add_argument("--peer", default=None, help="Only this peer (exact match, e.g. ag, cc, cx)")
+    d_quota.add_argument("--pool", default=None, help="Only this pool (exact match, e.g. quota:cx:X-7D)")
     d_quota.add_argument("--max-age-seconds", type=_nonnegative_seconds, metavar="N",
                          help="Show quota and rate-limit observations at most N seconds old (default: any age)")
     d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
-    d_readiness = diag_sub.add_parser("readiness", help="Cached profile readiness (read-only; never probes)")
+    d_readiness = diag_sub.add_parser(
+        "readiness",
+        help="Cached profile readiness (read-only; never probes)",
+        description=(
+            "Read-only check of cached profile readiness (never probes providers; delivery certainty only). "
+            "UNKNOWN and UNVERIFIED mean a check is uncached or stale, not that the profile is broken. "
+            "STATE: READY (cached criteria satisfied), UNVERIFIED (no cached terminal ask or write-tier consent needed), "
+            "UNKNOWN (missing/stale quota or unresolved stream), EXHAUSTED (0%% quota left before reset). "
+            "NEXT remediation: ok (ready to ask), facts (run `peerhub observation refresh`), "
+            "consent (pass `--writable` on write-tier asks), health (run `peerhub diag health --stream STREAM`), "
+            "refusal (inspect `peerhub diag quota`), wait (wait for pool reset)."
+        ),
+    )
     d_readiness.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_readiness.epilog = "examples: peerhub diag readiness | peerhub --db ws.db diag readiness --json"
 
@@ -78,14 +92,51 @@ def register_diag_parser(subparsers: Subparsers) -> None:
                                                 "and nothing is written or refreshed. A lease is not proof a process is alive; "
                                                 "elapsed time comes from recorded start evidence and is null without it. "
                                                 "Claims are matched to the workspace.generation file beside the database; without that file all generations match. "
-                                                "Query cost grows with the delivery history of the live streams themselves (observed: about 45k SQLite VM steps at 9,000 rows in one stream). Rows are oldest first. Exit: 0 ok, 4 storage fault, 5 database unavailable, 6 schema version.")
+                                                "Rows are oldest first. Exit: 0 ok, 4 storage fault, 5 database unavailable, 6 schema version.")
     d_running.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_running.add_argument("--peer", help="Only this peer (exact match, e.g. cx)")
-    d_running.add_argument("--limit", type=int, default=None, help="Maximum rows to read, 1 or more (default %(default)s).")
+    d_running.add_argument("--limit", type=int, default=None, help="Maximum rows to read, 1 or more.")
     d_running.epilog = "examples: peerhub diag running | peerhub --db ws.db diag running --json"
 
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
+
+
+def _format_health_text(result: dict[str, Any], *, db: str, db_source: str, obs_db: str | None) -> str:
+    lines = [f"status: {result.get('status')}", f"store: {db} ({db_source})"]
+    if obs_db and obs_db != db:
+        lines.append(f"observation_store: {obs_db}")
+    if "stream_id" in result:
+        lines.append(f"stream_id: {result['stream_id']}")
+        if result.get("status") in ("OK", "PARTIAL"):
+            for key in ("title", "state", "revision", "head_position", "record_count"):
+                val = result.get(key)
+                lines.append(f"{key}: {'-' if val is None else val}")
+            members = cast(list[Any], result.get("members") or [])
+            lines.append(f"members: {', '.join(str(m) for m in members) if members else '-'}")
+            offsets = cast(dict[str, Any], result.get("offsets") or {})
+            lines.append("offsets: " + (", ".join(f"{k}={v}" for k, v in offsets.items()) if offsets else "-"))
+            if ref := cast("dict[str, Any] | None", result.get("last_refusal")):
+                reset = f" reset={ref['reset_time']}" if ref.get("reset_time") else ""
+                lines.append(f"last_refusal: {ref.get('reason') or '-'} ({ref.get('task_outcome') or '-'}){reset}")
+    elif result.get("status") in ("OK", "PARTIAL"):
+        snap = cast(dict[str, Any], result.get("snapshot") or {})
+        lines.extend([
+            f"total_peers: {result.get('total_peers', 0)}",
+            f"total_streams: {result.get('total_streams', 0)}",
+            f"records_total: {'-' if snap.get('records_total') is None else snap.get('records_total')}",
+            f"observations_total: {'-' if snap.get('observations_total') is None else snap.get('observations_total')}",
+        ])
+        sample = cast(list[Any], result.get("stream_sample") or [])
+        lines.append(f"stream_sample: {', '.join(str(s) for s in sample) if sample else '-'}")
+    if result.get("error"):
+        lines.append(f"error: {result['error']}")
+    obs = cast(dict[str, Any], result.get("observations") or {})
+    by_state = cast(dict[str, Any], obs.get("by_state") or {})
+    states = " (" + ", ".join(f"{k}={v}" for k, v in by_state.items()) + ")" if by_state else ""
+    obs_err = f" error: {obs['error']}" if obs.get("error") else ""
+    lines.append(f"observations: {obs.get('status', 'UNKNOWN')} latest={obs.get('latest_total', 0)}{states}{obs_err}")
+    return "\n".join(lines)
 
 
 def _nonnegative_seconds(value: str) -> int:
@@ -97,6 +148,27 @@ def _nonnegative_seconds(value: str) -> int:
     if seconds < 0:
         raise argparse.ArgumentTypeError(message)
     return seconds
+
+
+def _diagnostic_profiles() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    from peerhub.extensions.adapters.profiles import list_profiles
+
+    pools_of_profile: dict[str, list[str]] = {}
+    profiles_by_pool: dict[str, list[str]] = {}
+    try:
+        profiles = list_profiles(Path.cwd())
+    except Exception as exc:  # any broken profile config must not hide a healthy diagnostic report
+        print(f"Warning: profiles unavailable ({type(exc).__name__}); run peerhub profile check.", file=sys.stderr, flush=True)
+        return pools_of_profile, profiles_by_pool
+    for profile in profiles:
+        name = str(profile["profile"])
+        pools = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
+        pools_of_profile[name] = pools
+        for pool in pools:
+            profiles_by_pool.setdefault(pool, []).append(name)
+    for names in profiles_by_pool.values():
+        names.sort()
+    return pools_of_profile, profiles_by_pool
 
 
 def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -125,20 +197,12 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         from peerhub._console import FrameOutput
         from peerhub.cli.view import render_plan
         from peerhub.extensions.diag_read_model import plan_data
-        from peerhub.extensions.adapters.profiles import list_profiles
         from peerhub.extensions.diag_running import sample_load
 
         rep = diag_quota.read_quota_snapshot(obs_db or args.db, include_quota_samples=True)
         peers = frozenset(args.plan_peers or ())
-        pools_of_profile: dict[str, list[str]] = {}
-        for profile in list_profiles(Path.cwd()):
-            pools_of_profile[str(profile["profile"])] = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
+        pools_of_profile, profiles_by_pool = _diagnostic_profiles()
         load = sample_load(args.db, pools_of_profile=pools_of_profile)
-        profiles_by_pool: dict[str, list[str]] = {}
-        for name, pools in pools_of_profile.items():
-            for pool in pools:
-                profiles_by_pool.setdefault(pool, []).append(name)
-        profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
         if args.json:
             data = plan_data(rep, store, load, profiles_by_pool, peers=peers)
             plan_output = json.dumps(data, separators=(",", ":"), ensure_ascii=True)
@@ -154,14 +218,15 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         from peerhub.cli.view import render_view
         from peerhub.extensions.diag_read_model import dashboard_data
 
-        rep = ReadonlyDiag(args.db).render(["peers", "streams", "resource_pools", "observations"])
+        rep = ReadonlyDiag(args.db).render(["peers", "streams", "resource_pools", "observations"], include_quota_samples=True)
+        _, profiles_by_pool = _diagnostic_profiles()
         if args.json:
-            data = dashboard_data(rep)
+            data = dashboard_data(rep, profiles_by_pool=profiles_by_pool)
             data["store_selection"] = store
             print(json.dumps(data, indent=2, ensure_ascii=True), flush=True)
         else:
             print(render_view(rep, width=FrameOutput.width(), store_path=store["path"],
-                              store_source=store["source"], store_note=store_note), flush=True)
+                              store_source=store["source"], store_note=store_note, profiles_by_pool=profiles_by_pool), flush=True)
         return (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
                 else 0 if rep.status == "OK" else 4)
     if args.action == "readiness":
@@ -256,7 +321,8 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         if args.obs_db is not None and result["observations"]["status"] != "OK" and result.get("status") == "OK":
             result["status"] = "PARTIAL"
         result["schema_version"] = "2.0"
-        emit(result, args.json)
+        emit(result, True) if args.json else print(_format_health_text(
+            result, db=args.db, db_source=getattr(args, "db_source", "unknown"), obs_db=args.obs_db))
         if str(result.get("error", "")).startswith("SchemaVersionError"):
             error_line("schema_version_error", f"SCHEMA VERSION ERROR: {result['error']}", "peerhub guide")
             return 6

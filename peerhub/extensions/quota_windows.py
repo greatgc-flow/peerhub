@@ -63,19 +63,19 @@ def quota_reset_at(reading: Mapping[str, object], payload: Mapping[str, object],
     return anchor + duration
 
 
-def quota_window_remaining(item: Mapping[str, Any], read_at: float) -> float | None:
-    """Seconds until the reading's reset or maximum window age, whichever comes first."""
+def quota_window_timing(item: Mapping[str, Any], read_at: float) -> tuple[float | None, float | None]:
+    """Seconds before expiry (reset or maximum age) and the reported reset instant."""
     pool = item.get("pool_ref") or item.get("resource_pool_ref")
     if (not pool or item.get("kind", "quota") != "quota"
             or item.get("stored_state", item.get("state")) not in {"MEASURED", "STALE"}):
-        return None
+        return None, None
     raw = item.get("last_measurements") or item.get("measurements") or item.get("payload")
     if not isinstance(raw, Mapping):
-        return None
+        return None, None
     measurements = cast(Mapping[str, object], raw)
     remaining = finite_number(measurements.get("remaining_fraction"), overflow_is_missing=True)
     if remaining is None or not 0 <= remaining <= 1:
-        return None
+        return None, None
     reading = {**item, "read_at": read_at} if item.get("pool_ref") else item
     reset = quota_reset_at(reading, measurements, read_at)
     age = finite_number(item.get("age_seconds"), overflow_is_missing=True)
@@ -83,17 +83,17 @@ def quota_window_remaining(item: Mapping[str, Any], read_at: float) -> float | N
     limits = [reset - read_at] if reset is not None else []
     if age is not None and 0 < window < UNKNOWN_WINDOW_SECONDS:
         limits.append(window - age)
-    return min(limits, default=None)
+    return min(limits, default=None), reset
 
 
 _Pool = TypeVar("_Pool", bound=Mapping[str, Any])
 
 
-def scoped_weekly_parents(rows: Sequence[_Pool]) -> dict[int, _Pool]:
+def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = True) -> dict[int, _Pool]:
     """Fable's scoped weekly window depends on the all-models window when configured consumers confirm it.
 
-    As in the detailed quota tree, require a strict consumer-set inclusion. Equal sets, duplicate display names
-    and different account identities cannot establish a parent. This is presentation only, never a quota rewrite.
+    With profile metadata, require a strict consumer-set inclusion. Without it, callers may use the
+    known dependency by pool ref. The parent is matched by its account-scoped pool ref.
     """
     rows = [row for row in rows if not row["retired"] and row.get("state") != "n/a"]
     parents: dict[int, _Pool] = {}
@@ -101,17 +101,14 @@ def scoped_weekly_parents(rows: Sequence[_Pool]) -> dict[int, _Pool]:
         parent_ref = scoped_parent_ref(str(child["pool_ref"]))
         if parent_ref is None:
             continue
-        parent_name = parent_ref.rsplit(":", 1)[-1]
-        common = [row for row in rows if row["peer"] == child["peer"] and row["pool"] == parent_name]
-        same_name = [row for row in rows if row["peer"] == child["peer"] and row["pool"] == child["pool"]]
-        if len(common) != 1 or common[0]["pool_ref"] != parent_ref or len(same_name) != 1:
+        # Match by the account-scoped pool ref: another account's pools (or its ABSENT readings) never break the link.
+        common = [row for row in rows if row["pool_ref"] == parent_ref]
+        same_ref = [row for row in rows if row["pool_ref"] == child["pool_ref"]]
+        if len(common) != 1 or len(same_ref) != 1:
             continue
         parent = common[0]
         members = set(child["profiles"])
-        all_members = set(parent["profiles"])
-        parent_ref, child_ref = str(parent.get("pool_ref") or ""), str(child.get("pool_ref") or "")
-        if (members and members < all_members and parent_ref and child_ref
-                and parent_ref.rpartition(":")[0] == child_ref.rpartition(":")[0]):
+        if not require_consumers or (members and members < set(parent["profiles"])):
             parents[id(child)] = parent
     return parents
 

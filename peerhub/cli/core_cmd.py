@@ -69,7 +69,7 @@ def register_core_parser(subparsers: Subparsers) -> None:
     r_append.add_argument("--body", required=True, help="Record body as JSON. Input that is not valid JSON is stored as text.")
     r_append.add_argument("--idempotency-key", required=True, dest="idemp_key", help="Key that makes a retry of this append safe")
     r_append.add_argument("--created-at", default=None,
-                          help="RFC 3339 timestamp (default %(default)s, use the current UTC time). "
+                          help="RFC 3339 timestamp (default: current UTC time). "
                                "Pass the same timestamp on retries because it is part of the idempotency digest.")
     r_append.add_argument("--targets", nargs="*", default=[], help="Peer IDs the record is addressed to")
 
@@ -246,7 +246,7 @@ def _print_page(items: list[dict[str, Any]], next_cursor: str | None, output_for
     values = [[", ".join(row[key]) if isinstance(row[key], list) else str(row[key] or "") for key in columns]
               for row in items]
     widths = [max(len(column), *(len(row[i]) for row in values)) for i, column in enumerate(columns)]
-    print("  ".join(column.ljust(widths[i]) for i, column in enumerate(columns)))
+    print("  ".join(column.upper().ljust(widths[i]) for i, column in enumerate(columns)))
     print("  ".join("-" * width for width in widths))
     for row in values:
         print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)))

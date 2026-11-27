@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from peerhub.cli.monitor_layout import as_dict, dict_items
 from peerhub.cli.output import emit
 from peerhub.cli.support import print_warnings
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
@@ -25,6 +26,36 @@ def register_observation_parser(subparsers: Subparsers) -> None:
     refresh.add_argument("--timeout-seconds", type=float, default=15, help="Probe timeout in seconds (default %(default)s)")
 
 
+def _format_refresh_text(result: dict[str, Any], *, now: float | None = None) -> str:
+    import time
+
+    from peerhub.cli.quota_format import format_percent, human_duration
+    from peerhub.extensions.observation_model import instant_us
+
+    now_us = round((time.time() if now is None else now) * 1_000_000)
+    lines = [f"status: {result.get('status')}"]
+    for obs in dict_items(result.get("observations")):
+        if obs.get("kind") != "quota":
+            continue
+        peer = obs.get("subject_ref") or "-"
+        pool_ref = obs.get("resource_pool_ref")
+        pool = pool_ref.rsplit(":", 1)[-1] if isinstance(pool_ref, str) and pool_ref else "-"
+        state = obs.get("state") or "UNKNOWN"
+        payload = as_dict(obs.get("payload"))
+        rem = payload.get("remaining_fraction") if state == "MEASURED" else None
+        left = format_percent(float(rem)) if isinstance(rem, (int, float)) and not isinstance(rem, bool) and 0 <= rem <= 1 else "-"
+        obs_at = obs.get("observed_at")
+        if isinstance(obs_at, str) and obs_at:
+            try:
+                age: str = human_duration(max(0.0, (now_us - instant_us(obs_at)) / 1e6))
+            except Exception:
+                age = "-"
+        else:
+            age = "-"
+        lines.append(f"{peer} {pool} {state} {left} {age}")
+    return "\n".join(lines)
+
+
 def run_observation(args: argparse.Namespace) -> int:
     from peerhub.cli.store_select import report_missing_store
     db_source = getattr(args, "db_source", "default")
@@ -35,6 +66,6 @@ def run_observation(args: argparse.Namespace) -> int:
     CoreStore(args.db)  # explicit --db/PEERHUB_DB retains collection bootstrap semantics
     from peerhub.cli.monitor_refresh import refresh_with_profile_pools
     result = refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
-    emit(result, args.json)
+    emit(result, True) if args.json else print(_format_refresh_text(result))
     print_warnings(result)
     return 0 if result["status"] == "OK" else 1

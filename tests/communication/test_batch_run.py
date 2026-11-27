@@ -110,15 +110,37 @@ def test_manifest_rejects_invalid(tmp_path, doc):
         batch.load_manifest(write(tmp_path, doc), batch_id="b1")
 
 
-def test_manifest_rejects_missing_prompt_file_and_bad_json(tmp_path):
-    with pytest.raises(ManifestError):
+def test_manifest_rejects_missing_prompt_file_and_bad_json(tmp_path, capsys):
+    from peerhub.cli.app import main
+
+    with pytest.raises(ManifestError) as exc_pf:
         batch.load_manifest(write(tmp_path, {"tasks": [{"task_id": "a", "peer": "cc", "prompt_file": "nope.txt"}]}), batch_id="b1")
+    assert "[Errno" not in str(exc_pf.value)
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
     with pytest.raises(ManifestError):
         batch.load_manifest(bad, batch_id="b1")
-    with pytest.raises(ManifestError):
+    with pytest.raises(ManifestError) as exc_mf:
         batch.load_manifest(tmp_path / "missing.json", batch_id="b1")
+    assert "[Errno" not in str(exc_mf.value)
+    assert main(["batch", "run", "nofile.json", "--batch-id", "b1", "--max-parallel", "1"]) == 1
+    err = capsys.readouterr().err
+    assert "[Errno" not in err
+    assert "next: check manifest path 'nofile.json' (or run peerhub batch run --help)" in err
+
+
+def test_invalid_json_manifest_reports_line_number_hint(tmp_path, capsys):
+    from peerhub.cli.app import main
+
+    bad = tmp_path / "broken.json"
+    bad.write_text('{\n  "tasks": [\n    not-json\n  ]\n}\n', encoding="utf-8")
+    for extra in ([], ["--json"]):
+        assert main(["batch", "run", str(bad), "--batch-id", "b1", "--max-parallel", "1", *extra]) == 1
+        captured = capsys.readouterr()
+        assert "invalid JSON at line 3" in captured.err
+        assert "check manifest path" not in captured.err
+        if extra:
+            assert json.loads(captured.out)["error"]["code"] == "invalid_manifest"
 
 
 @pytest.mark.parametrize("n", [0, -1, True, 1.5, float("nan"), "2"])
@@ -525,6 +547,39 @@ def test_responses_opt_in_only_for_completed_tasks(tmp_path):
     strip = lambda rep: [{k: v for k, v in r.items() if k not in ("response", "elapsed_s")} for r in rep["tasks"]]
     assert strip(plain) == strip(shown)
     assert status_of(shown) == {"a": "COMPLETED", "b": "UNCERTAIN", "c": "FAILED"}
+
+
+def test_denied_empty_task_reports_denied_action_names(tmp_path):
+    report = run(tmp_path, [task("a"), task("d", peer="ag", mode="denied")], n=2)
+    rows = {r["task_id"]: r for r in report["tasks"]}
+    assert (rows["d"]["status"], rows["d"]["reason"]) == ("UNVERIFIED", "denied_empty")
+    assert rows["d"]["denied_actions"] == ["read_file", "run_command"]  # names only
+    assert "denied_actions" not in rows["a"]  # a task without denied actions keeps the old shape
+    lines = batch.render_text(report).splitlines()
+    assert "    denied: read_file, run_command" in lines
+    assert sum(line.startswith("    denied:") for line in lines) == 1
+    assert lines.index("    denied: read_file, run_command") == next(i for i, ln in enumerate(lines) if ln.startswith("d ")) + 1
+
+
+def test_denied_actions_report_tool_names_only_for_cc_and_ag(tmp_path):
+    report = run(tmp_path, [task("c", peer="cc", mode="denied_cc"), task("g", peer="ag", mode="denied")], n=2)
+    rows = {r["task_id"]: r for r in report["tasks"]}
+    assert rows["c"]["denied_actions"] == ["Edit", "Bash", "Read"]
+    assert rows["g"]["denied_actions"] == ["read_file", "run_command"]
+    serialized = json.dumps(report)
+    assert "a.py" not in serialized and "b.py" not in serialized and "secret.txt" not in serialized
+    text = batch.render_text(report)
+    assert "    denied: Edit, Bash, Read" in text.splitlines()
+    assert "    denied: read_file, run_command" in text.splitlines()
+    assert "a.py" not in text and "secret.txt" not in text
+    # Direct render_text also strips cc `: detail` suffixes.
+    raw_text = batch.render_text({
+        "batch_id": "b1", "max_parallel": 1,
+        "tasks": [{"task_id": "raw", "peer": "cc", "status": "UNVERIFIED", "reason": "denied_empty",
+                   "request_id": "r1", "denied_actions": ["Edit: private/path.py", "Edit: other.py"]}],
+    })
+    assert "    denied: Edit" in raw_text.splitlines()
+    assert "private/path.py" not in raw_text
 
 
 def test_render_text_adds_reply_only_when_present(tmp_path):

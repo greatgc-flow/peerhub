@@ -23,10 +23,9 @@ All four are optional; the loader checks their format in every layer (an invalid
 |---|---|---|---|
 | `alias_of` | `<peer>.<name>` of a profile of the same peer | unset | The profile takes its target's binding (`selection_mode`, `model`, `reasoning_effort`, `pools`) as defaults. Aliases resolve one level. The card is the alias's own. A text `ask` on a stderr terminal prints one notice per alias and process unless `PEERHUB_NO_RECEIPT=1`. |
 | `effort_override` | nonempty string | unset | Effort for an alias. Higher layers win across this key and `reasoning_effort`. |
-| `suggest` | `true` / `false` | `true` | `false` = never recommended automatically (explicit use still works). |
+| `suggest` | `true` / `false` | `true` | Legacy key. Either boolean is accepted and ignored for planning. |
 | `measurement` | `measured` / `unmeasured` | `measured` | `unmeasured` = no recorded measurement for the model id (the API peers `ca`, `oa` and `ga` until each has one). |
 
-The packaged `cc.deepthink` and `ag.effort` profiles have `suggest = false`.
 Every `ca.*`, `oa.*` and `ga.*` profile has `measurement = "unmeasured"`.
 See [Compatibility](../commands.md#compatibility) for the packaged Codex alias.
 

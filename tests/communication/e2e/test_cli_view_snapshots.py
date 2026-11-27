@@ -222,7 +222,7 @@ def test_forecast_and_freshness_columns_align_at_every_width(width):
     assert [line.split()[1] for line in rows[:4]] == ["3P-5H", "3P-7D", "G-5H", "G-7D"]
     assert all(line[forecast_column] in "!=:?" for line in rows)
     assert all(line[fresh_column] == "*" for line in rows)
-    assert "WIN" not in header and "PACE(pt)" in header
+    assert "WIN" not in header and "PACE(pp)" in header
     assert "(cond)" not in out and "51m" in out and "50m52s" not in out
 
 
@@ -416,14 +416,14 @@ def test_registered_unknown_pools_keep_short_before_long_order():
              for peer, pool, *_ in reversed(INPUTS)]
     rows = quota_rows([], pools, NOW)
     assert [(row.peer, row.pool) for row in rows] == sorted((peer, pool) for peer, pool, *_ in INPUTS)
-    assert all(row.projection["state"] == "unknown" for row in rows)
+    assert all(row.forecast == "unknown" for row in rows)
 
 
 @pytest.mark.parametrize("states,summary_state,wording", [
     (["STALE", "STALE"], "unknown", "Threats: unknown - evidence is stale (oldest 10m); refresh"),
     (["UNKNOWN", "UNKNOWN"], "unknown", "Threats: unknown - evidence is missing or invalid; refresh"),
     (["STALE", "UNKNOWN"], "unknown", "Threats: unknown - evidence is stale (oldest 10m); refresh"),
-    (["MEASURED", "STALE"], "clear", "Threats: No threats; 1 pools stale"),
+    (["MEASURED", "STALE"], "clear", "Threats: No threats; 1 pool stale"),
     (["MEASURED", "MEASURED"], "clear", "Threats: No threats"),
 ])
 def test_threat_summary_discloses_coverage_in_plain_and_json(states, summary_state, wording):
@@ -463,15 +463,15 @@ SNAPSHOTS: dict[int, str] = {
     80: """PeerHub OK 2026-10-12 10:42+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db
 (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
-PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
-ag   3P-5H [........]   0%     0.00 4h59m : not enough data               *59s
-ag   3P-7D [######..]  74%    +1.23 1d22h = on pace                       *59s
-ag   G-5H  [#.......]  16%   -28.73 2h44m = on pace                       *59s
-ag   G-7D  [####....]  49%   -22.18 2d00h = on pace                       *59s
-cc   C-5H  [##......]  24%   -26.39 2h28m = on pace                       *1m13s
-cc   C-7D  [#######.]  83%    +4.02 1d11h ! exh Tue 13:51 (1d03h)         *1m13s
-cx   X-5H  [######..]  73%   +25.99 2h38m ! exh 11:33 (51m)               *1m17s
-cx   X-7D  [#.......]  16%    +3.28 6d02h : not enough data               *1m17s
+PEER POOL  USAGE-bar  LEFT PACE(pp) RESET FORECAST                        FRESH
+ag   3P-5H [########] 100%     0.00 4h59m : not enough data               *59s
+ag   3P-7D [##......]  26%    +1.23 1d22h = on pace                       *59s
+ag   G-5H  [#######.]  84%   -28.73 2h44m = on pace                       *59s
+ag   G-7D  [####....]  51%   -22.18 2d00h = on pace                       *59s
+cc   C-5H  [######..]  76%   -26.39 2h28m = on pace                       *1m13s
+cc   C-7D  [#.......]  17%    +4.02 1d11h ! exh Tue 13:51 (1d03h)         *1m13s
+cx   X-5H  [##......]  27%   +25.99 2h38m ! exh 11:33 (51m)               *1m17s
+cx   X-7D  [#######.]  84%    +3.28 6d02h : not enough data               *1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
@@ -479,15 +479,15 @@ Probes ag:OK cc:OK cx:OK
 PACE + = faster than even | forecasts are conditional window-average""",
     100: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
-PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
-ag   3P-5H [..........]   0%     0.00 4h59m : not enough data                                 *59s
-ag   3P-7D [#######...]  74%    +1.23 1d22h = on pace                                         *59s
-ag   G-5H  [##........]  16%   -28.73 2h44m = on pace                                         *59s
-ag   G-7D  [#####.....]  49%   -22.18 2d00h = on pace                                         *59s
-cc   C-5H  [##........]  24%   -26.39 2h28m = on pace                                         *1m13s
-cc   C-7D  [########..]  83%    +4.02 1d11h ! exhausts Tue 13:51 (in 1d03h)                   *1m13s
-cx   X-5H  [#######...]  73%   +25.99 2h38m ! exhausts 11:33 (in 51m)                         *1m17s
-cx   X-7D  [##........]  16%    +3.28 6d02h : not enough data                                 *1m17s
+PEER POOL  USAGE-bar    LEFT PACE(pp) RESET FORECAST                                          FRESH
+ag   3P-5H [##########] 100%     0.00 4h59m : not enough data                                 *59s
+ag   3P-7D [###.......]  26%    +1.23 1d22h = on pace                                         *59s
+ag   G-5H  [########..]  84%   -28.73 2h44m = on pace                                         *59s
+ag   G-7D  [#####.....]  51%   -22.18 2d00h = on pace                                         *59s
+cc   C-5H  [########..]  76%   -26.39 2h28m = on pace                                         *1m13s
+cc   C-7D  [##........]  17%    +4.02 1d11h ! exhausts Tue 13:51 (in 1d03h)                   *1m13s
+cx   X-5H  [###.......]  27%   +25.99 2h38m ! exhausts 11:33 (in 51m)                         *1m17s
+cx   X-7D  [########..]  84%    +3.28 6d02h : not enough data                                 *1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
@@ -495,18 +495,60 @@ Probes ag:OK cc:OK cx:OK
 PACE + = faster than even | forecasts are conditional window-average""",
     120: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
-PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
-ag   3P-5H [..........]   0%     0.00 4h59m : not enough data                                                     *59s
-ag   3P-7D [#######...]  74%    +1.23 1d22h = on pace                                                             *59s
-ag   G-5H  [##........]  16%   -28.73 2h44m = on pace                                                             *59s
-ag   G-7D  [#####.....]  49%   -22.18 2d00h = on pace                                                             *59s
-cc   C-5H  [##........]  24%   -26.39 2h28m = on pace                                                             *1m13s
-cc   C-7D  [########..]  83%    +4.02 1d11h ! exhausts Tue 13:51 (in 1d03h)                                       *1m13s
-cx   X-5H  [#######...]  73%   +25.99 2h38m ! exhausts 11:33 (in 51m)                                             *1m17s
-cx   X-7D  [##........]  16%    +3.28 6d02h : not enough data                                                     *1m17s
+PEER POOL  USAGE-bar    LEFT PACE(pp) RESET FORECAST                                                              FRESH
+ag   3P-5H [##########] 100%     0.00 4h59m : not enough data                                                     *59s
+ag   3P-7D [###.......]  26%    +1.23 1d22h = on pace                                                             *59s
+ag   G-5H  [########..]  84%   -28.73 2h44m = on pace                                                             *59s
+ag   G-7D  [#####.....]  51%   -22.18 2d00h = on pace                                                             *59s
+cc   C-5H  [########..]  76%   -26.39 2h28m = on pace                                                             *1m13s
+cc   C-7D  [##........]  17%    +4.02 1d11h ! exhausts Tue 13:51 (in 1d03h)                                       *1m13s
+cx   X-5H  [###.......]  27%   +25.99 2h38m ! exhausts 11:33 (in 51m)                                             *1m17s
+cx   X-7D  [########..]  84%    +3.28 6d02h : not enough data                                                     *1m17s
 Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE + = faster than even | forecasts are conditional window-average""",
 }
+
+
+def test_bare_diag_applies_c_7d_cap_and_na_and_plural_grammar_and_probes(capsys):
+    from peerhub.cli.app import main
+    from peerhub.extensions.diag_read_model import dashboard_data
+
+    week = 7 * 86400
+    items = [
+        {"kind": "quota", "subject_ref": "cc", "resource_pool_ref": "quota:cc:C-7D", "state": "MEASURED",
+         "capture_seq": 1, "age_seconds": 30.0, "observed_at": "2026-10-11T23:52:16Z",
+         "payload": {"remaining_fraction": 0.28, "window_started_at": NOW - week * 0.7962, "resets_at": NOW + week * 0.2038}},
+        {"kind": "quota", "subject_ref": "cc", "resource_pool_ref": "quota:cc:F-7D", "state": "MEASURED",
+         "capture_seq": 2, "age_seconds": 30.0, "observed_at": "2026-10-11T23:52:16Z",
+         "payload": {"remaining_fraction": 0.74, "window_started_at": NOW - week * 0.1638, "resets_at": NOW + week * 0.8362}},
+        {"kind": "quota", "subject_ref": "cc", "resource_pool_ref": "quota:cc:C-5H", "state": "ABSENT",
+         "capture_seq": 3, "age_seconds": 30.0, "observed_at": "2026-10-11T23:52:16Z",
+         "payload": {"reason": "not reported by provider; plan=max"}},
+        {"kind": "quota", "subject_ref": "ag", "resource_pool_ref": "quota:ag:A-7D", "state": "ABSENT",
+         "capture_seq": 4, "age_seconds": 30.0, "observed_at": "2026-10-11T23:52:16Z",
+         "payload": {"reason": "disabled by provider: Argon switched off"}},
+        {"kind": "quota", "subject_ref": "cx", "resource_pool_ref": "quota:cx:X-7D", "state": "STALE",
+         "capture_seq": 5, "age_seconds": 600.0, "observed_at": "2026-10-11T23:42:46Z",
+         "payload": {"remaining_fraction": 0.80, "window_started_at": NOW - 86400, "resets_at": NOW + 6 * 86400}},
+    ]
+    rep = DiagnosticReport("OK", NOW, {}, {
+        "observations": Section("observations", "OK", {"items": items}),
+        "resource_pools": Section("resource_pools", "OK", {"pools": []}),
+    })
+    out = render_view(rep, width=100, tz=TZ)
+    data = dashboard_data(rep)
+    assert data["threats"]["unknown_pools"] == 0 and data["threats"]["stale_pools"] == 1
+    assert "1 pool stale" in out and "1 pools stale" not in out and "unknown" not in out
+    f_row = next(line for line in out.splitlines() if line.startswith("cc   F-7D"))
+    assert " 28% " in f_row and " -7.62 " in f_row and "(cap C-7D)" in f_row
+    na_row = next(line for line in out.splitlines() if line.startswith("cc   C-5H"))
+    assert "[----------]    -        - -" in na_row and "- n/a" in na_row
+    assert "Probes ag:OK cc:OK cx:OK" in out
+    with pytest.raises(SystemExit) as exc:
+        main(["diag", "--help"])
+    assert exc.value.code == 0
+    help_out = capsys.readouterr().out
+    assert "Examples: peerhub diag --plan | " in help_out

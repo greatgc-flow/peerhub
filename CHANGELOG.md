@@ -8,6 +8,74 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- Restored R2: compact and expanded monitor hide n/a quota pools and count only displayable pools. The weekly pace gap omits unavailable pools, and the reset-pending child row remains visible.
+- Profile inspection returns exit 1 with JSON status ERROR for malformed model TOML. Invalid profile arguments return exit 2.
+- `peerhub outcome` returns exit 1 with `ask_not_found` for an unknown ask ID.
+- Unknown-peer errors name the built-in adapter choices for registration.
+- Kept the exit-code lesson under its output budget, restored the batch quota freshness threshold, and regenerated the guidance, lessons, and command inventory references.
+- Fixed strict typing for observation refresh and diagnostic quota and plan output.
+- Monitor shows the reset-pending child from the reported reset instant and lists it once under its weekly parent.
+- Expanded monitor PEERS hides fresh unavailable-window notes while keeping measured quota.
+- Expanded monitor QUOTA nests duplicate pool names under the weekly row for their own account.
+- Bare `peerhub diag` shares effective quota caps, reset timing, and exhaustion forecasts with `diag --plan`.
+- `peerhub diag quota` compares quota reserves at full precision before rounding the displayed cap.
+- `peerhub diag --plan` uses ASCII glyphs on ASCII stdout, including when the stream requests strict encoding.
+- `peerhub ask` checks its query files before store discovery, so a missing file returns exit 2 even without a store.
+- Profile inspection reports invalid UTF-8 in `models.toml` as `profile_config_error` with exit 1.
+
+## [0.28.0] - 2026-11-27
+
+Breaking: removes `peerhub suggest` and the monitor `suggest:` line (deprecated in 0.27.0); use `peerhub diag --plan`.
+
+### Added
+
+- `peerhub explain parallel-quota` (aliases `handoff`, `lane-rules`) adds how to brief lanes from the repository instead of long prompts.
+- `peerhub batch run` reports the denied tool names (`denied_actions`) of a task in JSON and as a `denied:` line in text, so a `denied_empty` task shows what was denied (#493).
+
+### Changed
+
+- Parallel lanes no longer collide on registry numbers: new requirement rows take a unique slug ID (`R-<topic>`, checked by the registry test), and `AGENTS.md` holds the per-peer lane rules so lane prompts carry only the task. `NOW.md` keeps only state and next steps; recent flow is the top of CHANGELOG.
+- Bare `peerhub diag` text uses `LEFT` and `PACE(pp)`, applies `C-7D` parent caps to `F-7D`, renders `ABSENT` windows as `- n/a`, and puts `peerhub diag --plan` first in `diag --help` examples (#497).
+- `peerhub diag --plan --json` rounds float fields to two decimal places, labels `in-flight n/a pools:` on the `load:` line, and documents `BUDGET%/h` (`target_pct_per_hour`), `PACE(pp)` (`pace_pt`), `—`/`?` unknown markers, and `health` (pool's own state) vs `action` (effective gated action) (#497).
+- `peerhub diag readiness` documents `STATE` and `NEXT` remediation commands in `--help` and output, clarifies that `UNKNOWN`/`UNVERIFIED` mean uncached checks rather than broken profiles, and formats durations with `human_duration` (#497).
+- `peerhub diag quota` rounds float measurements, uses uniform human durations for observation ages and reset-credit countdowns, and lists `MEASURED/STALE/ABSENT/ERROR` with user-facing `--peer`/`--pool` labels in `--help` (#497).
+- `peerhub observation refresh` prints a concise per-peer/pool summary in text mode and reserves the raw observation JSON array for `--json`.
+- `peerhub diag health` renders readable key-value lines with a single store path in text mode and reserves JSON structures for `--json`.
+- `peerhub update --help` scopes exit `1` (asks running) to `--plan`.
+- Model defaults (revision 2026-11-27.1): agy 1.5.18 observed (clears the `ag: version_drift` fact); the `codex debug models` and `agy.exe models` catalogs still list every packaged model; `python -m tools.model_ping` passed for all cx and ag profiles (model, and effort for cx), so their `checked` and card dates are 2026-11-27. cc profiles were not pinged.
+
+### Fixed
+
+- Restored owner requirement R2: compact and expand hide n/a pools by default (0.27.0 had started listing them in expand); POOLS counts and the gap line leave them out. Owner-stated registry rows are now frozen by a test, so a lane cannot reword one silently.
+- `peerhub diag quota` and `peerhub diag health` supersede old unpooled `ERROR` quota rows once a newer `MEASURED` quota observation exists for the same peer (#497).
+- `peerhub diag health --stream` retains stream details in text mode when an unavailable `--observation-db` downgrades overall status to `PARTIAL` (#497).
+- `peerhub observation refresh` text mode computes the age column at refresh time (`now` minus `observed_at`), prints `-` for missing or unparseable timestamps, and tolerates `observations: null` (#497).
+- Bare `peerhub diag` treats `ABSENT` provider windows as `OK` probe outcomes and uses singular/plural grammar for stale and unknown pool counts (#497).
+- `peerhub explain monitor-states` (`a1`–`a6`) derives its pool-state legend from the 0.27.x monitor legend, drops removed state names and contributor notes, and `explain exit-codes` includes `peer_not_found` (exit 1) (#497).
+- `peerhub profile stats` omits all-`-` metric columns, renders positive sub-second durations as `<1s`, and appends a one-line `TOK%` telemetry-coverage legend when `TOK%` is shown (#497).
+- `peerhub --help` describes `account` by purpose, `peerhub profile check` adds a help description and prints an `OK` summary when clean, and `peer list`/`stream list` use uppercase table headers (#497).
+- `peerhub session list` and `session show` report `RESUMABLE=False` for `LOST` and `TOMBSTONED` sessions, and `session list --help` documents the default sort order (#497).
+- `peerhub ask` on an unregistered peer drops the redundant `ERROR:` prefix, names the peer, and suggests `peerhub peer register --peer <id> --adapter <adapter>` or `peerhub peer list` (#497).
+- `peerhub batch run` reports tool names only in `denied_actions` and `denied:` lines, stripping `cc` `: detail` suffixes so file paths and commands are never leaked (#497).
+- `peerhub ask` reports a missing or unreadable `--query-file` as `invalid_arguments` (exit 2) with the file name and a check-the-path hint across text, `--dry-run`, and `--json`, and `ask PEER --json` without a prompt emits one consistent hint (#497).
+- `peerhub batch run` gives an `invalid JSON at line N` hint when an existing manifest contains invalid JSON instead of `check manifest path` (#497).
+- `peerhub.cli.support.error_line` strips only a single trailing sentence period, preserving `...` and path dots (#497).
+- Monitor help describes each group and lists the default refresh peers (#497).
+- Ask, diag running and record append help use plain-language defaults. Diag running help omits SQLite internals (#497).
+- Diag running formats durations in days, hours, minutes and seconds, with labeled rows when the table exceeds the terminal width (#497).
+- Compact and expanded monitor views count the same pools, tally unavailable windows separately, and compare the same reported weekly windows in the pace gap (#497).
+- `monitor open` returns `[ask_not_found]` with exit 1 for an unknown ask ID. All `[invalid_arguments]` errors exit 2 (#497).
+- Monitor shows a reset placeholder only when the reported reset time has passed and a weekly parent exists for the same peer, account and family (#495).
+- Monitor: a just-reset short window keeps a `reset · refresh pending` row under its weekly parent in compact and expand instead of vanishing from POOLS (#495).
+- `peerhub batch run`, `peerhub ask` and `peerhub explain` emit targeted `next:` hints without raw Python `Errno` strings or `'.;` punctuation.
+
+### Removed
+
+- Removed the deprecated `peerhub suggest` command. The legacy `suggest` profile key is accepted and ignored for planning. Use `peerhub diag --plan` (#497).
+- Removed the `suggest:` line from both monitor layouts (#497).
+
 ## [0.27.0] - 2026-11-27
 
 Breaking: removes CLI options listed under Removed, following the [scope decision](docs/history/scope-decision-2026-11-27.md).

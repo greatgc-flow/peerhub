@@ -6,6 +6,7 @@ import json
 import socket
 import sqlite3
 import subprocess
+import sys
 import time
 from contextlib import closing
 from datetime import datetime, timezone
@@ -76,13 +77,60 @@ def _by_pool(report):
     return {(p["peer"], p["pool"]): p for p in plan_data(report, {"path": "x", "source": "explicit"})["pools"]}
 
 
+def test_plan_cli_uses_ascii_glyphs_on_strict_ascii_stdout():
+    from tests.communication.harness.pkg_env import REPO, clean_env
+
+    # Drive the real CLI with a read-only report fixture and a strict subprocess stdout.
+    script = """
+from peerhub.cli import store_select
+from peerhub.core.load_limits import ResourceSample, load_snapshot
+from peerhub.extensions import diag_quota, diag_running
+from peerhub.extensions.adapters import profiles
+from tests.communication.diag.test_diag_plan_339 import _report, _item, HOUR
+store_select.report_missing_store = lambda *args, **kwargs: False
+diag_quota.read_quota_snapshot = lambda *args, **kwargs: _report(
+    _item("ag", "G-5H", None, span=5 * HOUR, elapsed=HOUR, state="ERROR", reason="probe error"))
+diag_running.sample_load = lambda *args, **kwargs: load_snapshot({}, ResourceSample())
+profiles.list_profiles = lambda *args, **kwargs: []
+from peerhub.cli.app import main
+raise SystemExit(main(["--db", "caf\\u00e9.db", "diag", "--plan"]))
+"""
+    result = subprocess.run([sys.executable, "-c", script], cwd=REPO, capture_output=True,
+                            env=clean_env({"PYTHONIOENCODING": "ascii:strict"}), timeout=15)
+    assert result.returncode == 0, result.stderr
+    output = result.stdout.decode("ascii")
+    assert "caf?.db" in output and "blocked 0%/-/?" in output
+
+
 def test_target_rate_is_left_over_hours_to_reset():
-    # 84% left, 6d21h to reset -> 84 / 165 = 0.509 %/h (field example in #339)
+    # 84% left, 6d21h to reset -> 84 / 165 = 0.509 %/h (field example in #339), rounded to 2 decimals in JSON
     row = _by_pool(_report(_item("cc", "C-7D", .84, span=7 * DAY, elapsed=3 * HOUR - 10)))[("cc", "C-7D")]
     assert row["left_pct"] == pytest.approx(84.0)
     assert row["resets_in_seconds"] == pytest.approx(7 * DAY - 3 * HOUR)
-    assert row["target_pct_per_hour"] == pytest.approx(84.0 / 165.0)
+    assert row["target_pct_per_hour"] == round(84.0 / 165.0, 2)
     assert row["binding"] == "C-7D"
+
+
+def test_plan_json_rounds_floats_and_aligns_help_and_na_pools_label(capsys):
+    from peerhub.cli.app import main
+    from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL
+
+    assert PLAN_NA_POOLS_LABEL == "in-flight n/a pools:"
+    data = plan_data(_report(
+        _item("ag", "3P-5H", 0.721234567890123, span=5 * HOUR, elapsed=2 * HOUR),
+        _item("ag", "3P-7D", 0.394910603761673, span=7 * DAY, elapsed=2.5 * DAY),
+        _item("cx", "X-7D", 0.851234567890123, span=7 * DAY, elapsed=3.3 * DAY),
+    ), {"path": "x", "source": "explicit"})
+    by_pool = {p["pool"]: p for p in data["pools"]}
+    assert by_pool["3P-7D"]["left_pct"] == 39.49
+    assert by_pool["3P-5H"]["action"] == "rest" and by_pool["3P-5H"]["health"]["state"] == "ok" and by_pool["3P-5H"]["health"]["pace_band"] == "spend"
+    raw_json = json.dumps(data)
+    assert "39.49106" not in raw_json and "72.12345" not in raw_json
+    with pytest.raises(SystemExit) as exc:
+        main(["diag", "--help"])
+    assert exc.value.code == 0
+    help_out = capsys.readouterr().out
+    assert "BUDGET%/h" in help_out and "target_pct_per_hour" in help_out and "PACE(pp)" in help_out and "health is pool's own state" in help_out
 
 
 def test_spare_5h_is_capped_by_its_7d_pool():

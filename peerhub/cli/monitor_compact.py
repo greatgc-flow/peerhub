@@ -12,7 +12,7 @@ from peerhub.core.text import clean_text
 from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_activity_view import compact_activity
 from peerhub.cli.monitor_alert_view import alert_section, decorate_verdict, verdict_line
-from peerhub.cli.monitor_format import pool_gap
+from peerhub.cli.monitor_format import ordered_pools, pool_gap, pool_heading
 from peerhub.cli.monitor_layout import (
     FILE_HYPERLINK,
     FRAME_TRAILING_ROWS,
@@ -34,11 +34,9 @@ from peerhub.cli.monitor_layout import (
     wrap_text,
 )
 from peerhub.cli.monitor_leads_view import compact_leads
-from peerhub.cli.monitor_legend import FRAME_SECTIONS, FRAME_SECTION_ORDER, POOL_LEGEND, QUOTA_NA
-from peerhub.cli.monitor_links import GUIDE_TEXT, link_profiles, location_lines, osc_link
+from peerhub.cli.monitor_legend import FRAME_SECTION_ORDER, POOL_LEGEND
+from peerhub.cli.monitor_links import GUIDE_TEXT, location_lines, osc_link
 from peerhub.cli.monitor_quota_view import (
-    HIDDEN_QUOTA_WINDOWS,
-    compact_suggestions,
     frame_consumers,
     frame_pools,
     pool_section,
@@ -94,13 +92,13 @@ class CompactFrame:
     leads_total: int = 0
     recent: list[str] | None = None  # [RECENT header, *rows]; None when there is no ended ask
     recent_short: list[str] | None = None  # --expand: the rows of `recent` (entries of two lines) as one line each
-    suggest: list[str] = field(default_factory=lambda: list[str]())
     running_hint: str = ""
     pool_gap: list[str] = field(default_factory=lambda: list[str]())
     pool_legend: list[str] = field(default_factory=lambda: list[str]())
     pools: list[str] | None = None  # [POOLS header, *rows]; None when `capacity` is not selected
     pools_total: int = 0
     pools_header_lines: int = 1
+    pool_row_sizes: list[int] = field(default_factory=lambda: list[int]())
 
 
 def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, unicode: bool,
@@ -143,12 +141,18 @@ def frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str 
     totals = {"running": frame.running_total, "leads": frame.leads_total, "pools": frame.pools_total}
     nouns = {"running": "more", "leads": "leads", "pools": "pools"}
     header_lines = {"pools": frame.pools_header_lines}
+    pool_row_sizes = frame.pool_row_sizes.copy()
+
+    def row_count(key: str, lines: list[str]) -> int:
+        if key == "pools" and frame.pool_row_sizes:
+            return len(pool_row_sizes)
+        return len(lines) - header_lines.get(key, 1)
 
     def section(key: str) -> list[str]:
         lines = parts[key]
         if lines is None:
             return []
-        rows = len(lines) - header_lines.get(key, 1)
+        rows = row_count(key, lines)
         hidden = totals.get(key, 0) - rows
         extra = [overflow(hidden, nouns[key], width, unicode)] if hidden > 0 and rows > 0 else []
         if key == "running" and rows and frame.running_hint:
@@ -160,17 +164,19 @@ def frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str 
 
     def pop_rows(key: str, floor: int) -> bool:
         lines = parts[key]
-        heading = header_lines.get(key, 1)
-        if lines is None or len(lines) - heading <= floor:
+        if lines is None or (rows := row_count(key, lines)) <= floor:
             return False
         total = totals.get(key, 0)
-        rows = len(lines) - heading
         created = total - rows <= 0 < total  # this removal makes the overflow line
-        if created and floor >= 1 and rows <= 2:  # A-3: K5 would leave the header without a row; do nothing
-            return False
-        lines.pop()
-        if created and len(lines) > heading:  # one row for one overflow line would save nothing (K5)
-            lines.pop()
+        pool_sizes = pool_row_sizes if key == "pools" else []
+        line_count = pool_sizes[-1] if pool_sizes else 1
+        if created and line_count == 1 and rows <= floor + 1:
+            return False  # removing one line for an overflow line saves nothing
+        del lines[-line_count:]
+        if pool_sizes:
+            pool_sizes.pop()
+        if created and line_count == 1:
+            del lines[-(pool_sizes.pop() if pool_sizes else 1):]
         return True
 
     yield assemble()
@@ -183,8 +189,7 @@ def frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str 
             while pop_rows(key, 1):
                 yield assemble()
         elif rows:
-            floor = 1 if key == "suggest" else SECTION_WITH_DETAIL
-            while len(rows) > floor:
+            while len(rows) > SECTION_WITH_DETAIL:
                 rows.pop()
                 yield assemble()
         if key == "pools":
@@ -201,9 +206,6 @@ def frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str 
         header.pop()
         yield assemble()
 
-def _suggest_lines(text: str, width: int, unicode: bool) -> list[str]:
-    lines = wrap_text(text, width)
-    return lines if len(lines) <= 2 else [lines[0], fit_text(" ".join(lines[1:]), width, unicode)]
 
 def render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: bool,
                           width: int, height: int | None, keep: str | None = None) -> str:
@@ -227,7 +229,6 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
     read_at = finite_number(payload.get("read_at"))
     now = read_at if read_at is not None else 0
     elapsed = finite_number(payload.get("display_elapsed_seconds")) or 0
-    configured_profiles = dict_items(payload.get("configured_profiles"))
     consumers = frame_consumers(payload)
     observations, quota, rows = frame_pools(payload, consumers)
     payload = with_quota_verdict(payload, rows)
@@ -337,24 +338,16 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
         frame.recent, frame.recent_short = expanded_recent(data, groups, width, unicode, keep, bounded=height is not None,
                                                            rich=rich, paint=paint, links=links)
     if "capacity" in selected_ids:
-        suggestion = compact_suggestions(configured_profiles, rows)
-        frame.suggest = wrap_text(suggestion, width) if expand else _suggest_lines(suggestion, width, unicode)
         profile_urls = as_dict(payload.get("_profile_urls"))
-        if profile_urls:
-            frame.suggest = [link_profiles(line, profile_urls) for line in frame.suggest]
-        visible_rows = rows if expand else [row for row in rows if row["state"] != QUOTA_NA]
-        if visible_rows:
-            frame.pool_gap = pool_gap(rows, width, unicode, show_quota_notes=expand)
+        if ordered_pools(rows, pending=True):
+            frame.pool_gap = pool_gap(rows, width, unicode)
             frame.pool_legend = wrap_text(POOL_LEGEND, width)
-            frame.pools, frame.pools_total, frame.pools_header_lines = pool_section(
-                rows, pool_width or width, unicode, keep, rich=rich, paint=paint, every=expand,
-                guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls, show_quota_notes=expand)
+            frame.pools, frame.pools_total, frame.pools_header_lines, frame.pool_row_sizes = pool_section(
+                rows, pool_width or width, unicode, keep, rich=rich, paint=paint, expand=expand,
+                guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls)
         else:
-            if rows:
-                notes = [] if expand else wrap_text(HIDDEN_QUOTA_WINDOWS, width)
-            else:
-                notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
-                         else wrap_text("no quota evidence; next: peerhub observation refresh", width))
-            head = f"{FRAME_SECTIONS['pools']} 0"
+            notes = [] if rows else (["no quota evidence", "next: peerhub observation refresh"] if height is not None
+                                     else wrap_text("no quota evidence; next: peerhub observation refresh", width))
+            head = pool_heading(0)
             frame.pools = [heading_rule(head, width, unicode, paint) if rich else head, *notes]
     return frame

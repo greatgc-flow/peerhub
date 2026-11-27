@@ -64,7 +64,7 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. These commands exit 5 if the observation store is missing. Without an override, the selected store supplies observations. With an existing observation store and a missing selected store, `diag --plan` still reports the observations and shows the active ask count as unknown (`load.active: null` in JSON). See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing.
 
-Use `diag --plan --json` for scripts. Each pool includes its identity, left percentage, PACE, action, limiting pool (`binding`), reason, its own reset and the effective reset after parent limits. The top-level `load` includes lease-active asks and current machine resources.
+Use `diag --plan --json` for scripts. Each pool includes its identity, left percentage (`left_pct`), `PACE(pp)` (`pace_pt`), `BUDGET%/h` (`target_pct_per_hour`), effective `action`, limiting pool (`binding`), reason, its own reset and the effective reset after parent limits. In JSON, floats are rounded to two decimal places; `health` reports the pool's own state (after any scoped weekly parent cap) while `action` reports the effective gated action. In plan text, `—` (`?` in ASCII) marks an unknown value. The top-level `load` includes lease-active asks and current machine resources.
 
 | Command | Purpose |
 |---|---|
@@ -106,17 +106,16 @@ commands, code, and documentation.
 | Compatibility form | Canonical form | Why it stays |
 |---|---|---|
 | Short profile IDs such as `standard` | `PEER.NAME` for the selected provider, such as `cc.standard` with `ask cc` | Existing asks and batch manifests can keep their provider-relative profile names. |
-| Profile alias `cx.deepthink` | `--profile cx.effort --effort xhigh` with packaged defaults | Existing Codex asks keep their model and effort defaults. Suggestions use the canonical profiles, and a terminal text ask using the alias can print a deprecation notice. |
+| Profile alias `cx.deepthink` | `--profile cx.effort --effort xhigh` with packaged defaults | Existing Codex asks keep their model and effort defaults. A terminal text ask using the alias can print a deprecation notice. |
 | Hidden `--format` on `peer list`, `profile list`, `profile show`, `session list`, `session show`, and `stream list` | `--json` for `--format json`, or the default human output for `--format auto` and `--format table` | Existing scripts can keep their output selection. |
 | Python export `peerhub.cli.app.with_writable` | `peerhub.cli.ask_cmd.with_writable` | Existing Python callers can keep their import. The helper inserts `--writable` before the `--` separator or appends it when there is no separator. |
 
-## Batch and suggestions
+## Batch
 
 | Command | Purpose |
 |---|---|
 | `batch` | Manage [parallel asks](batch.md). |
 | `batch run` | Run a flat manifest or validate it with `--dry-run`. Execution spends quota. |
-| `suggest` | Deprecated, removed in the next release. Use `peerhub diag --plan`. |
 
 `batch run --responses` includes every completed reply in the report. Dry runs show no replies.
 

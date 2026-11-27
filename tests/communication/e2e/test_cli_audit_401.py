@@ -22,18 +22,23 @@ def test_ask_unknown_peer_is_a_user_error_with_its_own_code(tmp_path, capsys):
     db = str(tmp_path / "core.db")
     code, out, err = _run(capsys, "--db", db, "ask", "nosuch", "hello")
     assert code == 1
-    assert err.startswith("[peer_not_found] ERROR: register this peer with --adapter")
-    assert "next: peerhub explain peer_not_found" in err and "ask_unexpected_failure" not in err
+    assert err.startswith("[peer_not_found] unknown peer 'nosuch':")
+    assert "ERROR:" not in err
+    assert "next: peerhub peer register --peer nosuch --adapter <adapter> (or peerhub peer list)" in err
+    assert "ask_unexpected_failure" not in err
     code, out, err = _run(capsys, "--db", db, "ask", "nosuch", "hello", "--json")
     payload = json.loads(out)
     assert code == 1
     assert payload["error"]["code"] == "peer_not_found"
+    assert "ERROR:" not in payload["error"]["message"]
     assert payload["guidance"]["code"] == "peer_not_found"
+    code, out, _ = _run(capsys, "explain", "exit-codes")
+    assert code == 0 and "1 for an unregistered peer (peer_not_found)" in out
 
 
 def test_profile_show_unknown_name_does_not_leak_the_exception_class(capsys):
     code, out, err = _run(capsys, "profile", "show", "nosuch.profile")
-    assert code == 1
+    assert code == 2
     assert err.startswith("[invalid_arguments] unknown model profile")
     assert "ValueError" not in err
 
@@ -79,3 +84,53 @@ def test_every_visible_option_has_help_and_every_json_has_the_same_help():
                 json_help[" ".join(path) or "(top)"] = action.help
     assert not missing, "options without help:\n" + "\n".join(missing)
     assert {help_ for help_ in json_help.values()} == {"Machine-readable JSON output"}, json_help
+
+
+def test_help_profile_check_ok_and_uppercase_list_headers(tmp_path, monkeypatch, capsys):
+    import pytest
+    from peerhub.extensions import profile_stats
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    top_help = capsys.readouterr().out
+    assert "Manage account-bound cc/cx peers" in top_help
+    assert "peer register overwrite" not in top_help
+
+    with pytest.raises(SystemExit) as exc:
+        main(["profile", "check", "--help"])
+    assert exc.value.code == 0
+    check_help = " ".join(capsys.readouterr().out.split())
+    assert "Compare configured profile model IDs" in check_help
+
+    monkeypatch.setattr(profile_stats, "installed_models", lambda provider, workspace: None)
+    monkeypatch.setattr(profile_stats, "read_profile_stats", lambda db, workspace, profiles: [
+        {"profile": p["profile"], "last_measured_at": "2099-01-01T00:00:00Z", "stale": False} for p in profiles
+    ])
+    code, out, _ = _run(capsys, "profile", "check")
+    assert code == 0 and "OK:" in out and "no missing models or overdue measurements" in out
+
+    db = _store(tmp_path, capsys)
+    assert main(["--db", db, "stream", "create", "--stream", "s1"]) == 0
+    capsys.readouterr()
+    code, peer_out, _ = _run(capsys, "--db", db, "peer", "list")
+    assert code == 0 and peer_out.splitlines()[0].split() == ["PEER_ID", "DISPLAY_NAME"]
+    code, stream_out, _ = _run(capsys, "--db", db, "stream", "list")
+    assert code == 0 and stream_out.splitlines()[0].split() == ["STREAM_ID", "STATE", "TITLE", "MEMBERS"]
+
+
+def test_error_line_strips_only_single_sentence_period(capsys):
+    from peerhub.cli.support import error_line
+
+    for message, expected in (
+        ("Invalid ask arguments.", "Invalid ask arguments"),
+        ("still waiting...", "still waiting..."),
+        ("parent ..", "parent .."),
+        ("workspace .", "workspace ."),
+        ("path /tmp/.", "path /tmp/."),
+        ("path C:\\dir\\.", "path C:\\dir\\."),
+        (".", "."),
+    ):
+        error_line("test_code", message, "next step")
+        err = capsys.readouterr().err
+        assert err == f"[test_code] {expected}; next: next step\n", (message, err)

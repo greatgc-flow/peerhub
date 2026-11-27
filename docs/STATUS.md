@@ -1,10 +1,10 @@
 # PeerHub Development Status
 
-> Active work, recent flow and next steps are in [NOW.md](../NOW.md). This document keeps the deferred backlog and its start triggers. The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases.
+> Active work and next steps are in [NOW.md](../NOW.md); recent flow is the top of [CHANGELOG](../CHANGELOG.md). This document keeps the deferred backlog and its start triggers. The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases.
 
 Dates are UTC.
 
-## Current source: v0.27.0
+## Current source: v0.28.0
 
 From v0.24.13 each published release carries the G3 JUnit files (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml`) and the live-evidence JSON as assets; the release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases. The release PR sets the heading above; no per-release paragraph or follow-up docs PR is kept here.
 

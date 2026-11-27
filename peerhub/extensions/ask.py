@@ -43,6 +43,10 @@ class PeerNotFoundError(ValueError):
     """The target peer is neither registered with an adapter nor a builtin name: a user error (#401)."""
     code = "peer_not_found"
 
+    def __init__(self, message: str, *, peer_id: str | None = None) -> None:
+        super().__init__(message)
+        self.peer_id = peer_id
+
 
 class StreamPeerMismatchError(ValueError):
     """An established ask stream cannot be retargeted to a different peer (#125)."""
@@ -338,7 +342,10 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             account = AccountRef(account_binding.slot_id)
         if runtime is None:
             if kind is None:
-                raise PeerNotFoundError(f"register this peer with --adapter {BUILTIN_PEER_CHOICES} before asking it")
+                raise PeerNotFoundError(
+                    f"unknown peer {peer_id!r}: register it with --adapter {BUILTIN_PEER_CHOICES}",
+                    peer_id=peer_id,
+                )
             execution_workspace = workspace or Path.cwd()
             target = build_ask_target(kind, execution_workspace, account=account, model=model, effort=effort, profile=profile,
                                       silence_timeout_s=silence_timeout_s, writable=writable, timeout_s=timeout_s,

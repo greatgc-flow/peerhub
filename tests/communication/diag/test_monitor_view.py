@@ -286,7 +286,7 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
     elif height == 3:
         assert rendered.splitlines()[1].startswith("PeerHub")
     elif height == 5:
-        assert "POOLS" not in rendered  # the pool row and expanded gap must fit together
+        assert ("POOLS" in rendered) == ("75%" in rendered)  # a pool heading stays with its row
         assert "gap vs " not in rendered
     elif height >= 4 and len(frame["selected_groups"]) > max(0, height - 3):
         assert "omitted" in rendered or "hidden" in rendered or any(f"+{i}" in rendered for i in range(1, 10))
@@ -1009,14 +1009,11 @@ def _cx_plan_frame(absent_state="ABSENT", peer_quota=None):
     }}
 
 
-def test_not_reported_pool_renders_na_with_plan_never_zero_or_incomplete():
-    """X3/X5: a window the provider does not report is n/a (plan shown); the peer line keeps the reported pool's %."""
+def test_not_reported_pool_is_hidden_but_peer_keeps_reported_quota():
     from peerhub.cli.monitor_view import render_grouped_frame
     rendered = render_grouped_frame(_cx_plan_frame(), view="plain", unicode=False, width=120, expand=True)
-    assert "cx X-5H n/a not reported (plan prolite)" in rendered
-    row = next(line for line in rendered.splitlines() if line.startswith("cx") and " X-5H " in line and "PROFILES" not in line)
-    assert "STALE" not in row and "ABSENT" not in row and "n/a" in row
-    assert "quota: 89% (X-7D) [plan prolite: no 5h window]" in rendered
+    assert "X-5H" not in rendered
+    assert "quota: 89% (X-7D)" in rendered and "plan prolite: no 5h window" not in rendered
     assert "incomplete" not in rendered
 
 

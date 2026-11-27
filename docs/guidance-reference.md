@@ -45,6 +45,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `ask_denied_empty` | 1 | The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer. | `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --writable` (Start a new stream and inline the needed content via --query-file (say "no tools"); do not resume this stream) | Do not resume this stream (a resumed turn may fabricate paths), and do not treat the empty response as a completed answer or assume the denied action ran. |
 | `ask_idempotency_conflict` | 2 | An idempotency key was reused with conflicting request data. | `peerhub record read --stream STREAM_ID` (Inspect the original request and reuse its prompt, binding, and session selector for a retry) | Do not change request IDs to bypass a conflict or retry uncertain execution blindly. |
 | `ask_launch_failed` | 1 | Provider CLI executable could not be found or failed to spawn before execution started. | `peerhub diag health` (Inspect peer adapter availability and PATH configuration) | Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH. |
+| `ask_not_found` | 1 | The ask ID does not exist in the selected store. | `peerhub monitor --snapshot` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `ask_prompt_too_large` | 1 | The prompt exceeds the provider inline byte limit; no provider process started. | `peerhub ask cc --query-file CONTENT_FILE --stream NEW_STREAM_ID --request-id NEW_REQUEST_ID` (split the prompt into parts under the limit (one ask each); for an ag argv limit (old agy or PEERHUB_AG_TRANSPORT=argv), send it to cc/cx instead (stdin, 1,000,000-byte maximum) on a separate stream, since a stream belongs to one peer; if the prompt itself is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id) | Do not retry an unchanged over-limit prompt or reuse its request-id for a changed prompt. |
 | `ask_refusal` | 1 | The provider explicitly refused execution before performing any tool calls (task outcome NOT_EXECUTED). | `peerhub diag quota` (Inspect provider quota pools and reset times) | Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue. |
 | `ask_schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub --version` (Check the installed version and use a PeerHub version compatible with this store) | Do not edit schema version metadata or downgrade the store to bypass this check. |
@@ -57,9 +58,10 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `diag_unavailable` | 4 or 5 (context-dependent) | Diagnostic evidence is unavailable or incomplete. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `idempotency_conflict` | 2 | The request conflicts with an existing idempotency key. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `incomplete` | 1 | The reply of an API peer (ca, oa, ga) ended for a reason other than the token limit; the ask is not delivered. | `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE` (Read the reason, then rephrase or use another profile or peer on a new stream) | Do not count the partial text as a reply (for example as a vote), and do not ask again on the same stream. |
-| `invalid_arguments` | 1 or 2 (context-dependent) | The command arguments were rejected before dispatch. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `invalid_arguments` | 2 | The command arguments were rejected. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `invalid_manifest` | 1 | Batch validation failed before any worker was launched. | `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run` (Correct the reported validation error and validate the manifest) | Do not change the batch identifier to bypass an uncertain earlier execution. |
 | `peer_not_found` | 1 | The selected peer does not exist in this store, or ask was given a peer with no adapter (register it with --adapter). | `peerhub peer list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `profile_config_error` | 1 | The model profile configuration contains invalid TOML. Correct the models.toml syntax and retry. | `peerhub profile list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `request_rejected` | 2 | An ask to an API peer (ca, oa, ga) was refused before anything was stored or sent. | `peerhub explain PROFILE` (Correct the command named in the message: a ca/oa/ga profile or a valid --model, no --effort, no --writable, a new stream for a new ask) | Do not retry the same command unchanged; nothing was sent, so no provider work needs recovery. |
 | `schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `session_not_found` | 1 | The selected retained session does not exist. | `peerhub session list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
@@ -151,6 +153,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
   1. `peerhub diag health`: Inspect peer adapter availability and PATH configuration (Prerequisites: Ensure the provider CLI is installed and on PATH.)
 - **Avoid**: Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH.
 - **Documentation**: [docs/remote-ask.md](remote-ask.md)
+
+#### `ask_not_found`
+
+- **Exit Code**: 1
+- **Meaning**: The ask ID does not exist in the selected store.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub monitor --snapshot`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
 
 #### `ask_prompt_too_large`
 
@@ -282,10 +294,8 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 #### `invalid_arguments`
 
-- **Exit Codes** (context-dependent):
-  - `1`: The command arguments were rejected before dispatch.
-  - `2`: The command arguments were rejected before dispatch.
-- **Meaning**: The command arguments were rejected before dispatch.
+- **Exit Code**: 2
+- **Meaning**: The command arguments were rejected.
 - **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
 - **Safe Recovery Actions**:
   1. `peerhub guide`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
@@ -309,6 +319,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
 - **Safe Recovery Actions**:
   1. `peerhub peer list`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `profile_config_error`
+
+- **Exit Code**: 1
+- **Meaning**: The model profile configuration contains invalid TOML. Correct the models.toml syntax and retry.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub profile list`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
 - **Avoid**: Do not blindly replay provider work whose execution may already have begun.
 - **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
 

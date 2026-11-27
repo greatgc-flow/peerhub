@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from peerhub.core.models import iso_timestamp
+from peerhub.core.quota_policy import human_duration
 from peerhub.core.schema_version import SchemaVersionError
 from peerhub.extensions.diag import DiagnosticReport, DiagReadOnlyError, ReadonlyDiag
 from peerhub.extensions.observation_model import (
@@ -26,6 +27,7 @@ from peerhub.extensions.observation_model import (
     QUOTA_PROBE_LOAD_DELAY,
     QUOTA_PROBE_LOAD_LABEL,
     effective_us,
+    instant_us,
     oldest_measured_quota_age,
     row_to_observation,
 )
@@ -60,13 +62,47 @@ def _classify(rep: DiagnosticReport, db: str) -> tuple[str, str | None]:
     return "OK", None
 
 
+def _round_num(v: Any) -> Any:
+    return round(v, 4) if isinstance(v, float) else v
+
+
 def _measurements(payload: dict[str, Any]) -> dict[str, Any]:
     return {k: payload[k] for k in sorted(payload) if k in MEASUREMENT_KEYS}
 
 
 def _derived(meas: dict[str, Any]) -> dict[str, Any]:
     used = quota_used_fraction(meas.get("remaining_fraction"))
-    return {"used_fraction": used} if used is not None else {}
+    return {"used_fraction": round(used, 4)} if used is not None else {}
+
+
+def _obs_order_key(it: dict[str, Any]) -> tuple[int, int]:
+    stamp = it.get("captured_at") if it.get("captured_at") is not None else it.get("observed_at")
+    try:
+        us = instant_us(stamp) if isinstance(stamp, str) and stamp else 0
+    except Exception:
+        us = 0
+    seq = it.get("capture_seq")
+    return (us, int(seq) if isinstance(seq, int) and not isinstance(seq, bool) else 0)
+
+
+def _filter_superseded_unpooled_quota(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Hide pool-less non-MEASURED quota rows once a newer MEASURED quota observation exists for the same peer."""
+    newest_measured: dict[str, tuple[int, int]] = {}
+    for it in items:
+        if it.get("kind") == "quota" and it.get("stored_state") == "MEASURED" and it.get("resource_pool_ref") is not None:
+            peer = str(it.get("subject_ref") or "")
+            key = _obs_order_key(it)
+            if key > newest_measured.get(peer, (-1, -1)):
+                newest_measured[peer] = key
+    return [
+        it for it in items
+        if not (
+            it.get("kind") == "quota"
+            and it.get("resource_pool_ref") is None
+            and it.get("stored_state") != "MEASURED"
+            and newest_measured.get(str(it.get("subject_ref") or ""), (-1, -1)) > _obs_order_key(it)
+        )
+    ]
 
 def _ts(v: object) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v < 253402300800 else None
@@ -134,7 +170,7 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
     resets: list[dict[str, Any]] = []
     obs = rep.sections["observations"]
     errors += [str(e.get("error")) for e in obs.errors]
-    for it in obs.data.get("items", []):
+    for it in _filter_superseded_unpooled_quota(obs.data.get("items", [])):
         if it["kind"] == RESET_CREDIT_KIND:
             if (peer is None or it["subject_ref"] == peer) and (pool is None or it["resource_pool_ref"] == pool):
                 resets.append(_reset_credit_view(it, now))
@@ -170,6 +206,9 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
     # A pool with filtered evidence must not be synthesized as a pool with no evidence.
     groups = {ref: items for ref, items in groups.items() if items}
     _limit_scoped(groups)
+    for items in groups.values():
+        for item in items:
+            item["measurements"] = {key: _round_num(value) for key, value in item["measurements"].items()}
     pools: list[dict[str, Any]] = [{"resource_pool_ref": k, "items": groups[k]} for k in sorted(groups, key=lambda x: (x is None, x or ""))]
     out["pools"] = pools
     out["reset_credits"] = resets
@@ -240,7 +279,7 @@ def _limit_scoped(groups: dict[str | None, list[dict[str, Any]]]) -> None:
             effective_left, effective_reset, limited = limit_by_parent(left, reset, parent_left,
                                                                        _num(parent["window"].get("resets_at")))
             if limited:
-                item["effective"] = {"remaining_fraction": effective_left, "resets_at": effective_reset,
+                item["effective"] = {"remaining_fraction": _round_num(effective_left), "resets_at": effective_reset,
                                      "limited_by": parent_ref}
 
 
@@ -258,7 +297,7 @@ def observations_summary(db_path: str | Path, *, read_at: float | None = None) -
         return out
     sec = rep.sections["observations"]
     by: dict[str, int] = {}
-    for it in sec.data.get("items", []):
+    for it in _filter_superseded_unpooled_quota(sec.data.get("items", [])):
         by[it["state"]] = by.get(it["state"], 0) + 1
     out.update(latest_total=sum(by.values()), by_state=dict(sorted(by.items())))
     if sec.errors:
@@ -280,14 +319,14 @@ def format_quota_table(rep: dict[str, Any], *, max_age_seconds: int | None = Non
     for g in rep["pools"]:
         lines.append(f"pool {g['resource_pool_ref'] or '(none)'}")
         for i in g["items"]:
-            age = "-" if i["age_seconds"] is None else f"{i['age_seconds']:.0f}s"
-            meas = " ".join(f"{k}={v}" for k, v in i["measurements"].items()) or "(no measurement)"
+            age = "-" if i["age_seconds"] is None else human_duration(i["age_seconds"])
+            meas = " ".join(f"{k}={_round_num(v)}" for k, v in i["measurements"].items()) or "(no measurement)"
             der = " ".join(f"{k}={v:.4g} (derived)" for k, v in i["derived"].items())
             eff = i.get("effective")
             limit = f" effective={eff['remaining_fraction']:.0%} (limited by {eff['limited_by']})" if eff else ""
             state = QUOTA_PROBE_LOAD_LABEL if i.get("reason") == QUOTA_PROBE_LOAD_DELAY else i["state"]
             lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {state:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}{limit}".rstrip())
-    lines.extend(_reset_credit_lines(rep["reset_credits"], "reset credits (read-only; hours computed at read time)", "  "))
+    lines.extend(_reset_credit_lines(rep["reset_credits"], "reset credits (read-only; durations computed at read time)", "  "))
     return "\n".join(lines)
 
 
@@ -306,15 +345,17 @@ def _reset_credit_lines(items: list[dict[str, Any]], header: str, indent: str) -
         return []
     lines = [header]
     for i in items:
-        age = "-" if i["age_seconds"] is None else f"{i['age_seconds']:.0f}s"
+        age = "-" if i["age_seconds"] is None else human_duration(i["age_seconds"])
         if i["available_count"] is None:
             detail = f"available=UNKNOWN{' condition=' + i['condition'] if i['condition'] else ''}"
         else:
             hrs = i["hours_until_nearest_expiry"]
-            detail = f"available={i['available_count']} nearest={i['nearest_expires_at'] or '-'}" + (f" ({hrs:.1f}h)" if hrs is not None else "")
+            exp_dur = f" ({human_duration(max(0.0, hrs * _SECONDS_PER_HOUR))})" if hrs is not None else ""
+            detail = f"available={i['available_count']} nearest={i['nearest_expires_at'] or '-'}{exp_dur}"
             detail += " WARN: expires in <72h" if i["warn"] else ""
         lines.append(f"{indent}{i['subject_ref']:<8} {i['state']:<9} age={age:<6} {detail}")
         for c in i["credits"]:
-            lines.append(f"{indent}  {c['id_hash']} {c['status']} {c['title']} expires={c['expires_at']} ({c['hours_until_expiry']:.1f}h)"
+            c_dur = human_duration(max(0.0, c["hours_until_expiry"] * _SECONDS_PER_HOUR))
+            lines.append(f"{indent}  {c['id_hash']} {c['status']} {c['title']} expires={c['expires_at']} ({c_dur})"
                          + (" WARN" if c["warn"] else ""))
     return lines

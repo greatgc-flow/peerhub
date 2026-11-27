@@ -73,3 +73,23 @@ def test_observed_time_is_not_reconstructed_from_capture_age(suffix):
     assert result["pace_pt"] == 20
     item["observed_at"] = "invalid"
     assert diag_quota.projection(item, 250)["state"] == "unknown"
+
+
+def test_weekly_cap_compares_unrounded_reserves(monkeypatch):
+    parent_ref, child_ref = "quota:cc:C-7D", "quota:cc:F-7D"
+    items = [
+        {"kind": "quota", "subject_ref": "cc", "resource_pool_ref": ref, "state": "MEASURED",
+         "observed_at": "1970-01-01T00:00:30Z", "age_seconds": 30, "source": "fixture",
+         "payload": {"remaining_fraction": left, "resets_at": reset}}
+        for ref, left, reset in ((parent_ref, .10001, 1000), (child_ref, .10002, 2000))
+    ]
+    report = DiagnosticReport("OK", 60, {}, {
+        "observations": Section("observations", "OK", {"items": items}),
+        "resource_pools": Section("resource_pools", "OK", {"pools": []}),
+    })
+    monkeypatch.setattr(diag_quota.ReadonlyDiag, "render", lambda *args, **kwargs: report)
+    result = diag_quota.quota_report(__file__, read_at=60)
+    parent, child = (group["items"][0] for group in result["pools"])
+    assert parent["measurements"]["remaining_fraction"] == child["measurements"]["remaining_fraction"] == .1
+    assert child["window"]["resets_at"] == 2000
+    assert child["effective"] == {"remaining_fraction": .1, "resets_at": 1000, "limited_by": parent_ref}
