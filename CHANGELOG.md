@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-11-27
+
 ### Fixed
 
 - Show early quota exhaustion forecasts for windows of at least one day once 25 percentage points have been used (#500).
