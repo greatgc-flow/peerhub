@@ -13,20 +13,6 @@ they do not claim new validation or publication evidence.
 ### Fixed
 
 - Show early quota exhaustion forecasts for windows of at least one day once 25 percentage points have been used (#500).
-- Restored R2: compact and expanded monitor hide n/a quota pools and count only displayable pools. The weekly pace gap omits unavailable pools, and the reset-pending child row remains visible.
-- Profile inspection returns exit 1 with JSON status ERROR for malformed model TOML. Invalid profile arguments return exit 2.
-- `peerhub outcome` returns exit 1 with `ask_not_found` for an unknown ask ID.
-- Unknown-peer errors name the built-in adapter choices for registration.
-- Kept the exit-code lesson under its output budget, restored the batch quota freshness threshold, and regenerated the guidance, lessons, and command inventory references.
-- Fixed strict typing for observation refresh and diagnostic quota and plan output.
-- Monitor shows the reset-pending child from the reported reset instant and lists it once under its weekly parent.
-- Expanded monitor PEERS hides fresh unavailable-window notes while keeping measured quota.
-- Expanded monitor QUOTA nests duplicate pool names under the weekly row for their own account.
-- Bare `peerhub diag` shares effective quota caps, reset timing, and exhaustion forecasts with `diag --plan`.
-- `peerhub diag quota` compares quota reserves at full precision before rounding the displayed cap.
-- `peerhub diag --plan` uses ASCII glyphs on ASCII stdout, including when the stream requests strict encoding.
-- `peerhub ask` checks its query files before store discovery, so a missing file returns exit 2 even without a store.
-- Profile inspection reports invalid UTF-8 in `models.toml` as `profile_config_error` with exit 1.
 
 ## [0.28.0] - 2026-11-27
 
@@ -51,6 +37,21 @@ Breaking: removes `peerhub suggest` and the monitor `suggest:` line (deprecated 
 
 ### Fixed
 
+- Restored R2: compact and expanded monitor hide n/a quota pools and count only displayable pools. The weekly pace gap omits unavailable pools, and the reset-pending child row remains visible.
+- Profile inspection returns exit 1 with JSON status ERROR for malformed model TOML. Invalid profile arguments return exit 2.
+- `peerhub outcome` returns exit 1 with `ask_not_found` for an unknown ask ID.
+- Unknown-peer errors name the built-in adapter choices for registration.
+- Kept the exit-code lesson under its output budget, restored the batch quota freshness threshold, and regenerated the guidance, lessons, and command inventory references.
+- Fixed strict typing for observation refresh and diagnostic quota and plan output.
+- Monitor shows the reset-pending child from the reported reset instant and lists it once under its weekly parent.
+- Expanded monitor PEERS hides fresh unavailable-window notes while keeping measured quota.
+- Expanded monitor QUOTA nests duplicate pool names under the weekly row for their own account.
+- Bare `peerhub diag` shares effective quota caps, reset timing, and exhaustion forecasts with `diag --plan`.
+- `peerhub diag quota` compares quota reserves at full precision before rounding the displayed cap.
+- `peerhub diag --plan` uses ASCII glyphs on ASCII stdout, including when the stream requests strict encoding.
+- `peerhub ask` checks its query files before store discovery, so a missing file returns exit 2 even without a store.
+- Profile inspection reports invalid UTF-8 in `models.toml` as `profile_config_error` with exit 1.
+- Bare `peerhub diag` keeps the C-7D cap on F-7D per account (parent matched by account-scoped pool ref), its per-observation projection counts relative resets, and a broken profile config degrades it with a warning instead of failing.
 - Restored owner requirement R2: compact and expand hide n/a pools by default (0.27.0 had started listing them in expand); POOLS counts and the gap line leave them out. Owner-stated registry rows are now frozen by a test, so a lane cannot reword one silently.
 - `peerhub diag quota` and `peerhub diag health` supersede old unpooled `ERROR` quota rows once a newer `MEASURED` quota observation exists for the same peer (#497).
 - `peerhub diag health --stream` retains stream details in text mode when an unavailable `--observation-db` downgrades overall status to `PARTIAL` (#497).
