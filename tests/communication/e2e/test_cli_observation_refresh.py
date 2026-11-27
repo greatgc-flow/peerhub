@@ -128,6 +128,26 @@ def test_first_refresh_bootstraps_a_usable_workspace(tmp_path, monkeypatch, caps
     assert main(["--db", str(db), "diag"]) == 0
 
 
+def test_observation_refresh_text_mode_is_concise_and_json_has_raw_observations(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.app import main
+    from peerhub.extensions import quota_probes
+
+    value = SimpleNamespace(quota_pool_scope="X-5H", remaining_fraction=0.75,
+                            window_started_at=100, resets_at=18100)
+    evidence = SimpleNamespace(state=EvidenceState.MEASURED, value=value, source_tag="fake", evidence_ref="test",
+                               observed_at=100, captured_at=112, extra=None)
+    monkeypatch.setattr(quota_probes, "poll_codex_usage",
+                        lambda **kw: [SimpleNamespace(evidence=evidence, extra={"warning": "probe warning"})])
+    db = tmp_path / ".peerhub" / "core.db"
+    assert main(["--db", str(db), "observation", "refresh", "--peers", "cx"]) == 0
+    out, err = capsys.readouterr()
+    assert out.splitlines() == ["status: OK", "cx X-5H MEASURED 75% 12s"]
+    assert "observations:" not in out and "{" not in out
+    assert main(["--db", str(db), "observation", "refresh", "--peers", "cx", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "OK" and isinstance(payload["observations"], list) and payload["observations"]
+
+
 def test_automatic_missing_store_uses_selected_output_format(tmp_path, capsys, monkeypatch):
     from peerhub.cli.app import main
     from peerhub.cli.store_select import StoreSelection

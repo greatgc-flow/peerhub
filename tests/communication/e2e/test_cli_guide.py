@@ -111,7 +111,8 @@ def test_readme_quota_peers_match_the_cli_defaults(capsys):
 def test_guide_states_the_decisions(capsys, monkeypatch, tmp_path):
     out = _guide(capsys, monkeypatch, tmp_path)
     flat = " ".join(out.split())
-    assert "cc/cx for code and files" in out and "ag for drafts" in out and "API credits, text only" in out
+    assert "cc/cx for code and files" in out and "ag for drafts and trusted -w files (always writable; no sandbox); votes inline" in out and "API credits, text only" in out
+    assert "Models: peerhub profile list" in out and "cx.astra" not in out
     assert "standard" in out and "effort" in out and "deepthink" in out  # tiers
     assert re.search(r"(?m)^Stream: ", out) and "new task = new stream" in out  # stream reuse rule
     assert re.search(r"(?m)^Votes: ", out) and "FRESH" in out  # fresh votes

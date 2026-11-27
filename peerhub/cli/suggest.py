@@ -43,7 +43,11 @@ _Ranking = tuple[float, int, str, str, str]
 
 
 def register_suggest_parser(subparsers: Any) -> None:
-    parser = subparsers.add_parser("suggest", help="Deprecated: recommend an ask from profiles and quota evidence (use diag --plan)")
+    parser = subparsers.add_parser(
+        "suggest",
+        help="Deprecated: recommend an ask from profiles and quota evidence (use diag --plan)",
+        description="Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release.",
+    )
     parser.add_argument("--tier", choices=("standard", "effort", "deepthink"), required=True,
                         help="Profile tier to recommend")
     parser.add_argument("--task", choices=("review", "code", "read"),

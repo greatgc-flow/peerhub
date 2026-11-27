@@ -88,6 +88,43 @@ def register_diag_parser(subparsers: Subparsers) -> None:
     d_integrity.epilog = "example: peerhub diag integrity"
 
 
+def _format_health_text(result: dict[str, Any], *, db: str, db_source: str, obs_db: str | None) -> str:
+    lines = [f"status: {result.get('status')}", f"store: {db} ({db_source})"]
+    if obs_db and obs_db != db:
+        lines.append(f"observation_store: {obs_db}")
+    if "stream_id" in result:
+        lines.append(f"stream_id: {result['stream_id']}")
+        if result.get("status") == "OK":
+            for key in ("title", "state", "revision", "head_position", "record_count"):
+                val = result.get(key)
+                lines.append(f"{key}: {'-' if val is None else val}")
+            members = result.get("members") or []
+            lines.append(f"members: {', '.join(str(m) for m in members) if members else '-'}")
+            offsets = result.get("offsets") or {}
+            lines.append("offsets: " + (", ".join(f"{k}={v}" for k, v in offsets.items()) if offsets else "-"))
+            if ref := result.get("last_refusal"):
+                reset = f" reset={ref['reset_time']}" if ref.get("reset_time") else ""
+                lines.append(f"last_refusal: {ref.get('reason') or '-'} ({ref.get('task_outcome') or '-'}){reset}")
+    elif result.get("status") in ("OK", "PARTIAL"):
+        snap = result.get("snapshot") or {}
+        lines.extend([
+            f"total_peers: {result.get('total_peers', 0)}",
+            f"total_streams: {result.get('total_streams', 0)}",
+            f"records_total: {'-' if snap.get('records_total') is None else snap.get('records_total')}",
+            f"observations_total: {'-' if snap.get('observations_total') is None else snap.get('observations_total')}",
+        ])
+        sample = result.get("stream_sample") or []
+        lines.append(f"stream_sample: {', '.join(str(s) for s in sample) if sample else '-'}")
+    if result.get("error"):
+        lines.append(f"error: {result['error']}")
+    obs = result.get("observations") or {}
+    by_state = obs.get("by_state") or {}
+    states = " (" + ", ".join(f"{k}={v}" for k, v in by_state.items()) + ")" if by_state else ""
+    obs_err = f" error: {obs['error']}" if obs.get("error") else ""
+    lines.append(f"observations: {obs.get('status', 'UNKNOWN')} latest={obs.get('latest_total', 0)}{states}{obs_err}")
+    return "\n".join(lines)
+
+
 def _nonnegative_seconds(value: str) -> int:
     message = "seconds must be a non-negative integer"
     try:
@@ -256,7 +293,8 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         if args.obs_db is not None and result["observations"]["status"] != "OK" and result.get("status") == "OK":
             result["status"] = "PARTIAL"
         result["schema_version"] = "2.0"
-        emit(result, args.json)
+        emit(result, True) if args.json else print(_format_health_text(
+            result, db=args.db, db_source=getattr(args, "db_source", "unknown"), obs_db=args.obs_db))
         if str(result.get("error", "")).startswith("SchemaVersionError"):
             error_line("schema_version_error", f"SCHEMA VERSION ERROR: {result['error']}", "peerhub guide")
             return 6

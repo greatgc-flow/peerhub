@@ -35,6 +35,14 @@ def test_update_requires_exactly_one_mode(capsys):
         assert message in capsys.readouterr().err
 
 
+def test_update_help_scopes_exit_1_to_plan(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["update", "--help"])
+    assert exc.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "With --plan, exit 1 if asks are running" in help_text
+
+
 def fake_check(monkeypatch, *, offline):
     from peerhub.cli import update
     from peerhub.extensions.adapters import process

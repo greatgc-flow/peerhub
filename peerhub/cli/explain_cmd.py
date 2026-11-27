@@ -107,11 +107,11 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
                                  "peerhub explain <id> shows one in full"]))
             return 0
         known = sorted(REGISTRY.keys())
-        msg = f"No matching lessons for {code!r}. Try fewer keywords, 'peerhub explain lessons' (index) or 'peerhub guide'."
+        msg = f"No matching lessons for {code!r}. Try fewer keywords, 'peerhub explain lessons' (index) or 'peerhub guide'"
         if json_output:
             print(json.dumps({"error": f"Unknown guidance code: {code!r}", "known_codes": known}, indent=2, ensure_ascii=True))
         from peerhub.cli.support import error_line
-        error_line("invalid_arguments", msg, "peerhub guide")
+        error_line("invalid_arguments", msg, "peerhub explain lessons")
         return 1
 
     if json_output:

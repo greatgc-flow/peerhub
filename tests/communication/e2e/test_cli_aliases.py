@@ -81,6 +81,16 @@ def test_ask_rejects_positional_prompt_with_repeated_query_files(capsys, monkeyp
     assert "ask requires exactly one of prompt or --query-file" in capsys.readouterr().err
 
 
+def test_ask_missing_prompt_mentions_prompt_file_and_inline_usage_hint(capsys, monkeypatch):
+    monkeypatch.setattr(app, "select_store", lambda *a, **kw: pytest.fail("must not select store"))
+    with pytest.raises(SystemExit) as exc:
+        app.main(["ask", "cx"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "ask requires exactly one of prompt or --query-file or --prompt-file" in err
+    assert 'next: peerhub ask cx "prompt" (or --query-file PATH)' in err
+
+
 @pytest.mark.parametrize("command, expected", [
     (["peer"], ("show", "alias of get")),
     (["peer", "show"], ("alias of get",)),

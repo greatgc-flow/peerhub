@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
-from peerhub.cli.arguments import WORKSPACE_OPTIONS
+from peerhub.cli.arguments import WORKSPACE_OPTIONS, ArgumentParser
 from peerhub.cli.output import emit
 from peerhub.cli.support import error_line
 from peerhub.core import load_limits
@@ -68,7 +68,11 @@ def validate_ask_args(args: argparse.Namespace, parser: argparse.ArgumentParser)
 
     normalize_session_selector(fresh=args.fresh, session=args.session)
     if (args.prompt is None) == (args.query_file is None):
-        parser.error(f"ask requires exactly one of prompt or {ASK_QUERY_FILE_OPTIONS[0]}")
+        opts = " or ".join(ASK_QUERY_FILE_OPTIONS)
+        hint = f'peerhub ask {args.peer} "prompt" (or --query-file PATH)'
+        if isinstance(parser, ArgumentParser):
+            parser.error(f"ask requires exactly one of prompt or {opts}", hint=hint)
+        parser.error(f"ask requires exactly one of prompt or {opts}")
     if args.final_only and args.dry_run:
         parser.error("ask --final-only applies to execution; remove --dry-run to use it")
 

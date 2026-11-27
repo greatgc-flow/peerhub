@@ -8,6 +8,18 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- `peerhub observation refresh` prints a concise per-peer/pool summary in text mode and reserves the raw observation JSON array for `--json`.
+- `peerhub diag health` renders readable key-value lines with a single store path in text mode and reserves JSON structures for `--json`.
+- `peerhub suggest --help` and `peerhub explain lessons` mark `suggest` as deprecated in favor of `peerhub diag --plan`.
+- `peerhub explain exit-codes` renders a scannable exit-code table matching `ask`, `monitor` and `update`, and `peerhub update --help` scopes exit `1` to `--plan`.
+- `peerhub guide` clarifies that `ag` is always writable (no read-only sandbox) and points to `peerhub profile list` instead of hardcoding top profiles.
+
+### Fixed
+
+- `peerhub batch run`, `peerhub ask` and `peerhub explain` emit targeted `next:` hints without raw Python `Errno` strings or `'.;` punctuation.
+
 ## [0.27.0] - 2026-11-27
 
 Breaking: removes CLI options listed under Removed, following the [scope decision](docs/history/scope-decision-2026-11-27.md).
