@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from peerhub._console import tolerant_streams
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub._version import __version__
 from peerhub.cli import account_cmd, ask_cmd, batch_cmd, core_cmd, diag_cmd, observation_cmd, profile_cmd, session_cmd
 from peerhub.cli.arguments import ArgumentParser
@@ -15,7 +16,6 @@ from peerhub.cli.explain_cmd import register_explain_parser, run_explain
 from peerhub.cli.guide import register_guide_parser, render_guide, run_guide
 from peerhub.cli.monitor import register_monitor_parser, run_monitor_command
 from peerhub.cli.store_select import DEFAULT_DB_PATH, report_missing_store, select_store
-from peerhub.cli.suggest import register_suggest_parser, run_suggest
 from peerhub.cli.support import error_line
 from peerhub.cli.update import register_update_parser, run_update
 from peerhub.core.schema_version import SchemaVersionError
@@ -39,7 +39,6 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     core_cmd.register_core_parser(subparsers)
     ask_cmd.register_ask_parser(subparsers)
-    register_suggest_parser(subparsers)
     account_cmd.register_account_parser(subparsers)
     batch_cmd.register_batch_parser(subparsers)
     profile_cmd.register_profile_parser(subparsers)
@@ -74,8 +73,6 @@ def _dispatch_command(args: argparse.Namespace, parser: argparse.ArgumentParser)
     match args.subcommand:
         case "ask":
             return ask_cmd.run_ask(args)
-        case "suggest":
-            return run_suggest(args)
         case "account":
             return account_cmd.run_account(args)
         case "batch":
@@ -112,7 +109,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
-        if exc.code == 2 and "ask" in actual and "--json" in actual:
+        if exc.code == INVALID_ARGUMENTS_EXIT and "ask" in actual and "--json" in actual:
             return ask_cmd.report_ask_parse_error(exc)
         raise
 
@@ -170,9 +167,11 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         code = getattr(e, "code", "invalid_arguments")
         message = str(e) if code == "peer_not_found" else f"ERROR: {e}"
         error_output(code, message, exception=e)
-        return 2 if args.subcommand == "ask" and code not in ("session_lost", "peer_not_found") else 1
+        if code == "invalid_arguments" or (args.subcommand == "ask" and code not in ("session_lost", "peer_not_found")):
+            return INVALID_ARGUMENTS_EXIT
+        return 1
     except SystemExit as e:
-        if args.subcommand == "ask" and args.json and e.code == 2:
+        if args.subcommand == "ask" and args.json and e.code == INVALID_ARGUMENTS_EXIT:
             return ask_cmd.report_ask_validation_error(e)
         raise
     except Exception as e:

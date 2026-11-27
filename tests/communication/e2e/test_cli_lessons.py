@@ -39,7 +39,7 @@ MONITOR_LESSON = "monitor-states"
     ("colour bar", [MONITOR_LESSON]),
     ("pill", [MONITOR_LESSON]),
     ("quota unknown", [MONITOR_LESSON]),
-    ("low fast aged suggest alternative cycles tty legend", [MONITOR_LESSON]),
+    ("low fast aged cycles tty legend", [MONITOR_LESSON]),
     ("accounts", [MONITOR_LESSON]),
     ("review-loop", ["independent-peer-votes"]),
     ("review-scores-to-100", ["independent-peer-votes"]),
@@ -101,7 +101,7 @@ def test_cc_allow_rules_lesson_states_exact_match_and_prefix_fix():
 
 
 def test_no_match_hint(capsys):
-    assert main(["explain", "ag", "checkout"]) == 1
+    assert main(["explain", "ag", "checkout"]) == 2
     captured = capsys.readouterr()
     assert not captured.out
     assert "No matching lessons" in captured.err
@@ -335,7 +335,7 @@ def test_all_old_lesson_names_open_their_cluster(capsys):
         "api-peers", "ask-basics", "ask-metrics", "ask-timeouts", "batch-shell-crlf", "caller-ownership",
         "caller-timeout-claim-held", "discovery-commands", "exit-codes", "installed-vs-checkout", "instruction-diet",
         "invalid-arguments", "peer-subagents", "report-issues", "setup", "store-and-upgrade", "store-missing",
-        "suggest", "writes-and-uncertain",
+        "writes-and-uncertain",
     }
     by_id = {lesson["id"]: lesson for lesson in load_lessons()}
     assert not {alias for names in old_names.values() for alias in names} & by_id.keys()
@@ -381,7 +381,7 @@ def test_catalog_and_rendering():
     aliases = [alias for lesson in lessons for alias in lesson.get("aliases", ())]
     assert len(lessons) == len(ids)
     assert len(aliases) == len(set(aliases)) and ids.isdisjoint(aliases)
-    assert {"ask-metrics", "caller-ownership", "suggest"} <= ids
+    assert {"ask-metrics", "caller-ownership"} <= ids
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & ids
     for lesson in lessons:
         assert all(lesson.values())

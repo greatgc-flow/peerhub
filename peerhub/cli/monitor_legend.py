@@ -36,7 +36,6 @@ MONITOR_LEGEND = (
 # Detail section keys are monitor group IDs.
 FRAME_SECTIONS = {
     "pools": POOLS_HEADING,
-    "suggest": "suggest:",
     "alerts": "ALERTS",
     "running": "RUNNING",
     "recent": "RECENT",

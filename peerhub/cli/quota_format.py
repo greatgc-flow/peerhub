@@ -4,7 +4,8 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
-from peerhub.core.quota_policy import format_duration, format_pace, human_duration
+from peerhub.core.quota_policy import format_pace
+from peerhub.core.text import format_duration as format_duration, human_duration as human_duration
 
 if TYPE_CHECKING:
     from peerhub.extensions.pool_health import PoolHealth

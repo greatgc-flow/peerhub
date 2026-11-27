@@ -109,7 +109,7 @@ def test_session_cursor_rejects_changed_filter(tmp_path, capsys):
     assert main(["--db", str(db), "session", "list", "--limit", "1", "--peer", "cx", "--json"]) == 0
     cursor = json.loads(capsys.readouterr().out)["next_cursor"]
 
-    assert main(["--db", str(db), "session", "list", "--limit", "1", "--peer", "ag", "--cursor", cursor, "--json"]) == 1
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--peer", "ag", "--cursor", cursor, "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["status"] == "ERROR"
 
 
@@ -130,7 +130,7 @@ def test_hidden_store_uses_database_directory_for_lineage(tmp_path, capsys):
     assert main(["--db", str(db), "session", "list", "--limit", "1", "--json"]) == 0
     cursor = json.loads(capsys.readouterr().out)["next_cursor"]
     Workspace(root).replace_generation()
-    assert main(["--db", str(db), "session", "list", "--limit", "1", "--cursor", cursor, "--json"]) == 1
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--cursor", cursor, "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["status"] == "ERROR"
 
 

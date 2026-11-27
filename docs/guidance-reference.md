@@ -57,8 +57,9 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `diag_unavailable` | 4 or 5 (context-dependent) | Diagnostic evidence is unavailable or incomplete. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `idempotency_conflict` | 2 | The request conflicts with an existing idempotency key. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `incomplete` | 1 | The reply of an API peer (ca, oa, ga) ended for a reason other than the token limit; the ask is not delivered. | `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE` (Read the reason, then rephrase or use another profile or peer on a new stream) | Do not count the partial text as a reply (for example as a vote), and do not ask again on the same stream. |
-| `invalid_arguments` | 1 or 2 (context-dependent) | The command arguments were rejected before dispatch. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `invalid_arguments` | 2 | The command arguments were rejected. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `invalid_manifest` | 1 | Batch validation failed before any worker was launched. | `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run` (Correct the reported validation error and validate the manifest) | Do not change the batch identifier to bypass an uncertain earlier execution. |
+| `not_found` | 1 | The ask ID does not exist in the selected store. | `peerhub monitor --snapshot` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `peer_not_found` | 1 | The selected peer does not exist in this store, or ask was given a peer with no adapter (register it with --adapter). | `peerhub peer list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `request_rejected` | 2 | An ask to an API peer (ca, oa, ga) was refused before anything was stored or sent. | `peerhub explain PROFILE` (Correct the command named in the message: a ca/oa/ga profile or a valid --model, no --effort, no --writable, a new stream for a new ask) | Do not retry the same command unchanged; nothing was sent, so no provider work needs recovery. |
 | `schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
@@ -282,10 +283,8 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 #### `invalid_arguments`
 
-- **Exit Codes** (context-dependent):
-  - `1`: The command arguments were rejected before dispatch.
-  - `2`: The command arguments were rejected before dispatch.
-- **Meaning**: The command arguments were rejected before dispatch.
+- **Exit Code**: 2
+- **Meaning**: The command arguments were rejected.
 - **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
 - **Safe Recovery Actions**:
   1. `peerhub guide`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
@@ -301,6 +300,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
   1. `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run`: Correct the reported validation error and validate the manifest (Prerequisites: Use the intended manifest and batch identifier.)
 - **Avoid**: Do not change the batch identifier to bypass an uncertain earlier execution.
 - **Documentation**: [docs/batch.md](batch.md)
+
+#### `not_found`
+
+- **Exit Code**: 1
+- **Meaning**: The ask ID does not exist in the selected store.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub monitor --snapshot`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
 
 #### `peer_not_found`
 

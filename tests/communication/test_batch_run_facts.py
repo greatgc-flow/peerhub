@@ -14,7 +14,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from peerhub.cli import suggest
+from peerhub.core.shell import format_shell_command
 from peerhub.cli.app import main
 from peerhub.core import load_limits, migrations
 from peerhub.extensions import ask, batch, bridge_schema, diag_running
@@ -492,8 +492,8 @@ def test_final_report_exposes_task_diagnostics_and_child_explain(no_scratch):
         stream, request = batch.derive_ids(report["batch_id"], row["task_id"])
         assert (row["stream"], row["request_id"]) == (stream, request)
         prefix = ["peerhub", "--db", str(db.absolute()), "diag"]
-        commands = [suggest._shell_command([*prefix, "running", "--peer", row["peer"]]),
-                    suggest._shell_command([*prefix, "health", "--stream", stream])]
+        commands = [format_shell_command([*prefix, "running", "--peer", row["peer"]]),
+                    format_shell_command([*prefix, "health", "--stream", stream])]
         if row["task_id"] == "uncertain":
             commands.append(explain)
         assert row["next"] == commands

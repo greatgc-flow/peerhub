@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping
 
 from peerhub.core import load_limits
 from peerhub.core.load_limits import CALLER_RELATIONS, UNKNOWN, load_snapshot
+from peerhub.core.text import human_duration
 from peerhub.extensions.caller import OWNER_ENV, caller_facts, caller_relation, detect_caller
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.liveness import ORPHAN_RUNNING, PROCESSES_DEAD, ask_process_state
@@ -140,10 +141,6 @@ def sample_load(db_path: str | Path, *, read_at: float | None = None,
                          unmapped=unmapped, active_by_relation=by_relation)
 
 
-def _secs(value: float | None) -> str:
-    return "?" if value is None else f"{value:.0f}s"  # "?" = no valid start evidence (elapsed) / not applicable to the lease
-
-
 def _stamp(started_at: float | None) -> str:
     """The recorded start, UTC, or "?" when there is no valid start evidence."""
     if started_at is None:
@@ -174,12 +171,20 @@ def format_running(report: dict[str, Any], *, width: int | None = None) -> str:
     if rows:
         table = [("PEER", "PROFILE", "STREAM", "REQUEST", "DELIVERY", "CERTAINTY", "STARTED", "ELAPSED", "LEASE")]
         table += [(r["peer_id"], r["profile"] or "-", r["stream_id"], r["request_id"] or "-", r["delivery_id"],
-                   r["certainty"], _stamp(r["started_at"]), _secs(r["elapsed_s"]), _secs(r["lease_expires_in_s"])) for r in rows]
+                   r["certainty"], _stamp(r["started_at"]), human_duration(r["elapsed_s"]), human_duration(r["lease_expires_in_s"])) for r in rows]
         widths = [max(len(str(line[i])) for line in table) for i in range(len(table[0]))]
         formatted = ["  ".join(str(cell).ljust(w) for cell, w in zip(line, widths)) for line in table]
-        lines.append(formatted[0] + "  CALLER")
-        lines.extend(f"{line}  {_caller_suffix(row)}" + (f"  {row['state']}" if "state" in row else "")
-                     for line, row in zip(formatted[1:], rows))
+        header = formatted[0] + "  CALLER"
+        callers = [_caller_suffix(row) + (f"  {row['state']}" if "state" in row else "") for row in rows]
+        table_rows = [f"{line}  {caller}" for line, caller in zip(formatted[1:], callers)]
+        if width is None or all(len(line) <= width for line in (header, *table_rows)):
+            lines.extend((header, *table_rows))
+        else:
+            labels = table[0]
+            for cells, caller in zip(table[1:], callers):
+                lines.append("  ".join(f"{key.lower()}={value}" for key, value in zip(labels[:5], cells[:5])))
+                lines.append("  " + "  ".join(f"{key.lower()}={value}" for key, value in zip(labels[5:], cells[5:])))
+                lines.append(f"  caller={caller}")
     if report["truncated"]:
         lines.append(f"(more rows not shown; limit {report.get('limit', MAX_ROWS)})")
     elif not rows and report["status"] == "OK":

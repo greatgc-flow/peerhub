@@ -63,19 +63,19 @@ def quota_reset_at(reading: Mapping[str, object], payload: Mapping[str, object],
     return anchor + duration
 
 
-def quota_window_remaining(item: Mapping[str, Any], read_at: float) -> float | None:
-    """Seconds until the reading's reset or maximum window age, whichever comes first."""
+def quota_window_timing(item: Mapping[str, Any], read_at: float) -> tuple[float | None, float | None]:
+    """Seconds before expiry (reset or maximum age) and the reported reset instant."""
     pool = item.get("pool_ref") or item.get("resource_pool_ref")
     if (not pool or item.get("kind", "quota") != "quota"
             or item.get("stored_state", item.get("state")) not in {"MEASURED", "STALE"}):
-        return None
+        return None, None
     raw = item.get("last_measurements") or item.get("measurements") or item.get("payload")
     if not isinstance(raw, Mapping):
-        return None
+        return None, None
     measurements = cast(Mapping[str, object], raw)
     remaining = finite_number(measurements.get("remaining_fraction"), overflow_is_missing=True)
     if remaining is None or not 0 <= remaining <= 1:
-        return None
+        return None, None
     reading = {**item, "read_at": read_at} if item.get("pool_ref") else item
     reset = quota_reset_at(reading, measurements, read_at)
     age = finite_number(item.get("age_seconds"), overflow_is_missing=True)
@@ -83,7 +83,7 @@ def quota_window_remaining(item: Mapping[str, Any], read_at: float) -> float | N
     limits = [reset - read_at] if reset is not None else []
     if age is not None and 0 < window < UNKNOWN_WINDOW_SECONDS:
         limits.append(window - age)
-    return min(limits, default=None)
+    return min(limits, default=None), reset
 
 
 _Pool = TypeVar("_Pool", bound=Mapping[str, Any])

@@ -274,7 +274,7 @@ def test_na_root_is_counted_and_its_peer_gets_a_marker(expand: bool, monkeypatch
         assert "POOLS 0" in hidden and "C-5H" not in hidden
         return
     screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-    assert "POOLS 1" in ANSI_ESCAPE.sub("", screen) and "(C-5H n/a)" in screen
+    assert "POOLS 0 (+1 n/a)" in ANSI_ESCAPE.sub("", screen) and "(C-5H n/a)" in screen
     dim = monitor_layout.RICH_SGR["dim"]
     assert not any("○ n/a" in line for line in screen.splitlines())
     if expand:

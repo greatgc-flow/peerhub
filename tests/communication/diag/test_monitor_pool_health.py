@@ -332,7 +332,7 @@ def test_m9_and_g_gap_order_and_single_legend_match_docs() -> None:
     for expand in (False, True):
         screen = " ".join(mv.render_grouped_frame(frame(*readings.values()), width=160, expand=expand).split())
         assert screen.count(monitor_legend.POOL_LEGEND) == 1
-        assert screen.index(line) < screen.index(monitor_legend.POOL_LEGEND) < screen.index("suggest:")
+        assert screen.index(line) < screen.index(monitor_legend.POOL_LEGEND)
     assert POOL_MARGIN_LEGEND in monitor_legend.POOL_LEGEND
     assert monitor_legend.POOL_LEGEND in " ".join(Path("docs/monitor.md").read_text(encoding="utf-8").split())
 
@@ -346,9 +346,7 @@ def test_projection_placeholder_is_explained_within_the_118_by_37_budget(expand:
     screen = mv.render_grouped_frame(frame(item), width=cols, height=rows, expand=expand, view=view, unicode=False)
     lines = screen.splitlines()
     legend_start = next(i for i, line in enumerate(lines) if line.startswith("PACE(pp)="))
-    suggest_start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    assert suggest_start - legend_start == 2
-    assert "? = too little data" in " ".join(lines[legend_start:suggest_start])
+    assert "? = too little data" in " ".join(lines[legend_start:legend_start + 2])
     shown = pool_cells(screen, "G-7D")
     assert len(shown) == (2 if expand else 1)
     assert all(cells[4] == "?" and cells[5].startswith("?/") for cells in shown)
@@ -380,9 +378,7 @@ def test_missing_pool_cells_match_the_record_and_docs(unicode: bool) -> None:
     assert all(f"`{placeholder}`" in line for line in (left_doc, margin_doc, pair_doc))
     for expand in (False, True):
         screen = mv.render_grouped_frame(frame(item), width=100, unicode=unicode, expand=expand)
-        assert ("gap vs " in screen) == expand
-        if expand:
-            assert f"{pool} {placeholder}" in next(line for line in screen.splitlines() if line.startswith("gap vs "))
+        assert f"{pool} {placeholder}" in next(line for line in screen.splitlines() if line.startswith("gap vs "))
         rows = pool_cells(screen, pool)
         assert rows and all(placeholder in cells for cells in rows)
         for cells in rows:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 
-LOW_QUOTA_FRACTION = 0.10  # a pool with this fraction left or less is LOW in the monitor, diag and suggest (one source)
+LOW_QUOTA_FRACTION = 0.10  # a pool with this fraction left or less is LOW in the monitor and diag (one source)
 QUOTA_TTL_SECONDS = 300  # a quota reading is STALE (gray) at this age; the monitor refreshes before it, see MONITOR_REFRESH_LEAD_SECONDS
 PLAN_SPEND_PACE_PT = 10.0  # spend at or below the negative threshold
 PLAN_REST_PACE_PT = 20.0  # rest strictly above the positive threshold

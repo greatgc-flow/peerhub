@@ -51,7 +51,7 @@ card_checked = "2026-11-27"
 # prints one stderr line when an ask uses it. Optional profile keys (all four are validated by the loader):
 #   alias_of = "<peer>.<name>"     take the binding of that profile (one level, same peer)
 #   effort_override = "<effort>"   the effort of an alias (needs alias_of)
-#   suggest = false                never recommended automatically; explicit use still works (default true)
+#   suggest = false                legacy profile key, accepted and ignored for planning
 #   measurement = "unmeasured"     no recorded measurement for the model id (default "measured")
 [profiles."cx.deepthink"]
 alias_of = "cx.effort"

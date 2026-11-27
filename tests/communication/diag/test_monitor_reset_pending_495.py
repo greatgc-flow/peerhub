@@ -61,3 +61,28 @@ def test_a_window_without_a_weekly_parent_stays_hidden(expand):
                        selected_groups=["capacity"])
     screen = render_grouped_frame(payload, view="plain", width=120, expand=expand)
     assert "refresh pending" not in screen
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_reset_placeholder_matches_the_weekly_parents_account(expand):
+    child = {**pool("ag", "G-5H", .3, reset=RESET_AGO), "pool_ref": "quota:ag:account-a:G-5H"}
+    other_parent = {**pool("ag", "G-7D", .8, pace=-10), "pool_ref": "quota:ag:account-b:G-7D"}
+    own_parent = {**pool("ag", "G-7D", .5, pace=10), "pool_ref": "quota:ag:account-a:G-7D"}
+    options = {"view": "plain", "width": 120, "expand": expand}
+    screen = render_grouped_frame(_payload([], [child, other_parent], selected_groups=["capacity"]), **options)
+    assert "refresh pending" not in screen
+
+    payload = _payload([], [child, other_parent, own_parent], selected_groups=["capacity"])
+    lines = render_grouped_frame(payload, **options).splitlines()
+    (index,) = [i for i, line in enumerate(lines) if "refresh pending" in line]
+    assert "80%" in lines[index - 2] and "50%" in lines[index - 1]
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_short_window_retired_by_age_has_no_reset_placeholder(expand):
+    window_seconds = 5 * 3600
+    child = {**pool("ag", "G-5H", .3, reset=60), "age_seconds": window_seconds + 1}
+    payload = _payload([], [child, pool("ag", "G-7D", .5)], selected_groups=["capacity"])
+    screen = render_grouped_frame(payload, view="plain", width=120, expand=expand)
+    assert "refresh pending" not in screen
+    assert ("ag G-5H n/a (quota window expired)" in screen) == expand

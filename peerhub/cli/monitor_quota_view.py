@@ -1,4 +1,4 @@
-"""Prepare monitor quota facts and render pools, accounts, and suggestions."""
+"""Prepare monitor quota facts and render pools and accounts."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -11,9 +11,11 @@ from peerhub.cli.monitor_format import (
     PoolEntry,
     display_min_quota,
     fold_pool_markers,
+    limit_pool_rows,
     na_pool_note,
     na_reason,
     ordered_pools,
+    pool_heading,
     pool_order,
     pool_table,
     quota_layout,
@@ -51,7 +53,7 @@ from peerhub.extensions.observation_model import (
 )
 from peerhub.extensions.pool_health import PoolHealth
 from peerhub.extensions.quota_read_model import PoolReading, PoolRow, monitor_reading, project_pool_rows
-from peerhub.extensions.quota_windows import EXPIRED_WINDOW_REASON, FAMILIES, omitted_plan_windows, pool_family, quota_window_remaining
+from peerhub.extensions.quota_windows import EXPIRED_WINDOW_REASON, FAMILIES, omitted_plan_windows, pool_family, quota_window_timing
 
 
 HIDDEN_QUOTA_WINDOWS = "Unavailable quota windows hidden (use --expand)"
@@ -109,48 +111,6 @@ def _account_rows(accounts: list[dict[str, Any]], elapsed: float, sep: str = " |
     return rows
 
 
-def compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, Any]]) -> str:
-    choices: dict[str, list[tuple[bool, float, str]]] = {tier: [] for tier in ("eco", "normal", "quality", "top")}
-    by_pool = {f"{row['peer']}:{row['pool']}": row for row in rows}
-    for profile in profiles:
-        if profile.get("suggest") is False:
-            continue
-        name = clean_text(profile.get("profile") or "")
-        peer, _, suffix = name.partition(".")
-        pools = cast(list[str], as_dict(as_dict(profile.get("fields")).get("pools")).get("value") or [])
-        scores: list[float] = []
-        fast = False
-        for pool in pools:
-            row = by_pool.get(f"{peer}:{pool}")
-            if (row is None or row["aged"] or row["state"] in {"?", "reset", "aged"}
-                    or row.get("reason") == EXPIRED_WINDOW_REASON):
-                break
-            if row["state"] == QUOTA_NA:
-                continue
-            remaining = finite_number(row["remaining"])
-            reset = finite_number(row["reset_seconds"])
-            if remaining is None or remaining < .05 or reset is None or reset <= 0:
-                break
-            scores.append(remaining * 100 / max(reset / 86400, .2))
-            fast = fast or row["state"] == "fast"
-        else:
-            if scores:
-                tier = {"standard": "eco", "effort": "normal", "deepthink": "quality"}.get(suffix, "top")
-                choices[tier].append((fast, min(scores), name))
-    if not any(choices.values()):
-        return f"{FRAME_SECTIONS['suggest']} no eligible profiles; next: peerhub observation refresh"
-    suggestions: list[str] = []
-    for tier, items in choices.items():
-        ranked = sorted(items, key=lambda item: (item[0], -item[1], item[2]))
-        pick = ranked[0][2] if ranked else "-"
-        peer = pick.partition(".")[0]
-        alternative = next((name for _, _, name in ranked if name.partition(".")[0] != peer), None)
-        if alternative is not None:
-            pick += f"|{alternative}"
-        suggestions.append(f"{tier}={pick}")
-    return FRAME_SECTIONS["suggest"] + " " + " ".join(suggestions)
-
-
 def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool, paint: bool) -> str:
     hint = f"  {POOLS_USE_FIRST_HINT}"
     if rich and head.startswith(title + " " * RULE_PREFIX_WIDTH):
@@ -163,17 +123,15 @@ def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool,
 
 
 def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
-                  rich: bool = False, paint: bool = False, every: bool = False, guide_url: str | None = None,
-                  profile_urls: Mapping[str, Any] | None = None,
-                  show_quota_notes: bool = False) -> tuple[list[str], int, int]:
+                  rich: bool = False, paint: bool = False, expand: bool = False, guide_url: str | None = None,
+                  profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], int, int, list[int]]:
     """POOLS rows, including inline markers and counts for any unavailable windows passed in."""
-    ordered = ordered_pools(rows, every=every, pending=True)
+    ordered = ordered_pools(rows, pending=True)
     placeholders = {id(row) for row, _ in ordered if row["state"] == QUOTA_NA}
-    unavailable = ([row for row in rows if row["state"] == QUOTA_NA and id(row) not in placeholders]
-                   if show_quota_notes else [])
-    suffixes, marker_rows = fold_pool_markers(ordered, unavailable, unicode, keep)
-    shown = ordered if every else ordered[:POOLS_CAP]
-    head = f"{FRAME_SECTIONS['pools']} {len(ordered) + len(unavailable) - len(marker_rows)}"
+    unavailable = [row for row in rows if row["state"] == QUOTA_NA and id(row) not in placeholders]
+    head = pool_heading(len(ordered), len(unavailable))
+    suffixes, marker_rows = fold_pool_markers(ordered, unavailable if expand else [], unicode, keep)
+    shown = ordered if expand else limit_pool_rows(ordered, POOLS_CAP)
     entries: list[PoolEntry] = []
     for index, (row, depth) in enumerate(shown):
         peer, pool = cell_text(row["peer"], unicode, "-", keep), cell_text(row["pool"], unicode, "-", keep)
@@ -190,12 +148,13 @@ def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: st
         entries.append((" " + peer if id(row) in marker_rows else " " + name,
                         {} if placeholder or id(row) in marker_rows else row, depth > 0,
                         note if placeholder else suffixes.get(id(row), "")))
-    table_rows = rows if show_quota_notes else [row for row in rows if row["state"] != QUOTA_NA]
-    headers, table, _ = pool_table(entries, table_rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
+    headers, table, _ = pool_table(entries, rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
+                                    show_quota_notes=expand,
                                     guide_url=guide_url, profile_urls=profile_urls)
     lines = [line for entry in table for line in entry]
-    headings = [_pools_heading(head, headers[0], width, unicode, rich, paint), *headers[1:]]
-    return [*headings, *lines], len(lines) + len(ordered) - len(shown), len(headings)
+    title = head if headers[0].startswith(head) else pool_heading(len(ordered) - len(marker_rows), 0)
+    headings = [_pools_heading(title, headers[0], width, unicode, rich, paint), *headers[1:]]
+    return [*headings, *lines], len(ordered), len(headings), [len(entry) for entry in table]
 
 
 def frame_consumers(payload: dict[str, Any]) -> dict[str, list[str]]:
@@ -309,11 +268,12 @@ def display_retired_windows(payload: dict[str, Any]) -> dict[str, Any]:
     read_at = finite_number(payload.get("read_at"))
     if read_at is not None:
         for item in observations:
-            remaining = quota_window_remaining(item, read_at)
+            remaining, reset_at = quota_window_timing(item, read_at)
             if remaining is not None and remaining < elapsed:
                 key = (str(item.get("peer_id")), str(item["pool_ref"]))
                 replacements.setdefault(key, {**item, "state": "ABSENT", "stored_state": "ABSENT",
                     "reason": EXPIRED_WINDOW_REASON, "display_retired": True, "age_seconds": None, "ttl_seconds": None,
+                    "_reset_passed": reset_at is not None and reset_at < read_at + elapsed,
                     "measurements": None, "last_measurements": None, "projection": {}, "resets_at": None, "reset_in_seconds": None})
     if not replacements:
         return payload
@@ -366,7 +326,7 @@ def with_retained_quota(payload: dict[str, Any]) -> dict[str, Any]:
             fraction = finite_number(raw.get("remaining_fraction"))
             retained = {**item, "state": "MEASURED", "stored_state": "MEASURED",
                         "measurements": raw, "_retained_quota": True}
-            remaining = quota_window_remaining(retained, now)
+            remaining, _ = quota_window_timing(retained, now)
             if (age is not None and 0 <= age + elapsed < QUOTA_MAX_AGE_SECONDS and fraction is not None and 0 <= fraction <= 1
                     and (remaining is None or remaining > elapsed)):
                 ages.append(age + elapsed)
@@ -453,7 +413,7 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
             available.append(row)
         visible = [row for row in available if row["state"] != QUOTA_NA]
         position = {(str(row["peer"]), str(row["pool_ref"])): index
-                    for index, (row, _) in enumerate(ordered_pools(visible, every=True))}
+                    for index, (row, _) in enumerate(ordered_pools(visible))}
         layout, retired_notes = quota_layout(available, unicode, show_quota_notes=True, order=position)
         entries = [
             (f"{row['display_peer'] or ' ' * cell_width(row['peer'])} {row['display_pool']}",

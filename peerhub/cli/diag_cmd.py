@@ -29,7 +29,7 @@ class _DiagRunningHelpFormatter(argparse.HelpFormatter):
                 pass
             else:
                 action = copy(action)
-                action.help = f"{action.help} Omit to read up to {MAX_ROWS} rows."
+                action.help = f"{action.help} By default, read up to {MAX_ROWS} rows."
         super().add_argument(action)
 
 
@@ -92,10 +92,10 @@ def register_diag_parser(subparsers: Subparsers) -> None:
                                                 "and nothing is written or refreshed. A lease is not proof a process is alive; "
                                                 "elapsed time comes from recorded start evidence and is null without it. "
                                                 "Claims are matched to the workspace.generation file beside the database; without that file all generations match. "
-                                                "Query cost grows with the delivery history of the live streams themselves (observed: about 45k SQLite VM steps at 9,000 rows in one stream). Rows are oldest first. Exit: 0 ok, 4 storage fault, 5 database unavailable, 6 schema version.")
+                                                "Rows are oldest first. Exit: 0 ok, 4 storage fault, 5 database unavailable, 6 schema version.")
     d_running.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_running.add_argument("--peer", help="Only this peer (exact match, e.g. cx)")
-    d_running.add_argument("--limit", type=int, default=None, help="Maximum rows to read, 1 or more (default %(default)s).")
+    d_running.add_argument("--limit", type=int, default=None, help="Maximum rows to read, 1 or more.")
     d_running.epilog = "examples: peerhub diag running | peerhub --db ws.db diag running --json"
 
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")

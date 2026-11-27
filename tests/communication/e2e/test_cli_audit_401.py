@@ -38,7 +38,7 @@ def test_ask_unknown_peer_is_a_user_error_with_its_own_code(tmp_path, capsys):
 
 def test_profile_show_unknown_name_does_not_leak_the_exception_class(capsys):
     code, out, err = _run(capsys, "profile", "show", "nosuch.profile")
-    assert code == 1
+    assert code == 2
     assert err.startswith("[invalid_arguments] unknown model profile")
     assert "ValueError" not in err
 

@@ -55,7 +55,7 @@ test suite checks that packaged evidence paths and lesson ids exist (issue refs:
 
 Four more optional profile keys (0.25.0): `alias_of`, `effort_override`, `suggest` and `measurement`
 (see [model profiles](model-profiles/README.md)). They merge by field like the others and are not binding keys,
-so setting them does not drop the card.
+so setting them does not drop the card. The legacy boolean `suggest` is accepted for compatibility and ignored for planning.
 An alias resolves effort in layer order across its `effort_override`, its `reasoning_effort`, and the
 target profile's `reasoning_effort`. Within one layer, those keys win in that order.
 

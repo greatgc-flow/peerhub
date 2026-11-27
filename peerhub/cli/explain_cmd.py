@@ -8,6 +8,7 @@ import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY, GuidanceEntry
 from peerhub.cli.recovery_render import get_guidance
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
@@ -59,7 +60,7 @@ def _explain_profile(profile: str, *, json_output: bool) -> int:
         if json_output:
             print(json.dumps({"error": f"{reason}: {profile}"}, indent=2, ensure_ascii=True))
         error_line("invalid_arguments", f"{reason}: {profile!r}", "peerhub profile list")
-        return 1
+        return INVALID_ARGUMENTS_EXIT
     if json_output:
         print(json.dumps({"profile": info}, indent=2, ensure_ascii=True))
         return 0
@@ -112,7 +113,7 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
             print(json.dumps({"error": f"Unknown guidance code: {code!r}", "known_codes": known}, indent=2, ensure_ascii=True))
         from peerhub.cli.support import error_line
         error_line("invalid_arguments", msg, "peerhub explain lessons")
-        return 1
+        return INVALID_ARGUMENTS_EXIT
 
     if json_output:
         print(json.dumps(entry.to_dict(), indent=2, ensure_ascii=True))

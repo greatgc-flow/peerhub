@@ -19,7 +19,6 @@ def parts(**over: Any) -> CompactFrame:
         running=["RUNNING 9 | cc 9", *[f" {i}m  cc.effort  lead  request {i}  task-{i}" for i in range(5)]],
         running_total=9,
         recent=["RECENT 4", " ok  1m  cc.effort  lead  reply a  done-a", " ok  2m  cc.effort  lead  reply b  done-b"],
-        suggest=["suggest: eco=cc.standard normal=cc.effort", "  quality=cc.deepthink top=cc.fable"],
         pools=["POOLS 10  STATE LEFT", *[f" cc P{i}-7D  ok  50%" for i in range(8)]],
         pools_total=10)
     base.update(over)
@@ -32,7 +31,7 @@ def fitted(height: int | None, width: int = 100, **over: Any) -> list[str]:
 
 def test_unbounded_frame_keeps_every_section_within_24_lines():
     lines = fitted(None)
-    assert len(lines) == COMPACT_MAX_LINES
+    assert len(lines) <= COMPACT_MAX_LINES
     assert "+2 pools (--expand)" in lines and "+4 more (--expand)" in lines
     assert [line.split()[0] for line in lines if not line.startswith((" ", "+"))][2:] == [
         head for head in FRAME_HEADS if head not in {"ALERTS", "LEADS"}]
@@ -66,8 +65,7 @@ def test_each_step_removes_in_the_single_order():
         running = sum(line.startswith(" ") and "task-" in line for line in lines)
         recent = sum("done-" in line for line in lines)
         pools = sum(line.startswith(" cc P") for line in lines)
-        suggest = sum(line.startswith(("suggest:", "  quality")) for line in lines)
-        state = (recent, running, pools, suggest, any(l.startswith("RECENT") for l in lines),
+        state = (recent, running, pools, any(l.startswith("RECENT") for l in lines),
                  any(l.startswith("POOLS") for l in lines), any(l.startswith("RUNNING") for l in lines), len(lines))
         seen.append(state)
         if previous is not None:
@@ -79,7 +77,7 @@ def test_each_step_removes_in_the_single_order():
 
 def test_first_removal_that_creates_an_overflow_line_removes_two_rows():
     rows = [f" row {i}" for i in range(5)]
-    base = dict(running=["RUNNING 5", *rows], running_total=5, recent=None, suggest=[], pools=None, pools_total=0)
+    base = dict(running=["RUNNING 5", *rows], running_total=5, recent=None, pools=None, pools_total=0)
     full = fitted(None, **base)
     assert len(full) == 8 and "+" not in full[-1]
     lines = fitted(len(full), **base)  # one line over: the overflow line costs one more
@@ -92,7 +90,7 @@ def test_first_cut_above_the_floor_keeps_the_overflow_count(key, total):
     # K5: one row over the budget. The first cut takes two rows to leave room for the overflow line.
     head = f"{FRAME_SECTION_HEADS[key]} {total}"
     rows = [f" row {i}" for i in range(total)]
-    base = {"running": None, "pools": None, "recent": None, "suggest": [], key: [head, *rows],
+    base = {"running": None, "pools": None, "recent": None, key: [head, *rows],
             f"{key}_total": total}
     full = fitted(None, **base)
     lines = fitted(len(full), **base)  # one line over
@@ -103,7 +101,7 @@ def test_first_cut_above_the_floor_keeps_the_overflow_count(key, total):
 
 def test_an_updated_overflow_line_is_refitted_to_the_width():
     rows = [f" r{i}" for i in range(12)]
-    base = dict(running=["RUNNING 12", *rows[:5]], running_total=12, recent=None, suggest=[], pools=None, pools_total=0)
+    base = dict(running=["RUNNING 12", *rows[:5]], running_total=12, recent=None, pools=None, pools_total=0)
     for width in (19, 17, 9, 4):
         for height in range(3, 12):
             lines = fit_compact_frame(parts(**base), width=width, height=height, unicode=False).splitlines()

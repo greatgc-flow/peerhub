@@ -18,17 +18,18 @@ from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, cast
 
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub.cli.monitor_legend import MONITOR_LEGEND, POOL_LEGEND
 from peerhub.cli.monitor_refresh import (
     MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, monitor_auto_probe, refresh_monitor_quota,
 )
 from peerhub.cli.support import error_line, print_warnings
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
-from peerhub.core.monitor_groups import DEFAULT_GROUPS, GROUP_IDS
+from peerhub.core.monitor_groups import DEFAULT_GROUPS, GROUP_DESCRIPTIONS, GROUP_IDS
 
 RUNNING_REFRESH_SECONDS = 5
 _GROUP_METAVAR = "GROUP"
-_GROUP_CHOICES_HELP = " Choices: %(choices)s."
+_OPEN_NEXT = "peerhub monitor --snapshot"
 
 
 class _MonitorHelpFormatter(argparse.HelpFormatter):
@@ -44,15 +45,17 @@ def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
 
 def register_monitor_parser(subparsers: Any) -> None:
+    groups = [f"  {group}: {meaning}" for group, meaning in GROUP_DESCRIPTIONS.items()]
     p = subparsers.add_parser("monitor", help="Watch committed quota evidence and diagnostics",
-                             epilog="\n".join((POOL_LEGEND, *MONITOR_LEGEND)), formatter_class=_MonitorHelpFormatter)
+                             epilog="\n".join(("Group meanings (--group):", *groups, "", POOL_LEGEND, *MONITOR_LEGEND)),
+                             formatter_class=_MonitorHelpFormatter)
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
                    help="Run watch cycles every N s (positive seconds, default %(default)s). "
                         "On supported TTYs, the countdown redraws at most 1 Hz.")
     p.add_argument("--cycles", type=int, default=None,
                    help="Number of cycles (default: 1 when stdout is not a TTY, until interrupted on a TTY; 0 = until interrupted everywhere)")
     p.add_argument("--peers", nargs="+", default=list(QUOTA_CAPABLE_PEERS),
-                   help="Peers to refresh quota for during watch")
+                   help=f"Peers to refresh quota for during watch (default: {' '.join(QUOTA_CAPABLE_PEERS)})")
     p.add_argument("--no-probe", action="store_true",
                        help="Disable automatic quota refresh on a TTY (also PEERHUB_MONITOR_PROBE=off)")
     p.add_argument("--timeout-seconds", dest="timeout", type=float, default=15.0,
@@ -65,9 +68,9 @@ def register_monitor_parser(subparsers: Any) -> None:
                    help="Dashboard style: auto (rich on a TTY), rich (colour), plain (ASCII override for ambiguous-width box glyphs, ▲▼ and █ in Korean/East-Asian locales). Set PEERHUB_MONITOR_VIEW=plain for a lasting ASCII fix (auto|rich|plain; explicit --view wins). Both show PACE; VT TTY redraws at most 1 Hz; non-TTY appends completed frames; TTY without VT appends without escapes")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
                    help="Explicit portable provider installation directory")
-    p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None, metavar=_GROUP_METAVAR,
-                   help="Select groups for a snapshot or watch. Use --expand for detailed sections."
-                        + _GROUP_CHOICES_HELP)
+    p.add_argument("--group", action="append", choices=tuple(GROUP_DESCRIPTIONS), default=None, metavar=_GROUP_METAVAR,
+                   help="Select groups for a snapshot or watch (repeatable, see group meanings below). "
+                        "Use --expand for detailed sections.")
     p.add_argument("--snapshot", action="store_true", help="Render one read-only grouped snapshot without refreshing providers")
     layout = p.add_mutually_exclusive_group()
     layout.add_argument("--compact", action="store_true", help="Render the compact dashboard (default)")
@@ -105,7 +108,6 @@ def _cached_profiles(workspace: str, fingerprints: tuple[tuple[str, str, int, in
         card: dict[str, dict[str, Any]] | None = profile["card"]
         sources = {field["source"] for field in (*fields.values(), *(card or {}).values())}
         profile["_definition_layer"] = next((layer for layer, *_ in reversed(fingerprints) if layer in sources), None)
-        profile["suggest"] = fields["suggest"]["value"]
         for key in META_KEYS:
             fields.pop(key)
     return profiles
@@ -535,7 +537,7 @@ def run_monitor_command(args: argparse.Namespace, parser: argparse.ArgumentParse
         if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
             return 5
         try:
-            prompt = read_ask_prompt(args.db, args.id)
+            found, prompt = read_ask_prompt(args.db, args.id)
             decoded = json.loads(prompt) if prompt is not None else None  # validate in both output modes
             payload = {"id": args.id, "prompt": decoded} if args.json and prompt is not None else None
         except SchemaVersionError:
@@ -544,9 +546,12 @@ def run_monitor_command(args: argparse.Namespace, parser: argparse.ArgumentParse
         except (sqlite3.Error, ValueError) as exc:
             error_line("diag_unavailable", f"Could not read the stored prompt ({type(exc).__name__})", "peerhub diag health")
             return 4
-        if prompt is None:
-            error_line("invalid_arguments", "Ask ID has no stored prompt", "peerhub monitor --snapshot")
+        if not found:
+            error_line("not_found", f"Unknown ask ID {args.id!r}", _OPEN_NEXT)
             return 1
+        if prompt is None:
+            error_line("invalid_arguments", "Ask ID has no stored prompt", _OPEN_NEXT)
+            return INVALID_ARGUMENTS_EXIT
         print(json.dumps(payload, ensure_ascii=True) if args.json else prompt)
         return 0
     return run_monitor(args, parser)

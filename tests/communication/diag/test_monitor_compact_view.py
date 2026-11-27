@@ -74,20 +74,20 @@ def _header(screen):
 
 
 def _solo(frame, drop=":G-7D", **kw):
-    """#374: a 5-hour pool shows in the compact frame only when it binds; drop its 7-day pool so it is a row of its own."""
+    """Drop one row from the fixture before rendering."""
     frame = deepcopy(frame)
     rows = frame["groups"]["capacity"]["data"]["observations"]
     rows[:] = [row for row in rows if not str(row.get("pool_ref")).endswith(drop)]
     return render_grouped_frame(frame, **kw)
 
 
-def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_frame):
-    # G4: POOLS uses the shared columns. A 5-hour row shows only when it binds.
+def test_pool_screen_layout_state_precedence_and_no_number_reset(compact_frame):
+    # G4: POOLS uses the shared columns and includes the nonbinding short window.
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=100)
     assert screen.splitlines()[1] == "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m"
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    assert _header(screen).split() == ["POOLS", "6", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
+    assert _header(screen).split() == ["POOLS", "7", "(+1", "n/a)", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "aged", "0%!"),
                                 ("A-7D", "aged", "55%"), ("G-7D", "reset", None), ("F-7D", "?", None),
                                 ("X-7D", "ok", "89%")):
@@ -95,7 +95,7 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
         assert state in row.split()
         assert "%" not in row if value is None else value in row
     assert screen.index(_row(screen, "3P-7D")) < screen.index(_row(screen, "3P-5H")) < screen.index(_row(screen, "X-7D"))
-    assert "G-5H" not in screen and "X-5H" not in screen
+    assert "80%" in _row(screen, "G-5H") and "X-5H" not in screen
     assert "claude-via-ag" in _row(screen, "3P-7D")
     for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "ok enough",
                 "PEERS", "facts ok", "sessions >=", "delivery", "telemetry", "unmapped", "deepthink 0%"):
@@ -143,7 +143,7 @@ def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unus
 @pytest.mark.parametrize("width", [80, 100])
 @pytest.mark.parametrize("elapsed", [0, 60])
 @pytest.mark.parametrize("reset_field", ["resets_at", "reset_in_seconds"])
-def test_exact_reset_expires_state_pace_and_suggestion(compact_frame, width, elapsed, reset_field):
+def test_exact_reset_expires_state_and_pace(compact_frame, width, elapsed, reset_field):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "on_pace", "pace_pt": 46})
     row.pop("resets_at")
@@ -157,16 +157,6 @@ def test_exact_reset_expires_state_pace_and_suggestion(compact_frame, width, ela
     pool = _row(screen, "G-5H")
     assert "reset" in pool.split() and "80%" not in pool
     assert "—" in pool.split() and "PACE(pp)" in header  # G2: no past-window pace
-    assert "suggest: no eligible profiles; next: peerhub observation refresh" in screen
-
-
-def test_suggestions_reject_zero_reset_seconds():
-    from peerhub.cli.monitor_quota_view import compact_suggestions
-
-    profiles = [{"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
-    rows = [{"peer": "ag", "pool": "G-5H", "remaining": .8, "reset_seconds": 0,
-             "aged": False, "state": "ok"}]
-    assert compact_suggestions(profiles, rows) == "suggest: no eligible profiles; next: peerhub observation refresh"
 
 
 @pytest.mark.parametrize("width", [60, 70])
@@ -311,8 +301,13 @@ def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
     # whole (LEFT drops as a column, never as a cut number).
     head = re.escape(FRAME_SECTIONS["pools"])
     pools = re.split(rf"\n(?:-- )?{head} ", screen, maxsplit=1)[1]  # P21: rich with ASCII glyphs draws a rule
-    pools = pools.split("\nsuggest:", 1)[0]  # P21: the suggestion and the activity follow POOLS
-    assert "55%" in pools and ("89%" in pools or re.search(r"(?m)^\+\d+ pools", pools))  # G4: LEFT stays.
+    pools = pools.split("\nPACE(pp)=", 1)[0]
+    hidden = re.search(r"(?m)^\+(\d+) pools", pools)
+    if width == 20:
+        assert {"0%!", "1%!"} <= set(pools.split())
+        assert hidden and int(hidden[1]) == 7 - 2  # wrapped display lines still count as one row
+    else:
+        assert "55%" in pools and ("89%" in pools or hidden)  # G4: LEFT stays.
     if width < 48:
         assert "PEER  POOL" not in screen  # labelled vertical pool rows on narrow terminals
 
@@ -336,7 +331,7 @@ def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_fram
     original = deepcopy(compact_frame)
     screen = render_grouped_frame(compact_frame, width=100)
     assert "fast" in _row(_solo(compact_frame, width=100), "G-5H").split()
-    assert "normal=cx.effort|ag.effort" in screen
+    assert "fast" in _row(screen, "G-5H").split()
     for view in ("plain", "rich"):
         expanded = render_grouped_frame(compact_frame, view=view, width=100, expand=True)
         assert "EXH/RESET" in expanded  # G3
@@ -496,29 +491,6 @@ def test_expired_absent_is_aged_not_na(compact_frame):
     assert "aged" in _row(screen, "X-5H").split()
 
 
-@pytest.mark.parametrize("bad", ["aged", "reset", "unknown", "low", "missing", "na-only"])
-def test_suggestions_exclude_unusable_profiles(compact_frame, bad):
-    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
-    compact_frame["configured_profiles"] = [{"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
-    if bad == "aged": row.update(state="STALE", age_seconds=301)
-    if bad == "reset": row.update(resets_at=NOW - 1)
-    if bad == "unknown": row.update(state="UNKNOWN")
-    if bad == "low": row.update(last_measurements={"remaining_fraction": .049})
-    if bad == "missing": row.update(pool_ref="quota:ag:G-7D")
-    if bad == "na-only": row.update(state="ABSENT", reason="not reported by provider")
-    screen = render_grouped_frame(compact_frame)
-    assert "suggest: no eligible profiles; next: peerhub observation refresh" in screen.splitlines()
-    assert "eco=- normal=- quality=- top=-" not in screen
-
-
-def test_suggestions_exclude_profiles_with_suggest_false(compact_frame):
-    compact_frame["configured_profiles"].append({
-        "profile": "ag.effort", "suggest": False, "fields": {"pools": {"value": ["G-5H"]}},
-    })
-    screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    assert "suggest: eco=- normal=cx.effort quality=- top=-" in screen.splitlines()
-
-
 @pytest.mark.parametrize("aged", [True, False])
 def test_peers_lines_left_the_compact_frame(compact_frame, aged):
     # #374: the PEERS summaries (and their "(aged)" suffix) are --expand only; an aged pool shows as `aged` in POOLS.
@@ -529,95 +501,6 @@ def test_peers_lines_left_the_compact_frame(compact_frame, aged):
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
     assert "PEERS" not in screen and "(aged)" not in screen
     assert ("aged" in _row(screen, "A-7D").split()) == aged
-
-
-def test_suggestions_min_score_na_skip_and_fable_own_pool(compact_frame):
-    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
-    rows[5].update(last_measurements={"remaining_fraction": .7})
-    compact_frame["configured_profiles"] = [
-        {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
-            ("ag.standard", ["G-5H"]), ("ag.effort", ["G-5H", "A-7D"]),
-            ("cx.effort", ["X-5H", "X-7D"]), ("cc.fable", ["F-7D"]))]
-    screen = render_grouped_frame(compact_frame)
-    assert "suggest: eco=ag.standard normal=cx.effort quality=- top=cc.fable" in screen
-    assert "70%" in _row(screen, "F-7D")  # #374: was the PEERS summary "fable 70% (F-7D)"
-
-
-def test_suggestions_use_the_worst_pool_score_and_keep_five_percent(compact_frame):
-    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
-    rows[2].update(state="MEASURED", age_seconds=60, last_measurements={"remaining_fraction": .05},
-                   resets_at=NOW + 86400)
-    rows[7].update(last_measurements={"remaining_fraction": .5}, resets_at=NOW + 86400)
-    compact_frame["configured_profiles"] = [
-        {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
-            ("ag.effort", ["A-7D", "G-5H"]), ("cx.effort", ["X-7D"]))]
-    assert "normal=cx.effort|ag.effort" in render_grouped_frame(compact_frame)
-    rows[7].update(state="UNKNOWN")
-    assert "normal=ag.effort" in render_grouped_frame(compact_frame)
-
-
-@pytest.mark.parametrize("all_fast", [False, True])
-def test_suggestions_prefer_non_fast_but_still_pick_when_all_fast(compact_frame, all_fast):
-    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
-    # ag has the better H score; its second applicable pool makes it fast.
-    rows[2].update(state="MEASURED", age_seconds=60, resets_at=NOW + 86400,
-                   last_measurements={"remaining_fraction": .8})
-    rows[3].update(projection_samples=2)
-    anchor_pool(rows[3], NOW, 5)
-    rows[7].update(resets_at=NOW + 86400, last_measurements={"remaining_fraction": .5},
-                   projection_samples=2)
-    anchor_pool(rows[7], NOW, 15 if all_fast else 0)
-    compact_frame["configured_profiles"] = [
-        {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
-            ("ag.effort", ["A-7D", "G-5H"]), ("cx.effort", ["X-5H", "X-7D"]))]
-    screen = render_grouped_frame(compact_frame, width=100)
-    pick = "ag.effort|cx.effort" if all_fast else "cx.effort|ag.effort"
-    assert f"normal={pick}" in screen
-    assert "no eligible profiles" not in screen
-
-
-@pytest.mark.parametrize("remaining,eligible", [(.049, False), (.05, True), (.075, True), (.10, True)])
-def test_suggestions_keep_low_pools_at_or_above_five_percent(compact_frame, remaining, eligible):
-    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
-    row.update(last_measurements={"remaining_fraction": remaining})
-    compact_frame["configured_profiles"] = [
-        {"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
-    screen = render_grouped_frame(compact_frame)
-    assert ("normal=ag.effort" in screen) == eligible
-    assert ("no eligible profiles; next: peerhub observation refresh" in screen) != eligible
-
-
-@pytest.mark.parametrize("tier,suffix", [("eco", "standard"), ("normal", "effort"),
-                                        ("quality", "deepthink"), ("top", "custom")])
-def test_suggestions_alternative_uses_same_ranking_with_name_ties(tier, suffix):
-    from peerhub.cli.monitor_quota_view import compact_suggestions
-
-    profiles = [{"profile": f"{peer}.{suffix}", "fields": {"pools": {"value": ["P-7D"]}}}
-                for peer in ("cx", "cc", "ag")]
-    rows = [{"peer": peer, "pool": "P-7D", "remaining": remaining, "reset_seconds": 86400,
-             "aged": False, "state": "ok"} for peer, remaining in (("cx", .5), ("cc", .8), ("ag", .5))]
-    result = compact_suggestions(profiles, rows)
-    assert f"{tier}=cc.{suffix}|ag.{suffix}" in result
-    assert result == compact_suggestions(list(reversed(profiles)), list(reversed(rows)))
-
-
-@pytest.mark.parametrize("alternative", ["eligible", "absent", "same-peer", "ineligible"])
-def test_suggestions_only_append_eligible_different_peer(alternative):
-    from peerhub.cli.monitor_quota_view import compact_suggestions
-
-    profiles = [{"profile": "cc.fable", "fields": {"pools": {"value": ["F-7D"]}}},
-                {"profile": "cc.other", "fields": {"pools": {"value": ["F-7D"]}}}]
-    rows = [{"peer": "cc", "pool": "F-7D", "remaining": .8, "reset_seconds": 86400,
-             "aged": False, "state": "ok"}]
-    if alternative != "same-peer":
-        profiles.append({"profile": "ag.probe", "fields": {"pools": {"value": ["A-7D"]}}})
-    if alternative in {"eligible", "ineligible"}:
-        rows.append({"peer": "ag", "pool": "A-7D", "remaining": .5, "reset_seconds": 86400,
-                     "aged": alternative == "ineligible", "state": "ok"})
-    expected = "suggest: eco=- normal=- quality=- top=cc.fable"
-    if alternative == "eligible":
-        expected += "|ag.probe"
-    assert compact_suggestions(profiles, rows) == expected
 
 
 def test_peers_only_uses_snapshot_capacity_support(compact_frame):
@@ -633,15 +516,14 @@ def test_peers_only_uses_snapshot_capacity_support(compact_frame):
     assert lines[-1].startswith("Guide: ")
 
 
-def test_cached_profiles_keep_public_fields_and_add_suggest_and_link_provenance(monkeypatch):
+def test_cached_profiles_keep_public_fields_and_add_link_provenance(monkeypatch):
     from peerhub.cli.monitor import _cached_profiles, _profile_fingerprints
     from peerhub.extensions.adapters.profiles import list_profiles
 
     workspace = Path(__file__).resolve().parent
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(workspace))
-    disabled = {"cc.deepthink", "cx.deepthink", "ag.effort"}
     assert _cached_profiles(str(workspace), _profile_fingerprints(workspace)) == [
-        {**profile, "suggest": profile["profile"] not in disabled, "_definition_layer": "packaged"}
+        {**profile, "_definition_layer": "packaged"}
         for profile in list_profiles(workspace)
     ]
 
@@ -700,7 +582,7 @@ def test_compact_and_expand_each_keep_their_pool_order(compact_frame):
     # Unknown-PACE roots tie by peer and name in POOLS and QUOTA uses that rank within peer groups.
     compact = _compact_pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
     expanded = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=120, expand=True))
-    assert compact == ["ag 3P-7D", "ag 3P-5H", *sorted(["ag G-7D", "cc F-7D", "cx X-7D", "ag A-7D"])]
+    assert compact == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H", "cc F-7D", "cx X-7D"]
     assert expanded[:5] == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H"]
 
 
@@ -710,8 +592,8 @@ COMPACT_COLUMNS = ["STATE", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET",
 @pytest.mark.parametrize("width", [40, 60, 80, 100])
 def test_g_pools_columns_drop_in_order_after_the_core_columns(compact_frame, width):
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)
-    columns = _header(screen).removesuffix(POOLS_USE_FIRST_HINT).split()[2:]
-    assert columns == COMPACT_COLUMNS[:len(columns)] and len(columns) >= 3
+    columns = _header(screen).partition("STATE")[2].removesuffix(POOLS_USE_FIRST_HINT).split()
+    assert columns == COMPACT_COLUMNS[1:len(columns) + 1] and len(columns) >= 2
     assert "55% ~9m" in " ".join(screen.split())  # M9 badge stays with LEFT
     assert "Columns omitted" not in screen
 
@@ -758,7 +640,7 @@ def test_expand_and_compact_keep_the_column_priority_order(compact_frame):
     header = next(line for line in expanded.splitlines() if line.startswith("PEER "))
     assert header.split()[2:2 + len(COMPACT_COLUMNS)] == COMPACT_COLUMNS  # G4
     compact = _header(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
-    assert compact.removesuffix(POOLS_USE_FIRST_HINT).split()[2:] == COMPACT_COLUMNS  # STATE directly after POOL (#374 F5)
+    assert compact.partition("STATE")[2].removesuffix(POOLS_USE_FIRST_HINT).split() == COMPACT_COLUMNS[1:]  # STATE directly after POOL (#374 F5)
 
 
 def test_wide_pools_table_keeps_every_column_and_prints_no_omission(compact_frame):

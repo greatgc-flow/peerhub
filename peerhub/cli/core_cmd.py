@@ -69,7 +69,7 @@ def register_core_parser(subparsers: Subparsers) -> None:
     r_append.add_argument("--body", required=True, help="Record body as JSON. Input that is not valid JSON is stored as text.")
     r_append.add_argument("--idempotency-key", required=True, dest="idemp_key", help="Key that makes a retry of this append safe")
     r_append.add_argument("--created-at", default=None,
-                          help="RFC 3339 timestamp (default %(default)s, use the current UTC time). "
+                          help="RFC 3339 timestamp (default: current UTC time). "
                                "Pass the same timestamp on retries because it is part of the idempotency digest.")
     r_append.add_argument("--targets", nargs="*", default=[], help="Peer IDs the record is addressed to")
 

@@ -37,6 +37,20 @@ they do not claim new validation or publication evidence.
 - `peerhub ask` reports a missing or unreadable `--query-file` as `invalid_arguments` (exit 2) with the file name and a check-the-path hint across text, `--dry-run`, and `--json`, and `ask PEER --json` without a prompt emits one consistent hint (#497).
 - `peerhub batch run` gives an `invalid JSON at line N` hint when an existing manifest contains invalid JSON instead of `check manifest path` (#497).
 - `peerhub.cli.support.error_line` strips only a single trailing sentence period, preserving `...` and path dots (#497).
+- Monitor help describes each group and lists the default refresh peers (#497).
+- Ask, diag running and record append help use plain-language defaults. Diag running help omits SQLite internals (#497).
+- Diag running formats durations in days, hours, minutes and seconds, with labeled rows when the table exceeds the terminal width (#497).
+
+### Fixed
+
+- Compact and expanded monitor views count the same pools, tally unavailable windows separately, and compare the same reported weekly windows in the pace gap (#497).
+- `monitor open` returns `[not_found]` with exit 1 for an unknown ask ID. All `[invalid_arguments]` errors exit 2 (#497).
+- Monitor shows a reset placeholder only when the reported reset time has passed and a weekly parent exists for the same peer, account and family (#495).
+
+### Removed
+
+- Removed the deprecated `peerhub suggest` command. The legacy `suggest` profile key is accepted and ignored for planning. Use `peerhub diag --plan` (#497).
+- Removed the `suggest:` line from both monitor layouts (#497).
 
 ## [0.27.1] - 2026-11-27
 

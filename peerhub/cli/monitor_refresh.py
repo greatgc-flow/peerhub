@@ -1,4 +1,4 @@
-"""Schedule quota refreshes for CLI watch, suggestion and dispatch."""
+"""Schedule quota refreshes for CLI watch and ask dispatch."""
 from __future__ import annotations
 
 import argparse
