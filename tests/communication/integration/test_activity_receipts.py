@@ -60,6 +60,7 @@ def test_failed_api_retains_attributable_counters_without_verifying_task(tmp_pat
     ("bridge.after_terminal_evidence_before_offset_ack", []),
     ("bridge.after_terminal_evidence_before_response_append", ["ai.response"]),
 ])
+@pytest.mark.platform_sensitive
 def test_checkpoint_across_recovery_does_not_replay(tmp_path, capsys, seam, expected):
     ws = tmp_path / "ws"
     h = BridgeHarness(ws)

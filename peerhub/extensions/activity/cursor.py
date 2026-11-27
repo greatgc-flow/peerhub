@@ -57,7 +57,7 @@ def wire(value: Any) -> str:
 
 def encode(store: str, lineage: str, scope: str, after: dict[str, int], heads: dict[str, int] | None) -> str:
     raw = wire([1, store, lineage, scope, after, heads]).encode("ascii")
-    token = base64.urlsafe_b64encode(hashlib.sha256(raw).digest() + raw).decode("ascii")
+    token = "a1." + base64.urlsafe_b64encode(hashlib.sha256(raw).digest() + raw).decode("ascii")
     if len(token) > MAX_TOKEN:
         raise ActivityError("PARTITION_LIMIT")
     return token
@@ -79,7 +79,7 @@ def decode(token: str, store: str, lineage: str | None, scope: str) -> tuple[dic
     try:
         if not token or len(token) > MAX_TOKEN:
             raise ValueError
-        data = base64.b64decode(token, altchars=b"-_", validate=True)
+        data = base64.b64decode(token.removeprefix("a1."), altchars=b"-_", validate=True)
         raw = data[32:]
         if not hmac.compare_digest(data[:32], hashlib.sha256(raw).digest()):
             raise ValueError

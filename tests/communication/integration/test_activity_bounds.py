@@ -91,6 +91,7 @@ def test_malformed_store_stops_without_repair(tmp_path, capsys):
     assert db.read_bytes() == b"PRIVATE-NOT-A-DB"
 
 
+@pytest.mark.platform_sensitive
 def test_ten_thousand_records_and_evidence_have_bounded_pages_and_release_wal(tmp_path):
     from peerhub.extensions.activity.reader import export_page
     from tests.communication.bridge_helpers import bseed
@@ -121,3 +122,15 @@ def test_ten_thousand_records_and_evidence_have_bounded_pages_and_release_wal(tm
         assert count == len(events) == 20000
         # No read transaction survives between polls, even with a consumer retaining its last page.
         assert writer.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone() == (0, 0, 0)
+
+
+def test_emitted_cursor_is_always_a_positional_argument_value(tmp_path, capsys, monkeypatch):
+    from peerhub.extensions.activity import cursor
+
+    db = tmp_path / "db"
+    deliver(db)
+    # The checksum of this checkpoint starts with '-' in raw base64url, which argparse treats as an option.
+    monkeypatch.setattr(cursor, "identity", lambda _: ("fixture-55", "epoch"))
+    first = page(capsys, db, "export", "--stream", "z")
+    assert not first["next_cursor"].startswith("-")
+    assert not page(capsys, db, "export", "--stream", "z", "--cursor", first["next_cursor"])["items"]

@@ -67,6 +67,7 @@ def test_scoped_show_linkage_privacy_and_no_writes(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("changed", ["clone", "workspace.generation", "restore.epoch"])
+@pytest.mark.platform_sensitive
 def test_restore_requires_new_snapshot(tmp_path, capsys, changed):
     db = tmp_path / "source.db"
     deliver(db)

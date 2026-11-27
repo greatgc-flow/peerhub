@@ -354,7 +354,7 @@ EFFECT = {
     "update --json": lambda e: update_effect(e, "--json"),
 }
 
-from tests.communication.e2e.cli_extension_effects import EFFECT as EXTENSION_EFFECT
+from tests.communication.e2e.cli_extension_effects import EFFECT as EXTENSION_EFFECT, outcome_ask
 EFFECT.update(EXTENSION_EFFECT)
 
 
@@ -395,7 +395,7 @@ def universal_json_effect(e, command):
             result = machine(e.tmp / "unused.db", *argv)
         assert result["schema_version"] == "1.0"
     elif root == "outcome":
-        db, ask_id = _outcome_ask(e)
+        db, ask_id = outcome_ask(e)
         assert machine(db, "outcome", ask_id, "accepted") == {"ask_id": ask_id, "outcome": "accepted"}
     else:
         db = e.fresh()
@@ -433,17 +433,8 @@ for _command in (
     EFFECT[f"{_command} --json"] = lambda e, command=_command: universal_json_effect(e, command)
 
 
-def _outcome_ask(e):
-    from peerhub.extensions.ask import ask
-    from tests.communication.fakes import FakeRuntimeTarget
-
-    db = e.fresh(populate=False)
-    runtime = FakeRuntimeTarget().script_deliver(("started", "exec"), ("terminal", {"response": "ok"}))
-    return db, ask(db, "cx", "question", runtime=runtime)["requested_record_id"]
-
-
 def _outcome_effect(e, field):
-    db, ask_id = _outcome_ask(e)
+    db, ask_id = outcome_ask(e)
     if field == "ask_id":
         code, _, err = e.run(db, "outcome", "missing", "accepted")
         assert code == 1 and "[ask_not_found]" in err
@@ -454,41 +445,6 @@ def _outcome_effect(e, field):
 
 
 EFFECT.update({f"outcome {field}": lambda e, field=field: _outcome_effect(e, field) for field in ("ask_id", "outcome")})
-
-def _activity_effect(e, action, flag):
-    db, rid = _outcome_ask(e)
-    argv = ["activity", action] + ([rid] if action == "show" else [])
-    if flag == "--json":
-        offset = 1 if action == "group" else 2
-        if action == "group":
-            argv = ["activity", "export"]
-        argv.insert(offset, "--json")
-        code, out, _ = e.run(db, *argv)
-        assert code == 0 and json.loads(out)["source"] == "peerhub"
-    elif flag == "--stream":
-        if action == "show":
-            assert e.j(db, *argv, flag, "other", code=1)["error"] == "ASK_NOT_FOUND"
-        else:
-            assert e.j(db, *argv)["items"] and not e.j(db, *argv, flag, "other")["items"]
-    elif flag == "--limit":
-        assert len(e.j(db, *argv, flag, "1")["items"]) == 1 < len(e.j(db, *argv)["items"])
-    elif flag == "--max-bytes":
-        assert e.j(db, *argv, flag, "512", code=2)["error"] == "LIMIT_EXCEEDED"
-    elif flag == "ask_id":
-        assert e.j(db, "activity", "show", "missing", code=1)["error"] == "ASK_NOT_FOUND"
-        assert e.j(db, *argv)["items"][0]["record_id"] == rid
-    else:
-        first = e.j(db, *argv, "--limit", "1")
-        following = e.j(db, *argv, flag, first["next_cursor"])
-        assert first["items"][0] not in following["items"] and following["items"]
-
-
-for _action, _flags in (("group", ["--json"]), ("export", ["--stream", "--limit", "--max-bytes", "--cursor", "--json"]),
-                        ("show", ["ask_id", "--stream", "--limit", "--max-bytes", "--cursor", "--json"])):
-    for _flag in _flags:
-        _key = "activity" if _action == "group" else "activity " + _action
-        EFFECT[f"{_key} {_flag}"] = lambda e, a=_action, f=_flag: _activity_effect(e, a, f)
-
 
 def test_every_published_option_has_an_effect_proof():
     assert inv.option_keys(inv.derive()) == sorted(EFFECT)  # a new option/positional/alias at any level without a behavioural proof (or a stale proof) fails here
