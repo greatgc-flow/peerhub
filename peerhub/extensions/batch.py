@@ -460,6 +460,9 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             out_row["session"] = session["handle"]
         guidance = result.get("guidance") if result is not None else None
         explain = cast(dict[str, Any], guidance).get("explain_cmd") if isinstance(guidance, dict) else None
+        denied = result.get("denied_actions") if result is not None else None
+        if isinstance(denied, list) and denied:  # names only, as in the single ask result (#371, #391, #493)
+            out_row["denied_actions"] = [str(name) for name in cast(list[Any], denied)]
         if status != "COMPLETED" and isinstance(explain, str) and explain:
             out_row["next"] = [explain]
         if responses and status == "COMPLETED" and result is not None:
@@ -542,6 +545,8 @@ def render_text(report: Mapping[str, Any]) -> str:
     lines = [f"batch {report['batch_id']} max-parallel {report['max_parallel']}"]
     for r in report["tasks"]:
         lines.append(f"{r['task_id']:<24} {r['peer']:<8} {r['status']:<10} {r.get('reason') or ''}".rstrip())
+        if r.get("denied_actions"):
+            lines.append(f"    denied: {', '.join(r['denied_actions'])}")
         if r.get("next"):
             lines.append(f"    next: {', '.join(r['next'])} (request_id={r['request_id']})")
     outcomes = report.get("outcomes")

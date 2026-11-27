@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `peerhub batch run` reports the denied tool names (`denied_actions`) of a task in JSON and as a `denied:` line in text, so a `denied_empty` task shows what was denied (#493).
+
 ## [0.27.0] - 2026-11-27
 
 Breaking: removes CLI options listed under Removed, following the [scope decision](docs/history/scope-decision-2026-11-27.md).

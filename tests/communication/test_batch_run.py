@@ -527,6 +527,18 @@ def test_responses_opt_in_only_for_completed_tasks(tmp_path):
     assert status_of(shown) == {"a": "COMPLETED", "b": "UNCERTAIN", "c": "FAILED"}
 
 
+def test_denied_empty_task_reports_denied_action_names(tmp_path):
+    report = run(tmp_path, [task("a"), task("d", peer="ag", mode="denied")], n=2)
+    rows = {r["task_id"]: r for r in report["tasks"]}
+    assert (rows["d"]["status"], rows["d"]["reason"]) == ("UNVERIFIED", "denied_empty")
+    assert rows["d"]["denied_actions"] == ["read_file", "run_command"]  # names only
+    assert "denied_actions" not in rows["a"]  # a task without denied actions keeps the old shape
+    lines = batch.render_text(report).splitlines()
+    assert "    denied: read_file, run_command" in lines
+    assert sum(line.startswith("    denied:") for line in lines) == 1
+    assert lines.index("    denied: read_file, run_command") == next(i for i, ln in enumerate(lines) if ln.startswith("d ")) + 1
+
+
 def test_render_text_adds_reply_only_when_present(tmp_path):
     plain = batch.render_text(run(tmp_path, [task("a")], n=1))
     text = batch.render_text(run(tmp_path, [task("a")], n=1, responses=True))

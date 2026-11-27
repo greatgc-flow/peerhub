@@ -11,19 +11,18 @@ Updated: 2026-11-27
 
 ## Recent flow (newest first, at most 5)
 
+- 2026-11-27 #493: Batch tasks report `denied_actions` names (JSON and a `denied:` text line); the release checklist lists pinned tests whose source changed (git-free check was not possible).
 - 2026-11-27 v0.27.0: scope decision ([record](docs/history/scope-decision-2026-11-27.md)): one-shot diag, trimmed monitor and batch flags, lessons consolidated with aliases, RUNNING rows show ask IDs with `monitor open`, root NOW.md handoff, repeatable `--query-file`, ask warns on high CPU, `suggest` deprecated.
 - 2026-11-27 #491: Release flow dispatches full-matrix CI when the main push leaves the version unchanged.
 - 2026-11-27 v0.26.19 (#490): Fixed just-reset short windows, RUNNING totals past the detail cap, expanded QUOTA rank and a flaky cc adapter test (#488 follow-ups).
 - 2026-11-26 v0.26.19 (#489): Added a requirements registry and alert-code lessons, set the release review bar to 80 and aligned monitor billing and plan gaps.
-- 2026-11-26 #487: Release flow polls for a new draft before verifying it to tolerate a lagging release list (#486).
 
 ## Next (ordered, at most 8)
 
 1. Remove `peerhub suggest` (deprecated in 0.27.0; `diag --plan` gives per-pool ACTION and the profiles per pool, and the monitor keeps its `suggest:` line).
 2. Engram and VerySimpleGuide adopt NOW.md once this file has stayed accurate for one release.
 3. [#495](https://github.com/greatgc-flow/peerhub/issues/495) Keep a `reset · refresh pending` row for a just-reset short window instead of hiding it.
-4. [#493](https://github.com/greatgc-flow/peerhub/issues/493) Batch reports name denied actions; flag edits to registry-pinned tests.
-5. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
+4. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
 
 ## Rules that bite (at most 8, one line each, link the doc)
 

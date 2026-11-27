@@ -52,7 +52,10 @@ Every ag task is writable, even if the manifest says otherwise (#140).
 If either task writes, equal or nested workspaces reject the entire batch.
 Streams and request IDs derive from the batch/task IDs; no stream override exists.
 
-Reports contain identities, sessions, elapsed seconds and statuses. Use
+Reports contain identities, sessions, elapsed seconds and statuses. A task whose ask reports denied tool actions
+(for example `reason: denied_empty` from an ag task) adds `denied_actions`, the denied tool names only, to its JSON
+row and a `denied: NAME, NAME` line under its row in text. The names tell an out-of-workspace read from a denied shell
+command. Use
 `--responses` to include replies.
 
 | Status | Meaning |
