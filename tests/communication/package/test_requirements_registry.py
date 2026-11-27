@@ -18,6 +18,10 @@ def test_requirements_registry_names_existing_tests() -> None:
     assert len(rows) > 2, "The requirements registry must contain test rows."
     assert [cell.strip() for cell in rows[0]] == ["ID", "requirement", "test"]
 
+    ids = [row[0].strip() for row in rows[2:]]
+    assert len(ids) == len(set(ids)), "Requirement IDs must be unique."
+    for requirement_id in ids:  # legacy numbers, or a topic slug so parallel lanes never pick the same next number
+        assert re.fullmatch(r"R[1-9]\d*|R-[a-z0-9]+(?:-[a-z0-9]+)*", requirement_id), requirement_id
     for row in rows[2:]:
         requirement_id, _, references = (cell.strip() for cell in row)
         if re.fullmatch(r"MISSING \(tracked #[1-9]\d*\)", references):

@@ -10,6 +10,10 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- Parallel lanes no longer collide: `CHANGELOG.md` and `docs/requirements.md` merge with git's union driver, new requirement rows take a unique slug ID (`R-<topic>`, checked by the registry test), and `AGENTS.md` holds the per-peer lane rules so lane prompts carry only the task.
+
+### Changed
+
 - Bare `peerhub diag` text uses `LEFT` and `PACE(pp)`, applies `C-7D` parent caps to `F-7D`, renders `ABSENT` windows as `- n/a`, and puts `peerhub diag --plan` first in `diag --help` examples (#497).
 - `peerhub diag --plan --json` rounds float fields to two decimal places, labels `in-flight n/a pools:` on the `load:` line, and documents `BUDGET%/h` (`target_pct_per_hour`), `PACE(pp)` (`pace_pt`), `—`/`?` unknown markers, and `health` (pool's own state) vs `action` (effective gated action) (#497).
 - `peerhub diag readiness` documents `STATE` and `NEXT` remediation commands in `--help` and output, clarifies that `UNKNOWN`/`UNVERIFIED` mean uncached checks rather than broken profiles, and formats durations with `human_duration` (#497).

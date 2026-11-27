@@ -1,6 +1,6 @@
 # Requirements registry
 
-Each durable product requirement names the regression test that pins it. A fix is done only when its regression test exists. Superseded rows name their replacement by ID.
+Each durable product requirement names the regression test that pins it. A fix is done only when its regression test exists. Superseded rows name their replacement by ID. New rows take a unique topic slug such as `R-reset-row` instead of the next number, so parallel lanes never collide.
 
 | ID | requirement | test |
 | --- | --- | --- |
