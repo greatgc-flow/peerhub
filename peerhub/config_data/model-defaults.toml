@@ -7,11 +7,11 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-11-25.2"
-observed_at = "2026-11-25"
+defaults_revision = "2026-11-27.1"
+observed_at = "2026-11-27"
 
 [observed_versions]
-ag = "1.5.17"
+ag = "1.5.18"
 cc = "2.1.332"
 cx = "0.172.0"
 
@@ -23,29 +23,29 @@ resumed_turns = 12
 selection_mode = "pinned"
 model = "gpt-6-luna"
 reasoning_effort = "low"
-source = "cli:codex debug models@0.172.0 2026-11-25"
-checked = "2026-11-18"
+source = "cli:codex debug models@0.172.0 2026-11-27"
+checked = "2026-11-27"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "cheap triage, text edits, simple checks"
 avoid_for = "arithmetic or exact computed output"
 traits = ["failed both arithmetic tasks (0/4)", "fast (~5s)", "hard 34/100, regex 110/115"]
 evidence = ["docs/benchmarks/cx-terra-2026-10-29.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-18"
+card_checked = "2026-11-27"
 
 [profiles."cx.effort"]
 selection_mode = "pinned"
 model = "gpt-6.2-sol"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.172.0 2026-11-25"
-checked = "2026-11-18"
+source = "cli:codex debug models@0.172.0 2026-11-27"
+checked = "2026-11-27"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "implementation and diff review under an enforced sandbox"
 avoid_for = "machine-observing checks, git commit/push, network"
 traits = ["sandbox hides other processes", "sandbox network fails; no commit", "hard 2026-11-18: 2 of 6 valid, #398"]
 evidence = ["cx-sandbox-and-prompt-hygiene", "docs/adapters/peer-cli-reference.md"]
-card_checked = "2026-11-18"
+card_checked = "2026-11-27"
 
 # Deprecated alias (0.25.0 plan D11): the binding comes from cx.effort (model sol) with effort xhigh. It still works and
 # prints one stderr line when an ask uses it. Optional profile keys (all four are validated by the loader):
@@ -57,30 +57,30 @@ card_checked = "2026-11-18"
 alias_of = "cx.effort"
 effort_override = "xhigh"
 suggest = false
-source = "cli:codex debug models@0.172.0 2026-11-25"
-checked = "2026-11-18"
+source = "cli:codex debug models@0.172.0 2026-11-27"
+checked = "2026-11-27"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "deliberate escalation: hard review and debugging"
 avoid_for = "quick questions (slow: 40-48s on benchmark)"
 traits = ["6.1-sol: 45/45, 40-48s", "hard 2026-11-18: 2 of 6 valid, #398"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/model-profiles/model-profiles.json"]
-card_checked = "2026-11-18"
+card_checked = "2026-11-27"
 
 # Top tier (opt-in, never a default): measured by docs/benchmarks/profiles-2026-11-08.md (45/45 at high, ultra adds latency only).
 [profiles."cx.astra"]
 selection_mode = "pinned"
 model = "gpt-6.2-astra"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.172.0 2026-11-25"
-checked = "2026-11-18"
+source = "cli:codex debug models@0.172.0 2026-11-27"
+checked = "2026-11-27"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "opt-in top tier for the hardest cx tasks"
 avoid_for = "routine work; ultra effort adds latency only"
 traits = ["6-astra: 45/45; ultra slower", "hard 2026-11-18: 2 of 6 valid, #398"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md"]
-card_checked = "2026-11-18"
+card_checked = "2026-11-27"
 
 [profiles."cc.standard"]
 selection_mode = "pinned"
@@ -143,68 +143,68 @@ card_checked = "2026-11-18"
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
-source = "cli:agy.exe models@1.5.16 2026-11-25"
-checked = "2026-11-18"
+source = "cli:agy.exe models@1.5.18 2026-11-27"
+checked = "2026-11-27"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 use_for = "small cheap drafts with all content inlined"
 avoid_for = "un-inlined file context; lists over ~25 items"
 traits = ["broke down at 25-150 items", "verify its claims", "hard 95/100, regex 111/115"]
 evidence = ["ag-bulk-profile-heuristics", "ag-recipe", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-18"
+card_checked = "2026-11-27"
 
 [profiles."ag.effort"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-high"
 suggest = false
-source = "cli:agy.exe models@1.5.16 2026-11-25"
-checked = "2026-11-18"
+source = "cli:agy.exe models@1.5.18 2026-11-27"
+checked = "2026-11-27"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 use_for = "cheap drafts and cross-reviews, content inlined"
 avoid_for = "tool tasks; latency-bound work"
 traits = ["no write sandbox (#140)", "empty replies possible", "hard 100, regex 101; ~14-19x std time"]
 evidence = ["ag-recipe", "ag-bulk-profile-heuristics", "#299", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-18"
+card_checked = "2026-11-27"
 
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5-high"
-source = "cli:agy.exe models@1.5.16 2026-11-25"
-checked = "2026-11-18"
+source = "cli:agy.exe models@1.5.18 2026-11-27"
+checked = "2026-11-27"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
 use_for = "second-opinion review via Claude Sonnet on ag quota"
 avoid_for = "work while its pool is low (it ran out early)"
 traits = ["Claude Sonnet 5.5 high via agy", "no write sandbox (#140)"]
 evidence = ["ag-recipe", "docs/history/quota-efficiency-2026-11-10.md"]
-card_checked = "2026-11-18"
+card_checked = "2026-11-27"
 
 [profiles."ag.argon"]
 selection_mode = "pinned"
 model = "gemini-4-argon-medium"
-source = "cli:agy.exe models@1.5.16 2026-11-25"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
-checked = "2026-11-24"
+source = "cli:agy.exe models@1.5.18 2026-11-27"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
+checked = "2026-11-27"
 pools = ["G-5H", "G-7D"]
 pools_source = "agy /usage groups (agy 1.5.16) + ping measurement 2026-11-24"
 use_for = "opt-in top tier for hard reasoning on ag"
 avoid_for = "tool use (empty replies after tools, #195)"
 traits = ["45/45 at medium; high slower", "empty reply after tool use (#195)", "shares Gemini quota with Flash"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#195", "ag-recipe", "docs/adapters/ag.md"]
-card_checked = "2026-11-24"
+card_checked = "2026-11-27"
 
 [profiles."ag.neon"]
 selection_mode = "pinned"
 model = "gemini-4-neon-high"
-source = "cli:agy.exe models@1.5.16 2026-11-25"
-checked = "2026-11-20"
+source = "cli:agy.exe models@1.5.18 2026-11-27"
+checked = "2026-11-27"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 use_for = "opt-in strong reasoning on ag from the G pool"
 avoid_for = "tool use (follow the ag recipe: inline content, no tools)"
 traits = ["hard 2026-11-20: 100/100 (medium 98)", "pools inferred from ping, unverified"]
 evidence = ["docs/benchmarks/profiles-hard-2026-11-10/runs/results.txt", "ag-recipe"]
-card_checked = "2026-11-20"
+card_checked = "2026-11-27"
 
 # API peers (#378, #381): one API call per ask, paid by API credits. No quota pool, so no `pools` and no CLI version in
 # [observed_versions]. `--model` must match the pattern of its peer:
