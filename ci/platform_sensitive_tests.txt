@@ -22,6 +22,7 @@ tests.communication.fault.test_flt_bridge
 tests.communication.integration.test_activity_bounds
 tests.communication.integration.test_activity_export
 tests.communication.integration.test_activity_receipts
+tests.communication.integration.test_activity_receiver
 tests.communication.fault.test_flt_storage
 tests.communication.bridge.test_runtime_contract_boundary
 tests.communication.bridge.test_source_records_boundary
