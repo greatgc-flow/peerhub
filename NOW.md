@@ -21,7 +21,9 @@ Updated: 2026-11-27
 
 1. Remove `peerhub suggest` (deprecated in 0.27.0; `diag --plan` gives per-pool ACTION and the profiles per pool, and the monitor keeps its `suggest:` line).
 2. Engram and VerySimpleGuide adopt NOW.md once this file has stayed accurate for one release.
-3. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
+3. [#495](https://github.com/greatgc-flow/peerhub/issues/495) Keep a `reset · refresh pending` row for a just-reset short window instead of hiding it.
+4. [#493](https://github.com/greatgc-flow/peerhub/issues/493) Batch reports name denied actions; flag edits to registry-pinned tests.
+5. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
 
 ## Rules that bite (at most 8, one line each, link the doc)
 
