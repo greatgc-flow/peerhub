@@ -227,13 +227,26 @@ def _binds(child: dict[str, Any], parent: dict[str, Any]) -> bool:
             and float(child["remaining"]) < float(parent["remaining"]))
 
 
-def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False) -> list[tuple[dict[str, Any], int]]:
+RESET_PENDING_NOTE = "reset · refresh pending"
+
+
+def is_reset_pending(row: dict[str, Any]) -> bool:
+    """A short window whose reading expired at its reset: POOLS keeps a placeholder until the next quota reading (#495)."""
+    return (row["state"] == QUOTA_NA and row["retired"] and row["reason"] == EXPIRED_WINDOW_REASON
+            and row["family"] != "?" and parse_window(str(row["pool"]))[0] < WEEK_SECONDS)
+
+
+def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
+                  pending: bool = False) -> list[tuple[dict[str, Any], int]]:
     """Sort POOLS by each family's weekly parent.
 
     Expanded POOLS also lists the short windows that do not bind. Each tuple carries its indentation depth.
+    With `pending`, a just-reset short window follows its family's weekly row as a placeholder child.
+    It never takes part in sorting or gating.
     """
     retired_weekly = {(row["peer"], row["family"], str(row["pool_ref"]).rpartition(":")[0]) for row in rows
                       if row["retired"] and row["family"] != "?" and parse_window(str(row["pool"]))[0] == WEEK_SECONDS}
+    placeholders = [row for row in rows if pending and is_reset_pending(row)]
     rows = [row for row in rows if row["state"] != QUOTA_NA]
     scoped = scoped_weekly_parents(rows)
     weekly: dict[tuple[str, str], dict[str, Any]] = {}
@@ -257,6 +270,10 @@ def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False) -> list[tu
         if binds:
             children.setdefault(id(parent), []).append(row)
         if binds or every or id(row) in scoped:
+            listed.setdefault(id(parent), []).append(row)
+    for row in placeholders:
+        parent = weekly.get((str(row["peer"]), str(row["family"])))
+        if parent is not None:  # without a weekly row there is no parent to sit under
             listed.setdefault(id(parent), []).append(row)
     for children_rows in listed.values():
         children_rows.sort(key=lambda row: (id(row) in scoped,
@@ -422,7 +439,8 @@ def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: 
     compact_names = [cell_width(f" {row['peer']} {row['pool']}") + 3 * depth for row, depth in compact_order]
     detail_layout, _ = quota_layout(all_rows, unicode, show_quota_notes=False)
     detail_names = [cell_width(f"{row['peer']} {row['display_pool']}") for row in detail_layout]
-    name_width = max([cell_width("PEER POOL"), *compact_names, *detail_names])
+    name_width = max([cell_width("PEER POOL"), *compact_names, *detail_names,
+                      *(cell_width(name) for name, *_ in entries)])  # a placeholder row (#495) has no active row
     if rich:
         pool_title_width = cell_width(f"{POOLS_HEADING} {len(all_rows)}")
         name_width = max(name_width, pool_title_width + RULE_PREFIX_WIDTH)

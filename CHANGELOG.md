@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- Monitor: a just-reset short window keeps a `reset · refresh pending` row under its weekly parent in compact and expand instead of vanishing from POOLS (#495).
+
 ## [0.27.0] - 2026-11-27
 
 Breaking: removes CLI options listed under Removed, following the [scope decision](docs/history/scope-decision-2026-11-27.md).

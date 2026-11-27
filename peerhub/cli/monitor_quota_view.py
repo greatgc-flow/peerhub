@@ -17,6 +17,7 @@ from peerhub.cli.monitor_format import (
     pool_order,
     pool_table,
     quota_layout,
+    RESET_PENDING_NOTE,
 )
 from peerhub.cli.monitor_layout import (
     RICH_SGR,
@@ -166,8 +167,10 @@ def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: st
                   profile_urls: Mapping[str, Any] | None = None,
                   show_quota_notes: bool = False) -> tuple[list[str], int, int]:
     """POOLS rows, including inline markers and counts for any unavailable windows passed in."""
-    ordered = ordered_pools(rows, every=every)
-    unavailable = [row for row in rows if row["state"] == QUOTA_NA] if show_quota_notes else []
+    ordered = ordered_pools(rows, every=every, pending=True)
+    placeholders = {id(row) for row, _ in ordered if row["state"] == QUOTA_NA}
+    unavailable = ([row for row in rows if row["state"] == QUOTA_NA and id(row) not in placeholders]
+                   if show_quota_notes else [])
     suffixes, marker_rows = fold_pool_markers(ordered, unavailable, unicode, keep)
     shown = ordered if every else ordered[:POOLS_CAP]
     head = f"{FRAME_SECTIONS['pools']} {len(ordered) + len(unavailable) - len(marker_rows)}"
@@ -182,8 +185,11 @@ def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: st
             else:
                 prefix += ("│  " if unicode else "|  ") if sibling else "   "
         name = f"{' ' * cell_width(peer)} {prefix}{pool}" if depth else f"{peer} {pool}"
-        entries.append(((" " + peer if id(row) in marker_rows else " " + name),
-                        {} if id(row) in marker_rows else row, depth > 0, suffixes.get(id(row), "")))
+        placeholder = id(row) in placeholders
+        note = RESET_PENDING_NOTE if unicode else RESET_PENDING_NOTE.replace(" · ", " | ")
+        entries.append((" " + peer if id(row) in marker_rows else " " + name,
+                        {} if placeholder or id(row) in marker_rows else row, depth > 0,
+                        note if placeholder else suffixes.get(id(row), "")))
     table_rows = rows if show_quota_notes else [row for row in rows if row["state"] != QUOTA_NA]
     headers, table, _ = pool_table(entries, table_rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
                                     guide_url=guide_url, profile_urls=profile_urls)
