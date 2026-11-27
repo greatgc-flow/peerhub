@@ -68,6 +68,15 @@ def _with_status(status: str) -> str:
 SYNTHETIC_QUOTA_ERROR = _nd([_events()[0], _terminal("ERROR", error=QUOTA_LINE)])
 
 
+def _quota_step(index: int, step_type: str, state: str = "DONE") -> dict:
+    return {"event": "step_update", "step_update": {"conversation_id": CID, "step_index": index, "state": state,
+                                                    "step_type": step_type}}
+
+
+# #503: once a tool step ran, a quota terminal cannot prove that nothing happened, so it stays uncertain.
+QUOTA_AFTER_TOOL = _nd([_events()[0], _quota_step(1, "tool"), _terminal("ERROR", error=QUOTA_LINE)])
+
+
 class Kit:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -660,11 +669,65 @@ def test_17a_absent_terminal_with_nonzero_exit_classifies_stderr(kit, bridge_h, 
 
 @pytest.mark.parametrize("exit_code,stderr", [(0, ""), (3, "Resets in 1h\n")])
 def test_17b_quota_in_a_terminal_error_is_classified_from_the_terminal_only(kit, bridge_h, exit_code, stderr):
-    result = _cycle(bridge_h, kit.replay(SYNTHETIC_QUOTA_ERROR, exit_code=exit_code, stderr=stderr))
+    result = _cycle(bridge_h, kit.replay(QUOTA_AFTER_TOOL, exit_code=exit_code, stderr=stderr))
     assert result.status == "uncertain"
     assert _error(result) == "\n".join(["Individual quota reached (Resets in 20h9m47s)", QUOTA_LINE,
                                         f"ag stream result ERROR (exit {exit_code})"])
     assert _provider_limit(_error(result)) == QUOTA
+
+
+@pytest.mark.parametrize("steps", [[], [_quota_step(1, "user_input"), _quota_step(2, "agent_response")]], ids=["no_steps", "no_tool_step"])
+def test_17d_quota_before_any_tool_step_is_not_executed_and_acked(kit, bridge_h, steps):
+    # #503: a validated stream with no tool step proves that no tool ran; settle like a cx or cc refusal.
+    stdout = _nd([_events()[0], *steps, _terminal("ERROR", error=QUOTA_LINE)])
+    result = _cycle(bridge_h, kit.replay(stdout, exit_code=3, stderr=Q_STDERR))
+    assert result.status == "not_executed"
+    assert (result.detail["reason"], result.detail["reset_time"]) == ("quota_exhausted", "20h9m47s")
+    assert sql(bridge_h, "SELECT acked FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,))[0][0] == 1
+    assert bridge_h.delivery_cycle("b", "s", kit.replay(stdout, exit_code=3, stderr=Q_STDERR)).status == "idle"
+    assert kit.launches == 1
+
+
+def test_17e_quota_while_a_tool_step_is_unfinished_stays_uncertain(kit, bridge_h):
+    stdout = _nd([_events()[0], _quota_step(1, "tool", "ACTIVE"), _terminal("ERROR", error=QUOTA_LINE)])
+    assert terminal_result(stdout.encode())["validation"]["reason"] == "step_unfinished"  # the tool step is read
+    assert _cycle(bridge_h, kit.replay(stdout, exit_code=3, stderr=Q_STDERR)).status == "uncertain"
+
+
+def test_17f_a_finished_tool_step_is_read_as_a_tool():
+    stdout = QUOTA_AFTER_TOOL.encode()
+    assert terminal_result(stdout)["validation"] is None
+    assert [step["step_type"] for step in parse_ag_stream_json(stdout.decode())["steps"]] == ["tool"]
+
+
+@pytest.mark.parametrize("case", ["gap_between_steps", "quota_only_in_response"])
+def test_17g_unproven_quota_refusals_stay_uncertain(kit, bridge_h, case):
+    # #503 review: a gap between streamed steps could hide a tool; model text is never refusal evidence.
+    if case == "gap_between_steps":
+        stdout = _nd([_events()[0], _quota_step(0, "user_input"), _quota_step(2, "checkpoint"),
+                      _terminal("ERROR", error=QUOTA_LINE)])
+    else:
+        stdout = _nd([_events()[0], _terminal("ERROR", error="unrelated failure", response=QUOTA_LINE)])
+    assert _cycle(bridge_h, kit.replay(stdout, exit_code=3)).status == "uncertain"
+
+
+@pytest.mark.parametrize(("phrase", "recorded"), [
+    ("2026-11-15T00:00Z/PRIVATE_SENTINEL", None), ("2026-11-15T00:00Z/" + "PRIVATE-SENTINEL" * 3, None),
+    ("2026-11-15T00:00Z", "2026-11-15T00:00Z"),
+])
+def test_17h_only_a_well_formed_reset_phrase_is_recorded(kit, bridge_h, phrase, recorded):
+    line = f"Individual quota reached. Resets at {phrase}"
+    result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _terminal("ERROR", error=line)]), exit_code=3))
+    assert (result.status, result.detail["reason"], result.detail.get("reset_time")) == ("not_executed", "quota_exhausted", recorded)
+
+
+def test_17i_far_apart_step_indices_are_a_gap_without_a_large_allocation():
+    from types import SimpleNamespace
+    from peerhub.extensions.adapters.ag import quota_refusal_before_work
+    from peerhub.extensions.adapters.sanitize import Sanitizer
+    stdout = _nd([_events()[0], _quota_step(0, "user_input"), _quota_step(10**18, "checkpoint"),
+                  _terminal("ERROR", error=QUOTA_LINE)]).encode()
+    assert quota_refusal_before_work(SimpleNamespace(stdout=stdout, stdout_truncated=False), Sanitizer()) is None
 
 
 def test_17c_success_with_nonzero_exit_never_claims_quota(kit, bridge_h):
@@ -807,7 +870,7 @@ SCENARIOS = {
     "13_interrupted": _replayed(_with_status("INTERRUPTED")),
     "15_deadline": lambda kit, monkeypatch: kit.target("hang", timeout_s=3.0),
     "17a_absent_quota": _replayed("", 3, Q_STDERR),
-    "17b_terminal_quota": _replayed(SYNTHETIC_QUOTA_ERROR, 3, Q_STDERR),
+    "17b_terminal_quota": _replayed(QUOTA_AFTER_TOOL, 3, Q_STDERR),
     "17c_success_exit_1": _replayed(RECORDED, 1, Q_STDERR),
     "18a_recorded": _replayed(RECORDED, max_bytes=512),
     "18a_over_1mib": _replayed(_over_one_mib(), max_bytes=1_048_576),
@@ -931,7 +994,7 @@ def test_23i_a_reset_phrase_over_100_characters_is_dropped():
 
 def test_23_delivery_with_exit_0_uses_the_bounded_summary(kit, bridge_h):
     line = "Individual quota reached. " + "x" * 400 + " Resets in 20h9m47s."
-    result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _terminal("ERROR", error=line)])))
+    result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _quota_step(1, "tool"), _terminal("ERROR", error=line)])))
     assert result.status == "uncertain"
     assert _error(result).split("\n")[0] == "Individual quota reached (Resets in 20h9m47s)"
     assert _provider_limit(_error(result)) == QUOTA
@@ -1226,3 +1289,9 @@ def test_e_f_a_line_separator_in_the_terminal_event_keeps_the_names(kit):
     kind, payload = _drain(kit.replay(stdout), "run the probe")[-1]
     assert kind == "terminal" and payload["response"] == "" and payload["denied_actions"] == ["command"]
     assert "ag_stream_validation" not in payload
+
+
+@pytest.mark.parametrize("value", ["1w2d", "20h9m47s", "17:30:05", "5pm", "2026-11-15T17:30:05.250+09:00"])
+def test_refusal_reset_formats_the_extractor_emits_are_trusted(value):
+    from peerhub.extensions.adapters.ag import _RESET_VALUE
+    assert _RESET_VALUE.fullmatch(value)

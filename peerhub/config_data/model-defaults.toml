@@ -16,7 +16,6 @@ cc = "2.1.332"
 cx = "0.172.0"
 
 [stream_budget]
-prompt_tokens = 128000
 resumed_turns = 12
 
 [profiles."cx.standard"]

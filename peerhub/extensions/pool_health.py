@@ -127,10 +127,14 @@ def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
     )
 
 
+def can_limit(health: PoolHealth) -> bool:
+    """A current, measured state: the only readings a scoped parent cap uses (or applies to)."""
+    return not health["stale"] and health["state"] in _STATE_SEVERITY
+
+
 def limit_pool_health(own: PoolHealth, parent: PoolHealth, parent_ref: object) -> PoolHealth:
     """Apply a scoped parent to already projected pool facts."""
-    if (own["stale"] or own["state"] not in _STATE_SEVERITY
-            or parent["stale"] or parent["state"] not in _STATE_SEVERITY):
+    if not can_limit(own) or not can_limit(parent):
         return own
 
     left, reset, lower = limit_by_parent(own["left_pct"], own["reset_in_seconds"],

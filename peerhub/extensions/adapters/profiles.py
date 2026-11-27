@@ -41,23 +41,27 @@ def _load_layers(workspace: str | Path | None) -> list[tuple[str, dict[str, Any]
     return layers
 
 
-DEFAULT_STREAM_BUDGET: tuple[int, int] = (128_000, 12)
+DEFAULT_STREAM_BUDGET = 12  # resumed turns
 
 
-def stream_budget(workspace: str | Path) -> tuple[int, int]:
-    values: dict[str, int] = dict(zip(("prompt_tokens", "resumed_turns"), DEFAULT_STREAM_BUDGET))
+def stream_budget(workspace: str | Path) -> int:
+    """The resumed-turn budget of a session.
+
+    `prompt_tokens` is ignored since #502: an agentic CLI's per-ask prompt total sums every model call of the turn,
+    so it never measured the context size, and it warned on most resumed cx asks.
+    """
+    turns = DEFAULT_STREAM_BUDGET
     for _, layer in _load_layers(workspace):
         section: object = layer.get("stream_budget", {})
         if not isinstance(section, dict):
             raise ValueError("[stream_budget] must be a table")
         settings = cast(dict[str, object], section)
-        for key in values:
-            if key in settings:
-                value = settings[key]
-                if type(value) is not int or value <= 0:
-                    raise ValueError(f"stream_budget.{key} must be a positive integer")
-                values[key] = value
-    return values["prompt_tokens"], values["resumed_turns"]
+        if "resumed_turns" in settings:
+            value = settings["resumed_turns"]
+            if type(value) is not int or value <= 0:
+                raise ValueError("stream_budget.resumed_turns must be a positive integer")
+            turns = value
+    return turns
 
 
 BINDING_KEYS = ("selection_mode", "model", "reasoning_effort")

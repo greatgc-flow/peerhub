@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar, cast
 
 from peerhub.core.scalars import finite_number
@@ -89,11 +89,14 @@ def quota_window_timing(item: Mapping[str, Any], read_at: float) -> tuple[float 
 _Pool = TypeVar("_Pool", bound=Mapping[str, Any])
 
 
-def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = True) -> dict[int, _Pool]:
+def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = True,
+                          strictness: Callable[[_Pool], Any] | None = None) -> dict[int, _Pool]:
     """Fable's scoped weekly window depends on the all-models window when configured consumers confirm it.
 
     With profile metadata, require a strict consumer-set inclusion. Without it, callers may use the
-    known dependency by pool ref. The parent is matched by its account-scoped pool ref.
+    known dependency by pool ref. The parent is matched by its account-scoped pool ref. When two peers
+    report that same parent, the consumers of every report establish the dependency, then the lowest
+    `strictness` key picks the reading (the first row without one), and every report of the child gets it (#498).
     """
     rows = [row for row in rows if not row["retired"] and row.get("state") != "n/a"]
     parents: dict[int, _Pool] = {}
@@ -103,13 +106,12 @@ def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = Tr
             continue
         # Match by the account-scoped pool ref: another account's pools (or its ABSENT readings) never break the link.
         common = [row for row in rows if row["pool_ref"] == parent_ref]
-        same_ref = [row for row in rows if row["pool_ref"] == child["pool_ref"]]
-        if len(common) != 1 or len(same_ref) != 1:
+        if not common:
             continue
-        parent = common[0]
-        members = set(child["profiles"])
-        if not require_consumers or (members and members < set(parent["profiles"])):
-            parents[id(child)] = parent
+        members = {profile for row in rows if row["pool_ref"] == child["pool_ref"] for profile in row["profiles"]}
+        consumers = {profile for row in common for profile in row["profiles"]}
+        if not require_consumers or (members and members < consumers):
+            parents[id(child)] = min(common, key=strictness) if strictness is not None else common[0]
     return parents
 
 

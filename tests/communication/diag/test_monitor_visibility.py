@@ -109,8 +109,9 @@ def test_d3_bounded_usage_is_per_peer_and_session_usage_has_identity(frame: dict
     screen = render_grouped_frame(frame, width=160, height=400, view="plain", expand=True, unicode=False)
     usage_block = screen.split("USAGE [", 1)[1]
     assert usage_block.count("provider-reported tokens:") == 3, screen
-    assert "ag provider-reported tokens: 1,000 | sessions 2 with/48 without usage | cache 10%" in screen
-    assert any("sess_ag_0" in line and "tok 1,000" in line and "cache 50%" in line
+    # #502: agy input excludes cached input, so the share is 100 / (100 + 100 + 900).
+    assert "ag provider-reported tokens: 1,000 | sessions 2 with/48 without usage | cache 9%" in screen
+    assert any("sess_ag_0" in line and "tok 1,000" in line and "cache 33%" in line  # 500 / (1000 + 500) for agy
                for line in screen.splitlines()), screen
 
 

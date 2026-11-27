@@ -15,7 +15,7 @@ class Bridge(BridgeDelivery):
                  max_session_attempts: int = 3, catch_up_limit: int = 100, ack_retries: int = 8,
                  catch_up_budget: CatchUpBudget | None = None, fault_hook: Callable[[str], None] | None = None,
                  caller: Mapping[str, Any] | None = None,
-                 stream_budget: tuple[int, int] | None = None, on_stream_budget: Callable[[], None] | None = None) -> None:
+                 stream_budget: int | tuple[int, int] | None = None, on_stream_budget: Callable[[], None] | None = None) -> None:
         self.store, self.claims = store, claims
         # #374: caller detail (schema v1, peerhub.extensions.caller); evidence only, never part of any digest.
         self.caller: dict[str, Any] | None = dict(caller) if isinstance(caller, dict) else None
@@ -24,6 +24,8 @@ class Bridge(BridgeDelivery):
         # Leave room for the current ask and prompt headers within AG's 30,000-byte Windows inline limit.
         self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit, max_bytes=DEFAULT_CATCH_UP_BYTES)
         self._hook = fault_hook
+        if isinstance(stream_budget, tuple):  # the pre-#502 (prompt_tokens, resumed_turns) pair: keep its turn limit
+            stream_budget = stream_budget[1]
         self._stream_budget, self._on_stream_budget = stream_budget, on_stream_budget
         bridge_schema.initialize(claims, self._fire)
 

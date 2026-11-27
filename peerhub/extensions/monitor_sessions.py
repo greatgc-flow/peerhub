@@ -130,6 +130,7 @@ def read_session_groups(conn: sqlite3.Connection, groups: list[str], output: dic
                               "data": {"items": sessions, **sample}}
     if "usage" in groups:
         output["usage"] = {"status": "ERROR" if "sessions" in errors else "OK", "data": {"sessions": [{"handle": item["handle"], "peer_id": item["peer_id"],
+                                                                        "provider": item.get("provider"),
                                                                         "generation": item["generation"], "telemetry": item["telemetry"]["usage"]}
                                                                for item in sessions], **sample}}
     if "context" in groups:

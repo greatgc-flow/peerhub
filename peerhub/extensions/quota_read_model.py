@@ -9,7 +9,7 @@ from typing import Any, NotRequired, TypedDict, cast
 from peerhub.core.scalars import finite_converted_number, finite_number
 from peerhub.extensions.observation_model import ABSENT_FACT_REASONS
 from peerhub.extensions.pool_health import (
-    PoolHealth, PoolState, Reading, limit_pool_health, measured_pool_state, pool_health,
+    PoolHealth, PoolState, Reading, can_limit, limit_pool_health, measured_pool_state, pool_health,
 )
 from peerhub.extensions.quota_windows import scoped_weekly_parents
 
@@ -39,8 +39,16 @@ def project_pool_rows(readings: list[PoolReading], frame_time: float, *,
     descriptors: list[PoolReading] = readings
     if exclude_unavailable:
         descriptors = [{**row, "state": own["state"]} for row, own in zip(readings, healths)]
-    parents = scoped_weekly_parents(descriptors, require_consumers=require_consumers)
     health_by_row = {id(row): own for row, own in zip(descriptors, healths)}
+
+    def strictness(row: PoolReading) -> tuple[bool, float]:
+        # #498: of one parent reported twice, a reading that can cap wins, then the lower one. Within a window the
+        # remaining share only falls, and a reading past its reset cannot cap, so this also agrees with diag's newest.
+        own = health_by_row[id(row)]
+        left = own["left_pct"]
+        return not can_limit(own), float(left) if isinstance(left, (int, float)) else 101.0
+
+    parents = scoped_weekly_parents(descriptors, require_consumers=require_consumers, strictness=strictness)
     result: list[PoolRow] = []
     for row, own in zip(descriptors, healths):
         parent = parents.get(id(row))
