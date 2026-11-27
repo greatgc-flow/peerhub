@@ -18,12 +18,17 @@ if TYPE_CHECKING:
 
 
 _SESSION_CONTEXT_FIELDS = ("ctx_est_pct", "ctx_est_tokens", "ctx_age_seconds")
+_NON_RESUMABLE_STATES = frozenset({"LOST", "TOMBSTONED"})
 
 
 def register_session_parser(subparsers: Subparsers) -> None:
     session_parser = subparsers.add_parser("session", help="Inspect retained sessions (read-only)")
     session_sub = session_parser.add_subparsers(dest="action", required=True)
-    session_list = session_sub.add_parser("list", help="List retained sessions")
+    session_list = session_sub.add_parser(
+        "list",
+        help="List retained sessions",
+        description="List retained sessions ordered by stream_id, peer_id, generation descending, and handle descending.",
+    )
     session_list.add_argument("--stream", help="Only sessions of this stream")
     session_list.add_argument("--peer", help="Only sessions of this peer")
     session_list.add_argument("--limit", type=_session_page_limit, default=20, help="Maximum sessions per page (default %(default)s)")
@@ -248,10 +253,12 @@ def _session_public_row(row: sqlite3.Row, *, now: float) -> dict[str, Any]:
             raw_telemetry, handle=str(row["session_handle"]),
             generation=int(row["session_generation"]), provider=str(row["runtime_kind"]))}
     context: dict[str, Any] = latest["context"] if latest is not None else {}
+    state = str(row["state"])
+    resumable = bool(row["resumable"]) and state not in _NON_RESUMABLE_STATES
     result = {
         "handle": str(row["session_handle"]), "stream_id": str(row["stream_id"]),
         "peer_id": str(row["peer_id"]), "generation": int(row["session_generation"]),
-        "state": str(row["state"]), "resumable": bool(row["resumable"]),
+        "state": state, "resumable": resumable,
         "last_seen": float(row["last_seen"]), "context_watermark": row["context_watermark"],
         "bootstrap_truncated": None if row["bootstrap_truncated"] is None else bool(row["bootstrap_truncated"]),
         "context_watermark_version": int(row["context_watermark_version"]),

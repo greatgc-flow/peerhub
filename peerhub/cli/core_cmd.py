@@ -246,7 +246,7 @@ def _print_page(items: list[dict[str, Any]], next_cursor: str | None, output_for
     values = [[", ".join(row[key]) if isinstance(row[key], list) else str(row[key] or "") for key in columns]
               for row in items]
     widths = [max(len(column), *(len(row[i]) for row in values)) for i, column in enumerate(columns)]
-    print("  ".join(column.ljust(widths[i]) for i, column in enumerate(columns)))
+    print("  ".join(column.upper().ljust(widths[i]) for i, column in enumerate(columns)))
     print("  ".join("-" * width for width in widths))
     for row in values:
         print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)))

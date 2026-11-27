@@ -8,6 +8,21 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- `peerhub explain monitor-states` (`a1`–`a6`) derives its pool-state legend from the 0.27.x monitor legend, drops removed state names and contributor notes, and `explain exit-codes` includes `peer_not_found` (exit 1) (#497).
+- `peerhub profile stats` omits all-`-` metric columns, renders positive sub-second durations as `<1s`, and appends a one-line `TOK%` telemetry-coverage legend when `TOK%` is shown (#497).
+- `peerhub --help` describes `account` by purpose, `peerhub profile check` adds a help description and prints an `OK` summary when clean, and `peer list`/`stream list` use uppercase table headers (#497).
+
+### Fixed
+
+- `peerhub session list` and `session show` report `RESUMABLE=False` for `LOST` and `TOMBSTONED` sessions, and `session list --help` documents the default sort order (#497).
+- `peerhub ask` on an unregistered peer drops the redundant `ERROR:` prefix, names the peer, and suggests `peerhub peer register --peer <id> --adapter <adapter>` or `peerhub peer list` (#497).
+- `peerhub batch run` reports tool names only in `denied_actions` and `denied:` lines, stripping `cc` `: detail` suffixes so file paths and commands are never leaked (#497).
+- `peerhub ask` reports a missing or unreadable `--query-file` as `invalid_arguments` (exit 2) with the file name and a check-the-path hint across text, `--dry-run`, and `--json`, and `ask PEER --json` without a prompt emits one consistent hint (#497).
+- `peerhub batch run` gives an `invalid JSON at line N` hint when an existing manifest contains invalid JSON instead of `check manifest path` (#497).
+- `peerhub.cli.support.error_line` strips only a single trailing sentence period, preserving `...` and path dots (#497).
+
 ## [0.27.1] - 2026-11-27
 
 ### Added

@@ -5,6 +5,7 @@ from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLA
 
 POOLS_HEADING = "POOLS"
 QUOTA_NA = "n/a"
+RESET_PENDING_NOTE = "reset · refresh pending"
 CONTEXT_ESTIMATE_LABEL = "est"
 SUPERSEDED_MARK = "(superseded)"
 POOL_MARGIN_COLUMN = "MARGIN"
@@ -15,10 +16,14 @@ POOL_LEGEND = (
     f" | {POOL_MARGIN_LEGEND} | ? = too little data | EVN=even-burn left"
 )
 
-MONITOR_LEGEND = (
+POOL_STATE_LEGEND = (
     f"ok enough | low >0-{LOW_QUOTA_FRACTION:.0%} | fast >{LOW_QUOTA_FRACTION:.0%} + threat (2+ samples)"
     " | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value)"
-    " | ? unknown",
+    " | ? unknown"
+)
+
+MONITOR_LEGEND = (
+    POOL_STATE_LEGEND,
     "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
     "LEADS: label | state (?busy = alive not confirmed, - = no session) | age of the last activity"
     " | ctx = context of the model's maximum input (! 80% or more; 106k = window unknown; ? unknown) | running asks | model | title",

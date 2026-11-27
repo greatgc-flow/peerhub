@@ -31,6 +31,13 @@ def load_lessons() -> list[Lesson]:
                 error={code: entry.exit_code for code, entry in REGISTRY.items()},
                 diag=DIAG_EXIT_BY_STATUS,
             )
+        elif lesson["id"] == "monitor-states":
+            from peerhub.cli.monitor_legend import POOL_STATE_LEGEND, RESET_PENDING_NOTE
+
+            lesson["fix"] = lesson["fix"].format(
+                pool_states=POOL_STATE_LEGEND,
+                reset_pending=RESET_PENDING_NOTE,
+            )
     return sorted(lessons, key=lambda lesson: lesson["id"])
 
 

@@ -167,12 +167,13 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         error_output("cas_conflict", f"CAS ERROR: {e}", exception=e)
         return 3
     except ValueError as e:
-        error_output(getattr(e, "code", "invalid_arguments"), f"ERROR: {e}", exception=e)
-        return 2 if args.subcommand == "ask" and getattr(e, "code", None) not in ("session_lost", "peer_not_found") else 1
+        code = getattr(e, "code", "invalid_arguments")
+        message = str(e) if code == "peer_not_found" else f"ERROR: {e}"
+        error_output(code, message, exception=e)
+        return 2 if args.subcommand == "ask" and code not in ("session_lost", "peer_not_found") else 1
     except SystemExit as e:
         if args.subcommand == "ask" and args.json and e.code == 2:
-            error_output("invalid_arguments", "Invalid ask arguments.", exception=e)
-            return 2
+            return ask_cmd.report_ask_validation_error(e)
         raise
     except Exception as e:
         error_output("delivery_failed", f"ERROR: {e}", getattr(e, "session", None), exception=e)

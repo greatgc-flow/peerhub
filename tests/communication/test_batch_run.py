@@ -129,6 +129,20 @@ def test_manifest_rejects_missing_prompt_file_and_bad_json(tmp_path, capsys):
     assert "next: check manifest path 'nofile.json' (or run peerhub batch run --help)" in err
 
 
+def test_invalid_json_manifest_reports_line_number_hint(tmp_path, capsys):
+    from peerhub.cli.app import main
+
+    bad = tmp_path / "broken.json"
+    bad.write_text('{\n  "tasks": [\n    not-json\n  ]\n}\n', encoding="utf-8")
+    for extra in ([], ["--json"]):
+        assert main(["batch", "run", str(bad), "--batch-id", "b1", "--max-parallel", "1", *extra]) == 1
+        captured = capsys.readouterr()
+        assert "invalid JSON at line 3" in captured.err
+        assert "check manifest path" not in captured.err
+        if extra:
+            assert json.loads(captured.out)["error"]["code"] == "invalid_manifest"
+
+
 @pytest.mark.parametrize("n", [0, -1, True, 1.5, float("nan"), "2"])
 def test_max_parallel_bounds(n):
     with pytest.raises(ManifestError):
@@ -545,6 +559,27 @@ def test_denied_empty_task_reports_denied_action_names(tmp_path):
     assert "    denied: read_file, run_command" in lines
     assert sum(line.startswith("    denied:") for line in lines) == 1
     assert lines.index("    denied: read_file, run_command") == next(i for i, ln in enumerate(lines) if ln.startswith("d ")) + 1
+
+
+def test_denied_actions_report_tool_names_only_for_cc_and_ag(tmp_path):
+    report = run(tmp_path, [task("c", peer="cc", mode="denied_cc"), task("g", peer="ag", mode="denied")], n=2)
+    rows = {r["task_id"]: r for r in report["tasks"]}
+    assert rows["c"]["denied_actions"] == ["Edit", "Bash", "Read"]
+    assert rows["g"]["denied_actions"] == ["read_file", "run_command"]
+    serialized = json.dumps(report)
+    assert "a.py" not in serialized and "b.py" not in serialized and "secret.txt" not in serialized
+    text = batch.render_text(report)
+    assert "    denied: Edit, Bash, Read" in text.splitlines()
+    assert "    denied: read_file, run_command" in text.splitlines()
+    assert "a.py" not in text and "secret.txt" not in text
+    # Direct render_text also strips cc `: detail` suffixes.
+    raw_text = batch.render_text({
+        "batch_id": "b1", "max_parallel": 1,
+        "tasks": [{"task_id": "raw", "peer": "cc", "status": "UNVERIFIED", "reason": "denied_empty",
+                   "request_id": "r1", "denied_actions": ["Edit: private/path.py", "Edit: other.py"]}],
+    })
+    assert "    denied: Edit" in raw_text.splitlines()
+    assert "private/path.py" not in raw_text
 
 
 def test_render_text_adds_reply_only_when_present(tmp_path):

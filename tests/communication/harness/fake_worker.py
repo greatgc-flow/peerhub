@@ -38,6 +38,10 @@ elif mode == "denied":  # ag turn ended empty after tool actions were denied (#3
     finish(1, {"status": "denied_empty", "certainty": "TERMINAL", "response": "", "empty_response": True,
                "denied_actions": ["read_file", "run_command"],
                "error": {"code": "denied_empty", "message": "ag denied tool action(s): read_file, run_command"}})
+elif mode == "denied_cc":  # cc denial strings include `: detail` suffixes (#303, #497 R2)
+    finish(1, {"status": "denied_empty", "certainty": "TERMINAL", "response": "", "empty_response": True,
+               "denied_actions": ["Edit: a.py", "Edit: b.py", "Bash: cat secret.txt", "Read"],
+               "error": {"code": "denied_empty", "message": "cc denied tool action(s)"}})
 elif mode == "notstarted":
     finish(1, {"status": "failed_not_started", "certainty": "NOT_STARTED", "response": None,
                "error": {"code": "delivery_failed", "message": "x"}})

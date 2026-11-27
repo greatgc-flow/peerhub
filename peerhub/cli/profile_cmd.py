@@ -26,7 +26,11 @@ def register_profile_parser(subparsers: Subparsers) -> None:
     profile_show.add_argument("profile", help="Profile ID to inspect (for example, cx.standard)")
     profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
     profile_stats = profile_sub.add_parser("stats", help="Aggregate stored ask measurements by profile")
-    profile_check = profile_sub.add_parser("check", help="Check installed model IDs and measurement age")
+    profile_check = profile_sub.add_parser(
+        "check",
+        help="Check installed model IDs and measurement age",
+        description="Compare configured profile model IDs with installed provider catalogs and flag profiles without a current measurement in 30 days.",
+    )
     for profile_action in (profile_list, profile_show, profile_stats, profile_check):
         profile_action.add_argument(*WORKSPACE_OPTIONS, type=Path, default=None,
                                     help="Workspace whose profile files apply (default: current directory)")
@@ -87,8 +91,11 @@ def run_profile(args: argparse.Namespace) -> int:
                     emit({**findings, "workspace": str(workspace)}, True)
                 else:
                     missing = ", ".join(f"{name} ({model})" for name, model in findings["missing_models"].items())
+                    overdue = ", ".join(findings["measurement_overdue"])
                     print("Missing from installed model lists | " + (missing or "-"))
-                    print("No current measurement in 30 days | " + (", ".join(findings["measurement_overdue"]) or "-"))
+                    print("No current measurement in 30 days | " + (overdue or "-"))
+                    if not missing and not overdue:
+                        print(f"OK: {len(profiles)} profiles checked; no missing models or overdue measurements.")
                 return 0
             for profile, stat in zip(profiles, stats):
                 profile["stats"] = {key: stat[key] for key in ("n", "stale")}

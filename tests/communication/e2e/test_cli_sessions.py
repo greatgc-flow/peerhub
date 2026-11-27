@@ -267,3 +267,37 @@ def test_session_inspection_refuses_future_schema(tmp_path, capsys):
 
     assert main(["--db", str(db), "session", "list", "--json"]) == 6
     assert json.loads(capsys.readouterr().out)["status"] == "SCHEMA_VERSION_ERROR"
+
+
+def test_session_list_reports_dead_sessions_non_resumable_and_documents_sort_order(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["session", "list", "--help"])
+    assert exc.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    for term in ("ordered by", "stream_id", "peer_id", "generation descending", "handle descending"):
+        assert term in help_text, term
+
+    db = tmp_path / "core.db"
+    _seed(db, capsys, count=3)
+    with sqlite3.connect(db) as conn:
+        handles = [r[0] for r in conn.execute(
+            "SELECT session_handle FROM bridge_session_history ORDER BY session_generation"
+        ).fetchall()]
+        conn.execute("UPDATE bridge_session_history SET state='LOST', resumable=1 WHERE session_handle=?", (handles[0],))
+        conn.execute("UPDATE bridge_session_history SET state='TOMBSTONED', resumable=1 WHERE session_handle=?", (handles[1],))
+        conn.execute("UPDATE bridge_session_history SET state='ACTIVE', resumable=1 WHERE session_handle=?", (handles[2],))
+
+    assert main(["--db", str(db), "session", "list", "--json"]) == 0
+    by_handle = {row["handle"]: row for row in json.loads(capsys.readouterr().out)["items"]}
+    assert by_handle[handles[0]]["state"] == "LOST" and by_handle[handles[0]]["resumable"] is False
+    assert by_handle[handles[1]]["state"] == "TOMBSTONED" and by_handle[handles[1]]["resumable"] is False
+    assert by_handle[handles[2]]["state"] == "ACTIVE" and by_handle[handles[2]]["resumable"] is True
+
+    assert main(["--db", str(db), "session", "list"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    for handle, expected in ((handles[0], "False"), (handles[1], "False"), (handles[2], "True")):
+        row_line = next(line for line in lines if line.startswith(handle))
+        assert expected in row_line.split()
+
+    assert main(["--db", str(db), "session", "show", handles[0], "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["session"]["resumable"] is False

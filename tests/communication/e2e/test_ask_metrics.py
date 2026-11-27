@@ -181,23 +181,62 @@ def test_profile_stats_text_is_a_compact_table(monkeypatch, capsys):
         profile("cx.deepthink", 2, 189.7, None, 1_800_000.5, None, None, None, True, 0),
         profile("oa.standard", 0, None, None, None, None, None, None, False, None),
     ]
+    from peerhub.cli.profile_stats import PROFILE_STATS_LEGEND
+
     monkeypatch.setattr(profile_stats, "read_profile_stats", lambda db, workspace, profiles: rows)
     assert main(["profile", "stats"]) == 0
     lines = capsys.readouterr().out.splitlines()
     assert max(map(len, lines)) < 120
-    assert [line.split() for line in lines] == [
+    assert [line.split() for line in lines[:-1]] == [
         ["PROFILE", "N", "P50", "CACHE%", "IN/ASK", "OUT/ASK", "POOL/ACC", "BENCH", "STALE", "TOK%"],
         ["cx.astra", "3", "11s", "90%", "30k", "501", "0.25pp", "2026-11-20", "-", "67%"],
         ["cx.deepthink", "2", "3m10s", "-", "2M", "-", "-", "-", "yes", "0%"],
         ["oa.standard", "0", "-", "-", "-", "-", "-", "-", "-", "-"],
     ]
+    assert lines[-1] == PROFILE_STATS_LEGEND
     assert main(["profile", "stats", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["profiles"] == rows
     rows[0]["profile"] = "cx." + "測" * 70
     assert main(["profile", "stats"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 4
+    assert len(lines) == 5
     assert max(map(visible_len, lines)) < 120
+
+
+def test_profile_stats_omits_empty_columns_formats_subsecond_and_prints_legend(monkeypatch, capsys):
+    from peerhub.cli.profile_stats import PROFILE_STATS_LEGEND
+    from peerhub.extensions import profile_stats
+
+    def profile(name, n, wall, tokens_out, coverage):
+        return dict(profile=name, n=n, p50_wall_seconds=wall, cache_read_pct=None,
+                    tokens_per_ask=dict.fromkeys(profile_stats.TOKEN_METRICS) | {"output_tokens": tokens_out},
+                    pool_pct_per_accepted_answer=None, last_benchmark_run=None, stale=False,
+                    coverage_pct={}, measurement="measured", token_coverage_pct=coverage)
+
+    rows = [
+        profile("oa.standard", 2, 0.42, 120.0, 100.0),
+        profile("cc.standard", 1, 0.0, 2.0, 0.0),
+        profile("ga.standard", 1, 1.0, None, None),
+    ]
+    monkeypatch.setattr(profile_stats, "read_profile_stats", lambda db, workspace, profiles: rows)
+    assert main(["profile", "stats"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].split() == ["PROFILE", "N", "P50", "OUT/ASK", "TOK%"]
+    for dropped in ("CACHE%", "IN/ASK", "POOL/ACC", "BENCH", "STALE"):
+        assert dropped not in lines[0]
+    assert [line.split() for line in lines[1:-1]] == [
+        ["oa.standard", "2", "<1s", "120", "100%"],
+        ["cc.standard", "1", "0s", "2", "0%"],
+        ["ga.standard", "1", "1s", "-", "-"],
+    ]
+    assert lines[-1] == PROFILE_STATS_LEGEND
+
+    empty_rows = [profile("oa.standard", 0, None, None, None)]
+    monkeypatch.setattr(profile_stats, "read_profile_stats", lambda db, workspace, profiles: empty_rows)
+    assert main(["profile", "stats"]) == 0
+    empty_lines = capsys.readouterr().out.splitlines()
+    assert [line.split() for line in empty_lines] == [["PROFILE", "N"], ["oa.standard", "0"]]
+    assert PROFILE_STATS_LEGEND not in "\n".join(empty_lines)
 
 
 def test_old_bridge_read_and_additive_outcome_migration(old_bridge):

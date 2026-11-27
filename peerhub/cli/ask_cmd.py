@@ -87,6 +87,19 @@ def report_ask_parse_error(exc: SystemExit) -> int:
     return 2
 
 
+def report_ask_validation_error(exc: SystemExit) -> int:
+    from peerhub.cli.recovery_render import make_guidance_payload
+    message = getattr(exc, "argument_error", "") or "Invalid ask arguments."
+    hint = getattr(exc, "argument_hint", None)
+    guidance = make_guidance_payload("invalid_arguments")
+    if isinstance(hint, str) and hint:
+        guidance["summary"] = f"Next: {hint}."
+    print(json.dumps(dict(status="error", response=None, session=None,
+                          error=dict(code="invalid_arguments", message=message),
+                          guidance=guidance), ensure_ascii=True))
+    return 2
+
+
 def report_ask_error(
     args: argparse.Namespace,
     argv: list[str],
@@ -250,9 +263,26 @@ def run_ask(args: argparse.Namespace) -> int:
         parts: list[str] = []
         total_bytes = 0
         for index, path in enumerate(query_files):
-            contents = Path(path).read_bytes()
+            try:
+                contents = Path(path).read_bytes()
+                part = contents.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+            except (OSError, ValueError) as exc:
+                reason = (str(exc.strerror or type(exc).__name__).lower()
+                          if isinstance(exc, OSError) else "not valid UTF-8")
+                message = f"cannot read --query-file {path}: {reason}"
+                hint = f"check the path {path} (or run peerhub ask --help)"
+                if args.final_only:
+                    _print_final_result({"status": "error", "session": None})
+                elif args.json:
+                    from peerhub.cli.recovery_render import make_guidance_payload
+                    guidance = make_guidance_payload("invalid_arguments")
+                    guidance["summary"] = f"Next: {hint}."
+                    print(json.dumps(dict(status="error", response=None, session=None,
+                                          error=dict(code="invalid_arguments", message=message),
+                                          guidance=guidance), ensure_ascii=True))
+                error_line("invalid_arguments", message, hint)
+                return 2
             total_bytes += len(contents)
-            part = contents.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
             if index:
                 part = part.lstrip("\n")
             if index < len(query_files) - 1:

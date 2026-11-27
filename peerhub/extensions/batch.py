@@ -282,6 +282,20 @@ def exit_code(report: Mapping[str, Any]) -> int:
     return 0 if all(r["status"] == "COMPLETED" for r in report["tasks"]) else 1
 
 
+def _denied_action_names(denied: object) -> list[str]:
+    """Return unique tool names in first-seen order without detail suffixes (e.g. cc `Edit: a.py` -> `Edit`)."""
+    if not isinstance(denied, list):
+        return []
+    names: list[str] = []
+    for item in cast(list[Any], denied):
+        if not isinstance(item, str):
+            continue
+        name = item.split(":", 1)[0].strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def _outcome_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     counts = dict.fromkeys((*_OUTCOME_BY_STATUS.values(), _QUOTA_REFUSED), 0)
     for row in rows:
@@ -464,9 +478,9 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             out_row["session"] = session["handle"]
         guidance = result.get("guidance") if result is not None else None
         explain = cast(dict[str, Any], guidance).get("explain_cmd") if isinstance(guidance, dict) else None
-        denied = result.get("denied_actions") if result is not None else None
-        if isinstance(denied, list) and denied:  # names only, as in the single ask result (#371, #391, #493)
-            out_row["denied_actions"] = [str(name) for name in cast(list[Any], denied)]
+        denied = _denied_action_names(result.get("denied_actions") if result is not None else None)
+        if denied:  # tool names only, no paths or command details (#371, #391, #493)
+            out_row["denied_actions"] = denied
         if status != "COMPLETED" and isinstance(explain, str) and explain:
             out_row["next"] = [explain]
         if responses and status == "COMPLETED" and result is not None:
@@ -549,8 +563,9 @@ def render_text(report: Mapping[str, Any]) -> str:
     lines = [f"batch {report['batch_id']} max-parallel {report['max_parallel']}"]
     for r in report["tasks"]:
         lines.append(f"{r['task_id']:<24} {r['peer']:<8} {r['status']:<10} {r.get('reason') or ''}".rstrip())
-        if r.get("denied_actions"):
-            lines.append(f"    denied: {', '.join(r['denied_actions'])}")
+        denied = _denied_action_names(r.get("denied_actions"))
+        if denied:
+            lines.append(f"    denied: {', '.join(denied)}")
         if r.get("next"):
             lines.append(f"    next: {', '.join(r['next'])} (request_id={r['request_id']})")
     outcomes = report.get("outcomes")
