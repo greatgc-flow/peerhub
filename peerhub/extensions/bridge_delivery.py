@@ -24,7 +24,7 @@ class BridgeDelivery(BridgeSessions):
     """Orchestrate dispatch and recovery through sessions and the delivery ledger."""
 
     owner_id: str
-    _stream_budget: tuple[int, int] | None
+    _stream_budget: int | None
     _on_stream_budget: Callable[[], None] | None
 
     @staticmethod

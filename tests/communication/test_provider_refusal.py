@@ -691,3 +691,12 @@ def test_cc_limit_phrasings_classify_as_usage_limit(text):
 def test_reset_time_ignores_prose_that_is_not_a_time():
     from peerhub.extensions.adapters.common import extract_reset_time
     assert extract_reset_time("rate_limit_error: resets 3 times a day") is None
+
+
+def test_agy_third_party_quota_classifies_as_quota_exhausted():
+    # #503: agy reports the non-Gemini model pool with its own wording.
+    from peerhub.extensions.adapters.common import classify_refusal_text
+    text = ("error: Third-party quota reached. Please switch to Gemini models or upgrade your subscription "
+            "to increase your limits. Resets in 1h4m55s.")
+    assert classify_refusal_text(text) == {"reason": "quota_exhausted", "reset_time": "1h4m55s",
+                                           "message": "Individual quota reached / resource exhausted"}

@@ -150,7 +150,7 @@ def _nonnegative_seconds(value: str) -> int:
     return seconds
 
 
-def _diagnostic_profiles() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+def _diagnostic_profiles() -> tuple[dict[str, list[str]], dict[str, list[str]] | None]:
     from peerhub.extensions.adapters.profiles import list_profiles
 
     pools_of_profile: dict[str, list[str]] = {}
@@ -159,7 +159,7 @@ def _diagnostic_profiles() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
         profiles = list_profiles(Path.cwd())
     except Exception as exc:  # any broken profile config must not hide a healthy diagnostic report
         print(f"Warning: profiles unavailable ({type(exc).__name__}); run peerhub profile check.", file=sys.stderr, flush=True)
-        return pools_of_profile, profiles_by_pool
+        return pools_of_profile, None  # #498: no profile map, so the scoped weekly cap follows pool refs
     for profile in profiles:
         name = str(profile["profile"])
         pools = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]

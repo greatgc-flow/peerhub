@@ -153,15 +153,14 @@ def test_stats_and_receipts_use_per_ask_token_deltas(recorded_usage, capsys):
     assert stats["oa.standard"]["tokens_per_ask"]["output_tokens"] == 0
 
 
-def test_resumed_budget_uses_selected_session_per_ask_prompt(recorded_usage):
-    for delivery, expected in (("d2", False), ("d4", False), ("d5", False), ("d6", False),
-                               ("d7", True), ("d10", False), ("d11", True)):
-        limit = {"d2": 90_000, "d11": 4000}.get(delivery, 128_000)
-        assert ask_budgets.resumed_ask_budget(recorded_usage, delivery, (limit, 12)) is expected, delivery
+def test_resumed_budget_counts_resumed_turns_only(recorded_usage):
+    # #502: a large per-ask prompt total (d7, d11) sums every model call of the turn, so it no longer warns.
+    for delivery in ("d2", "d4", "d5", "d6", "d7", "d10", "d11"):
+        assert not ask_budgets.resumed_ask_budget(recorded_usage, delivery, 12), delivery
     recorded_usage.execute("INSERT INTO bridge_session_monitor_stats(session_handle,reuse_count,counts_complete,binding_json) "
                            "VALUES ('original',12,1,'{}')")
-    assert ask_budgets.resumed_ask_budget(recorded_usage, "d2", (128_000, 12))
-    assert not ask_budgets.resumed_ask_budget(recorded_usage, "d5", (128_000, 12))
+    assert ask_budgets.resumed_ask_budget(recorded_usage, "d2", 12)
+    assert not ask_budgets.resumed_ask_budget(recorded_usage, "d2", 13)
 
 
 def test_profile_stats_text_is_a_compact_table(monkeypatch, capsys):
@@ -334,6 +333,8 @@ def test_stream_budget_warning_precedes_only_a_resumed_invocation(tmp_path, monk
     from peerhub.extensions.adapters.telemetry import parse_provider_usage
 
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
+    (tmp_path / ".peerhub" / "config").mkdir(parents=True)  # #502: the budget counts resumed turns only
+    (tmp_path / ".peerhub" / "config" / "models.toml").write_text("[stream_budget]\nresumed_turns = 1\n", encoding="utf-8")
     db = tmp_path / "core.db"
     runtime = ScriptedCodex()
     usage = parse_provider_usage("cx", '{"type":"turn.completed","usage":{"input_tokens":128000,"cached_input_tokens":0}}')
@@ -478,9 +479,44 @@ def test_ask_alias_notice_uses_receipt_policy(monkeypatch, capsys, tty, json_mod
     assert ("cx.review_alias is deprecated" in capsys.readouterr().err) is expected
 
 
-@pytest.mark.parametrize(("prompt_tokens", "turns", "warn"), [
-    (128_000, 0, True), (127_999, 99, False), (0, 99, False),
-    (None, 11, False), (None, 12, True),
-])
-def test_stream_budget_uses_reported_prompt_or_resumed_turns(prompt_tokens, turns, warn):
-    assert ask_budgets.stream_budget_exceeded(prompt_tokens, turns, (128_000, 12)) is warn
+@pytest.mark.parametrize(("turns", "warn"), [(None, False), (11, False), (12, True)])
+def test_stream_budget_uses_resumed_turns(turns, warn):
+    assert ask_budgets.stream_budget_exceeded(turns, 12) is warn
+
+
+def test_stream_budget_ignores_the_former_prompt_tokens_key(tmp_path, monkeypatch):
+    from peerhub.extensions.adapters.profiles import stream_budget
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
+    config = tmp_path / ".peerhub" / "config"
+    config.mkdir(parents=True)
+    (config / "models.toml").write_text("[stream_budget]\nprompt_tokens = 1\nresumed_turns = 3\n", encoding="utf-8")
+    assert stream_budget(tmp_path) == 3
+
+
+def _cumulative(kind: str, **normalized: int) -> dict:
+    return {"provider_kind": kind, "usage": {"scope": "session_cumulative", "coverage": {"state": "MEASURED"},
+                                             "normalized": normalized}}
+
+
+def test_ag_prompt_adds_cached_input_because_agy_input_excludes_it():
+    # #502: stored agy runs report cached_input_tokens above input_tokens, so the prompt is their sum.
+    turn1 = _cumulative("ag", provider_input_tokens=11154, cached_input_tokens=0, output_tokens=370)
+    turn2 = _cumulative("ag", provider_input_tokens=22200, cached_input_tokens=11194, output_tokens=724)
+    tokens = ask_budgets.ask_tokens(turn2, turn1)
+    assert (tokens["input_tokens"], tokens["prompt_tokens"], tokens["cache_read_tokens"]) == (22240, 22240, 11194)
+    from peerhub.extensions.profile_stats import cache_share
+    assert cache_share(tokens["cache_read_tokens"], tokens["prompt_tokens"]) == pytest.approx(50.3, abs=0.1)
+    cx = ask_budgets.ask_tokens(_cumulative("cx", provider_input_tokens=100, cached_input_tokens=90, output_tokens=1),
+                                _cumulative("cx", provider_input_tokens=0, cached_input_tokens=0, output_tokens=0))
+    assert cx["prompt_tokens"] == 100  # cx input already includes cached input
+
+
+@pytest.mark.parametrize(("mode", "expected"), [("fresh", 11154), ("resumed", None)])
+def test_first_delivery_of_a_fresh_session_counts_its_cumulative_usage(mode, expected):
+    # #502: most asks open a fresh session, and its first delivery has no previous delivery to subtract.
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.execute("CREATE TABLE bridge_deliveries (delivery_id TEXT, seq INTEGER, stream_id TEXT, peer_id TEXT, "
+                     "session_handle TEXT, session_snapshot_json TEXT)")
+        conn.execute("INSERT INTO bridge_deliveries VALUES ('d1', 1, 's', 'ag', 'h1', ?)", (json.dumps({"mode": mode}),))
+        telemetry = _cumulative("ag", provider_input_tokens=11154, cached_input_tokens=0, output_tokens=370)
+        assert ask_budgets.ask_delivery_tokens(conn, "d1", telemetry)["prompt_tokens"] == expected

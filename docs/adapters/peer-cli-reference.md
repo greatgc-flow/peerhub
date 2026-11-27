@@ -100,7 +100,9 @@ only for historical read-only invocations (`--writable` off). For example, exit 
 in historical read-only mode. Current native `ag` execution requires `--writable`
 and is refused before spawn without it (#140); cached terminal replay still works.
 Writable Agy runs remain uncertain (`blocked_uncertain`)
-unless output carries explicit pre-execution evidence; Agy provides none today.
+unless output carries explicit pre-execution evidence. The stream transport provides it:
+a fully validated stream (every step known and finished) whose quota or usage-limit
+terminal follows no `tool` step settles as `NOT_EXECUTED` (#503).
 
 Refusal evidence is committed before settlement. Recovery finishes session
 invalidation and offset advancement before acknowledging the delivery, without

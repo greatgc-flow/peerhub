@@ -191,3 +191,17 @@ def test_another_accounts_same_named_parent_does_not_break_the_cap():
     frame["_human_observations"].append({**frame["_human_observations"][0], "pool_ref": "quota:other:C-7D"})
     screen = mv.render_grouped_frame(frame, view="rich", expand=True, width=160)
     assert pool_rows(screen, "F-7D")[0] == pool_rows(base, "F-7D")[0]
+
+
+@pytest.mark.parametrize("order", ["strict_first", "strict_last"])
+def test_a_second_peer_reporting_the_same_parent_keeps_the_strictest_reading(order):
+    """#498: the same account-scoped C-7D from a second peer is one parent; its lower reading still caps F-7D."""
+    base = mv.render_grouped_frame(payload(), view="rich", expand=True, width=160)
+    frame = payload()
+    observations = frame["_human_observations"]
+    loose = {**observations[0], "observation_id": "cc2-C-7D", "peer_id": "cc2",
+             "measurements": {"remaining_fraction": .8}, "last_measurements": {"remaining_fraction": .8}}
+    observations.insert(0 if order == "strict_last" else 1, loose)
+    screen = mv.render_grouped_frame(frame, view="rich", expand=True, width=160)
+    assert all("blocked" in row.split() for row in pool_rows(screen, "F-7D"))
+    assert pool_rows(screen, "F-7D")[0] == pool_rows(base, "F-7D")[0]

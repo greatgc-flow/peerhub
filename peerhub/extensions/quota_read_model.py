@@ -39,8 +39,14 @@ def project_pool_rows(readings: list[PoolReading], frame_time: float, *,
     descriptors: list[PoolReading] = readings
     if exclude_unavailable:
         descriptors = [{**row, "state": own["state"]} for row, own in zip(readings, healths)]
-    parents = scoped_weekly_parents(descriptors, require_consumers=require_consumers)
     health_by_row = {id(row): own for row, own in zip(descriptors, healths)}
+
+    def strictness(row: PoolReading) -> tuple[bool, float]:  # #498: a fresh, lower reading of a duplicate parent wins
+        own = health_by_row[id(row)]
+        left = own["left_pct"]
+        return bool(own["stale"]), float(left) if isinstance(left, (int, float)) else 101.0
+
+    parents = scoped_weekly_parents(descriptors, require_consumers=require_consumers, strictness=strictness)
     result: list[PoolRow] = []
     for row, own in zip(descriptors, healths):
         parent = parents.get(id(row))

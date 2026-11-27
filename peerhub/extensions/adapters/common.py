@@ -132,7 +132,7 @@ def classify_refusal_text(text: str) -> dict[str, Any] | None:
     """Classify an explicit provider error field, never response or arbitrary log text."""
     text = re.sub(r"^error:\s*", "", text.strip(), flags=re.IGNORECASE)
     # 1. Quota / resource exhausted
-    if re.match(r"(?:Individual\s+quota\s+reached|RESOURCE_EXHAUSTED)\b", text, re.IGNORECASE):
+    if re.match(r"(?:(?:Individual|Third-party)\s+quota\s+reached|RESOURCE_EXHAUSTED)\b", text, re.IGNORECASE):
         reset = extract_reset_time(text)
         return {
             "reason": "quota_exhausted",

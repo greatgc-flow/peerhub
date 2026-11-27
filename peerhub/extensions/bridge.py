@@ -15,7 +15,7 @@ class Bridge(BridgeDelivery):
                  max_session_attempts: int = 3, catch_up_limit: int = 100, ack_retries: int = 8,
                  catch_up_budget: CatchUpBudget | None = None, fault_hook: Callable[[str], None] | None = None,
                  caller: Mapping[str, Any] | None = None,
-                 stream_budget: tuple[int, int] | None = None, on_stream_budget: Callable[[], None] | None = None) -> None:
+                 stream_budget: int | None = None, on_stream_budget: Callable[[], None] | None = None) -> None:
         self.store, self.claims = store, claims
         # #374: caller detail (schema v1, peerhub.extensions.caller); evidence only, never part of any digest.
         self.caller: dict[str, Any] | None = dict(caller) if isinstance(caller, dict) else None

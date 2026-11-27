@@ -8,6 +8,16 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- The stream budget warning before a resumed ask counts resumed turns only (`[stream_budget] resumed_turns`, default 12). The `prompt_tokens` key is ignored: a peer CLI's per-ask prompt total sums every model call of the turn, so it warned on about half of resumed cx asks and pushed them to drop a cached session (#502).
+
+### Fixed
+
+- An ag ask that hits a quota before any tool step settles as `not_executed` with its reset time instead of `uncertain`, so the stream is not left blocked. A quota after a tool step stays uncertain. agy's "Third-party quota reached" is classified as a quota limit (#503).
+- `peerhub profile stats` counts the first delivery of a fresh session and adds agy's cached input to its prompt total, so TOK% and CACHE% match stored usage (ag TOK% 4-7% to 84-99%, CACHE% 2-8% to 21-95%) (#502).
+- Bare `peerhub diag` with an unreadable profile config keeps the `C-7D` cap on `F-7D`, and a parent pool reported by two peers keeps its strictest reading (#498).
+
 ## [0.28.1] - 2026-11-27
 
 0.28.0 was never published; its changes ship in 0.28.1.

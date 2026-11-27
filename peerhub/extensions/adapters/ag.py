@@ -474,6 +474,26 @@ def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san:
     return "\n".join((san.clean(prefix), status_line))
 
 
+def quota_refusal_before_work(res: ProcessResult) -> dict[str, Any] | None:
+    """A quota or usage-limit terminal of a fully validated stream with no tool step (#503), else None.
+
+    The stream transport reports every step, so a validated stream (framing, every step known and finished) whose
+    steps include no `tool` proves that no tool ran: the delivery settles as NOT_EXECUTED like a cx or cc refusal.
+    A truncated, invalid or unvalidated stream, or one with any tool step, stays uncertain.
+    """
+    if res.stdout_truncated:
+        return None
+    term = terminal_result(res.stdout)
+    if term["observation"] != "complete" or term["status"] == "SUCCESS" or term["validation"] is not None:
+        return None
+    if any(step["step_type"] == "tool" for step in parse_ag_stream_json(res.stdout.decode("utf-8"))["steps"]):
+        return None
+    match = terminal_quota(term["terminal_line"])
+    if match is None:
+        return None
+    return {"reason": match.reason, "reset_time": match.reset_time, "message": _AG_LIMIT_SUMMARY[match.reason]}
+
+
 def stream_stdout(res: ProcessResult, san: Sanitizer, payload_len: int) -> tuple[str, dict[str, Any] | None]:
     """Decide an exited ag stream delivery (design v4 §3.5 rows 4-12, decision D of #369).
 

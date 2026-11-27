@@ -77,11 +77,13 @@ quota readings come from the existing `observations` table. The additive migrati
 installs only the outcome history and attributable quota deltas.
 Delivery-scoped counters apply directly to the ask. For session-cumulative counters,
 PeerHub subtracts the previous delivery's values for the same stream, peer, and session
-handle. A counter is unknown when either value is missing or the current value is lower,
-as can happen after compaction. Stats average each metric over asks with an attributable
+handle. The first delivery of a fresh session has no previous delivery and takes its values
+as they are, because the session starts at zero. A counter is unknown when either value is
+missing or the current value is lower, as can happen after compaction. Stats average each metric over asks with an attributable
 value. Zero counts toward coverage. Cache-read percentage divides the sum of per-ask
 cache reads by total prompt tokens over asks with both counters and a positive prompt
-total. Claude reports fresh input separately from its cache counters. The p50 uses
+total. Claude reports fresh input separately from its cache counters. Antigravity's input
+count excludes cached input, so its input and prompt totals add the cached tokens. The p50 uses
 measured wall times.
 
 The text table shows one row per profile, with compact durations, rounded input and output
@@ -119,13 +121,12 @@ The workspace value wins per key. Both values are positive integers.
 
 ```toml
 [stream_budget]
-prompt_tokens = 128000
 resumed_turns = 12
 ```
 
-Before a resumed ask, PeerHub checks the previous delivery in the selected session for
-per-ask prompt tokens (fresh input, cache reads, and cache writes), using the same
-scope and delta rules as stats. If the previous ask's prompt total is unknown, PeerHub
-checks how many resumed calls the selected session has already had. Reaching either applicable
-threshold prints one warning with a fresh-stream command and a handoff checklist. The
-ask proceeds with the selected session.
+Before a resumed ask, PeerHub checks how many resumed calls the selected session has
+already had. Reaching the threshold prints one warning with a fresh-stream command and a
+handoff checklist. The ask proceeds with the selected session. The former `prompt_tokens`
+key is ignored: a peer CLI's per-ask prompt total sums every model call of the turn, so it
+does not measure the context size. Keeping a session keeps its prompt cache, and a fresh
+stream rereads its context uncached.

@@ -68,6 +68,15 @@ def _with_status(status: str) -> str:
 SYNTHETIC_QUOTA_ERROR = _nd([_events()[0], _terminal("ERROR", error=QUOTA_LINE)])
 
 
+def _step(index: int, step_type: str, state: str = "DONE") -> dict:
+    return {"event": "step_update", "step_update": {"conversation_id": CID, "step_index": index, "state": state,
+                                                    "step_type": step_type}}
+
+
+# #503: once a tool step ran, a quota terminal cannot prove that nothing happened, so it stays uncertain.
+QUOTA_AFTER_TOOL = _nd([_events()[0], _step(1, "tool"), _terminal("ERROR", error=QUOTA_LINE)])
+
+
 class Kit:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -660,11 +669,28 @@ def test_17a_absent_terminal_with_nonzero_exit_classifies_stderr(kit, bridge_h, 
 
 @pytest.mark.parametrize("exit_code,stderr", [(0, ""), (3, "Resets in 1h\n")])
 def test_17b_quota_in_a_terminal_error_is_classified_from_the_terminal_only(kit, bridge_h, exit_code, stderr):
-    result = _cycle(bridge_h, kit.replay(SYNTHETIC_QUOTA_ERROR, exit_code=exit_code, stderr=stderr))
+    result = _cycle(bridge_h, kit.replay(QUOTA_AFTER_TOOL, exit_code=exit_code, stderr=stderr))
     assert result.status == "uncertain"
     assert _error(result) == "\n".join(["Individual quota reached (Resets in 20h9m47s)", QUOTA_LINE,
                                         f"ag stream result ERROR (exit {exit_code})"])
     assert _provider_limit(_error(result)) == QUOTA
+
+
+@pytest.mark.parametrize("steps", [[], [_step(1, "user_input"), _step(2, "agent_response")]], ids=["no_steps", "no_tool_step"])
+def test_17d_quota_before_any_tool_step_is_not_executed_and_acked(kit, bridge_h, steps):
+    # #503: a validated stream with no tool step proves that no tool ran; settle like a cx or cc refusal.
+    stdout = _nd([_events()[0], *steps, _terminal("ERROR", error=QUOTA_LINE)])
+    result = _cycle(bridge_h, kit.replay(stdout, exit_code=3, stderr=Q_STDERR))
+    assert result.status == "not_executed"
+    assert (result.detail["reason"], result.detail["reset_time"]) == ("quota_exhausted", "20h9m47s")
+    assert sql(bridge_h, "SELECT acked FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,))[0][0] == 1
+    assert bridge_h.delivery_cycle("b", "s", kit.replay(stdout, exit_code=3, stderr=Q_STDERR)).status == "idle"
+    assert kit.launches == 1
+
+
+def test_17e_quota_while_a_tool_step_is_unfinished_stays_uncertain(kit, bridge_h):
+    stdout = _nd([_events()[0], _step(1, "tool", "ACTIVE"), _terminal("ERROR", error=QUOTA_LINE)])
+    assert _cycle(bridge_h, kit.replay(stdout, exit_code=3, stderr=Q_STDERR)).status == "uncertain"
 
 
 def test_17c_success_with_nonzero_exit_never_claims_quota(kit, bridge_h):
@@ -807,7 +833,7 @@ SCENARIOS = {
     "13_interrupted": _replayed(_with_status("INTERRUPTED")),
     "15_deadline": lambda kit, monkeypatch: kit.target("hang", timeout_s=3.0),
     "17a_absent_quota": _replayed("", 3, Q_STDERR),
-    "17b_terminal_quota": _replayed(SYNTHETIC_QUOTA_ERROR, 3, Q_STDERR),
+    "17b_terminal_quota": _replayed(QUOTA_AFTER_TOOL, 3, Q_STDERR),
     "17c_success_exit_1": _replayed(RECORDED, 1, Q_STDERR),
     "18a_recorded": _replayed(RECORDED, max_bytes=512),
     "18a_over_1mib": _replayed(_over_one_mib(), max_bytes=1_048_576),
@@ -931,7 +957,7 @@ def test_23i_a_reset_phrase_over_100_characters_is_dropped():
 
 def test_23_delivery_with_exit_0_uses_the_bounded_summary(kit, bridge_h):
     line = "Individual quota reached. " + "x" * 400 + " Resets in 20h9m47s."
-    result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _terminal("ERROR", error=line)])))
+    result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _step(1, "tool"), _terminal("ERROR", error=line)])))
     assert result.status == "uncertain"
     assert _error(result).split("\n")[0] == "Individual quota reached (Resets in 20h9m47s)"
     assert _provider_limit(_error(result)) == QUOTA
