@@ -230,8 +230,19 @@ def _serialize_obs_item(item: object, read_at: float) -> dict[str, object]:
     }
     obs["payload"] = _scrub_payload(kind, it.get("payload"))
     if kind in ("quota", "rate_limit"):
-        basis = {**obs, "reset_in_seconds": it["reset_in_seconds"]} if "reset_in_seconds" in it else obs
-        obs["projection"] = observation_projection(basis, read_at)  # relative resets count, as in the summary
+        basis = obs
+        relative = it.get("reset_in_seconds")
+        payload_obj = obs.get("payload")
+        if isinstance(relative, (int, float)) and isinstance(payload_obj, dict) and obs.get("observed_at"):
+            payload = cast(dict[str, Any], payload_obj)
+            if payload.get("resets_at") is None:  # a relative reset counts in the projection, as in the summary
+                from peerhub.extensions.observation_model import instant_us
+                try:
+                    anchor = instant_us(str(obs["observed_at"])) / 1_000_000
+                    basis = {**obs, "payload": {**payload, "resets_at": anchor + float(relative)}}
+                except (ValueError, OverflowError):
+                    pass
+        obs["projection"] = observation_projection(basis, read_at)
     return obs
 
 

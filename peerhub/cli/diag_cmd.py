@@ -157,7 +157,7 @@ def _diagnostic_profiles() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     profiles_by_pool: dict[str, list[str]] = {}
     try:
         profiles = list_profiles(Path.cwd())
-    except (ValueError, OSError) as exc:  # a broken models.toml must not hide a healthy diagnostic report
+    except Exception as exc:  # any broken profile config must not hide a healthy diagnostic report
         print(f"Warning: profiles unavailable ({type(exc).__name__}); run peerhub profile check.", file=sys.stderr, flush=True)
         return pools_of_profile, profiles_by_pool
     for profile in profiles:
