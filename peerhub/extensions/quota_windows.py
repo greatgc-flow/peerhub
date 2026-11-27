@@ -93,7 +93,7 @@ def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = Tr
     """Fable's scoped weekly window depends on the all-models window when configured consumers confirm it.
 
     With profile metadata, require a strict consumer-set inclusion. Without it, callers may use the
-    known dependency by pool ref. Duplicate display names and different accounts cannot establish a parent.
+    known dependency by pool ref. The parent is matched by its account-scoped pool ref.
     """
     rows = [row for row in rows if not row["retired"] and row.get("state") != "n/a"]
     parents: dict[int, _Pool] = {}
@@ -101,10 +101,10 @@ def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = Tr
         parent_ref = scoped_parent_ref(str(child["pool_ref"]))
         if parent_ref is None:
             continue
-        parent_name = parent_ref.rsplit(":", 1)[-1]
-        common = [row for row in rows if row["peer"] == child["peer"] and row["pool"] == parent_name]
-        same_name = [row for row in rows if row["peer"] == child["peer"] and row["pool"] == child["pool"]]
-        if len(common) != 1 or common[0]["pool_ref"] != parent_ref or len(same_name) != 1:
+        # Match by the account-scoped pool ref: another account's pools (or its ABSENT readings) never break the link.
+        common = [row for row in rows if row["pool_ref"] == parent_ref]
+        same_ref = [row for row in rows if row["pool_ref"] == child["pool_ref"]]
+        if len(common) != 1 or len(same_ref) != 1:
             continue
         parent = common[0]
         members = set(child["profiles"])

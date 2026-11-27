@@ -230,7 +230,8 @@ def _serialize_obs_item(item: object, read_at: float) -> dict[str, object]:
     }
     obs["payload"] = _scrub_payload(kind, it.get("payload"))
     if kind in ("quota", "rate_limit"):
-        obs["projection"] = observation_projection(obs, read_at)
+        basis = {**obs, "reset_in_seconds": it["reset_in_seconds"]} if "reset_in_seconds" in it else obs
+        obs["projection"] = observation_projection(basis, read_at)  # relative resets count, as in the summary
     return obs
 
 

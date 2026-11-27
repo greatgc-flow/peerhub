@@ -73,7 +73,7 @@ def test_dependency_keeps_each_pools_own_state_and_remaining_when_not_a_parent_o
     assert "blocked" not in " ".join(pool_rows(screen, "F-7D"))
 
 
-@pytest.mark.parametrize("case", ["stale", "unknown", "reset", "missing", "duplicate", "other_account"])
+@pytest.mark.parametrize("case", ["stale", "unknown", "reset", "missing", "other_account"])
 def test_ambiguous_or_noncurrent_parent_never_claims_a_current_block(case):
     frame = payload()
     observations = frame["_human_observations"]
@@ -86,14 +86,12 @@ def test_ambiguous_or_noncurrent_parent_never_claims_a_current_block(case):
         parent["resets_at"] = NOW - 1
     elif case == "missing":
         observations.remove(parent)
-    elif case == "duplicate":
-        observations.append({**parent, "pool_ref": "quota:other:C-7D"})
     else:
         parent["pool_ref"] = "quota:other:C-7D"
     screen = mv.render_grouped_frame(frame, view="rich", expand=True, width=160)
     rows = pool_rows(screen, "F-7D")
     assert all("blocked" not in row and "26%" in row.split() for row in rows)
-    if case in {"missing", "duplicate", "other_account"}:
+    if case in {"missing", "other_account"}:
         assert "cc F-7D" in rows[0]  # no invented parent in POOLS
 
 
@@ -184,3 +182,12 @@ def test_scoped_weekly_group_does_not_drop_an_observed_short_window_of_its_own()
     assert "F-5H" in top and "└─ F-5H" in top  # #400: the n/a C-5H is no sibling row, so F-7D is its parent's last child
     assert top.index("cc C-7D") < top.index("F-5H") < top.index("ag A-7D")
     assert "5%" in next(line for line in top.splitlines() if "F-5H" in line)
+
+
+def test_another_accounts_same_named_parent_does_not_break_the_cap():
+    """The parent is matched by its account-scoped pool ref, so a second account's C-7D changes nothing (0.28.0 review)."""
+    base = mv.render_grouped_frame(payload(), view="rich", expand=True, width=160)
+    frame = payload()
+    frame["_human_observations"].append({**frame["_human_observations"][0], "pool_ref": "quota:other:C-7D"})
+    screen = mv.render_grouped_frame(frame, view="rich", expand=True, width=160)
+    assert pool_rows(screen, "F-7D")[0] == pool_rows(base, "F-7D")[0]
