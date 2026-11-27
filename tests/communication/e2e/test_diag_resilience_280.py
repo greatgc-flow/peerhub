@@ -68,3 +68,11 @@ def test_a_newer_unmeasured_report_never_displaces_a_measured_parent():
                "payload": {}}
     rows = _select_quota_rows([measured, unknown], [])
     assert [row.item["state"] for row in rows] == ["MEASURED"]
+
+
+def test_a_newer_complete_absent_report_still_displaces_a_measured_parent():
+    from peerhub.extensions.diag_read_model import _select_quota_rows
+    measured = {"kind": "quota", "state": "MEASURED", "subject_ref": "cc", "resource_pool_ref": "quota:cc:C-7D",
+                "observed_at": "2026-11-27T12:00:00.000000Z", "payload": {"remaining_fraction": 0.05}}
+    absent = {**measured, "state": "ABSENT", "observed_at": "2026-11-27T12:00:01.000000Z", "payload": {}}
+    assert [row.item["state"] for row in _select_quota_rows([measured, absent], [])] == ["ABSENT"]

@@ -1289,3 +1289,9 @@ def test_e_f_a_line_separator_in_the_terminal_event_keeps_the_names(kit):
     kind, payload = _drain(kit.replay(stdout), "run the probe")[-1]
     assert kind == "terminal" and payload["response"] == "" and payload["denied_actions"] == ["command"]
     assert "ag_stream_validation" not in payload
+
+
+@pytest.mark.parametrize("value", ["1w2d", "20h9m47s", "17:30:05", "5pm", "2026-11-15T17:30:05.250+09:00"])
+def test_refusal_reset_formats_the_extractor_emits_are_trusted(value):
+    from peerhub.extensions.adapters.ag import _RESET_VALUE
+    assert _RESET_VALUE.fullmatch(value)

@@ -93,9 +93,10 @@ def _select_quota_rows(items: list[Obj], pools: list[Obj]) -> list[QuotaRow]:
         if item.get("kind") in ("quota", "rate_limit") and ref:
             key = str(ref)
             old = selected.get(key)
-            # #498 review: a newer report that measured nothing (UNKNOWN) never displaces a measured one.
-            rank = (item.get("state") == "MEASURED", str(item.get("observed_at") or ""))
-            if old is None or rank > (old.get("state") == "MEASURED", str(old.get("observed_at") or "")):
+            # #498 review: a newer report that could not tell (UNKNOWN, e.g. a partial probe) never displaces a
+            # known one; a complete report that the window is ABSENT still does.
+            rank = (item.get("state") != "UNKNOWN", str(item.get("observed_at") or ""))
+            if old is None or rank > (old.get("state") != "UNKNOWN", str(old.get("observed_at") or "")):
                 selected[key] = item
     for pool in pools:
         ref = pool.get("resource_pool_id")

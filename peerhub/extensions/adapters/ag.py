@@ -477,7 +477,7 @@ def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san:
 REFUSAL_RESET_CHARS = 40  # a reset phrase like "20h9m47s" or an ISO instant; anything longer is not trusted
 # The whole value must be a duration, a clock time or an ISO instant before a refusal records it (#503 review).
 _RESET_VALUE = re.compile(
-    r"(?:\d+[dhms])+|\d{1,2}(?::\d{2})?\s?(?:[ap]\.?m\.?)?"
+    r"(?:\d+[wdhms])+|\d{1,2}(?::\d{2}){0,2}\s?(?:[ap]\.?m\.?)?"
     r"|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?", re.IGNORECASE)
 
 
