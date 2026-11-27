@@ -213,7 +213,7 @@ def test_the_consumers_of_every_report_establish_the_dependency_before_the_readi
     loose = {"pool_ref": "quota:cc:C-7D", "profiles": ("cc.effort", "cc.fable"), "retired": False, "left": 80}
     strict = {"pool_ref": "quota:cc:C-7D", "profiles": (), "retired": False, "left": 0}
     child = {"pool_ref": "quota:cc:F-7D", "profiles": ("cc.fable",), "retired": False, "left": 26}
-    twin = {**child}
+    twin = {**child, "profiles": ()}  # a second report of the child without consumer metadata
     parents = scoped_weekly_parents([loose, strict, child, twin], strictness=lambda row: row["left"])
     assert parents == {id(child): strict, id(twin): strict}  # a child reported twice keeps the cap too
 

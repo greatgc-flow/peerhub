@@ -542,3 +542,8 @@ def test_monitor_ag_cache_share_adds_cached_input():
     telemetry = {"normalized": {"provider_input_tokens": 5000, "cached_input_tokens": 15000, "output_tokens": 10}}
     assert _usage_values(telemetry, _input_excludes_cache({"peer_id": "ag"})) == (5010, 20000, 15000)
     assert _usage_values(telemetry, _input_excludes_cache({"peer_id": "cx"})) == (5010, None, None)
+
+
+def test_monitor_reads_the_provider_kind_of_an_aliased_ag_session():
+    from peerhub.cli.monitor_sections import _input_excludes_cache
+    assert _input_excludes_cache({"peer_id": "agy", "provider": "ag"})

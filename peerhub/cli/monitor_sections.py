@@ -59,7 +59,7 @@ def _coverage(data: dict[str, Any], unicode: bool = True) -> str:
 
 def _input_excludes_cache(item: dict[str, Any]) -> bool:
     """agy reports input without its cached part (#502); other peers include it."""
-    return (item.get("runtime_kind") or item.get("peer_id")) == "ag"
+    return (item.get("provider") or item.get("runtime_kind") or item.get("peer_id")) == "ag"
 
 
 def _prompt_input(inputs: float | None, cached: float | None, excludes_cache: bool) -> float | None:

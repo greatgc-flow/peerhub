@@ -711,10 +711,23 @@ def test_17g_unproven_quota_refusals_stay_uncertain(kit, bridge_h, case):
     assert _cycle(bridge_h, kit.replay(stdout, exit_code=3)).status == "uncertain"
 
 
-def test_17h_an_untrusted_reset_phrase_is_not_recorded(kit, bridge_h):
-    line = "Individual quota reached. Resets at 2026-11-15T00:00Z/" + "PRIVATE-SENTINEL" * 3
+@pytest.mark.parametrize(("phrase", "recorded"), [
+    ("2026-11-15T00:00Z/PRIVATE_SENTINEL", None), ("2026-11-15T00:00Z/" + "PRIVATE-SENTINEL" * 3, None),
+    ("2026-11-15T00:00Z", "2026-11-15T00:00Z"),
+])
+def test_17h_only_a_well_formed_reset_phrase_is_recorded(kit, bridge_h, phrase, recorded):
+    line = f"Individual quota reached. Resets at {phrase}"
     result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _terminal("ERROR", error=line)]), exit_code=3))
-    assert (result.status, result.detail["reason"], result.detail.get("reset_time")) == ("not_executed", "quota_exhausted", None)
+    assert (result.status, result.detail["reason"], result.detail.get("reset_time")) == ("not_executed", "quota_exhausted", recorded)
+
+
+def test_17i_far_apart_step_indices_are_a_gap_without_a_large_allocation():
+    from types import SimpleNamespace
+    from peerhub.extensions.adapters.ag import quota_refusal_before_work
+    from peerhub.extensions.adapters.sanitize import Sanitizer
+    stdout = _nd([_events()[0], _quota_step(0, "user_input"), _quota_step(10**18, "checkpoint"),
+                  _terminal("ERROR", error=QUOTA_LINE)]).encode()
+    assert quota_refusal_before_work(SimpleNamespace(stdout=stdout, stdout_truncated=False), Sanitizer()) is None
 
 
 def test_17c_success_with_nonzero_exit_never_claims_quota(kit, bridge_h):

@@ -57,3 +57,14 @@ def test_unreadable_profiles_leave_the_scoped_cap_to_pool_refs(monkeypatch, caps
             {"pool_ref": "quota:cc:F-7D", "profiles": (), "retired": False}]
     parents = scoped_weekly_parents(rows, require_consumers=profiles_by_pool is not None)
     assert parents == {id(rows[1]): rows[0]}
+
+
+def test_a_newer_unmeasured_report_never_displaces_a_measured_parent():
+    """#498 review: a partial probe's UNKNOWN for C-7D one second later keeps the measured 5% reading."""
+    from peerhub.extensions.diag_read_model import _select_quota_rows
+    measured = {"kind": "quota", "state": "MEASURED", "subject_ref": "cc", "resource_pool_ref": "quota:cc:C-7D",
+                "observed_at": "2026-11-27T12:00:00.000000Z", "payload": {"remaining_fraction": 0.05}}
+    unknown = {**measured, "subject_ref": "cc2", "state": "UNKNOWN", "observed_at": "2026-11-27T12:00:01.000000Z",
+               "payload": {}}
+    rows = _select_quota_rows([measured, unknown], [])
+    assert [row.item["state"] for row in rows] == ["MEASURED"]

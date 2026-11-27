@@ -93,7 +93,9 @@ def _select_quota_rows(items: list[Obj], pools: list[Obj]) -> list[QuotaRow]:
         if item.get("kind") in ("quota", "rate_limit") and ref:
             key = str(ref)
             old = selected.get(key)
-            if old is None or str(item.get("observed_at") or "") > str(old.get("observed_at") or ""):
+            # #498 review: a newer report that measured nothing (UNKNOWN) never displaces a measured one.
+            rank = (item.get("state") == "MEASURED", str(item.get("observed_at") or ""))
+            if old is None or rank > (old.get("state") == "MEASURED", str(old.get("observed_at") or "")):
                 selected[key] = item
     for pool in pools:
         ref = pool.get("resource_pool_id")

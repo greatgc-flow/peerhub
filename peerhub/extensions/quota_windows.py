@@ -108,7 +108,7 @@ def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = Tr
         common = [row for row in rows if row["pool_ref"] == parent_ref]
         if not common:
             continue
-        members = set(child["profiles"])
+        members = {profile for row in rows if row["pool_ref"] == child["pool_ref"] for profile in row["profiles"]}
         consumers = {profile for row in common for profile in row["profiles"]}
         if not require_consumers or (members and members < consumers):
             parents[id(child)] = min(common, key=strictness) if strictness is not None else common[0]

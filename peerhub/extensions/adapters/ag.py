@@ -475,6 +475,10 @@ def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san:
 
 
 REFUSAL_RESET_CHARS = 40  # a reset phrase like "20h9m47s" or an ISO instant; anything longer is not trusted
+# The whole value must be a duration, a clock time or an ISO instant before a refusal records it (#503 review).
+_RESET_VALUE = re.compile(
+    r"(?:\d+[dhms])+|\d{1,2}(?::\d{2})?\s?(?:[ap]\.?m\.?)?"
+    r"|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?", re.IGNORECASE)
 
 
 def quota_refusal_before_work(res: ProcessResult, san: Sanitizer) -> dict[str, Any] | None:
@@ -493,7 +497,7 @@ def quota_refusal_before_work(res: ProcessResult, san: Sanitizer) -> dict[str, A
         return None
     steps = parse_ag_stream_json(res.stdout.decode("utf-8"))["steps"]
     indices = [step["step_index"] for step in steps]
-    if any(step["step_type"] == "tool" for step in steps) or (indices and indices != list(range(indices[0], indices[-1] + 1))):
+    if any(step["step_type"] == "tool" for step in steps) or any(b != a + 1 for a, b in zip(indices, indices[1:])):
         return None
     terminal = json.loads(term["terminal_line"])
     errors = {key: value for key, value in cast(dict[str, Any], terminal["result"]).items() if key != "response"}
@@ -501,8 +505,8 @@ def quota_refusal_before_work(res: ProcessResult, san: Sanitizer) -> dict[str, A
     if match is None:
         return None
     reset = san.clean(match.reset_time) if match.reset_time else None
-    return {"reason": match.reason, "reset_time": reset if reset and len(reset) <= REFUSAL_RESET_CHARS else None,
-            "message": _AG_LIMIT_SUMMARY[match.reason]}
+    trusted = reset is not None and len(reset) <= REFUSAL_RESET_CHARS and _RESET_VALUE.fullmatch(reset) is not None
+    return {"reason": match.reason, "reset_time": reset if trusted else None, "message": _AG_LIMIT_SUMMARY[match.reason]}
 
 
 def stream_stdout(res: ProcessResult, san: Sanitizer, payload_len: int) -> tuple[str, dict[str, Any] | None]:
