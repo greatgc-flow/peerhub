@@ -95,7 +95,7 @@ explains the change and the checks you ran.
 Finish related changes and tests locally, then open one focused PR. Repeat the
 closing keyword for each issue the PR resolves. When deferring a proposal,
 record the reason and the condition that would reopen it on its issue.
-Update [NOW.md](NOW.md) in the same PR when state, flow or next steps change.
+Update [NOW.md](NOW.md) in the same PR when the state or next steps change.
 For security vulnerabilities, see [SECURITY.md](SECURITY.md); for Dependabot PRs, review the changelog and run tests (majors need cx review).
 
 ## Knowledge placement

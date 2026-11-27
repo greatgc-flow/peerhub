@@ -547,7 +547,7 @@ def run_monitor_command(args: argparse.Namespace, parser: argparse.ArgumentParse
             error_line("diag_unavailable", f"Could not read the stored prompt ({type(exc).__name__})", "peerhub diag health")
             return 4
         if not found:
-            error_line("not_found", f"Unknown ask ID {args.id!r}", _OPEN_NEXT)
+            error_line("ask_not_found", f"Unknown ask ID {args.id!r}", _OPEN_NEXT)
             return 1
         if prompt is None:
             error_line("invalid_arguments", "Ask ID has no stored prompt", _OPEN_NEXT)

@@ -497,7 +497,7 @@ REGISTRY["store_missing"] = GuidanceEntry(
 # Shared CLI errors; ask-specific guidance retains its more precise recovery policy.
 for _code, _exit, _meaning, _argv in (
     ("invalid_arguments", INVALID_ARGUMENTS_EXIT, "The command arguments were rejected.", ["peerhub", "guide"]),
-    ("not_found", 1, "The ask ID does not exist in the selected store.", ["peerhub", "monitor", "--snapshot"]),
+    ("ask_not_found", 1, "The ask ID does not exist in the selected store.", ["peerhub", "monitor", "--snapshot"]),
     ("peer_not_found", 1, "The selected peer does not exist in this store, or ask was given a peer with no adapter (register it with --adapter).", ["peerhub", "peer", "list"]),
     ("stream_not_found", 1, "The selected stream does not exist in this store.", ["peerhub", "stream", "list"]),
     ("session_not_found", 1, "The selected retained session does not exist.", ["peerhub", "session", "list"]),

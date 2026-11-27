@@ -8,9 +8,7 @@ peerhub/extensions/schemas/*.json -text
 /docs/design/monitor-expand-details-2026-10-16.md text eol=lf
 
 # Keep touched CLI, tests, and documentation files LF on Windows workstations.
-# merge=union: parallel lanes append CHANGELOG lines and registry rows; git keeps both sides instead of a conflict.
-/CHANGELOG.md text eol=lf merge=union
-/docs/requirements.md text eol=lf merge=union
+/CHANGELOG.md text eol=lf
 /docs/index.md text eol=lf
 /docs/STATUS.md text eol=lf
 /docs/history/design/monitor-terminal-responsive-2026-10-16.md text eol=lf

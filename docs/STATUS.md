@@ -1,6 +1,6 @@
 # PeerHub Development Status
 
-> Active work, recent flow and next steps are in [NOW.md](../NOW.md). This document keeps the deferred backlog and its start triggers. The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases.
+> Active work and next steps are in [NOW.md](../NOW.md); recent flow is the top of [CHANGELOG](../CHANGELOG.md). This document keeps the deferred backlog and its start triggers. The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases.
 
 Dates are UTC.
 

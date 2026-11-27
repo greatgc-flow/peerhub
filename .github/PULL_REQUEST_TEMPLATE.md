@@ -10,7 +10,7 @@
 <!-- Note: If this PR or linked issue alters safety/caution facts, label the issue with `guide-impact` and update `peerhub guide`. -->
 
 ## Verification
-- [ ] Updated [NOW.md](../NOW.md) in this PR if state, flow or next steps changed.
+- [ ] Updated [NOW.md](../NOW.md) in this PR if the state or next steps changed.
 - [ ] Deterministic tests pass: `python -m pytest -q`
 - [ ] Static type check passes: `pyright`
 - [ ] Repo hygiene verified (no hardcoded absolute paths, all commands have examples)

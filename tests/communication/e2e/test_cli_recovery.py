@@ -442,6 +442,7 @@ def _standalone_validation_error_codes() -> set[str]:
             (["peer", "get", "--peer", "absent"], "peer_not_found"),
             (["stream", "show", "--stream", "absent"], "stream_not_found"),
             (["session", "show", "sess_0000000000000000"], "session_not_found"),
+            (["monitor", "open", "000000000000"], "ask_not_found"),
             (["diag", "health", "--observation-db", missing], "diag_unavailable"),
         ):
             check(["--db", db, *argv], expected)

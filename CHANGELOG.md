@@ -14,12 +14,12 @@ Breaking: removes `peerhub suggest` and the monitor `suggest:` line (deprecated 
 
 ### Added
 
-- `peerhub explain lane-briefs` (aliases `handoff`, `lane-rules`): how to brief parallel AI lanes from the repository (NOW.md, AGENTS.md lane rules, per-peer rules, union merge, slug IDs). It reaches installed users, which a repository AGENTS.md does not.
+- `peerhub explain parallel-quota` (aliases `handoff`, `lane-rules`) adds how to brief lanes from the repository instead of long prompts.
 - `peerhub batch run` reports the denied tool names (`denied_actions`) of a task in JSON and as a `denied:` line in text, so a `denied_empty` task shows what was denied (#493).
 
 ### Changed
 
-- Parallel lanes no longer collide: `CHANGELOG.md` and `docs/requirements.md` merge with git's union driver, new requirement rows take a unique slug ID (`R-<topic>`, checked by the registry test), and `AGENTS.md` holds the per-peer lane rules so lane prompts carry only the task.
+- Parallel lanes no longer collide on registry numbers: new requirement rows take a unique slug ID (`R-<topic>`, checked by the registry test), and `AGENTS.md` holds the per-peer lane rules so lane prompts carry only the task. `NOW.md` keeps only state and next steps; recent flow is the top of CHANGELOG.
 - Bare `peerhub diag` text uses `LEFT` and `PACE(pp)`, applies `C-7D` parent caps to `F-7D`, renders `ABSENT` windows as `- n/a`, and puts `peerhub diag --plan` first in `diag --help` examples (#497).
 - `peerhub diag --plan --json` rounds float fields to two decimal places, labels `in-flight n/a pools:` on the `load:` line, and documents `BUDGET%/h` (`target_pct_per_hour`), `PACE(pp)` (`pace_pt`), `—`/`?` unknown markers, and `health` (pool's own state) vs `action` (effective gated action) (#497).
 - `peerhub diag readiness` documents `STATE` and `NEXT` remediation commands in `--help` and output, clarifies that `UNKNOWN`/`UNVERIFIED` mean uncached checks rather than broken profiles, and formats durations with `human_duration` (#497).
@@ -49,7 +49,7 @@ Breaking: removes `peerhub suggest` and the monitor `suggest:` line (deprecated 
 - Ask, diag running and record append help use plain-language defaults. Diag running help omits SQLite internals (#497).
 - Diag running formats durations in days, hours, minutes and seconds, with labeled rows when the table exceeds the terminal width (#497).
 - Compact and expanded monitor views count the same pools, tally unavailable windows separately, and compare the same reported weekly windows in the pace gap (#497).
-- `monitor open` returns `[not_found]` with exit 1 for an unknown ask ID. All `[invalid_arguments]` errors exit 2 (#497).
+- `monitor open` returns `[ask_not_found]` with exit 1 for an unknown ask ID. All `[invalid_arguments]` errors exit 2 (#497).
 - Monitor shows a reset placeholder only when the reported reset time has passed and a weekly parent exists for the same peer, account and family (#495).
 - Monitor: a just-reset short window keeps a `reset · refresh pending` row under its weekly parent in compact and expand instead of vanishing from POOLS (#495).
 - `peerhub batch run`, `peerhub ask` and `peerhub explain` emit targeted `next:` hints without raw Python `Errno` strings or `'.;` punctuation.

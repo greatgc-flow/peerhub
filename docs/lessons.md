@@ -123,14 +123,6 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 - Fix: Run peerhub COMMAND --help, correct the arguments and retry only if no execution began.
 - Issue: 0.24.0
 
-## Brief parallel AI lanes without long prompts (`lane-briefs`)
-
-- Aliases: `handoff`, `lane-rules`
-- Keywords: lane, lanes, brief, handoff, now, now.md, agents, agents.md, prompt, context, parallel, collide, conflict, union, slug, misread, rules
-- Symptom: Peers misread a task, parallel lanes collide on the same numbers or files, or every prompt repeats the same rules and project history.
-- Fix: Keep project state in the repository: a short root NOW.md (state, recent flow, next steps) and the shared lane rules in its AGENTS.md. cx and cc read AGENTS.md by themselves, and ag reads files under a trusted -w. An inline vote gets NOW.md as its first --query-file. A lane prompt then carries only the task. Give each peer kind its own rules (cx: read-only shell plus tests; ag: file reader, every file inside -w). Give lanes disjoint files. Append-only files (CHANGELOG, registries) merge with merge=union, and new IDs take topic slugs, not the next number. Facts in a brief come from command output, not memory.
-- Issue: #493, #497
-
 ## Monitor layout, quota states and alerts (`monitor-states`)
 
 - Aliases: `monitor-view`, `monitor-accounts`, `monitor-alerts`, `monitor-insuff`, `monitor-stale-window`, `monitor-probe-age`, `monitor-drift`, `plan-windows`, `cx-plan-windows`, `a1`, `a2`, `a3`, `a4`, `a5`, `a6`
@@ -150,11 +142,12 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 ## Spread parallel work over the least quota (`parallel-quota`)
 
-- Aliases: `quota-aware-peer-runs`, `multi-peer-quota-shaping`, `batch-and-load`, `stream-reuse-cost`
-- Keywords: parallel, quota, pace, pools, batch, loop, distribute, minimal, ram, free, memory, slots, load, diag, plan, resource, resources, 429, reset, stream, pool, flash, workers, capacity, cx, ag, cc, consolidated, draft, timer, sleep, concurrency, balance, cancel, manifest, cost, side-effects, reuse, resume, session, context, tokens, vote
+- Aliases: `quota-aware-peer-runs`, `multi-peer-quota-shaping`, `batch-and-load`, `stream-reuse-cost`, `lane-briefs`, `handoff`, `lane-rules`
+- Keywords: parallel, lane, lanes, brief, handoff, quota, pace, pools, batch, loop, distribute, minimal, ram, free, memory, slots, load, diag, plan, resource, resources, 429, reset, stream, pool, flash, workers, capacity, cx, ag, cc, consolidated, draft, timer, sleep, concurrency, balance, cancel, manifest, cost, side-effects, reuse, resume, session, context, tokens, vote
 - Symptom: You need to size a parallel wave, a shared pool is close to exhaustion, or a peer returns HTTP 429.
 - Fix: Read peerhub diag --plan and choose usable pools by lowest 7D PACE first. Spread work across eligible pools, including distinct pools of one peer. Size the wave from the load line. Validate with peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run. Execution spends quota.
   - Refresh only the peers the next wave may use (peerhub observation refresh --peers cx ag) and read the plan after each wave. Defer exhausted pools and reconcile uncertain work before retrying. Use spare quota near reset on needed review or preparation. See [docs/batch.md#parallel-work-over-the-least-quota](batch.md#parallel-work-over-the-least-quota).
+  - Brief lanes from the repository, not the prompt: keep current state and next steps in a short root file and shared lane rules in the repository AGENTS.md (cx/cc read it themselves; ag reads files under a trusted -w). A lane prompt then carries only the task; give lanes disjoint files and new IDs as topic slugs, not the next number.
   - Reserve a scarce pool for consolidated final verification. Run delayed jobs in a supervised process so they can outlive the caller session. Reuse a stream within one task to limit catch-up context. Start a new stream for a new task or independent vote.
 - Issue: #288, #297, #298, #299, #340, 0.25.0 plan D5, owner decisions 2026-11-22 and 2026-11-25
 

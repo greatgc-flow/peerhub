@@ -188,7 +188,7 @@ normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller is gone and
 
 Each row starts with the ask's 12-character record ID after the state flag. The RUNNING footer gives
 `peerhub monitor open ID` to print the stored prompt as a JSON string, including inline and file-backed asks.
-An unknown ask ID returns `[not_found]` and exit 1.
+An unknown ask ID returns `[ask_not_found]` and exit 1.
 Use the same global `--db PATH` when you selected the monitor store explicitly. The ID still works after the ask ends.
 A dash means the claim has no prompt record to open.
 

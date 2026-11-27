@@ -1,11 +1,11 @@
-Read NOW.md first for recent flow, current state and next steps.
+Read NOW.md first for the current state and next steps; recent flow is the top of CHANGELOG.md.
 
 # Working in PeerHub
 
 Start with [README.md](README.md) for commands and the doc map, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for maintainer and release guidance.
 
-- Update [NOW.md](NOW.md) in the same PR when state, flow or next steps change.
+- Update [NOW.md](NOW.md) in the same PR when the state or next steps change.
 - Install development dependencies with `python -m pip install -e ".[dev]"`.
 - Run deterministic tests with `python -m pytest -q`; run `pyright` for typing.
   Live tests spend provider quota and require explicit opt-in; see CONTRIBUTING.

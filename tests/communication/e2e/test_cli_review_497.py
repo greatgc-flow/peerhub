@@ -57,7 +57,7 @@ def test_monitor_open_distinguishes_unknown_ids_from_non_prompt_records(monkeypa
         monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *args, **kwargs: False)
         monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: conn)
         monkeypatch.setattr("peerhub.extensions.monitor_queries.closing", nullcontext)
-        for record_id, code, label in (("zzz", 1, "not_found"), ("123456789abd", 2, "invalid_arguments")):
+        for record_id, code, label in (("zzz", 1, "ask_not_found"), ("123456789abd", 2, "invalid_arguments")):
             assert main(["--db", "unused.db", "monitor", "open", record_id, "--json"]) == code
             output = capsys.readouterr()
             assert not output.out and f"[{label}]" in output.err
