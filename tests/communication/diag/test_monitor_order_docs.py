@@ -1,7 +1,6 @@
 """The docs and packaged lessons follow the monitor section catalog (#430, #436)."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from peerhub.cli.monitor_format import POOLS_USE_FIRST_ASCENDING
@@ -10,12 +9,11 @@ from peerhub.cli.monitor_quota_view import POOLS_USE_FIRST_HINT
 
 ROOT = Path(__file__).resolve().parents[3]
 MONITOR_DOC = "docs/monitor.md"
-SUGGESTION = re.compile(r"\bthe suggestion\b")
 
 
 def test_docs_list_the_frame_sections_in_the_code_order() -> None:
     text = (ROOT / MONITOR_DOC).read_text(encoding="utf-8")
-    flat = SUGGESTION.sub(FRAME_SECTIONS["suggest"], " ".join(text.split()))
+    flat = " ".join(text.split())
     expected = ", ".join(FRAME_HEADS[:-1]) + " and " + FRAME_HEADS[-1]
     assert expected in flat, f"{MONITOR_DOC}: {expected} not found"
 

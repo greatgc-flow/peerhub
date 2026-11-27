@@ -1331,51 +1331,6 @@
       ]
     },
     {
-      "command": "suggest",
-      "options": [
-        {
-          "default": false,
-          "dest": "candidates",
-          "flags": [
-            "--candidates"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        },
-        {
-          "default": "==SUPPRESS==",
-          "dest": "json",
-          "flags": [
-            "--json"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        },
-        {
-          "default": null,
-          "dest": "task",
-          "flags": [
-            "--task"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
-          "default": null,
-          "dest": "tier",
-          "flags": [
-            "--tier"
-          ],
-          "positional": false,
-          "required": true,
-          "takes_value": true
-        }
-      ]
-    },
-    {
       "command": "update",
       "options": [
         {
@@ -1434,7 +1389,6 @@
     "setup",
     "store-and-upgrade",
     "store-missing",
-    "suggest",
     "writes-and-uncertain"
   ],
   "global_options": [

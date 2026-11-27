@@ -59,7 +59,6 @@ def test_fable_is_nested_and_blocked_by_fresh_common_pool_showing_the_parents_le
     assert all(any(branch in row for branch in ("└─", "├─", "`-", "|-")) for row in rows)
     assert all("0%" in row.split() and "out" in row.split() for row in pool_rows(screen, "C-7D"))
     assert "C-7D out" in rows[0]
-    assert "no eligible profiles" in screen and "top=cc.fable" not in screen
     if view == "rich":
         assert f"\x1b[{monitor_layout.RICH_SGR['out']}m{monitor_layout.RICH_GLYPHS[unicode]['blocked']} blocked" in screen
     assert frame == before
@@ -105,7 +104,6 @@ def test_independent_profile_override_and_equal_consumer_sets_do_not_invent_pare
         screen = mv.render_grouped_frame(frame, view="rich", width=100)
         row = pool_rows(screen, "F-7D")[0]
         assert "cc F-7D" in row and "blocked" not in row
-        assert ("top=cc.fable" in screen) == (pools == ["F-7D"])
 
 
 @pytest.mark.parametrize("elapsed,blocked", [(0, True), (289, True), (290, False), (19680, False)])
@@ -179,7 +177,7 @@ def test_scoped_weekly_group_does_not_drop_an_observed_short_window_of_its_own()
     frame["_human_observations"].append(pool("cc", "F-5H", .05))
     frame["_human_observations"].append(pool("ag", "A-7D", .2))
     screen = mv.render_grouped_frame(frame, view="rich", expand=True, width=160)
-    top = "\n".join(screen.split("suggest:")[0].splitlines()[3:])  # the POOLS rows: after line 1, the title and the DB line
+    top = "\n".join(screen.split("\ngap vs ", 1)[0].splitlines()[3:])  # the POOLS rows: after line 1, the title and the DB line
     assert "F-5H" in top and "└─ F-5H" in top  # #400: the n/a C-5H is no sibling row, so F-7D is its parent's last child
     assert top.index("cc C-7D") < top.index("F-5H") < top.index("ag A-7D")
     assert "5%" in next(line for line in top.splitlines() if "F-5H" in line)

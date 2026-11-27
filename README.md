@@ -98,12 +98,6 @@ CLI output defaults to compact human text, including when redirected. Use `--jso
 # Persist the prompt, execute one provider, and persist its response.
 peerhub ask cx "Summarize this repository" --stream review --request-id review-001
 
-# Deprecated: use peerhub diag --plan for planning. This command is removed next release.
-peerhub suggest --tier effort --task review
-
-# Show the tier's candidate profiles and the quota facts behind their eligibility.
-peerhub suggest --tier effort --task review --candidates
-
 # Explicit collection may contact provider CLIs.
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
@@ -131,7 +125,7 @@ peerhub monitor --view plain --cycles 1
 # Read committed evidence during watch.
 peerhub monitor --no-probe --interval-seconds 60
 
-# For a person who wants only the verdict, suggestion and pools (AI sessions read `peerhub diag --plan` instead).
+# For a person who wants only the verdict and pools (AI sessions read `peerhub diag --plan` instead).
 peerhub monitor --snapshot --group capacity
 
 # Read one grouped JSON snapshot (schema 2.0).
@@ -167,28 +161,11 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API pee
 
 Quota is collected separately from diagnostics. The default peers are shown in `peerhub observation refresh --peers cx cc ag`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 
-`peerhub suggest` is deprecated, removed in the next release; use `peerhub diag --plan`.
-Until removal, `peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
-prints an ask command and one reason line. Put the task and supporting material
-in `prompt.txt` or, with `--task`, in `review.txt`, `code.txt`, or `read.txt`.
-The generated command selects the store and profile, requests a fresh session,
-and passes `--writable` for ag and for CLI peers selected for a code task.
-`--json` also returns the command as an `argv` array.
-
-Suggestions use profiles with `suggest = true` in the requested tier. A measured
-5-hour reading must show under 90% usage. Fresh provider-reported 5-hour absence
-skips that gate, and an exhausted 7-day pool rules out the profile. Among profiles
-with usable evidence, the lowest 7-day PACE wins, with ties in ag, cx, cc order.
-A missing or over-15-minute snapshot gets one refresh attempt, which may spend
-quota. Candidates with unusable data remain fallback choices and show
-`quota unknown`, including `5H unknown` when applicable. CLI dispatch for ag, cx
-and cc default accounts also attempts a refresh when quota is missing or older
-than 15 minutes and waits at most one second for it. Run `peerhub explain suggest`
-for details.
+CLI dispatch for ag, cx and cc default accounts attempts a refresh when quota is missing or older than 15 minutes and waits at most one second for it.
 
 `--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its `MARGIN` and `EXH/RESET` pair, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 
-`monitor --help` lists the available group IDs. The default monitor includes running and
+`monitor --help` describes the groups and lists the default peers for watch refresh. The default monitor includes running and
 recent asks (`activity`), quota capacity (`capacity`), retained session state and
 configured binding (`sessions`), per-peer dependency chains (`peers`), and Bridge
 delivery certainty (`execution`).
@@ -198,13 +175,13 @@ mean the model answered the task successfully. PeerHub does not currently
 classify semantic task success/error. Context occupancy of asks: for cc it is estimated at the end of each ask, from the tokens of the last main-chain assistant message and the context window that the result reports for that model; it is an estimate with its time (`state: "ESTIMATED"`, `observed_at`; `latest_telemetry.context` in `peerhub session show --json`), and it stays unknown when either value is missing or does not fit. `--expand` shows it as `2% est, 3m ago` (see below). For cx it is not implemented (its rollout file has it). For ag it is not measured. `runtime` and `store` remain available with
 `--group` or `--snapshot --group`.
 
-The compact monitor starts with the verdict and header, followed by POOLS, the suggestion, ALERTS, RUNNING, RECENT and LEADS. Short frames shrink and drop sections from the bottom up in both layouts. POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools. Ties sort by peer and pool name. The heading shows `use first` when there is room. `RECENT 130 (2 running)` counts finished asks and lists the newest. Live session values appear only on the newest ask per stream and peer. When available, RECENT uses the SESSIONS context estimate for `cx` and `ag`. Use `--group capacity` for quota and suggestions without other sessions' text. Request and reply text is cleaned of known secrets. `PEERHUB_MONITOR_TEXT=off` hides it.
+The compact monitor starts with the verdict and header, followed by POOLS, ALERTS, RUNNING, RECENT and LEADS. Short frames shrink and drop sections from the bottom up in both layouts. POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools. Ties sort by peer and pool name. The heading shows `use first` when there is room. `RECENT 130 (2 running)` counts finished asks and lists the newest. Live session values appear only on the newest ask per stream and peer. When available, RECENT uses the SESSIONS context estimate for `cx` and `ag`. Use `--group capacity` for quota without other sessions' text. Request and reply text is cleaned of known secrets. `PEERHUB_MONITOR_TEXT=off` hides it.
 
 The compact frame has two views with the same lines and rows. The plain view (`--view plain`, and the default when the output is not a VT terminal, for example a pipe or an AI session) keeps ASCII frame lines and no colour. Its sections follow the order above, and the LEADS header distinguishes list entries from found sessions. The rich view (`--view rich`, the default on a VT terminal) draws the same frame in a new look:
 
 - Line 1 starts with a status pill: ` OK ` on green, ` OK? ` on yellow, ` ATTN 3 ` on red. The facts are separated by a dim ` · `, and the time (`23:46Z`) stands at the right edge when there is room. Line 2 is dim.
-- A section head is a rule on its own line, never an extra line, and keeps its content: `── POOLS 5 ─ STATE ─── LEFT  PACE(pp)  MARGIN  EXH/RESET  FAMILY ───`, `── RUNNING 2 · ag 1 cx 1 ───`, `── LEADS 1 entry · partial (...) · 1 session found ───`, `── RECENT 130 (2 running) ───`. The line is dim and the title bold.
-- POOLS and expanded QUOTA right-align the LEFT value and left-align STATE, PACE(pp), MARGIN, EXH/RESET and FAMILY. Both tables give the bar room to grow before expanding FAMILY with full profile lists and inline notes. The bar uses any further room up to its cap and marks even burn with a `|` tick. PACE and the bar use cyan for spend, green for ok, yellow for rest and bold red at fresh zero. LEFT shows remaining quota and its reserve flag. A negative MARGIN shows how early exhaustion is forecast. A gap line compares weekly pace with X-7D.
+- A section head uses a rule and keeps its content: `── POOLS 5 ─ STATE ─── LEFT  PACE(pp)  MARGIN  EXH/RESET  FAMILY ───`, `── RUNNING 2 · ag 1 cx 1 ───`, `── LEADS 1 entry · partial (...) · 1 session found ───`, `── RECENT 130 (2 running) ───`. The line is dim and the title bold.
+- POOLS and expanded QUOTA right-align the LEFT value and left-align STATE, PACE(pp), MARGIN, EXH/RESET and FAMILY. Both tables give the bar room to grow before expanding FAMILY with full profile lists and inline notes. The bar uses any further room up to its cap and marks even burn with a `|` tick. PACE and the bar use cyan for spend, green for ok, yellow for rest and bold red at fresh zero. LEFT shows remaining quota and its reserve flag. A negative MARGIN shows how early exhaustion is forecast. A gap line compares reported weekly pools with X-7D. Both layouts count unavailable windows separately.
 - A RUNNING row starts with `►` (green), `× gone` (red), `! overdue` (yellow) or `?` (yellow). A LEADS row shows the context as a meter of five cells: `ctx ■■□□□ 46%`, red with `!` at 80 % or more, and a dim `ctx ───── 106k` or `ctx ───── ?` when the percentage is unknown. A RECENT row starts with a dot and its state: green `● ok`, yellow for unsure, red for empty or error.
 - No state is shown by colour or glyph alone: the words of the plain view stay. The colours come from the 256-colour palette (semicolon SGR codes only; `COLORTERM` changes nothing). `NO_COLOR` keeps the rich layout with its Unicode glyphs and prints no colour. Output that cannot show Unicode gets the same layout with ASCII glyphs (`--`, `#`, `.`, `*`, `^`, `v`, `x`, `o`, `>`). A terminal that draws these glyphs two cells wide should use `--view plain` (or `PEERHUB_MONITOR_VIEW=plain`).
 - `--expand` keeps the full DB path in the header. Pipe it to see the finished history and sampled superseded asks. Continuous VT watches print their final frame back on the normal screen. Finite watches stay there throughout.
@@ -225,7 +202,6 @@ PeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s
 gap vs X-7D (pp): C-7D -29.0, G-7D -15.0
 PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early
 | MARGIN=EXH-RESET, - = early | EVN=even-burn remaining
-suggest: eco=ag.standard normal=cc.effort|cx.effort quality=- top=-
 ── RUNNING 2 · ag 1 cx 1 ──────────────────────────────────────────────────────────────────────────
  ►  16m  cx.effort    docs-site  Review the importer change and its tests  review-api
  ►   1m  ag.standard  docs-site  Vote on the release plan                  vote-1
@@ -274,7 +250,7 @@ fits the screen; piping shows all rows, for example
 `peerhub monitor --snapshot --group all --expand | more`.
 Compact hides unavailable quota windows. Expanded POOLS counts and names them, and expanded QUOTA gives their reasons. A RUNNING row shows the short ask ID. Use `peerhub monitor open ID` to read the stored prompt.
 
-Configured weekly dependencies appear together in POOLS: for example, `cc F-7D` is a child of `cc C-7D`. With both pools fresh, the F-7D row is limited by C-7D: LEFT and PACE are the lower of the two, the reset is the nearer one, the state is the worse one, and its own value stays in the FAMILY note (for example `own 26%`); a fresh exhausted C-7D says `blocked` and names C-7D. POOLS, QUOTA, the `suggest:` line, `diag quota` and `diag readiness` use the same rule. Sections that read only a sample (EXECUTION, SESSIONS, USAGE, CONTEXT) say `sample N/M` in their head, and PEERS says `showing N of M peers` when capped. Stale, unknown, reset or ambiguous parent evidence is not treated as a current block. The rich expanded QUOTA table shows the same state. Live VT watch rewrites changed rows at fixed screen positions so wide glyphs cannot push later rows down. See [the monitor guide](docs/monitor.md#the-alternate-screen-and-live_row_margin) for full repaints and terminal behavior.
+Configured weekly dependencies appear together in POOLS: for example, `cc F-7D` is a child of `cc C-7D`. With both pools fresh, the F-7D row is limited by C-7D: LEFT and PACE are the lower of the two, the reset is the nearer one, the state is the worse one, and its own value stays in the FAMILY note (for example `own 26%`); a fresh exhausted C-7D says `blocked` and names C-7D. POOLS, QUOTA, `diag quota` and `diag readiness` use the same rule. Sections that read only a sample (EXECUTION, SESSIONS, USAGE, CONTEXT) say `sample N/M` in their head, and PEERS says `showing N of M peers` when capped. Stale, unknown, reset or ambiguous parent evidence is not treated as a current block. The rich expanded QUOTA table shows the same state. Live VT watch rewrites changed rows at fixed screen positions so wide glyphs cannot push later rows down. See [the monitor guide](docs/monitor.md#the-alternate-screen-and-live_row_margin) for full repaints and terminal behavior.
 
 For automation, `--json` emits schema
 2.0 NDJSON frames for watch and one JSON object for snapshot.
@@ -302,7 +278,7 @@ colour while retaining supported cursor controls.
 
 ## API peers: ca, oa and ga
 
-`ca` (the Claude API), `oa` (the OpenAI Responses API) and `ga` (the Gemini API) answer one text question per ask. Use them for votes, text reviews and documentation checks when the text fits in the prompt, so that the subscription pools of cc, cx and ag are kept for work with tools and files. They are paid from API credits, not from a subscription pool: they have no POOLS row, `suggest:` never names them, and `diag readiness`, `observation refresh` and the accounts leave them out.
+`ca` (the Claude API), `oa` (the OpenAI Responses API) and `ga` (the Gemini API) answer one text question per ask. Use them for votes, text reviews and documentation checks when the text fits in the prompt, so that the subscription pools of cc, cx and ag are kept for work with tools and files. They are paid from API credits, not from a subscription pool: they have no POOLS row, and `diag readiness`, `observation refresh` and the accounts leave them out.
 
 Can PeerHub read the credit balance? No. None of the three APIs gives the balance to the login or key that PeerHub uses. The Claude cost and usage reports need an admin key and report spend, not the balance. The OpenAI cost report needs a key with a usage scope, and the credit grants are readable in the browser only. For a Gemini API key no balance endpoint is known. Read the balance in the console of each provider: the Claude Console, the OpenAI Platform and Google AI Studio. What the account-side answers mean and where to read the balance by hand: [API credits](docs/api-credits.md).
 

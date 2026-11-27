@@ -21,7 +21,7 @@ def test_inventory_file_equals_the_real_parser():
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
         "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor open", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
-        "profile check", "profile list", "profile show", "profile stats", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "suggest", "update"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
+        "profile check", "profile list", "profile show", "profile stats", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "update"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
 def test_inventory_detects_divergence_positive_control(monkeypatch):
@@ -551,7 +551,7 @@ def test_store_selection_failure_uses_normal_cli_error(monkeypatch, capsys):
     def fail(*a, **k):
         raise ValueError("invalid store selection")
     monkeypatch.setattr("peerhub.cli.app.select_store", fail)
-    assert main(["peer", "get", "--peer", "a"]) == 1
+    assert main(["peer", "get", "--peer", "a"]) == 2
     assert "[invalid_arguments] ERROR: invalid store selection; next:" in capsys.readouterr().err
 
 

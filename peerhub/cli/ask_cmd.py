@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub.cli.arguments import WORKSPACE_OPTIONS, ArgumentParser
 from peerhub.cli.output import emit
 from peerhub.cli.support import error_line
@@ -38,13 +39,13 @@ def register_ask_parser(subparsers: Subparsers) -> None:
     ask_parser.add_argument("--author-peer", dest="author", default="user", help="Peer ID recorded as the prompt author (auto-registered)")
     ask_parser.add_argument(*WORKSPACE_OPTIONS, help="Provider working directory; default: current directory")
     ask_parser.add_argument("--model", help="Model to run; overrides the profile model")
-    ask_parser.add_argument("--effort", help="Provider-specific reasoning effort override (default %(default)s, use the selected profile's effort if set)")
+    ask_parser.add_argument("--effort", help="Provider-specific reasoning effort override (default: use the selected profile's effort if set)")
     ask_parser.add_argument("-p", "--profile", help="Explicit Runtime Target profile; model/effort override its defaults")
     ask_parser.add_argument("--writable", action="store_true", help="Let the peer write files in the workspace (default: read-only)")
     ask_parser.add_argument("--timeout-seconds", type=float, default=600,
                             help="Abort after this many seconds (default %(default)s); long asks: 1800-3600, ag up to 7200")
     ask_parser.add_argument("--silence-timeout-seconds", type=float, default=None,
-                            help="Abort after this many seconds without stdout or stderr (default %(default)s, no silence timeout). "
+                            help="Abort after this many seconds without stdout or stderr (default: no silence timeout). "
                                  "Execution remains uncertain after an abort.")
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000,
                             help="Stop collecting reply output after this many bytes (default %(default)s)")
@@ -84,7 +85,7 @@ def report_ask_parse_error(exc: SystemExit) -> int:
     print(json.dumps(dict(status="error", response=None, session=None,
                           error=dict(code="invalid_arguments", message="Invalid ask arguments."),
                           guidance=make_guidance_payload(guidance_code))))
-    return 2
+    return INVALID_ARGUMENTS_EXIT
 
 
 def report_ask_error(

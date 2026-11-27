@@ -102,7 +102,7 @@ def test_an_unknown_activity_time_is_a_dash(frame):
 def test_three_rows_then_the_overflow_line_in_read_model_order(frame):
     leads = [lead(f"lead-{i}", lead_id=f"0000000{i}", session=sess(active_at=NOW - 60 * i)) for i in range(5)]
     with_leads(frame, leads)
-    frame["selected_groups"] = ["activity"]  # the 24-line frame has room for three rows without POOLS and its suggestion
+    frame["selected_groups"] = ["activity"]  # the 24-line frame has room for three rows without POOLS
     block = leads_block(screen(frame))
     assert block[0] == "LEADS 5 entries | 5 sessions found" and [row.split()[0] for row in block[1:4]] == ["lead-0", "lead-1", "lead-2"]
     assert block[4] == "+2 leads (--expand)" and len(block) == 5
@@ -200,7 +200,6 @@ def parts(**over: Any) -> CompactFrame:
         leads=["LEADS 5", *[f" lead-{i}  busy  1m  ctx 10%  0 run  fable-5-2  title" for i in range(3)]],
         leads_total=5,
         recent=["RECENT 4", " ok  1m  cc.effort  lead  reply a  done-a", " ok  2m  cc.effort  lead  reply b  done-b"],
-        suggest=["suggest: eco=cc.standard normal=cc.effort", "  quality=cc.deepthink top=cc.fable"],
         pools=["POOLS 10  STATE LEFT", *[f" cc P{i}-7D  ok  50%" for i in range(8)]],
         pools_total=10)
     base.update(over)
@@ -226,7 +225,6 @@ def test_each_step_removes_in_the_one_order_with_leads():
         assert len(lines) <= height - 1
         state = (sum("done-" in line for line in lines), sum(line.startswith(" lead-") for line in lines),
                  sum("task-" in line for line in lines), sum(line.startswith(" cc P") for line in lines),
-                 sum(line.startswith(("suggest:", "  quality")) for line in lines),
                  int(any(line.startswith("RECENT") for line in lines)), int(any(line.startswith("LEADS") for line in lines)),
                  int(any(line.startswith("POOLS") for line in lines)), int(any(line.startswith("RUNNING") for line in lines)))
         if previous is not None:
@@ -238,7 +236,7 @@ def test_each_step_removes_in_the_one_order_with_leads():
 
 
 def test_the_removal_that_creates_the_leads_overflow_line_removes_two_rows():
-    base: dict[str, Any] = dict(running=None, running_total=0, recent=None, suggest=[], pools=None, pools_total=0,
+    base: dict[str, Any] = dict(running=None, running_total=0, recent=None, pools=None, pools_total=0,
                                 leads=["LEADS 3", " a", " b", " c"], leads_total=3)
     full = fitted(None, **base)
     assert len(full) == 6 and not any(line.startswith("+") for line in full)
@@ -277,12 +275,12 @@ def test_running_and_pools_steps_are_unchanged_by_the_leads_rule():
         rows = [f" row {i}" for i in range(total)]
         other = "pools" if key == "running" else "running"
         base: dict[str, Any] = {key: ["RUNNING 4" if key == "running" else "POOLS 5", *rows], f"{key}_total": total,
-                                other: None, f"{other}_total": 0, "recent": None, "suggest": [], "leads": None}
+                                other: None, f"{other}_total": 0, "recent": None, "leads": None}
         full = fitted(None, **base)
         lines = fitted(len(full), **base)
         noun = "more" if key == "running" else "pools"
         assert f"+2 {noun} (--expand)" in lines and sum(line.startswith(" row") for line in lines) == total - 2
-    base = {"running": ["RUNNING 9", " r0", " r1"], "running_total": 9, "pools": None, "recent": None, "suggest": [],
+    base = {"running": ["RUNNING 9", " r0", " r1"], "running_total": 9, "pools": None, "recent": None,
             "leads": None}
     assert fitted(6, **base) == ["OK | 9 running | 1 lead", "PeerHub Monitor 2026-11-14 01:46Z | DB:env | quota age 10s",
                                  "RUNNING 9", " r0", "+8 more (--expand)"]
@@ -314,7 +312,7 @@ def test_the_worst_case_frame_with_leads_stays_within_the_bounds(frame, width, u
 
 
 @pytest.mark.parametrize("height", range(2, 9))
-def test_small_heights_drop_leads_before_the_suggestion(frame, height):
+def test_small_heights_drop_leads_before_running(frame, height):
     with_leads(frame, [lead(f"l{i}", session=sess()) for i in range(4)])
     lines = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height).splitlines()
     assert len(lines) <= height - 1  # a header goes with its last row, so one step can take more than the one line over
@@ -322,7 +320,6 @@ def test_small_heights_drop_leads_before_the_suggestion(frame, height):
     def has(head: str) -> int:
         return int(any(line.startswith(head) for line in lines))
 
-    # LEADS goes before the first suggestion line, and the suggestion before RECENT (#412: RECENT is a protected section)
     assert has("LEADS") <= has("RUNNING")
 
 

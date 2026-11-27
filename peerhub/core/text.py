@@ -1,6 +1,7 @@
-"""Normalize untrusted text for read models and their consumers."""
+"""Shared formatting and normalization for read models and their consumers."""
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 
@@ -21,3 +22,26 @@ def clean_text(value: object) -> str:
     return "".join("�" if char in _BIDI or unicodedata.category(char) in {"Cf", "Cn", "Cs", "Zl", "Zp"}
                    and char != "\u200d" else char
                    for char in text).strip()
+
+
+def format_duration(seconds: float, *, extra_unit: bool = False) -> str:
+    total_minutes, secs = divmod(math.floor(seconds), 60)
+    hours, minutes = divmod(total_minutes, 60)
+    if hours >= 24:
+        days, hours = divmod(hours, 24)
+        return f"{days}d{hours:02d}h" + (f"{minutes:02d}m" if extra_unit else "")
+    text = f"{hours}h{minutes:02d}m" if hours > 0 else f"{total_minutes}m"
+    return text + (f"{secs:02d}s" if extra_unit else "")
+
+
+def human_duration(seconds: float | None) -> str:
+    """Round to minutes from two minutes onward, with an explicit marker for missing values."""
+    if seconds is None or seconds < 0:
+        return "?"
+    whole = int(seconds) if seconds < 120 else int(seconds / 60 + 0.5) * 60
+    if whole >= 3600:
+        return format_duration(whole)
+    minutes, secs = divmod(whole, 60)
+    if not minutes:
+        return f"{secs}s"
+    return f"{minutes}m{secs:02d}s" if secs else f"{minutes}m"

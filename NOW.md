@@ -7,22 +7,21 @@ Updated: 2026-11-27
 
 ## State
 
-- Released: v0.27.1 (2026-11-27). Branches: `main` only. In flight: none.
+- Released: v0.27.1 (2026-11-27). Branches: `main` only. In flight: [#497](https://github.com/greatgc-flow/peerhub/issues/497).
 
 ## Recent flow (newest first, at most 5)
 
+- Unreleased #497 Lane A: removed `suggest`, matched monitor counts and gaps, restricted reset rows to confirmed resets in the same account, and updated CLI argument errors and help.
 - 2026-11-27 v0.27.1: batch reports `denied_actions` (#493); a just-reset short window keeps a `reset · refresh pending` row (#495); CLI review fixes (observation refresh and diag health text, exit-code table, error hints); model defaults re-measured (agy 1.5.18, all cx/ag pings passed).
 - 2026-11-27 v0.27.0: scope decision ([record](docs/history/scope-decision-2026-11-27.md)): one-shot diag, trimmed monitor and batch flags, lessons consolidated with aliases, RUNNING ask IDs with `monitor open`, NOW.md handoff, repeatable `--query-file`, `suggest` deprecated.
 - 2026-11-27 #491: Release flow dispatches full-matrix CI when the main push leaves the version unchanged.
 - 2026-11-27 v0.26.19 (#490): Fixed just-reset short windows, RUNNING totals past the detail cap, expanded QUOTA rank and a flaky cc adapter test (#488 follow-ups).
-- 2026-11-26 v0.26.19 (#489): Added a requirements registry and alert-code lessons, set the release review bar to 80 and aligned monitor billing and plan gaps.
 
 ## Next (ordered, at most 8)
 
-1. [#497](https://github.com/greatgc-flow/peerhub/issues/497) Triage the remaining CLI review findings (priority: monitor `suggest:` line, bare `diag` USED/PACE(pt), plan JSON size, compact/expand pool count, LOST sessions shown resumable).
-2. Remove `peerhub suggest` together with the monitor `suggest:` line (deprecated in 0.27.0; `diag --plan` gives per-pool ACTION and profiles).
-3. Engram and VerySimpleGuide adopt NOW.md once this file has stayed accurate for one release.
-4. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
+1. [#497](https://github.com/greatgc-flow/peerhub/issues/497) Triage the remaining CLI review findings (priority: bare `diag` USED/PACE(pt), plan JSON size, LOST sessions shown resumable).
+2. Engram and VerySimpleGuide adopt NOW.md once this file has stayed accurate for one release.
+3. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
 
 ## Rules that bite (at most 8, one line each, link the doc)
 

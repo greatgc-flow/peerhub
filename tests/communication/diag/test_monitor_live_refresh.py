@@ -570,7 +570,6 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
         b"PeerHub Monitor 2027-01-15 08:00Z | DB:explicit | quota age ?\n"
         b"quota: no reading -> peerhub observation refresh\n"
         b"POOLS 0\nno quota evidence; next: peerhub observation refresh\n"
-        b"suggest: no eligible profiles; next: peerhub observation refresh\n"
     )
     snapshot = (
         b'{"schema_version":"2.0","status":"OK","read_at":1800000000,"groups":{},"selected_groups":["capacity"],'

@@ -186,13 +186,10 @@ def test_displayed_profile_links_to_its_config_file(monkeypatch: pytest.MonkeyPa
     options = {"view": "rich", "width": 100, "height": None, "color": False, "expand": expand}
     linked = monitor._render_human_frame(payload, links=True, **options)
     plain = monitor._render_human_frame(payload, **options)
-    assert OSC_LINK.findall(linked).count((config.as_uri(), profile)) == (4 if expand else 2)
+    assert OSC_LINK.findall(linked).count((config.as_uri(), profile)) == (3 if expand else 1)
     linked_rows = [line for line in linked.splitlines() if f"claude: {monitor_links.osc_link(config.as_uri(), profile)}" in line]
     assert len(linked_rows) == (2 if expand else 1)
     assert all(_console.ANSI_ESCAPE.sub("", line) in plain.splitlines() for line in linked_rows)
-    assert next(line for line in plain.splitlines() if line.startswith("suggest:")) == next(
-        _console.ANSI_ESCAPE.sub("", line) for line in linked.splitlines() if line.startswith("suggest:")
-    )
 
 
 @pytest.mark.parametrize("interval", [12, 2, 0.5])

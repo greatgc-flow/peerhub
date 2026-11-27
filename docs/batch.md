@@ -159,14 +159,7 @@ Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepth
    (formatting), `effort` (writing) or `deepthink` (technical claims); code = `effort`, escalate to
    `deepthink`; review = `deepthink` from an independent reviewer; design/debate = `deepthink` or an explicit top.
 2. Drop candidates with any applicable pool that has stale evidence (regardless of `STATE` shown, since a stale pool can display `low` or `fast`; check `AGE` and the `PEERS` `(aged)` tag) or is `?`, `aged`, `reset`, or under 5% LEFT, and prefer candidates without a `fast` pool (see `peerhub monitor`).
-3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`. This rule ranks the candidates for a single ask (the `suggest:` line); a wave of several tasks uses the [parallel wave procedure](#parallel-work-over-the-least-quota) (lowest 7D PACE first, then size n), so the two answer different questions.
-
-The monitor's `suggest:` line lists the best eligible profile per tier. Among
-eligible candidates, those without an applicable `fast` pool rank first, then
-the existing worst-pool score, then profile name. A `|` separates
-the best eligible alternative from a different peer in the same tier, for
-example `eco=cc.standard|ag.standard`. With no eligible alternative, only the
-primary appears. These suggestions do not execute asks or reroute work.
+3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`. For a parallel wave, follow the [parallel wave procedure](#parallel-work-over-the-least-quota) and use the lowest 7D PACE first.
 
 `ag.argon` and Flash draw from the same Gemini windows, `G-5H` and `G-7D`,
 shown in `peerhub diag --plan`. The legacy `A-7D` window shows `n/a` when omitted from a complete report.
@@ -174,12 +167,6 @@ See [Antigravity quota pools](adapters/ag.md#quota-pools) and the
 [0.26.11 release notes](../CHANGELOG.md#02611---2026-11-25) for when Antigravity stopped reporting it.
 
 For an AI planning a parallel wave, `peerhub explain parallel-quota` summarizes the [parallel wave procedure](#parallel-work-over-the-least-quota).
-
-## Suggest an ask
-
-`peerhub suggest` is deprecated, removed in the next release. Use `peerhub diag --plan` for planning. Until removal, it prints an ask and a reason, with optional candidate facts. Its behavior is otherwise unchanged.
-
-`--candidates` shows the quota evidence behind eligibility. Among enabled profiles, a measured 5-hour window must be under 90% used. A fresh provider-reported absence skips that gate. An exhausted 7-day pool excludes the profile. The lowest 7-day PACE wins among profiles with usable evidence, with ties in ag, cx, cc order. Missing or over-15-minute evidence can trigger one refresh attempt and spend quota. Candidates without usable evidence remain fallback choices marked `quota unknown`.
 
 **I. Concurrency**
 

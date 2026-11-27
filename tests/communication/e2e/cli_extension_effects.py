@@ -12,7 +12,6 @@ from peerhub.cli.ask_cmd import ASK_QUERY_FILE_OPTIONS
 from peerhub.extensions.observation_model import EvidenceState
 from peerhub.core.store import CoreStore
 from tests.communication.fakes import FakeRuntimeTarget
-from tests.communication.e2e.test_cli_suggest import suggest_effect
 
 
 def lead_isolated_env(tmp, base):
@@ -685,8 +684,6 @@ EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refres
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
                for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--allow-agy-token-use", "--view")})
-EFFECT.update({f"suggest {option}": (lambda e, option=option: suggest_effect(e, option))
-               for option in ("--tier", "--task", "--json", "--candidates")})
 EFFECT.update({"monitor --snapshot": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
                "monitor --no-probe": monitor_no_probe_effect,
                "monitor --group": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),

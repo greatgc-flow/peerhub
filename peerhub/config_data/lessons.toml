@@ -11,7 +11,7 @@ issue = "Monitor design record M10"
 id = "monitor-states"
 title = "Monitor layout, quota states and alerts"
 aliases = ["monitor-view", "monitor-accounts", "monitor-alerts", "monitor-insuff", "monitor-stale-window", "monitor-probe-age", "monitor-drift", "plan-windows", "cx-plan-windows", "a1", "a2", "a3", "a4", "a5", "a6"]
-keywords = ["monitor", "pace", "low", "fast", "aged", "suggest", "alternative", "cycles", "tty", "legend", "quota", "unknown", "est", "estimated", "gone", "overdue", "orphan", "view", "order", "rich", "plain", "glyph", "glyphs", "colour", "color", "colours", "bar", "pill", "rule", "rules", "meter", "palette", "NO_COLOR", "unicode", "accounts", "account", "login", "token", "expiry", "credits", "display_plan", "plan_changed", "alerts", "a1", "a2", "a3", "a4", "a5", "a6", "INSUFF", "STALE", "window", "PROBE", "age", "DRIFT", "cc", "ag", "cx", "absent", "not reported", "plan", "windows", "cx-plan-windows", "codex", "claude", "agy", "pool", "5h", "7d", "X-5H", "X-7D", "prolite", "reported", "incomplete"]
+keywords = ["monitor", "pace", "low", "fast", "aged", "cycles", "tty", "legend", "quota", "unknown", "est", "estimated", "gone", "overdue", "orphan", "view", "order", "rich", "plain", "glyph", "glyphs", "colour", "color", "colours", "bar", "pill", "rule", "rules", "meter", "palette", "NO_COLOR", "unicode", "accounts", "account", "login", "token", "expiry", "credits", "display_plan", "plan_changed", "alerts", "a1", "a2", "a3", "a4", "a5", "a6", "INSUFF", "STALE", "window", "PROBE", "age", "DRIFT", "cc", "ag", "cx", "absent", "not reported", "plan", "windows", "cx-plan-windows", "codex", "claude", "agy", "pool", "5h", "7d", "X-5H", "X-7D", "prolite", "reported", "incomplete"]
 symptom = "You want to interpret the terminal frame, account rows, quota readings or alerts."
 fix = """Use --expand for the full DB path and detail rows. PEERHUB_NO_LINKS disables OSC 8 and prints a copyable Guide: line when it fits. Check monitor changes in both layouts at narrow and wide widths. See docs/monitor.md for layout and refresh timing.
 - Check the reading's age before acting on LEFT or PACE. In --expand, quota notes explain windows the provider omitted or disabled (n/a). INSUFF means measured capacity with too little evidence to forecast. STALE:window means the capacity evidence expired. For stale evidence or a failed PROBE, run peerhub observation refresh --peers PEER. If refresh fails again, check authentication and the installed CLI. For DRIFT, refresh the packaged model facts or upgrade PeerHub. See docs/monitor.md#pools and docs/model-profiles/README.md#refresh-from-installed-clis.
@@ -196,14 +196,6 @@ fix = "Run peerhub profile stats --json. Mark the result with peerhub outcome us
 issue = "0.25.0 plan M2"
 
 [[lessons]]
-id = "suggest"
-title = "Deprecated: recommend a profile and ask command (use peerhub diag --plan)"
-keywords = ["suggest", "recommend", "profile choice", "7d pace", "5h usage"]
-symptom = "Choose a profile in the requested tier using quota evidence."
-fix = "Deprecated: use `peerhub diag --plan` instead; suggest will be removed in the next release. Run peerhub suggest --tier TIER --candidates to inspect eligibility, then omit --candidates to print an ask. See docs/batch.md#suggest-an-ask for prompt files, ranking and refresh costs."
-issue = "0.25.0 plan D7/D8/A6/A7"
-
-[[lessons]]
 id = "parallel-quota"
 guide_order = 6
 title = "Spread parallel work over the least quota"
@@ -235,8 +227,9 @@ A missing alternate --observation-db with a healthy main store gives health {dia
 Diag health returns {error[stream_not_found]} for a missing stream. \
 Update --check returns 0. Update --plan returns 0 when ready, {error[ask_claim_held]} if an ask is or may be running, \
 and {diag[FAILED]}/{diag[UNAVAILABLE]}/{diag[SCHEMA_VERSION]} for an unreadable/missing/incompatible store. \
-Suggest returns 0 for a suggestion or 1 for unavailable. Explain returns 0 for a match or 1 for no match. \
+Explain returns 0 for a match or 2 for an invalid topic or profile. \
 Monitor snapshot/watch use 0 for success, 1 for an agy token-use stop or a failed final refresh in finite watch, and the diag store codes. \
+Monitor open returns 1 for an unknown ask ID (not_found). Commands that emit invalid_arguments exit 2. \
 Observation refresh returns 0 for OK or 1 for a non-OK refresh. Shared store errors use the diag store codes as applicable. \
 Coded errors appear on stderr as [code] message; next: ... \
 With --json, ask errors and invalid manifests can include an error object with code and message on stdout. \

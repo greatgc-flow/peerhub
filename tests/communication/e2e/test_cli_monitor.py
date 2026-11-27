@@ -611,8 +611,8 @@ def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):
     output = capsys.readouterr().out
 
     assert code in (0, 4)
-    # #374: the compact frame is the verdict, line 2, RUNNING, the suggestion and POOLS; PEERS and the footer are --expand
-    assert "\nPOOLS " in output and "\nRUNNING " in output and "suggest:" in output
+    # #374: the compact frame is the verdict, line 2, RUNNING and POOLS; PEERS and the footer are --expand
+    assert "\nPOOLS " in output and "\nRUNNING " in output and "suggest:" not in output
     assert "PEERS" not in output and "delivery (sampled)" not in output
     assert "SESSIONS [" not in output and "EXECUTION [" not in output
     assert "groups omitted" not in output.lower()

@@ -11,6 +11,7 @@ from pathlib import Path
 from time import time
 from typing import TYPE_CHECKING, Any, cast
 
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub.cli.support import error_line
 
 if TYPE_CHECKING:
@@ -212,12 +213,12 @@ def run_session(args: argparse.Namespace) -> int:
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
         error_line("invalid_arguments", str(exc))
-        return 1
+        return INVALID_ARGUMENTS_EXIT
     except sqlite3.Error as exc:
         error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
-        error_line("invalid_arguments", str(error["error"]))
+        error_line("diag_unavailable", str(error["error"]), "peerhub diag health")
         return 4
 
 

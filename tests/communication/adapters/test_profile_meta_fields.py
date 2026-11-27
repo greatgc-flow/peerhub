@@ -1,6 +1,6 @@
 """0.25.0 plan D11/A9: optional profile fields alias_of, effort_override, suggest and measurement.
 
-cx.deepthink is a deprecated alias of cx.effort at xhigh; cc.deepthink, ag.effort (and the alias) are not suggested;
+cx.deepthink is a deprecated alias of cx.effort at xhigh; cc.deepthink, ag.effort and the alias retain legacy profile metadata;
 the API peers ca, oa and ga are unmeasured. Tests assert invariants, not refreshed model ids.
 """
 import json
@@ -38,7 +38,7 @@ def _overlay(tmp_path, monkeypatch, body: str) -> Path:
 
 # ---- defaults ---------------------------------------------------------------------------------------------------
 
-def test_defaults_are_measured_suggested_and_not_an_alias(tmp_path):
+def test_defaults_include_legacy_suggest_metadata(tmp_path):
     fields = inspect_profile("cx.standard", tmp_path, include_meta=True)["fields"]
     assert fields["alias_of"] == {"value": None, "source": "default"}
     assert fields["effort_override"] == {"value": None, "source": "default"}
@@ -231,14 +231,14 @@ def test_flags_do_not_count_as_a_binding_change(tmp_path, monkeypatch):
 # ---- CLI ---------------------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("columns,stacked", [(80, True), (240, False)], ids=["stacked", "table"])
-def test_profile_list_shows_alias_not_suggested_and_unmeasured(columns, stacked, monkeypatch, capsys):
+def test_profile_list_shows_alias_and_measurement_but_ignores_suggest(columns, stacked, monkeypatch, capsys):
     workspace = Path(__file__).parent
     monkeypatch.setenv("COLUMNS", str(columns))
     assert main(["--db", str(workspace / "unused.db"), "profile", "list", "--workspace", str(workspace)]) == 0
     out = capsys.readouterr().out
     lines = out.splitlines()
-    expected = {"cx.deepthink": "alias of cx.effort (xhigh); not suggested",
-                "cc.deepthink": "not suggested", "ag.effort": "not suggested",
+    expected = {"cx.deepthink": "alias of cx.effort (xhigh)",
+                "cc.deepthink": "-", "ag.effort": "-",
                 "ca.standard": "unmeasured", "oa.effort": "unmeasured", "ga.effort": "unmeasured",
                 "cx.standard": "-"}
     if stacked:

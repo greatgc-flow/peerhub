@@ -8,6 +8,7 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub.cli.arguments import WORKSPACE_OPTIONS
 from peerhub.cli.output import emit
 from peerhub.cli.support import error_line
@@ -45,14 +46,12 @@ def _card_value(value: object) -> str:
 
 
 def _profile_notes(fields: dict[str, Any]) -> str:
-    """`profile list` NOTES: a deprecated alias, a profile that is not suggested, an unmeasured model id; `-` when none."""
+    """`profile list` NOTES: a deprecated alias or an unmeasured model ID; `-` when none."""
     notes: list[str] = []
     alias = fields["alias_of"]["value"]
     if alias:
         override = fields["effort_override"]["value"]
         notes.append(f"alias of {alias} ({override})" if override else f"alias of {alias}")
-    if fields["suggest"]["value"] is False:
-        notes.append("not suggested")
     if fields["measurement"]["value"] == "unmeasured":
         notes.append("unmeasured")
     return "; ".join(notes) or "-"
@@ -99,7 +98,7 @@ def run_profile(args: argparse.Namespace) -> int:
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
         error_line("invalid_arguments", str(exc))  # the message only: no Python class name (#401)
-        return 1
+        return INVALID_ARGUMENTS_EXIT
     if use_json:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0

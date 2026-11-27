@@ -128,7 +128,7 @@ def test_child_and_parent_bars_yield_then_grow_one_cell_at_a_time(unicode: bool)
     lengths: list[int] = []
     for width in range(32, 145):
         screen = render(tree(), color=True, unicode=unicode, expand=True, width=width)
-        top = screen.split("suggest:", 1)[0]
+        top = screen.split("\ngap vs ", 1)[0]
         child, parent = ANSI_ESCAPE.sub("", row(top, "C-5H")), ANSI_ESCAPE.sub("", row(top, "C-7D"))
         child_bar = re.findall(f"[{re.escape(cfull)}{re.escape(cempty)}]{{4,}}", child)
         parent_bar = re.findall(f"[{re.escape(full)}{re.escape(empty)}]{{4,}}", parent)
