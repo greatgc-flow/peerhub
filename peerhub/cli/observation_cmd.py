@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from peerhub.cli.output import emit
 from peerhub.cli.support import print_warnings
@@ -37,7 +37,7 @@ def _format_refresh_text(result: dict[str, Any]) -> str:
         pool_ref = obs.get("resource_pool_ref")
         pool = pool_ref.rsplit(":", 1)[-1] if isinstance(pool_ref, str) and pool_ref else "-"
         state = obs.get("state") or "UNKNOWN"
-        payload = obs.get("payload") or {}
+        payload = cast(dict[str, Any], obs.get("payload") or {})
         rem = payload.get("remaining_fraction") if state == "MEASURED" else None
         left = format_percent(float(rem)) if isinstance(rem, (int, float)) and not isinstance(rem, bool) and 0 <= rem <= 1 else "-"
         obs_at, cap_at = obs.get("observed_at"), obs.get("captured_at")

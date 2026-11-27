@@ -89,18 +89,7 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 
 - Keywords: exit, code, error, stderr, json
 - Symptom: A caller is interpreting a process exit or an error report.
-- Fix: COMMAND                       EXIT 0                     OTHER EXITS
-  ask                           0 delivered/replay/dry-run  1 uncertain/delivery failure (denied_empty, session_lost) or peer_not_found; 2 syntax/selector/idempotency conflict; 3 CAS conflict; 4/5/6 store fault/missing/schema
-  batch run                     0 dry-run/all COMPLETED    1 invalid manifest or unsuccessful task (including empty reply UNVERIFIED); 2 syntax; 5 missing store
-  diag / --plan / subcommands   0 OK                       4 storage/read fault (including PARTIAL); 5 missing store; 6 schema version; health: 1 missing stream (missing --observation-db: health 4 PARTIAL, quota 5 UNAVAILABLE)
-  monitor snapshot / watch      0 OK (including PARTIAL)   1 agy token-use stop or failed final refresh in finite watch; 4 selected group read ERROR; 5/6 missing/incompatible store
-  observation refresh           0 OK                       1 non-OK refresh; 2 syntax; 5 missing store
-  update --check                0 checked                  2 syntax
-  update --plan                 0 READY                    1 ask is or may be running; 4/5/6 unreadable/missing/incompatible store
-  suggest (deprecated)          0 suggestion               1 unavailable; 2 syntax
-  explain                       0 match                    1 no match
-  other store commands          0 ok                       1 not found/invalid; 2 syntax/idempotency conflict; 3 CAS conflict; 4/5/6 store fault/missing/schema
-  Coded errors appear on stderr as [code] message; next: ... With --json, ask errors and invalid manifests include an error object with code and message on stdout; other reports use command-specific JSON. Run peerhub explain CODE for guidance.
+- Fix: Ask returns 0 for delivery, terminal replay or a valid dry run, 1 for uncertainty or delivery failure (including denied_empty or session_lost), 2 for syntax, invalid selectors or idempotency conflict, and 3 for a compare-and-swap conflict. Batch run returns 0 for a valid dry run or all tasks completed and 1 for an invalid manifest or unsuccessful tasks. An empty terminal reply without an error exits 0 in ask and 1 in batch (UNVERIFIED). Diag health, quota, readiness, running, --plan and integrity use 0 for OK, 4 for a storage/read fault (including PARTIAL reports), 5 for an unavailable store, and 6 for an unsupported schema version. A missing alternate --observation-db with a healthy main store gives health 4 (PARTIAL) and quota 5 (UNAVAILABLE). Diag health returns 1 for a missing stream. Update --check returns 0. Update --plan returns 0 when ready, 1 if an ask is or may be running, and 4/5/6 for an unreadable/missing/incompatible store. Suggest returns 0 for a suggestion or 1 for unavailable. Explain returns 0 for a match or 1 for no match. Monitor snapshot/watch use 0 for success, 1 for an agy token-use stop or a failed final refresh in finite watch, and the diag store codes. Observation refresh returns 0 for OK or 1 for a non-OK refresh. Shared store errors use the diag store codes as applicable. Coded errors appear on stderr as [code] message; next: ... With --json, ask errors and invalid manifests can include an error object with code and message on stdout. Other reports use command-specific JSON. Run peerhub explain CODE for guidance.
 - Issue: #446
 
 ## Independent review votes (`independent-peer-votes`)

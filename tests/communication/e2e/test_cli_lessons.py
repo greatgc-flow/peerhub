@@ -112,16 +112,6 @@ def test_no_match_hint(capsys):
     assert len(captured.err.splitlines()) == 1
 
 
-def test_explain_exit_codes_renders_scannable_table_matching_actual_behavior(capsys):
-    assert main(["explain", "exit-codes"]) == 0
-    out = capsys.readouterr().out
-    assert "COMMAND" in out and "EXIT 0" in out and "OTHER EXITS" in out
-    assert "peer_not_found" in out
-    assert "OK (including PARTIAL)" in out
-    assert "update --check" in out and "update --plan" in out
-    assert len(out.splitlines()) >= 12
-
-
 @pytest.mark.parametrize("query", [[], ["lessons"], ["list"]])
 def test_explain_lessons_prints_index_before_any_lesson_lookup(capsys, monkeypatch, query):
     """#366 A5: `explain lessons` is an index (id: title; --json {"lessons": [{id, title}]}), never a keyword search."""
@@ -396,7 +386,7 @@ def test_catalog_and_rendering():
     for lesson in lessons:
         assert all(lesson.values())
         rendered = render_lesson(lesson)
-        if not lesson.get("aliases") and lesson["id"] != "exit-codes":
+        if not lesson.get("aliases"):
             assert len(rendered.splitlines()) <= 5
         assert lesson["issue"] in rendered
 

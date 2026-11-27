@@ -19,8 +19,7 @@ they do not claim new validation or publication evidence.
 - `peerhub observation refresh` prints a concise per-peer/pool summary in text mode and reserves the raw observation JSON array for `--json`.
 - `peerhub diag health` renders readable key-value lines with a single store path in text mode and reserves JSON structures for `--json`.
 - `peerhub suggest --help` and `peerhub explain lessons` mark `suggest` as deprecated in favor of `peerhub diag --plan`.
-- `peerhub explain exit-codes` renders a scannable exit-code table matching `ask`, `monitor` and `update`, and `peerhub update --help` scopes exit `1` to `--plan`.
-- `peerhub guide` clarifies that `ag` is always writable (no read-only sandbox) and points to `peerhub profile list` instead of hardcoding top profiles.
+- `peerhub update --help` scopes exit `1` (asks running) to `--plan`.
 - Model defaults (revision 2026-11-27.1): agy 1.5.18 observed (clears the `ag: version_drift` fact); the `codex debug models` and `agy.exe models` catalogs still list every packaged model; `python -m tools.model_ping` passed for all cx and ag profiles (model, and effort for cx), so their `checked` and card dates are 2026-11-27. cc profiles were not pinged.
 
 ### Fixed

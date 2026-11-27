@@ -98,27 +98,27 @@ def _format_health_text(result: dict[str, Any], *, db: str, db_source: str, obs_
             for key in ("title", "state", "revision", "head_position", "record_count"):
                 val = result.get(key)
                 lines.append(f"{key}: {'-' if val is None else val}")
-            members = result.get("members") or []
+            members = cast(list[Any], result.get("members") or [])
             lines.append(f"members: {', '.join(str(m) for m in members) if members else '-'}")
-            offsets = result.get("offsets") or {}
+            offsets = cast(dict[str, Any], result.get("offsets") or {})
             lines.append("offsets: " + (", ".join(f"{k}={v}" for k, v in offsets.items()) if offsets else "-"))
-            if ref := result.get("last_refusal"):
+            if ref := cast("dict[str, Any] | None", result.get("last_refusal")):
                 reset = f" reset={ref['reset_time']}" if ref.get("reset_time") else ""
                 lines.append(f"last_refusal: {ref.get('reason') or '-'} ({ref.get('task_outcome') or '-'}){reset}")
     elif result.get("status") in ("OK", "PARTIAL"):
-        snap = result.get("snapshot") or {}
+        snap = cast(dict[str, Any], result.get("snapshot") or {})
         lines.extend([
             f"total_peers: {result.get('total_peers', 0)}",
             f"total_streams: {result.get('total_streams', 0)}",
             f"records_total: {'-' if snap.get('records_total') is None else snap.get('records_total')}",
             f"observations_total: {'-' if snap.get('observations_total') is None else snap.get('observations_total')}",
         ])
-        sample = result.get("stream_sample") or []
+        sample = cast(list[Any], result.get("stream_sample") or [])
         lines.append(f"stream_sample: {', '.join(str(s) for s in sample) if sample else '-'}")
     if result.get("error"):
         lines.append(f"error: {result['error']}")
-    obs = result.get("observations") or {}
-    by_state = obs.get("by_state") or {}
+    obs = cast(dict[str, Any], result.get("observations") or {})
+    by_state = cast(dict[str, Any], obs.get("by_state") or {})
     states = " (" + ", ".join(f"{k}={v}" for k, v in by_state.items()) + ")" if by_state else ""
     obs_err = f" error: {obs['error']}" if obs.get("error") else ""
     lines.append(f"observations: {obs.get('status', 'UNKNOWN')} latest={obs.get('latest_total', 0)}{states}{obs_err}")

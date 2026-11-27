@@ -221,16 +221,24 @@ title = "CLI exit codes and error output"
 keywords = ["exit", "code", "error", "stderr", "json"]
 symptom = "A caller is interpreting a process exit or an error report."
 fix = """\
-COMMAND                       EXIT 0                     OTHER EXITS
-ask                           {ask[delivered]} delivered/replay/dry-run  {ask[uncertain]} uncertain/delivery failure (denied_empty, session_lost) or peer_not_found; {error[ask_idempotency_conflict]} syntax/selector/idempotency conflict; {error[ask_cas_conflict]} CAS conflict; 4/5/6 store fault/missing/schema
-batch run                     0 dry-run/all COMPLETED    {error[invalid_manifest]} invalid manifest or unsuccessful task (including empty reply UNVERIFIED); 2 syntax; 5 missing store
-diag / --plan / subcommands   {diag[OK]} OK                       {diag[FAILED]} storage/read fault (including PARTIAL); {diag[UNAVAILABLE]} missing store; {diag[SCHEMA_VERSION]} schema version; health: {error[stream_not_found]} missing stream (missing --observation-db: health {diag[FAILED]} PARTIAL, quota {diag[UNAVAILABLE]} UNAVAILABLE)
-monitor snapshot / watch      0 OK (including PARTIAL)   1 agy token-use stop or failed final refresh in finite watch; {diag[FAILED]} selected group read ERROR; {diag[UNAVAILABLE]}/{diag[SCHEMA_VERSION]} missing/incompatible store
-observation refresh           0 OK                       1 non-OK refresh; 2 syntax; {diag[UNAVAILABLE]} missing store
-update --check                0 checked                  2 syntax
-update --plan                 0 READY                    {error[ask_claim_held]} ask is or may be running; {diag[FAILED]}/{diag[UNAVAILABLE]}/{diag[SCHEMA_VERSION]} unreadable/missing/incompatible store
-suggest (deprecated)          0 suggestion               1 unavailable; 2 syntax
-explain                       0 match                    1 no match
-other store commands          0 ok                       1 not found/invalid; 2 syntax/idempotency conflict; 3 CAS conflict; {diag[FAILED]}/{diag[UNAVAILABLE]}/{diag[SCHEMA_VERSION]} store fault/missing/schema
-Coded errors appear on stderr as [code] message; next: ... With --json, ask errors and invalid manifests include an error object with code and message on stdout; other reports use command-specific JSON. Run peerhub explain CODE for guidance."""
+Ask returns {ask[delivered]} for delivery, terminal replay or a valid dry run, \
+{ask[uncertain]} for uncertainty or delivery failure (including denied_empty or session_lost), \
+{error[ask_idempotency_conflict]} for syntax, invalid selectors or idempotency conflict, \
+and {error[ask_cas_conflict]} for a compare-and-swap conflict. \
+Batch run returns 0 for a valid dry run or all tasks completed and \
+{error[invalid_manifest]} for an invalid manifest or unsuccessful tasks. \
+An empty terminal reply without an error exits {ask[delivered]} in ask and {error[invalid_manifest]} in batch (UNVERIFIED). \
+Diag health, quota, readiness, running, --plan and integrity use {diag[OK]} for OK, \
+{diag[FAILED]} for a storage/read fault (including PARTIAL reports), {diag[UNAVAILABLE]} for an unavailable store, \
+and {diag[SCHEMA_VERSION]} for an unsupported schema version. \
+A missing alternate --observation-db with a healthy main store gives health {diag[FAILED]} (PARTIAL) and quota {diag[UNAVAILABLE]} (UNAVAILABLE). \
+Diag health returns {error[stream_not_found]} for a missing stream. \
+Update --check returns 0. Update --plan returns 0 when ready, {error[ask_claim_held]} if an ask is or may be running, \
+and {diag[FAILED]}/{diag[UNAVAILABLE]}/{diag[SCHEMA_VERSION]} for an unreadable/missing/incompatible store. \
+Suggest returns 0 for a suggestion or 1 for unavailable. Explain returns 0 for a match or 1 for no match. \
+Monitor snapshot/watch use 0 for success, 1 for an agy token-use stop or a failed final refresh in finite watch, and the diag store codes. \
+Observation refresh returns 0 for OK or 1 for a non-OK refresh. Shared store errors use the diag store codes as applicable. \
+Coded errors appear on stderr as [code] message; next: ... \
+With --json, ask errors and invalid manifests can include an error object with code and message on stdout. \
+Other reports use command-specific JSON. Run peerhub explain CODE for guidance."""
 issue = "#446"
