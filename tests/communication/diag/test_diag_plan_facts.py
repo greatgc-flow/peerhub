@@ -39,7 +39,7 @@ def _flash_windows():
 
 
 @pytest.mark.parametrize("with_profiles", [False, True])
-def test_reset_short_window_holds_without_gating_and_is_hidden_in_both_views(with_profiles):
+def test_reset_short_window_holds_without_gating_and_keeps_a_placeholder_row_in_both_views(with_profiles):
     from peerhub.cli.monitor_view import render_grouped_frame
     from tests.communication.diag.test_monitor_activity_view import pool
     from tests.communication.diag.test_monitor_plain_golden import _payload
@@ -66,7 +66,10 @@ def test_reset_short_window_holds_without_gating_and_is_hidden_in_both_views(wit
     payload = _payload([], [pool("ag", "G-5H", .3, reset=-FRESH_AGE / 2), pool("ag", "G-7D", .5)],
                        selected_groups=["capacity"])
     options = dict(view="plain", width=120)
-    assert "G-5H" not in render_grouped_frame(payload, expand=False, **options)
+    for expand in (False, True):
+        lines = render_grouped_frame(payload, expand=expand, **options).splitlines()
+        parent = next(i for i, line in enumerate(lines) if " G-7D " in line)
+        assert re.fullmatch(r"\s+└─ G-5H reset · refresh pending", lines[parent + 1])
     assert "ag G-5H n/a (quota window expired)" in render_grouped_frame(payload, expand=True, **options)
 
 
