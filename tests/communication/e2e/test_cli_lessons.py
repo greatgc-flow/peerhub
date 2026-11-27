@@ -422,3 +422,14 @@ def test_monitor_view_explains_guide_trailer_and_matches_reference(capsys):
 def test_lesson_ids_and_aliases_match_case_insensitively():
     assert [lesson["id"] for lesson in lesson_by_id("AG-REQUIRES-WRITABLE")] == ["ag-recipe"]
     assert [lesson["id"] for lesson in lesson_by_id("Ag-Recipe")] == ["ag-recipe"]
+
+
+def test_monitor_states_uses_canonical_legend_and_drops_removed_states_and_dev_note(capsys):
+    from peerhub.cli.monitor_legend import POOL_STATE_LEGEND, RESET_PENDING_NOTE
+
+    assert main(["explain", "a1"]) == 0
+    out = capsys.readouterr().out
+    assert POOL_STATE_LEGEND in out
+    assert "blocked" in out and RESET_PENDING_NOTE in out and "version_drift" in out
+    for stale in ("INSUFF", "STALE:window", "failed PROBE", "Check monitor changes"):
+        assert stale not in out, stale

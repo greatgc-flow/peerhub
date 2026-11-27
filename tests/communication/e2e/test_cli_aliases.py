@@ -91,6 +91,51 @@ def test_ask_missing_prompt_mentions_prompt_file_and_inline_usage_hint(capsys, m
     assert 'next: peerhub ask cx "prompt" (or --query-file PATH)' in err
 
 
+def test_ask_json_without_prompt_emits_one_consistent_hint(capsys, monkeypatch):
+    monkeypatch.setattr(app, "select_store", lambda *a, **kw: pytest.fail("must not select store"))
+    assert app.main(["ask", "cx", "--json"]) == 2
+    captured = capsys.readouterr()
+    err_lines = captured.err.splitlines()
+    assert len(err_lines) == 1
+    assert err_lines[0].startswith("[invalid_arguments] ask requires exactly one of prompt or --query-file")
+    assert 'next: peerhub ask cx "prompt" (or --query-file PATH)' in err_lines[0]
+    assert "ask_unexpected_failure" not in captured.err
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "invalid_arguments"
+    assert "ask requires exactly one of prompt" in payload["error"]["message"]
+    assert payload["guidance"]["code"] == "invalid_arguments"
+    assert 'peerhub ask cx "prompt" (or --query-file PATH)' in payload["guidance"]["summary"]
+
+
+@pytest.mark.parametrize("flags", [[], ["--dry-run"], ["--json"], ["--dry-run", "--json"]])
+def test_ask_missing_or_unreadable_query_file_is_user_error(tmp_path, capsys, flags):
+    db = str(tmp_path / "core.db")
+    missing = str(tmp_path / "missing-prompt.txt")
+    assert app.main(["--db", db, "ask", "cx", "--query-file", missing, *flags]) == 2
+    captured = capsys.readouterr()
+    assert len(captured.err.splitlines()) == 1
+    assert captured.err.startswith("[invalid_arguments] cannot read --query-file")
+    assert missing in captured.err
+    assert "check the path" in captured.err
+    assert "[Errno" not in captured.err and "ask_unexpected_failure" not in captured.err
+    if "--json" in flags:
+        payload = json.loads(captured.out)
+        assert payload["error"]["code"] == "invalid_arguments"
+        assert missing in payload["error"]["message"] and "[Errno" not in payload["error"]["message"]
+        assert payload["guidance"]["code"] == "invalid_arguments"
+        assert "check the path" in payload["guidance"]["summary"]
+    else:
+        assert not captured.out
+
+    bad_utf8 = tmp_path / "bad.bin"
+    bad_utf8.write_bytes(b"\xff\xfe\x80")
+    for unreadable in (str(tmp_path), str(bad_utf8)):
+        assert app.main(["--db", db, "ask", "cx", "--query-file", unreadable, *flags]) == 2
+        captured = capsys.readouterr()
+        assert "[invalid_arguments]" in captured.err and unreadable in captured.err and "check the path" in captured.err
+        assert "[Errno" not in captured.err and "ask_unexpected_failure" not in captured.err
+
+
 @pytest.mark.parametrize("command, expected", [
     (["peer"], ("show", "alias of get")),
     (["peer", "show"], ("alias of get",)),

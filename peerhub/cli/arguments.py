@@ -14,6 +14,7 @@ class ArgumentParser(argparse.ArgumentParser):
         error_line("invalid_arguments", message, hint)
         exc = SystemExit(2)
         setattr(exc, "argument_error", message)
+        setattr(exc, "argument_hint", hint)
         raise exc
 
 

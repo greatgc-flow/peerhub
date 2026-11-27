@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 def register_account_parser(subparsers: Subparsers) -> None:
-    account_parser = subparsers.add_parser("account", help="Immutable cc/cx account roots; peer register overwrite refuses later asks",
+    account_parser = subparsers.add_parser("account", help="Manage account-bound cc/cx peers",
                                           description="Bind a new peer and root for each account. No rebind/unbind. Overwriting a bound peer with peer register makes ask refuse; recover with a new peer and root.")
     account_sub = account_parser.add_subparsers(dest="action", required=True)
     account_bind = account_sub.add_parser("bind", help="Bind a new peer to a cc/cx account root")

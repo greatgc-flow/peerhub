@@ -115,4 +115,9 @@ def render_exception_guidance_hint(code: str, exception: BaseException | None) -
         )
     if code == "ask_prompt_too_large":
         return render_guidance_hint(REGISTRY[code])
+    if code == "peer_not_found":
+        peer = getattr(exception, "peer_id", None)
+        if isinstance(peer, str) and peer:
+            return f"peerhub peer register --peer {peer} --adapter <adapter> (or peerhub peer list)"
+        return "peerhub peer list"
     return f"peerhub explain {code}"

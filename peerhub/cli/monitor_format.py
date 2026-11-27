@@ -18,7 +18,7 @@ from peerhub.cli.monitor_layout import (
     paint_text,
     cell_width,
 )
-from peerhub.cli.monitor_legend import POOLS_HEADING, POOL_MARGIN_COLUMN, QUOTA_NA
+from peerhub.cli.monitor_legend import POOLS_HEADING, POOL_MARGIN_COLUMN, QUOTA_NA, RESET_PENDING_NOTE
 from peerhub.cli.monitor_links import link_profiles, link_pool_state
 from peerhub.cli.quota_format import (
     BAR_CELLS,
@@ -225,9 +225,6 @@ def _binds(child: dict[str, Any], parent: dict[str, Any]) -> bool:
         return True
     return (_has_value(child) and _has_value(parent)
             and float(child["remaining"]) < float(parent["remaining"]))
-
-
-RESET_PENDING_NOTE = "reset · refresh pending"
 
 
 def is_reset_pending(row: dict[str, Any]) -> bool:
