@@ -343,7 +343,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         if runtime is None:
             if kind is None:
                 raise PeerNotFoundError(
-                    f"unknown peer {peer_id!r}: not a built-in peer ({BUILTIN_PEER_CHOICES}) and not registered with an adapter",
+                    f"unknown peer {peer_id!r}: register it with --adapter {BUILTIN_PEER_CHOICES}",
                     peer_id=peer_id,
                 )
             execution_workspace = workspace or Path.cwd()

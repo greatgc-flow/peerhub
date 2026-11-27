@@ -313,7 +313,7 @@ def test_profile_list_and_explain_show_the_api_profiles(tmp_path, monkeypatch, c
     for pid in ("ca.standard", "oa.deepthink", "ga.standard", "ga.effort"):
         assert run_explain_cli(pid) == 0
         assert capsys.readouterr().out.startswith(f"Profile: {pid}")
-    assert run_explain_cli("ga.deepthink") == 1  # not packaged
+    assert run_explain_cli("ga.deepthink") == 2  # not packaged
     assert "unknown profile" in capsys.readouterr().err
 
 

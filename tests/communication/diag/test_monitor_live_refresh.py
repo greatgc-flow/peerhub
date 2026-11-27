@@ -79,7 +79,7 @@ def test_no_probe_title_uses_plan_retirement_and_selected_peers(monkeypatch, exp
     assert main(["--db", __file__, "monitor", "--group", "capacity", "--peers", "cx", "--no-probe",
                  "--view", "plain", "--cycles", "0", *(["--expand"] if expanded else [])]) == 0
     assert "oldest quota age 10s" in frames[0].splitlines()[1]
-    assert ("X-30D" in frames[0]) == expanded
+    assert "X-30D" not in frames[0]
 
 
 def test_per_peer_due_at_lead_with_missing_and_partial_pools():

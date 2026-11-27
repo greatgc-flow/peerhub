@@ -37,7 +37,7 @@ def test_monitor_pool_membership_matches_in_both_layouts(view, width):
     gaps = []
     for expand in (False, True):
         screen = render_grouped_frame(payload, view=view, width=width, expand=expand)
-        assert "POOLS 7 (+4 n/a)" in screen
+        assert "POOLS 7 " in screen and "(+4 n/a)" not in screen
         assert any("G-5H" in line and "96%" in line for line in screen.splitlines())
         assert any("3P-5H" in line and "39%" in line for line in screen.splitlines())
         gap = next(line for line in screen.splitlines() if line.startswith("gap vs "))

@@ -148,24 +148,19 @@ def test_tree_keeps_each_pools_own_capacity_and_encoding_width(expand: bool) -> 
 
 
 @EXPAND_ONLY
-def test_retired_pools_form_one_dim_note_per_peer(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_retired_pools_are_hidden_in_quota(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H", "C-7D", "C-30D"]})
     for item in frame["groups"]["capacity"]["data"]["observations"]:
         if not item["pool_ref"].endswith("C-7D"):
             item.update(state="ABSENT", reason="not reported by provider", display_retired=True, display_plan="pro")
     screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-    notes = [line for line in screen.splitlines() if "not reported by plan" in line]
-    assert len(notes) == 1 and "C-5H,C-30D" in notes[0]  # one note in the QUOTA details (POOLS has a row per pool)
-    assert notes[0].strip().startswith(f"\x1b[{monitor_layout.RICH_SGR['dim']}m") and notes[0].endswith("\x1b[0m")
-    plain = mv.render_grouped_frame(frame, view="plain", color=True, unicode=False, width=180, expand=expand)
-    assert [line for line in plain.splitlines() if "not reported by plan" in line] == [
-        "cc C-5H,C-30D n/a (not reported by plan pro)"]
+    assert all(name not in screen for name in ("C-5H", "C-30D", "not reported by plan"))
 
 
 @EXPAND_ONLY
 @pytest.mark.parametrize("width", [20, 40, 60, 80, 100])
-def test_folded_na_combines_suffix_after_last_column_without_losing_numbers(expand: bool, width: int) -> None:
+def test_hidden_unavailable_children_preserve_quota_numbers(expand: bool, width: int) -> None:
     frame = frame_for({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "C-30D"]})
     # Disjoint child sets; both have the one inclusion-minimal parent C-7D.
     frame["configured_profiles"][1]["fields"]["pools"]["value"][-1] = "F-7D"
@@ -177,8 +172,7 @@ def test_folded_na_combines_suffix_after_last_column_without_losing_numbers(expa
             item.update(state="ABSENT", reason="not reported by provider", measurements=None)
     before = json.dumps(frame, sort_keys=True)
     screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, expand=expand)
-    assert ("(F-7D,C-5H n/a)" in screen) == expand
-    assert "`- C-5H" not in screen and "`- F-7D" not in screen
+    assert "C-5H" not in screen and "F-7D" not in screen
     assert "30%" in screen if width >= 60 else True  # narrower expanded tables may drop REM whole
     assert all(monitor_layout.cell_width(line) < width for line in screen.splitlines())
     assert json.dumps(frame, sort_keys=True) == before
@@ -215,14 +209,13 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
     ("disabled by provider", "disabled by provider"),
     ("not reported by provider; plan=pro", "not reported (plan pro)"),
 ])
-def test_expanded_folded_pool_keeps_identity_and_reason(reason: str, detail: str) -> None:
+def test_expanded_unavailable_child_is_hidden(reason: str, detail: str) -> None:
     frame = frame_for({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "C-5H", "F-7D"]})
     item = next(item for item in frame["groups"]["capacity"]["data"]["observations"]
                 if item["pool_ref"].endswith("F-7D"))
     item.update(state="ABSENT", reason=reason, measurements=None)
     screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=True)
-    assert "(F-7D n/a)" in screen
-    assert f"cc F-7D n/a {detail}" in screen
+    assert "F-7D" not in screen and detail not in screen
 
 
 @pytest.mark.parametrize("state", ["mystery", "UNAVAILABLE"])
@@ -264,22 +257,13 @@ def test_measurement_at_reset_time_colour_matches_between_views(
 
 
 @pytest.mark.parametrize("expand", [False, True])
-def test_na_root_is_counted_and_its_peer_gets_a_marker(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unavailable_root_has_no_marker(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H"]})
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state="ABSENT", reason="not reported by provider", measurements=None)
-    hidden = mv.render_grouped_frame(frame, view="rich", width=180, expand=expand)
-    if not expand:
-        assert "POOLS 0" in hidden and "C-5H" not in hidden
-        return
     screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-    assert "POOLS 0 (+1 n/a)" in ANSI_ESCAPE.sub("", screen) and "(C-5H n/a)" in screen
-    dim = monitor_layout.RICH_SGR["dim"]
-    assert not any("○ n/a" in line for line in screen.splitlines())
-    if expand:
-        rows = [line for line in screen.splitlines() if "C-5H" in line]
-        assert any(line.startswith(f" \x1b[{dim}mcc C-5H n/a") and "not reported" in line for line in rows)
+    assert "POOLS 0" in ANSI_ESCAPE.sub("", screen) and "C-5H" not in screen
 
 
 def parse_monitor(argv: list[str]) -> tuple[argparse.ArgumentParser, argparse.Namespace]:

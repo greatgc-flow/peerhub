@@ -10,16 +10,14 @@ from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_format import (
     PoolEntry,
     display_min_quota,
-    fold_pool_markers,
+    is_reset_pending,
     limit_pool_rows,
-    na_pool_note,
     na_reason,
     ordered_pools,
     pool_heading,
     pool_order,
     pool_table,
     quota_layout,
-    RESET_PENDING_NOTE,
 )
 from peerhub.cli.monitor_layout import (
     RICH_SGR,
@@ -39,7 +37,7 @@ from peerhub.cli.monitor_layout import (
     utc_text,
     wrap_text,
 )
-from peerhub.cli.monitor_legend import FRAME_SECTIONS, QUOTA_NA
+from peerhub.cli.monitor_legend import FRAME_SECTIONS, QUOTA_NA, RESET_PENDING_NOTE
 from peerhub.cli.quota_format import format_duration, format_percent
 from peerhub.core.peer_kinds import ALIASES
 from peerhub.extensions.monitor_alerts import pool_out_alerts
@@ -56,7 +54,6 @@ from peerhub.extensions.quota_read_model import PoolReading, PoolRow, monitor_re
 from peerhub.extensions.quota_windows import EXPIRED_WINDOW_REASON, FAMILIES, omitted_plan_windows, pool_family, quota_window_timing
 
 
-HIDDEN_QUOTA_WINDOWS = "Unavailable quota windows hidden (use --expand)"
 POOLS_CAP = 8
 POOLS_USE_FIRST_HINT = "use first"
 
@@ -125,12 +122,9 @@ def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool,
 def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
                   rich: bool = False, paint: bool = False, expand: bool = False, guide_url: str | None = None,
                   profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], int, int, list[int]]:
-    """POOLS rows, including inline markers and counts for any unavailable windows passed in."""
+    """Render reported pools and reset placeholders."""
     ordered = ordered_pools(rows, pending=True)
-    placeholders = {id(row) for row, _ in ordered if row["state"] == QUOTA_NA}
-    unavailable = [row for row in rows if row["state"] == QUOTA_NA and id(row) not in placeholders]
-    head = pool_heading(len(ordered), len(unavailable))
-    suffixes, marker_rows = fold_pool_markers(ordered, unavailable if expand else [], unicode, keep)
+    head = pool_heading(len(ordered))
     shown = ordered if expand else limit_pool_rows(ordered, POOLS_CAP)
     entries: list[PoolEntry] = []
     for index, (row, depth) in enumerate(shown):
@@ -143,17 +137,15 @@ def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: st
             else:
                 prefix += ("│  " if unicode else "|  ") if sibling else "   "
         name = f"{' ' * cell_width(peer)} {prefix}{pool}" if depth else f"{peer} {pool}"
-        placeholder = id(row) in placeholders
-        note = RESET_PENDING_NOTE if unicode else RESET_PENDING_NOTE.replace(" · ", " | ")
-        entries.append((" " + peer if id(row) in marker_rows else " " + name,
-                        {} if placeholder or id(row) in marker_rows else row, depth > 0,
-                        note if placeholder else suffixes.get(id(row), "")))
+        if is_reset_pending(row):
+            note = RESET_PENDING_NOTE if unicode else RESET_PENDING_NOTE.replace(" · ", " | ")
+            entries.append((" " + name, {}, depth > 0, note))
+        else:
+            entries.append((" " + name, row, depth > 0, ""))
     headers, table, _ = pool_table(entries, rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
-                                    show_quota_notes=expand,
-                                    guide_url=guide_url, profile_urls=profile_urls)
+                                   guide_url=guide_url, profile_urls=profile_urls)
     lines = [line for entry in table for line in entry]
-    title = head if headers[0].startswith(head) else pool_heading(len(ordered) - len(marker_rows), 0)
-    headings = [_pools_heading(title, headers[0], width, unicode, rich, paint), *headers[1:]]
+    headings = [_pools_heading(head, headers[0], width, unicode, rich, paint), *headers[1:]]
     return [*headings, *lines], len(ordered), len(headings), [len(entry) for entry in table]
 
 
@@ -380,7 +372,7 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
         pool_rows = cast(dict[tuple[str, str], dict[str, Any]], data.get("_pool_rows") or {})
         probe_notes: dict[str, set[str]] = {}
         evidence_notes: list[str] = []
-        na_notes: list[str] = []
+        aged_absence_notes: list[str] = []
         available: list[dict[str, Any]] = []
         for item in sorted(observations, key=lambda item: pool_order(
                 peer_label(item), str(item.get("pool_ref") or item.get("pool_kind") or "").rsplit(":", 1)[-1])):
@@ -398,31 +390,30 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
                 now = read_at or 0
                 source = _pool_source(item, now, elapsed_seconds, {})
                 row = _compact_pool(project_pool_rows([source], now + elapsed_seconds)[0])
+            if row["retired"] or row["state"] == QUOTA_NA:
+                continue
             pool, reason = row["pool"], row["reason"]
-            if reason.startswith(ABSENT_FACT_REASONS) and state in {"ABSENT", "STALE"} and not row["retired"]:
-                if row["state"] == QUOTA_NA:
-                    na_notes.append(na_pool_note(row))
-                elif row["aged"]:
+            if reason.startswith(ABSENT_FACT_REASONS) and state in {"ABSENT", "STALE"}:
+                if row["aged"]:
                     why = f"{na_reason(row, reason)}, "
-                    na_notes.append(f"{peer} {pool} ? {why}aged; next: peerhub observation refresh --peers {peer}")
+                    aged_absence_notes.append(f"{peer} {pool} ? {why}aged; next: peerhub observation refresh --peers {peer}")
             elif row["aged"]:
                 probe_notes.setdefault(peer, set()).add("STALE:window")
-            elif state != "MEASURED" and not row["retired"]:
+            elif state != "MEASURED":
                 evidence_notes.append(f"{peer} {pool} evidence {state}; "
                                       f"next: peerhub observation refresh --peers {peer}")
             available.append(row)
-        visible = [row for row in available if row["state"] != QUOTA_NA]
         position = {(str(row["peer"]), str(row["pool_ref"])): index
-                    for index, (row, _) in enumerate(ordered_pools(visible))}
-        layout, retired_notes = quota_layout(available, unicode, show_quota_notes=True, order=position)
+                    for index, (row, _) in enumerate(ordered_pools(available))}
+        layout = quota_layout(available, unicode, order=position)
         entries = [
             (f"{row['display_peer'] or ' ' * cell_width(row['peer'])} {row['display_pool']}",
-             row, row["display_pool"] != row["pool"], str(row["suffix"]))
+             row, row["display_pool"] != row["pool"], "")
             for row in layout
         ]
         table_rows = list(pool_rows.values()) or available
         omitted: list[str] = []
-        if table_rows or entries or not available:
+        if entries:
             header, rendered, omitted = pool_table(entries, table_rows, width - 1,
                                                     unicode, keep, rich=rich, paint=color, details=True,
                                                     guide_url=guide_url, profile_urls=profile_urls)
@@ -433,10 +424,9 @@ def quota_rows(data: dict[str, Any], *, width: int, unicode: bool, elapsed_secon
                     rows.append("")
                 previous_peer = row["peer"]
                 rows.extend(rendered_entry)
-        else:
-            rows.append(HIDDEN_QUOTA_WINDOWS)
+
         table_size = len(rows)
-        notes = [*retired_notes, *na_notes, *evidence_notes,
+        notes = [*aged_absence_notes, *evidence_notes,
                  *(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}"
                    for peer, codes in probe_notes.items())]
         dim = RICH_SGR["dim"] if color else None

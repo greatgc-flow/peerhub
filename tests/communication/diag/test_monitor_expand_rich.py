@@ -159,8 +159,8 @@ def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
     small = compact(payload, width=140).splitlines()
     big = expand(payload, width=140).splitlines()
-    assert block("\n".join(small), "pools")[0].startswith("── POOLS 10 (+1 n/a)")
-    assert block("\n".join(big), "pools")[0].startswith("── POOLS 10 (+1 n/a)") and not any(re.match(r"^\+\d+ pools", line) for line in big)
+    assert block("\n".join(small), "pools")[0].startswith("── POOLS 10")
+    assert block("\n".join(big), "pools")[0].startswith("── POOLS 10") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = [row for row in block("\n".join(big), "pools")[1:] if re.match(r"^ +(?:\w+ |[└├]─ )[A-Z0-9]+-\d+[HD] +", row)]
     names = [" ".join(row.replace("└─ ", "").split()[:2]) for row in rows]
     assert len(rows) == 10 and len(set(names)) == 10  # every observation of the payload but the n/a one (#400) has its row
@@ -173,7 +173,7 @@ def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
                     if re.match(r"^ +(?:\w+ |[└├]─ )[A-Z0-9]+-\d+[HD] +", row)]
     assert compact_rows == [" ".join(row.split()[:2]) for row in rows if not re.search(r"\b(?:3P|G)-5H\b", row)]
     assert len(compact_rows) == POOLS_CAP
-    assert any("(X-30D n/a)" in row for row in rows)
+    assert not any("X-30D" in row for row in rows)
 
 
 def test_the_header_drops_the_fields_hidden_text_and_the_conditional_db_part():
@@ -319,12 +319,11 @@ def test_stale_duplicate_pool_names_keep_each_human_observations_state(unicode):
 
 
 @pytest.mark.parametrize("elapsed", [0, 2])
-def test_quota_hides_the_window_after_reset_and_names_it_in_notes(elapsed):
+def test_quota_hides_the_window_after_reset(elapsed):
     payload = _payload([], [pool("cc", "C-7D", .10, fast=True, pace=31.0, reset=-1 if elapsed == 0 else 1)],
                        display_elapsed_seconds=elapsed)
     screen = expand(payload, width=160)
-    notes = screen
-    assert "cc C-7D n/a (quota window expired)" in [line.strip() for line in block(notes, "capacity")]
+    assert "C-7D" not in screen
 
 
 def test_g_one_even_burn_legend_follows_pools_and_gap():
@@ -337,7 +336,8 @@ def test_g_one_even_burn_legend_follows_pools_and_gap():
 def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns():
     screen = expand(detail_payload(), width=140)
     quota = block(screen, "capacity")
-    for row in (" cx X-30D n/a not reported (plan prolite)", " ag STALE:window; next: peerhub observation refresh --peers ag",
+    assert not any("X-30D" in line for line in quota)
+    for row in (" ag STALE:window; next: peerhub observation refresh --peers ag",
                 " cc F-7D evidence UNKNOWN; next: peerhub observation refresh --peers cc",
                 " cx reset credits: 0 · soonest - [MEASURED]",
                 " ACCOUNTS (plan is display data; the expiry is the login token's, not billing)"):
@@ -502,7 +502,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     assert heads(screen) == ORDER
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
-    assert any(line.startswith("-- POOLS 10 (+1 n/a)") for line in lines) and any("`- 3P-5H" in line for line in lines)
+    assert any(line.startswith("-- POOLS 10") for line in lines) and any("`- 3P-5H" in line for line in lines)
     assert [row.split()[0] for row in entries(block(screen, "running"))] == [A["run"], A["gone"], "?", "!"]
     assert all(re.match(rf" {re.escape(A['dot'])} (ok|empty|unsure|error) ", row) for row in entries(block(screen, "recent")))
     if width == 100:

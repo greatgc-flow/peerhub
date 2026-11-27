@@ -70,7 +70,7 @@ def test_reset_short_window_holds_without_gating_and_keeps_a_placeholder_row_in_
         lines = render_grouped_frame(payload, expand=expand, **options).splitlines()
         parent = next(i for i, line in enumerate(lines) if " G-7D " in line)
         assert re.fullmatch(r"\s+└─ G-5H reset · refresh pending", lines[parent + 1])
-    assert "ag G-5H n/a (quota window expired)" in render_grouped_frame(payload, expand=True, **options)
+    assert "ag G-5H n/a (quota window expired)" not in render_grouped_frame(payload, expand=True, **options)
 
 
 def test_weekly_gates_use_each_siblings_own_action_and_skip_na_reset_and_other_accounts():

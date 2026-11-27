@@ -26,16 +26,20 @@ TOKEN_METRICS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_wr
 METRICS = ("wall_seconds", *TOKEN_METRICS, "cache_read_pct", "pool_delta_pp", "model", "effort", "mode")
 
 
+class AskNotFoundError(ValueError):
+    code = "ask_not_found"
+
+
 def mark_outcome(db: str, ask_id: str, outcome: str) -> None:
     path = Path(db)
     if not path.is_file():
-        raise ValueError(f"ask {ask_id!r} was not found in the selected store")
+        raise AskNotFoundError(f"ask {ask_id!r} was not found in the selected store")
     refuse_future_schema(path)
     with storage_errors(), closing(create_connection(path)) as conn, conn:
         conn.execute("BEGIN IMMEDIATE")
         if (not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='records'").fetchone()
                 or not conn.execute(f"SELECT 1 FROM records r WHERE r.record_id=? AND {ASK_RECORD}", (ask_id,)).fetchone()):
-            raise ValueError(f"ask {ask_id!r} was not found in the selected store")
+            raise AskNotFoundError(f"ask {ask_id!r} was not found in the selected store")
         install_ask_metrics(conn)
         conn.execute("INSERT INTO bridge_ask_outcomes(record_id,outcome,marked_at) VALUES (?,?,?)",
                      (ask_id, outcome, utc_now_iso()))

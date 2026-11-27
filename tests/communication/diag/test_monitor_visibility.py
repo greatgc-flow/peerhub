@@ -152,11 +152,7 @@ def test_d5_successful_probe_retires_omitted_window_at_read_time(frame: dict[str
     frame["configured_profiles"] = [p for p in frame["configured_profiles"] if p["profile"].startswith("cx.")]
     before = deepcopy(frame)
     screen = render_grouped_frame(frame, width=120, height=40, view=_view(expand), expand=expand, unicode=False)
-    if expand:  # #400: never a row; the QUOTA details keep the one note of a retired pool
-        row = next(line for line in screen.splitlines() if "X-30D" in line)
-        assert "n/a" in row and "93%" not in row and "23195s" not in row
-        assert "not reported by plan pro" in screen
-    assert ("(X-30D n/a)" in screen) == expand
+    assert "X-30D" not in screen
     assert "next:" not in screen and "6h" not in screen
     if not expand:
         assert "quota age 8s" in screen

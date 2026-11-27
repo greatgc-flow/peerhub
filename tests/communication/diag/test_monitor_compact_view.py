@@ -87,7 +87,7 @@ def test_pool_screen_layout_state_precedence_and_no_number_reset(compact_frame):
     assert screen.splitlines()[1] == "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m"
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    assert _header(screen).split() == ["POOLS", "7", "(+1", "n/a)", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
+    assert _header(screen).split() == ["POOLS", "7", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "aged", "0%!"),
                                 ("A-7D", "aged", "55%"), ("G-7D", "reset", None), ("F-7D", "?", None),
                                 ("X-7D", "ok", "89%")):

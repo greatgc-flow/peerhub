@@ -448,6 +448,10 @@ def _standalone_validation_error_codes() -> set[str]:
             check(["--db", db, *argv], expected)
         check(["--db", missing, "peer", "list"], "store_missing")
         assert not Path(missing).exists()
+        config = Path(scratch) / ".peerhub" / "config" / "models.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text('[profiles."cx.effort"\n', encoding="utf-8")
+        check(["profile", "show", "cx.effort", "--workspace", scratch, "--json"], "profile_config_error")
 
         # Inject storage/dispatch faults at the command boundary, keeping the
         # real top-level exception translation and stderr renderer under test.

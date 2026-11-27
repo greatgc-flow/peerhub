@@ -97,6 +97,6 @@ def test_quota_family_ranks_by_its_best_member_not_its_root() -> None:
 
     rows = [row("A-30D", ["cx.a", "cx.b"]), row("A-7D", ["cx.a"]), row("B-7D", ["cx.c"])]
     order = {("cx", "quota:cx:A-7D"): 0, ("cx", "quota:cx:B-7D"): 1, ("cx", "quota:cx:A-30D"): 2}
-    layout, _ = quota_layout(rows, False, show_quota_notes=False, order=order)
+    layout = quota_layout(rows, False, order=order)
     assert [r["display_pool"].split()[-1] if " " in r["display_pool"] else r["display_pool"] for r in layout] == [
         "A-30D", "A-7D", "B-7D"]

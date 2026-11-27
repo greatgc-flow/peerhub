@@ -1009,13 +1009,11 @@ def _cx_plan_frame(absent_state="ABSENT", peer_quota=None):
     }}
 
 
-def test_not_reported_pool_renders_na_with_plan_never_zero_or_incomplete():
-    """X3/X5: a window the provider does not report is n/a (plan shown); the peer line keeps the reported pool's %."""
+def test_not_reported_pool_is_hidden_but_peer_keeps_plan_and_quota():
+    """The peer line keeps the plan and the reported pool's percent."""
     from peerhub.cli.monitor_view import render_grouped_frame
     rendered = render_grouped_frame(_cx_plan_frame(), view="plain", unicode=False, width=120, expand=True)
-    assert "cx X-5H n/a not reported (plan prolite)" in rendered
-    row = next(line for line in rendered.splitlines() if line.startswith("cx") and " X-5H " in line and "PROFILES" not in line)
-    assert "STALE" not in row and "ABSENT" not in row and "n/a" in row
+    assert "X-5H" not in rendered
     assert "quota: 89% (X-7D) [plan prolite: no 5h window]" in rendered
     assert "incomplete" not in rendered
 

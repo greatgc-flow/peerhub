@@ -71,13 +71,11 @@ A quota probe that still times out under high CPU load is labeled `delayed by lo
 
 ## POOLS
 
-`POOLS n` counts pools selected for the current view before row limits are applied. Compact hides unavailable windows. Expanded POOLS counts them and expanded QUOTA includes the reason for each. See [Antigravity quota pools](adapters/ag.md#quota-pools).
-Compact also hides readings past their reset or older than their window. Quota notes show them as `n/a`, and the
-header age excludes them. `diag --plan` shows a reset window as `hold` with `window reset; refresh` and omits it from
+`POOLS n` counts pools selected for the current view before row limits are applied. Both views hide unavailable windows from POOLS and QUOTA. `peerhub diag --plan` lists them as `n/a`.
+Both monitor views hide retired readings, and the header age excludes them. `diag --plan` shows a reset window as `hold` with `window reset; refresh` and omits it from
 other pools' gates. Plan JSON retains the previous window's measured LEFT and reset time.
 
-The compact view applies `POOLS_CAP` and omits nonbinding short windows unless they have a scoped parent.
-The expanded view includes all short windows, with visible rows limited by the frame height.
+Both views include reported short windows. Compact applies `POOLS_CAP`, and a bounded frame can show fewer rows.
 
 | Column | Meaning |
 |---|---|
@@ -114,18 +112,17 @@ PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = earl
 | `blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. <a id="state-blocked"></a> |
 | `aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. <a id="state-aged"></a> |
 | `reset` | `○` | the reset time has passed, so the number is no longer true; refresh. <a id="state-reset"></a> |
-| `n/a` | | the plan no longer reports this window (or the provider switched it off). Shown in the human frame with `--expand`. <a id="state-na"></a> |
+| `n/a` | | the plan no longer reports this window (or the provider switched it off). Listed by `peerhub diag --plan`. <a id="state-na"></a> |
 | `?` | `○` | unknown: no number. <a id="state-unknown"></a> |
 
 **Order.** POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools.
 Ties sort by peer and pool name. The most negative PACE shows the most under-used weekly pool. The heading shows
 `use first` when there is room. Compact POOLS shows up to `POOLS_CAP` rows, giving priority to parents and tighter child windows, and gives the remaining
-count as `+N pools`. Both layouts count
-pool rows separately from unavailable windows, for example `POOLS 7 (+4 n/a)`. The gap line compares reported weekly windows.
+count as `+N pools`. The gap line compares reported weekly windows.
 
 **Child pools and the F-7D / C-7D rule.** A 5-hour pool (`C-5H`, `3P-5H`, `G-5H`) is shown under its 7-day pool of the
 same family and account in both layouts. After a confirmed reset, a short window keeps a `reset · refresh pending`
-row under that parent until refreshed. Age-based retirement with a future reset appears only in expanded notes. Fable's
+row under that parent until refreshed. A short window retired by age with a future reset stays hidden. Fable's
 scoped weekly pool `F-7D` is a child of the all-models weekly pool `C-7D` only when the configured profiles confirm it:
 exactly one `C-7D` and one `F-7D` for the peer, and the profiles that use `F-7D` are a strict subset of the profiles
 that use `C-7D`. Equal sets, duplicate names or different accounts never make a parent. Then the child's effective
@@ -144,7 +141,7 @@ PEERS and `peerhub diag quota`.
 - The `|` tick marks even-burn remaining when that fact is available, including when it covers a filled cell.
 - POOLS and QUOTA right-align the LEFT value and left-align STATE, PACE(pp), MARGIN, EXH/RESET, and FAMILY. After the left data
   columns fit, the bar grows from 8 to 16 cells while FAMILY uses its abbreviated form. FAMILY then expands to show
-  all profile IDs and inline unavailable-window and parent-limit notes as space permits. Any remaining width grows
+  all profile IDs and inline parent-limit notes as space permits. Any remaining width grows
   the bar up to 40 cells. The tick scales with the bar, including on parent-limited child rows.
 - PACE and the bar use cyan for spend, green for ok and yellow for rest. Fresh zero uses bold red.
   LEFT uses neutral text, a yellow low-reserve `!` at 10% or less, or bold red at fresh zero.

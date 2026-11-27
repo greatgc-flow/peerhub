@@ -117,7 +117,7 @@ def test_dependency_is_recomputed_as_each_redraw_ages_or_resets_the_parent(elaps
 @pytest.mark.parametrize("view,expand", [("plain", False), ("rich", False), ("plain", True), ("rich", True)])
 @pytest.mark.parametrize("reason,expected", [("not reported by provider; plan=pro", "not reported"),
                                             ("disabled by provider", "disabled by provider")])
-def test_expanded_quota_notes_without_hiding_blocked_dependency(view, expand, reason, expected):
+def test_hidden_unavailable_pools_preserve_blocked_dependency(view, expand, reason, expected):
     frame = payload()
     frame["_human_observations"][2]["reason"] = reason
     omitted = deepcopy(frame["_human_observations"][2])
@@ -125,8 +125,8 @@ def test_expanded_quota_notes_without_hiding_blocked_dependency(view, expand, re
     frame["_human_observations"].append(omitted)
     before = deepcopy(frame)
     hidden = mv.render_grouped_frame(frame, view=view, expand=expand, width=180)
-    assert (expected in hidden) == expand
-    assert ("C-30D" in hidden) == expand
+    assert expected not in hidden
+    assert "C-30D" not in hidden
     if view == "rich" or not expand:
         assert "C-7D out" in hidden and "blocked" in pool_rows(hidden, "F-7D")[0]
     assert frame == before
@@ -158,6 +158,8 @@ def test_expanded_peer_quota_omission_notes_explain_missing_windows(view, measur
     quota = ({"pool_ref": "quota:cc:C-7D", "state": "MEASURED", "remaining_fraction": .8} if measured else
              {"pool_ref": "not_reported", "state": "UNKNOWN", "remaining_fraction": None})
     frame["groups"]["peers"]["data"]["peers"] = [{"peer_id": "cc", "quota": quota}]
+    if not measured:
+        frame["_human_peer_pools"] = {"cc": ["C-5H"]}
     shown = mv.render_grouped_frame(frame, view=view, expand=True, width=200)
     assert ("no 5h window" if measured else "not reported") in shown
     assert "80%" in shown if measured else "not reported" in shown

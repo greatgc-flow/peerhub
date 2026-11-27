@@ -61,17 +61,15 @@ def test_expanded_history_restores_finished_and_sampled_superseded_rows(width, s
 @pytest.mark.parametrize("width", [60, 118])
 @pytest.mark.parametrize("style", ["plain", "rich"])
 @pytest.mark.parametrize("expand", [False, True])
-def test_unavailable_pool_count_and_quota_reason(width, style, expand):
+def test_unavailable_pools_and_reasons_are_hidden(width, style, expand):
     payload = na_payload(selected_groups=["capacity"])
     observations = payload["groups"]["capacity"]["data"]["observations"]
     next(obs for obs in observations if obs["pool_ref"].endswith(":C-5H"))["reason"] = DISABLED_REASON
     screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width,
                                      expand=expand)
     pools = screen.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
-    assert pools.startswith("4 " if expand else "2 ")
-    assert all((f"({pool} {monitor_legend.QUOTA_NA})" in pools) == expand for pool in ("C-5H", "X-30D"))
-    assert screen.count("not reported (plan prolite)") == int(expand)
-    assert screen.count(DISABLED_REASON) == int(expand)
+    assert pools.startswith("2 ")
+    assert all(text not in screen for text in ("C-5H", "X-30D", "not reported (plan prolite)", DISABLED_REASON))
 
 
 @pytest.mark.parametrize("width", [64, 118])

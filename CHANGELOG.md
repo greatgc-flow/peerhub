@@ -8,6 +8,15 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- Restored R2: compact and expanded monitor hide n/a quota pools and count only displayable pools. The weekly pace gap omits unavailable pools, and the reset-pending child row remains visible.
+- Profile inspection returns exit 1 with JSON status ERROR for malformed model TOML. Invalid profile arguments return exit 2.
+- `peerhub outcome` returns exit 1 with `ask_not_found` for an unknown ask ID.
+- Unknown-peer errors name the built-in adapter choices for registration.
+- Kept the exit-code lesson under its output budget, restored the batch quota freshness threshold, and regenerated the guidance, lessons, and command inventory references.
+- Fixed strict typing for observation refresh and diagnostic quota and plan output.
+
 ## [0.28.0] - 2026-11-27
 
 Breaking: removes `peerhub suggest` and the monitor `suggest:` line (deprecated in 0.27.0); use `peerhub diag --plan`.

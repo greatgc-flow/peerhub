@@ -498,6 +498,7 @@ REGISTRY["store_missing"] = GuidanceEntry(
 for _code, _exit, _meaning, _argv in (
     ("invalid_arguments", INVALID_ARGUMENTS_EXIT, "The command arguments were rejected.", ["peerhub", "guide"]),
     ("ask_not_found", 1, "The ask ID does not exist in the selected store.", ["peerhub", "monitor", "--snapshot"]),
+    ("profile_config_error", 1, "The model profile configuration contains invalid TOML. Correct the models.toml syntax and retry.", ["peerhub", "profile", "list"]),
     ("peer_not_found", 1, "The selected peer does not exist in this store, or ask was given a peer with no adapter (register it with --adapter).", ["peerhub", "peer", "list"]),
     ("stream_not_found", 1, "The selected stream does not exist in this store.", ["peerhub", "stream", "list"]),
     ("session_not_found", 1, "The selected retained session does not exist.", ["peerhub", "session", "list"]),

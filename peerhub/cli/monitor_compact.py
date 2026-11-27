@@ -12,7 +12,7 @@ from peerhub.core.text import clean_text
 from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_activity_view import compact_activity
 from peerhub.cli.monitor_alert_view import alert_section, decorate_verdict, verdict_line
-from peerhub.cli.monitor_format import pool_gap, pool_heading
+from peerhub.cli.monitor_format import ordered_pools, pool_gap, pool_heading
 from peerhub.cli.monitor_layout import (
     FILE_HYPERLINK,
     FRAME_TRAILING_ROWS,
@@ -34,10 +34,9 @@ from peerhub.cli.monitor_layout import (
     wrap_text,
 )
 from peerhub.cli.monitor_leads_view import compact_leads
-from peerhub.cli.monitor_legend import FRAME_SECTION_ORDER, POOL_LEGEND, QUOTA_NA
+from peerhub.cli.monitor_legend import FRAME_SECTION_ORDER, POOL_LEGEND
 from peerhub.cli.monitor_links import GUIDE_TEXT, location_lines, osc_link
 from peerhub.cli.monitor_quota_view import (
-    HIDDEN_QUOTA_WINDOWS,
     frame_consumers,
     frame_pools,
     pool_section,
@@ -340,19 +339,15 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
                                                            rich=rich, paint=paint, links=links)
     if "capacity" in selected_ids:
         profile_urls = as_dict(payload.get("_profile_urls"))
-        visible_rows = rows if expand else [row for row in rows if row["state"] != QUOTA_NA]
-        if visible_rows:
+        if ordered_pools(rows, pending=True):
             frame.pool_gap = pool_gap(rows, width, unicode)
             frame.pool_legend = wrap_text(POOL_LEGEND, width)
             frame.pools, frame.pools_total, frame.pools_header_lines, frame.pool_row_sizes = pool_section(
                 rows, pool_width or width, unicode, keep, rich=rich, paint=paint, expand=expand,
                 guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls)
         else:
-            if rows:
-                notes = [] if expand else wrap_text(HIDDEN_QUOTA_WINDOWS, width)
-            else:
-                notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
-                         else wrap_text("no quota evidence; next: peerhub observation refresh", width))
-            head = pool_heading(0, len(rows))
+            notes = [] if rows else (["no quota evidence", "next: peerhub observation refresh"] if height is not None
+                                     else wrap_text("no quota evidence; next: peerhub observation refresh", width))
+            head = pool_heading(0)
             frame.pools = [heading_rule(head, width, unicode, paint) if rich else head, *notes]
     return frame

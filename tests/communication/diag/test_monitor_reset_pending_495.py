@@ -36,12 +36,12 @@ def test_placeholder_row_follows_its_weekly_parent_without_bar_or_pace(view, uni
     assert re.search(r"POOLS 2\b", screen)
 
 
-def test_expand_names_the_placeholder_once_and_keeps_the_quota_note():
+def test_expand_shows_the_placeholder_only_in_pools():
     screen = render_grouped_frame(frame(), view="plain", width=120, expand=True)
     pools, quota = screen.split("QUOTA [", 1)
     assert "(G-5H n/a)" not in pools and pools.count("refresh pending") == 1
     assert "refresh pending" not in quota
-    assert "ag G-5H n/a (quota window expired)" in quota
+    assert "G-5H" not in quota
 
 
 def test_placeholder_survives_a_narrow_terminal():
@@ -85,4 +85,4 @@ def test_short_window_retired_by_age_has_no_reset_placeholder(expand):
     payload = _payload([], [child, pool("ag", "G-7D", .5)], selected_groups=["capacity"])
     screen = render_grouped_frame(payload, view="plain", width=120, expand=expand)
     assert "refresh pending" not in screen
-    assert ("ag G-5H n/a (quota window expired)" in screen) == expand
+    assert "G-5H" not in screen

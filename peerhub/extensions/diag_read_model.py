@@ -527,9 +527,9 @@ def _round_plan_floats(value: object) -> Any:
     if isinstance(value, float):
         return round(value, 2)
     if isinstance(value, Mapping):
-        return {k: _round_plan_floats(v) for k, v in value.items()}
+        return {k: _round_plan_floats(v) for k, v in cast(Mapping[str, object], value).items()}
     if isinstance(value, list):
-        return [_round_plan_floats(v) for v in value]
+        return [_round_plan_floats(v) for v in cast(list[object], value)]
     return value
 
 

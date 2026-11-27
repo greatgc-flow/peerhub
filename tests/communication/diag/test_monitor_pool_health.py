@@ -86,10 +86,13 @@ def test_cross_view_health_equivalence() -> None:
         pace_cell = monitor_format.format_pool_pace(effective["effective_pace_pt"]) + (
             "!" if effective["pace_band"] == "rest" else "")
         facts = pool_health(item, exhausted if name == child else None, NOW)
-        assert row["exhaust_in_seconds"] == facts["exhaust_in_seconds"]
         assert row["exhaust_before_reset"] == facts["exhaust_before_reset"]
-        assert row["exhaust_margin_seconds"] == facts["exhaust_margin_seconds"]
-        assert effective["effective_reset_in_seconds"] == facts["reset_in_seconds"]
+        for actual, expected in (
+            (row["exhaust_in_seconds"], facts["exhaust_in_seconds"]),
+            (row["exhaust_margin_seconds"], facts["exhaust_margin_seconds"]),
+            (effective["effective_reset_in_seconds"], facts["reset_in_seconds"]),
+        ):
+            assert actual == (None if expected is None else round(expected, 2))
         exhaust_cell = monitor_format.format_exhaust_reset(facts)
         margin_cell = monitor_format.format_exhaust_margin(facts["exhaust_margin_seconds"])
         assert plan_rows[name][:3] == [left, pace_cell, exhaust_cell]
@@ -103,13 +106,13 @@ def test_cross_view_health_equivalence() -> None:
     assert child_json["left_pct"] == child_json["own_left_pct"] == CHILD_LEFT * 100
     assert child_json["pace_pt"] != child_json["health"]["effective_pace_pt"]
     assert child_json["resets_in_seconds"] != child_json["health"]["effective_reset_in_seconds"]
-    assert child_json["target_pct_per_hour"] == pytest.approx(CHILD_LEFT * 100 / (child_json["resets_in_seconds"] / HOUR))
+    assert child_json["target_pct_per_hour"] == round(CHILD_LEFT * 100 / (child_json["resets_in_seconds"] / HOUR), 2)
     assert child_json["action"] == "blocked" and child_json["binding"] == parent
     assert child_json["reason"] == f"gate: {parent} out"
     assert plan_rows[child][3].startswith("0.00")
     assert plan_rows[child][4:] == ["blocked", child_json["reason"]]
     for screen in (compact, expanded):
-        assert (old_pool in screen) == (screen == expanded) and "(stale)" not in screen
+        assert old_pool not in screen and "(stale)" not in screen
         assert all(f"~{QUOTA_TTL_SECONDS // 60}m" in " ".join(cells) for cells in pool_cells(screen, stale_pool))
     retired = json_rows[old_pool]
     assert retired["action"] == retired["health"]["state"] == "n/a"

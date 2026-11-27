@@ -63,7 +63,7 @@ def _classify(rep: DiagnosticReport, db: str) -> tuple[str, str | None]:
 
 
 def _round_num(v: Any) -> Any:
-    return round(v, 4) if isinstance(v, float) and not isinstance(v, bool) else v
+    return round(v, 4) if isinstance(v, float) else v
 
 
 def _measurements(payload: dict[str, Any]) -> dict[str, Any]:

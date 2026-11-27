@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
+from peerhub.cli.monitor_layout import as_dict, dict_items
 from peerhub.cli.output import emit
 from peerhub.cli.support import print_warnings
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
@@ -33,14 +34,14 @@ def _format_refresh_text(result: dict[str, Any], *, now: float | None = None) ->
 
     now_us = round((time.time() if now is None else now) * 1_000_000)
     lines = [f"status: {result.get('status')}"]
-    for obs in result.get("observations") or []:
-        if not isinstance(obs, dict) or obs.get("kind") != "quota":
+    for obs in dict_items(result.get("observations")):
+        if obs.get("kind") != "quota":
             continue
         peer = obs.get("subject_ref") or "-"
         pool_ref = obs.get("resource_pool_ref")
         pool = pool_ref.rsplit(":", 1)[-1] if isinstance(pool_ref, str) and pool_ref else "-"
         state = obs.get("state") or "UNKNOWN"
-        payload = cast(dict[str, Any], obs.get("payload") or {})
+        payload = as_dict(obs.get("payload"))
         rem = payload.get("remaining_fraction") if state == "MEASURED" else None
         left = format_percent(float(rem)) if isinstance(rem, (int, float)) and not isinstance(rem, bool) and 0 <= rem <= 1 else "-"
         obs_at = obs.get("observed_at")

@@ -980,7 +980,7 @@ def test_monitor_explicit_compact_matches_default(tmp_path, monkeypatch, capsys,
 @pytest.mark.parametrize("mode", [["--snapshot"], ["--cycles", "1"], ["--cycles", "0", "--no-probe"]],
                          ids=["snapshot", "one-cycle", "live"])
 @pytest.mark.parametrize("expand", [False, True])
-def test_monitor_quota_notes_reach_human_frames_and_leave_json_evidence(monkeypatch, capsys, mode, expand):
+def test_monitor_hides_unavailable_pools_in_human_frames_and_keeps_json_evidence(monkeypatch, capsys, mode, expand):
     from peerhub import _console
     from peerhub.cli import monitor, monitor_refresh
     from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
@@ -1000,9 +1000,9 @@ def test_monitor_quota_notes_reach_human_frames_and_leave_json_evidence(monkeypa
 
     args = ["--db", __file__, "monitor", "--group", "capacity", *mode]
     layout = "--expand" if expand else "--compact"
-    notes = "cc C-5H n/a not reported (plan prolite)"
     assert main([*args, layout]) == 0
-    assert (notes in capsys.readouterr().out) == expand
+    screen = capsys.readouterr().out
+    assert "C-5H" not in screen and "POOLS 2" in screen
 
     if not live:
         assert main([*args, "--json"]) == 0

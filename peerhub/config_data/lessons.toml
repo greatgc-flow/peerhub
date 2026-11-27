@@ -14,7 +14,7 @@ aliases = ["monitor-view", "monitor-accounts", "monitor-alerts", "monitor-insuff
 keywords = ["monitor", "pace", "low", "fast", "aged", "cycles", "tty", "legend", "quota", "unknown", "est", "estimated", "gone", "overdue", "orphan", "view", "order", "rich", "plain", "glyph", "glyphs", "colour", "color", "colours", "bar", "pill", "rule", "rules", "meter", "palette", "NO_COLOR", "unicode", "accounts", "account", "login", "token", "expiry", "credits", "display_plan", "plan_changed", "alerts", "a1", "a2", "a3", "a4", "a5", "a6", "INSUFF", "STALE", "window", "PROBE", "age", "DRIFT", "cc", "ag", "cx", "absent", "not reported", "plan", "windows", "cx-plan-windows", "codex", "claude", "agy", "pool", "5h", "7d", "X-5H", "X-7D", "prolite", "reported", "incomplete"]
 symptom = "You want to interpret the terminal frame, account rows, quota readings or alerts."
 fix = """Use --expand for the full DB path and detail rows. PEERHUB_NO_LINKS disables OSC 8 and prints a copyable Guide: line when it fits. See docs/monitor.md for layout and refresh timing.
-- Pool states: {pool_states} | blocked child pool whose parent is out. Check the reading's age before acting on LEFT or PACE; a reset short window under a weekly parent shows `{reset_pending}`. In --expand, quota notes explain windows the provider omitted or disabled (n/a). For aged/reset evidence or a failed probe, run peerhub observation refresh --peers PEER; if refresh fails again, check authentication and the installed CLI. For a6 facts drift (such as `<peer>: version_drift` or `ag: unknown_pool`; expanded footer `DRIFT:<peers>`), refresh the packaged model facts or upgrade PeerHub. See docs/monitor.md#pools and docs/model-profiles/README.md#refresh-from-installed-clis.
+- Pool states: {pool_states} | blocked child pool whose parent is out. Check the reading's age before acting on LEFT or PACE; a reset short window under a weekly parent shows `{reset_pending}`. Both monitor views hide unavailable pools. Peerhub diag --plan lists them as n/a. For aged/reset evidence or a failed probe, run peerhub observation refresh --peers PEER; if refresh fails again, check authentication and the installed CLI. For a6 facts drift (such as `<peer>: version_drift` or `ag: unknown_pool`; expanded footer `DRIFT:<peers>`), refresh the packaged model facts or upgrade PeerHub. See docs/monitor.md#pools and docs/model-profiles/README.md#refresh-from-installed-clis.
 - Read ACCOUNTS in --expand or JSON capacity.accounts for the plan, login and token expiry. See docs/monitor.md#accounts.
 - For gone, orphaned and overdue asks, see docs/monitor.md#running. Alert meanings are in docs/monitor.md#alerts.
 - a1 Ask ended badly.
@@ -212,7 +212,7 @@ issue = "#288, #297, #298, #299, #340, 0.25.0 plan D5, owner decisions 2026-11-2
 id = "exit-codes"
 title = "CLI exit codes and error output"
 keywords = ["exit", "code", "error", "stderr", "json"]
-symptom = "A caller is interpreting a process exit or an error report."
+symptom = "A command returned an exit code or error."
 fix = """\
 Ask returns {ask[delivered]} for delivery, terminal replay or a valid dry run, \
 {ask[uncertain]} for uncertainty or delivery failure (including denied_empty or session_lost), \
@@ -229,11 +229,11 @@ A missing alternate --observation-db with a healthy main store gives health {dia
 Diag health returns {error[stream_not_found]} for a missing stream. \
 Update --check returns 0. Update --plan returns 0 when ready, {error[ask_claim_held]} if an ask is or may be running, \
 and {diag[FAILED]}/{diag[UNAVAILABLE]}/{diag[SCHEMA_VERSION]} for an unreadable/missing/incompatible store. \
-Explain returns 0 for a match or 2 for an invalid topic or profile. \
-Monitor snapshot/watch use 0 for success, 1 for an agy token-use stop or a failed final refresh in finite watch, and the diag store codes. \
-Monitor open returns 1 for an unknown ask ID (not_found). Commands that emit invalid_arguments exit 2. \
-Observation refresh returns 0 for OK or 1 for a non-OK refresh. Shared store errors use the diag store codes as applicable. \
+Explain returns 0 for a match or 2 for an invalid topic or profile. Profile commands return 1 for invalid TOML. \
+Monitor snapshot/watch use 0 for success, 1 for an agy token-use stop or failed final refresh, and the diag store codes. \
+Monitor open and outcome return 1 for an unknown ask (ask_not_found). Invalid arguments exit 2. \
+Observation refresh returns 0 for OK or 1 otherwise. Shared store errors use the diag store codes. \
 Coded errors appear on stderr as [code] message; next: ... \
-With --json, ask errors and invalid manifests can include an error object with code and message on stdout. \
-Other reports use command-specific JSON. Run peerhub explain CODE for guidance."""
+With --json, ask errors and invalid manifests can include code and message on stdout. \
+Other reports use command-specific JSON. See peerhub explain CODE."""
 issue = "#446"

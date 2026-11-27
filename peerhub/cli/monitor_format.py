@@ -18,7 +18,7 @@ from peerhub.cli.monitor_layout import (
     paint_text,
     cell_width,
 )
-from peerhub.cli.monitor_legend import POOLS_HEADING, POOL_MARGIN_COLUMN, QUOTA_NA, RESET_PENDING_NOTE
+from peerhub.cli.monitor_legend import POOLS_HEADING, POOL_MARGIN_COLUMN, QUOTA_NA
 from peerhub.cli.monitor_links import link_profiles, link_pool_state
 from peerhub.cli.quota_format import (
     BAR_CELLS,
@@ -30,7 +30,7 @@ from peerhub.cli.quota_format import (
     pool_duration,
     quota_bar as _bar_quota,
 )
-from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, DISABLED_REASON
+from peerhub.extensions.observation_model import DISABLED_REASON
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE, PoolHealth, pace_gaps
 from peerhub.extensions.quota_windows import (
     EXPIRED_WINDOW_REASON, UNKNOWN_WINDOW_SECONDS, WEEK_SECONDS, parse_window, pool_family, scoped_weekly_parents,
@@ -46,21 +46,10 @@ def pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
     return (peer, pool_family(pool), parse_window(pool)[0], pool)
 
 
-def _na_suffix(names: Sequence[str]) -> str:
-    return f"({','.join(names)} {QUOTA_NA})"
-
-
-def _retired_pool_note(peer: str, pools: str, plans: str) -> str:
-    return f"{peer} {pools} {QUOTA_NA} (not reported by plan {plans})"
-
-
-def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes: bool,
-                  order: dict[tuple[str, str], int] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+def quota_layout(rows: list[dict[str, Any]], unicode: bool, *,
+                 order: dict[tuple[str, str], int] | None = None) -> list[dict[str, Any]]:
     """Derive a forest from configured consumers. For QUOTA, `order` gives each pool's POOLS rank."""
     result: list[dict[str, Any]] = []
-    notes: list[str] = []
-    hidden: dict[str, list[str]] = {}  # the n/a pools that have no parent row to carry their name
-    noted: set[str] = set()  # peers whose retired pools already have their note
     order = order or {}
 
     def rank(row: dict[str, Any]) -> int:
@@ -69,27 +58,13 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
     visible = [row for row in rows if not row.get("retired") and row["state"] != QUOTA_NA]
     peer_order = {peer: min(rank(row) for row in visible if row["peer"] == peer)
                   for peer in {str(row["peer"]) for row in visible}}
-    for peer in sorted({str(row["peer"]) for row in (rows if show_quota_notes else visible)},
-                       key=lambda p: (peer_order.get(p, len(order)), p)):
-        peer_rows = [dict(row) for row in rows if row["peer"] == peer]
-        retired = [row for row in peer_rows if row.get("retired")]
-        if retired and show_quota_notes:
-            hidden.setdefault(peer, []).extend(str(row["pool"]) for row in retired)
-            expired = [str(row["pool"]) for row in retired if row.get("reason") == EXPIRED_WINDOW_REASON]
-            omitted = [row for row in retired if row.get("reason") != EXPIRED_WINDOW_REASON]
-            if expired:
-                notes.append(f"{peer} {','.join(expired)} {QUOTA_NA} ({EXPIRED_WINDOW_REASON})")
-            if omitted:
-                plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in omitted}))
-                notes.append(_retired_pool_note(peer, ",".join(str(row["pool"]) for row in omitted), plans))
-            noted.add(peer)
+    for peer in sorted(peer_order, key=lambda p: (peer_order[p], p)):
         active = [dict(row) for row in visible if row["peer"] == peer]
-        unavailable = [row for row in peer_rows if row["state"] == QUOTA_NA and not row.get("retired")]
         first_peer_row = True
 
         def append_row(row: dict[str, Any], display_pool: str) -> None:
             nonlocal first_peer_row
-            row.update(display_pool=display_pool, display_peer=peer if first_peer_row else "", suffix="")
+            row.update(display_pool=display_pool, display_peer=peer if first_peer_row else "")
             first_peer_row = False
             result.append(row)
 
@@ -98,8 +73,6 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
         if len({row["pool"] for row in active}) != len(active):
             for row in sorted(active, key=rank):
                 append_row(row, str(row["pool"]))
-            if show_quota_notes:
-                hidden.setdefault(peer, []).extend(str(row["pool"]) for row in unavailable)
             continue
         by_name = {str(row["pool"]): row for row in active}
         windows = {name: parse_window(name)[0] for name in by_name}
@@ -129,14 +102,6 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
                 parents[child] = candidates[0]
         if flat:
             parents = dict.fromkeys(by_name)
-        if show_quota_notes:
-            for row in unavailable:
-                name = str(row["pool"])
-                candidates = [] if flat else parent_candidates(name, set(row["profiles"]), parse_window(name)[0])
-                if len(candidates) == 1:
-                    by_name[candidates[0]].setdefault("folded", []).append(name)
-                else:
-                    hidden.setdefault(peer, []).append(name)
         children: dict[str, list[str]] = {name: [] for name in by_name}
         for child, parent in parents.items():
             if parent is not None:
@@ -160,24 +125,14 @@ def quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes:
         for name in sorted((name for name in by_name if parents[name] is None),
                            key=lambda name: (tree_rank(name), pool_family(name), windows[name], name)):
             visit(name, "", "")
-    if not show_quota_notes:
-        return result, notes
-    for row in result:  # an n/a pool with no parent row is named after its peer's first row
-        folded = sorted(row.pop("folded", []), key=lambda name: (-parse_window(name)[0], name))
-        names = [*folded, *(hidden.pop(row["peer"], []) if row["display_peer"] else [])]
-        if names:
-            row["suffix"] = _na_suffix(names)
-    notes.extend(f"{peer} {','.join(names)} {QUOTA_NA}" for peer, names in hidden.items() if peer not in noted)  # no row left
-    return result, notes
+    return result
 
 
-def _quota_suffix(line: str, suffix: str, width: int, unicode: bool, code: str | None) -> list[str]:
-    """Keep folded names even when the trailing columns were dropped. `code` paints them (None: no colour)."""
-    if not suffix:
-        return [line]
+def _placeholder_line(line: str, suffix: str, width: int, code: str | None) -> list[str]:
+    """Keep the reset placeholder note when columns are dropped."""
     if cell_width(line + " " + suffix) <= width:
         return [line + " " + paint_text(suffix, code)]
-    return [line, *[paint_text(part, code) for part in wrap_text(suffix, width)]]
+    return [line, *(paint_text(part, code) for part in wrap_text(suffix, width))]
 
 
 def na_plan(item: dict[str, Any], reason: str) -> str:
@@ -190,15 +145,6 @@ def na_plan(item: dict[str, Any], reason: str) -> str:
 
 def na_reason(row: dict[str, Any], reason: str) -> str:
     return reason if reason.startswith(DISABLED_REASON) else f"not reported (plan {na_plan(row, reason)})"
-
-
-def na_pool_note(row: dict[str, Any]) -> str:
-    peer, pool, reason = row["peer"], row["pool"], row["reason"]
-    if reason == EXPIRED_WINDOW_REASON:
-        return f"{peer} {pool} {QUOTA_NA} ({EXPIRED_WINDOW_REASON})"
-    if row["retired"]:
-        return _retired_pool_note(peer, pool, na_plan(row, reason))
-    return f"{peer} {pool} {QUOTA_NA} {na_reason(row, reason)}" if reason.startswith(ABSENT_FACT_REASONS) else ""
 
 
 POOLS_USE_FIRST_ASCENDING = True
@@ -219,14 +165,6 @@ def display_min_quota(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return {"pool": name, "left_pct": left, "state": row["state"], "aged": bool(row["aged"])}
 
 
-def _binds(child: dict[str, Any], parent: dict[str, Any]) -> bool:
-    """A 5-hour sub-row is shown when it has less left than its 7-day pool, or is low or out."""
-    if child["state"] in {"low", "out"}:
-        return True
-    return (_has_value(child) and _has_value(parent)
-            and float(child["remaining"]) < float(parent["remaining"]))
-
-
 def is_reset_pending(row: dict[str, Any]) -> bool:
     """A short window whose reading expired at its reset: POOLS keeps a placeholder until the next quota reading (#495)."""
     return (row["state"] == QUOTA_NA and row["retired"] and row["reason"] == EXPIRED_WINDOW_REASON
@@ -236,7 +174,10 @@ def is_reset_pending(row: dict[str, Any]) -> bool:
 def ordered_pools(rows: list[dict[str, Any]], *, pending: bool = False) -> list[tuple[dict[str, Any], int]]:
     """Sort POOLS by each family's weekly parent, retaining all reported windows."""
     placeholders = [row for row in rows if pending and is_reset_pending(row)]
-    rows = [row for row in rows if row["state"] != QUOTA_NA]
+    # An old disabled short window still appears as aged evidence in expanded QUOTA.
+    rows = [row for row in rows if row["state"] != QUOTA_NA
+            and not (row["aged"] and row["reason"].startswith(DISABLED_REASON)
+                     and parse_window(str(row["pool"]))[0] < WEEK_SECONDS)]
     scoped = scoped_weekly_parents(rows)
 
     def family_key(row: dict[str, Any]) -> tuple[str, str, str]:
@@ -354,27 +295,8 @@ def _pool_dependency(row: dict[str, Any]) -> str:
     return note if own is None else f"{note} (own {format_percent(own / 100)})"
 
 
-def _pool_notes(row: dict[str, Any], marker: str) -> list[tuple[str, str]]:
-    return [(gap, note) for gap, note in (("; ", _pool_dependency(row)), (" ", marker)) if note]
-
-
 def _pool_left_value_width(cell: str) -> int:
     return cell_width(cell.partition(" ")[0].removesuffix("!"))
-
-
-def fold_pool_markers(ordered: list[tuple[dict[str, Any], int]], unavailable: list[dict[str, Any]],
-                       unicode: bool, keep: str | None) -> tuple[dict[int, str], set[int]]:
-    """Attach unavailable windows to their peer, adding a marker-only entry for a peer with no visible pool."""
-    suffixes: dict[int, list[str]] = {}
-    marker_rows: set[int] = set()
-    for absent in unavailable:
-        peers = [row for row, _ in ordered if row["peer"] == absent["peer"]]
-        parent = next((row for row in peers if row["family"] == absent["family"]), peers[0] if peers else absent)
-        if not peers:
-            ordered.append((parent, 0))
-            marker_rows.add(id(parent))
-        suffixes.setdefault(id(parent), []).append(cell_text(absent["pool"], unicode, "-", keep))
-    return {row: _na_suffix(names) for row, names in suffixes.items()}, marker_rows
 
 
 def _pool_cells(row: dict[str, Any], unicode: bool, glyph: bool, guide_url: str | None = None) -> dict[str, str]:
@@ -416,9 +338,8 @@ def _paint_pool_cell(column: str, text: str, row: dict[str, Any]) -> str:
     return paint_text(text, RICH_SGR[colour])
 
 
-def pool_heading(pool_count: int, unavailable_count: int) -> str:
-    title = f"{POOLS_HEADING} {pool_count}"
-    return title + (f" (+{unavailable_count} {QUOTA_NA})" if unavailable_count else "")
+def pool_heading(pool_count: int) -> str:
+    return f"{POOLS_HEADING} {pool_count}"
 
 
 PoolEntry = tuple[str, dict[str, Any], bool, str]
@@ -426,7 +347,7 @@ PoolEntry = tuple[str, dict[str, Any], bool, str]
 
 def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: int, unicode: bool,
                 keep: str | None, *, rich: bool, paint: bool, details: bool = False,
-                head: str = "PEER POOL", guide_url: str | None = None, show_quota_notes: bool = True,
+                head: str = "PEER POOL", guide_url: str | None = None,
                 profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], list[list[str]], list[str]]:
     """Use the same column budget and cell formatting in POOLS and QUOTA."""
     width = max(1, width)
@@ -446,18 +367,13 @@ def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: 
     sizes["FAMILY"] = family_min
     compact_order = ordered_pools(all_rows, pending=True)
     compact_names = [cell_width(f" {row['peer']} {row['pool']}") + 3 * depth for row, depth in compact_order]
-    detail_layout, _ = quota_layout(all_rows, unicode, show_quota_notes=False)
+    detail_layout = quota_layout(all_rows, unicode)
     detail_names = [cell_width(f"{row['peer']} {row['display_pool']}") for row in detail_layout]
     name_width = max([cell_width("PEER POOL"), *compact_names, *detail_names,
                       *(cell_width(name) for name, *_ in entries)])  # a placeholder row (#495) has no active row
-    pool_title = pool_heading(len(compact_order), len(all_rows) - len(compact_order))
-    short_title = pool_heading(len(compact_order), 0)
     prefix = RULE_PREFIX_WIDTH if rich else 0
     columns: list[str] = [column for column in _POOL_COLUMNS if column not in {"BAR", "AGE"}]
-    core_width = sum(sizes[column] + len(_POOL_COLUMN_GAP) for column in columns[:3])
-    inline_count = cell_width(pool_title) + prefix + core_width <= width
-    title = pool_title if inline_count else short_title
-    name_width = max(name_width, cell_width(title) + prefix)
+    name_width = max(name_width, cell_width(pool_heading(len(compact_order))) + prefix)
 
     def room(names: Sequence[str]) -> int:
         return width - name_width - sum(sizes[name] + len(_POOL_COLUMN_GAP) for name in names)
@@ -477,15 +393,11 @@ def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: 
             columns.append("AGE")
     if "AGE" in columns and sizes["BAR"] == BAR_MIDDLE_CELLS:
         with_notes = sizes["FAMILY"]
-        in_order = {id(row) for row, _ in compact_order}
-        unavailable = ([row for row in all_rows if row["state"] == QUOTA_NA and id(row) not in in_order]
-                       if show_quota_notes else [])
-        compact_markers, _ = fold_pool_markers(compact_order, unavailable, unicode, keep)
-        for layout in ([(row, compact_markers.get(id(row), "")) for row in active],
-                       [(row, str(row["suffix"])) for row in detail_layout]):
-            for row, marker in layout:
-                family = _pool_family_cell(row, None, unicode, keep)
-                with_notes = max(with_notes, cell_width(family) + sum(cell_width(gap + note) for gap, note in _pool_notes(row, marker)))
+        for row in active:
+            family = _pool_family_cell(row, None, unicode, keep)
+            dependency = _pool_dependency(row)
+            width_with_note = cell_width(f"{family}; {dependency}" if dependency else family)
+            with_notes = max(with_notes, width_with_note)
         sizes["FAMILY"] = min(with_notes, sizes["FAMILY"] + room(columns))
         sizes["BAR"] = min(BAR_MAX_CELLS, BAR_MIDDLE_CELLS + room(columns))
     if not details and "AGE" in columns:
@@ -504,31 +416,24 @@ def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: 
             fields.append(" " * leading + ink + " " * (padding - leading))
         return _POOL_COLUMN_GAP.join(fields).rstrip()
 
-    heading = head if details else title
-    header = line(heading, {name: name if name != "BAR" else "" for name in columns})
+    header = line(head, {name: name if name != "BAR" else "" for name in columns})
     headers = [header] if cell_width(header) <= width else wrap_text(header, width)
-    if not details and title != head:
-        headers.extend(wrap_text(head.removeprefix(title).strip(), width))
     dim = RICH_SGR["dim"] if paint else None
     rendered: list[list[str]] = []
     for name, row, child, marker in entries:
         cells = _pool_cells(row, unicode, rich, guide_url) if row else {}
-        notes = _pool_notes(row, marker)
-        wrapped: list[str] = []
+        dependency = _pool_dependency(row)
         if row and "BAR" in columns:
             cells["BAR"] = _pool_bar(row, sizes["BAR"], unicode, child)
         if row and "FAMILY" in columns:
             cells["FAMILY"] = _pool_family_cell(row, sizes["FAMILY"], unicode, keep)
             if profile_urls:
                 cells["FAMILY"] = link_profiles(cells["FAMILY"], profile_urls)
-            for gap, note in notes:
-                family = cells["FAMILY"] + gap + note
+            if dependency:
+                family = f"{cells['FAMILY']}; {dependency}"
                 if sizes["BAR"] >= BAR_MIDDLE_CELLS and cell_width(family) <= sizes["FAMILY"]:
                     cells["FAMILY"] = family
-                else:
-                    wrapped.append(note)
-        elif dependency := _pool_dependency(row):
-            wrapped.append(dependency)
+                    dependency = ""
         text = line(name, cells, row)
         if cell_width(text) > width:
             text, *continuations = wrap_text(ANSI_ESCAPE.sub("", text), width)
@@ -536,16 +441,18 @@ def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: 
             continuations = []
         lines = [text, *continuations]
         # A note that does not fit the row goes below it, indented like a child row so it reads as that pool's note.
-        lines.extend(paint_text(POOL_NOTE_INDENT + part, dim) for note in wrapped
-                     for part in wrap_text(note, max(1, width - len(POOL_NOTE_INDENT))))
-        if not row or "FAMILY" not in columns:
-            lines[-1:] = _quota_suffix(lines[-1], marker, width, unicode, dim)
+        if dependency:
+            lines.extend(paint_text(POOL_NOTE_INDENT + part, dim)
+                         for part in wrap_text(dependency, max(1, width - len(POOL_NOTE_INDENT))))
+        if marker:
+            lines[-1:] = _placeholder_line(lines[-1], marker, width, dim)
         rendered.append(lines)
     return headers, rendered, [name.lower() for name in reversed(_POOL_COLUMNS) if name not in columns]
 
 
 def pool_gap(rows: list[dict[str, Any]], width: int, unicode: bool) -> list[str]:
-    visible = [row for row in rows if not row["retired"] and row["state"] != QUOTA_NA]
+    visible = [row for row in rows if not row["retired"] and row["state"] != QUOTA_NA
+               and row["reading"].get("stored_state", row["reading"].get("state")) != "ABSENT"]
     healths: dict[str, PoolHealth | None] = {}
     for row in visible:
         pool = str(row["pool"])
