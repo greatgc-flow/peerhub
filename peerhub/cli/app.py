@@ -9,7 +9,7 @@ from typing import Any, cast
 from peerhub._console import tolerant_streams
 from peerhub._exit_codes import INVALID_ARGUMENTS_EXIT
 from peerhub._version import __version__
-from peerhub.cli import account_cmd, ask_cmd, batch_cmd, core_cmd, diag_cmd, observation_cmd, profile_cmd, session_cmd
+from peerhub.cli import account_cmd, activity_cmd, ask_cmd, batch_cmd, core_cmd, diag_cmd, observation_cmd, profile_cmd, session_cmd
 from peerhub.cli.arguments import ArgumentParser
 from peerhub.cli.ask_cmd import with_writable
 from peerhub.cli.explain_cmd import register_explain_parser, run_explain
@@ -37,6 +37,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Path to SQLite database")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
+    activity_cmd.register(subparsers)
     core_cmd.register_core_parser(subparsers)
     ask_cmd.register_ask_parser(subparsers)
     account_cmd.register_account_parser(subparsers)
@@ -121,6 +122,8 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
 
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual)
     try:
+        if args.subcommand == "activity":
+            return activity_cmd.run(args, explicit_db=explicit_db)
         # Pure ask usage errors must win over store discovery and missing stores.
         if args.subcommand == "ask":
             ask_cmd.validate_ask_args(args, parser)

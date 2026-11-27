@@ -455,6 +455,38 @@ def _outcome_effect(e, field):
 
 EFFECT.update({f"outcome {field}": lambda e, field=field: _outcome_effect(e, field) for field in ("ask_id", "outcome")})
 
+def _activity_effect(e, action, flag):
+    db, rid = _outcome_ask(e)
+    argv = ["activity", action] + ([rid] if action == "show" else [])
+    if flag == "--json":
+        offset = 1 if action == "group" else 2
+        if action == "group":
+            argv = ["activity", "export"]
+        argv.insert(offset, "--json")
+        code, out, _ = e.run(db, *argv)
+        assert code == 0 and json.loads(out)["source"] == "peerhub"
+    elif flag == "--stream":
+        assert e.j(db, *argv)["items"] and not e.j(db, *argv, flag, "other")["items"]
+    elif flag == "--limit":
+        assert len(e.j(db, *argv, flag, "1")["items"]) == 1 < len(e.j(db, *argv)["items"])
+    elif flag == "--max-bytes":
+        assert e.j(db, *argv, flag, "512", code=2)["error"] == "LIMIT_EXCEEDED"
+    elif flag == "ask_id":
+        assert e.j(db, "activity", "show", "missing", code=1)["error"] == "ASK_NOT_FOUND"
+        assert e.j(db, *argv)["items"][0]["record_id"] == rid
+    else:
+        first = e.j(db, *argv, "--limit", "1")
+        following = e.j(db, *argv, flag, first["next_cursor"])
+        assert first["items"][0] not in following["items"] and following["items"]
+
+
+for _action, _flags in (("group", ["--json"]), ("export", ["--stream", "--limit", "--max-bytes", "--cursor", "--json"]),
+                        ("show", ["ask_id", "--limit", "--max-bytes", "--cursor", "--json"])):
+    for _flag in _flags:
+        _key = "activity" if _action == "group" else "activity " + _action
+        EFFECT[f"{_key} {_flag}"] = lambda e, a=_action, f=_flag: _activity_effect(e, a, f)
+
+
 def test_every_published_option_has_an_effect_proof():
     assert inv.option_keys(inv.derive()) == sorted(EFFECT)  # a new option/positional/alias at any level without a behavioural proof (or a stale proof) fails here
 

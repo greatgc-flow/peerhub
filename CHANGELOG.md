@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+- Add explicit read-only activity export and prompt inspection with bounded, restore-fenced checkpoints and provider usage provenance.
+
 ## [0.28.2] - 2026-11-27
 
 ### Changed

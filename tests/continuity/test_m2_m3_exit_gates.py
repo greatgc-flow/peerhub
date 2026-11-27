@@ -27,7 +27,7 @@ M3_MODULES = (
     "orchestration_deadline", "orchestration_journal", "orchestration_model", "approval", "runtime_port",
 )
 M2_MODULES = (
-    "accounts", "batch", "work", "artifact", "skills", "skill_models", "skill_projection", "skill_source",
+    "activity", "accounts", "batch", "work", "artifact", "skills", "skill_models", "skill_projection", "skill_source",
     "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary", "authoritative", "billing", "billing_secret",
 )
 M2_M3_MODULES = M2_MODULES + M3_MODULES

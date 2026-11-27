@@ -63,6 +63,7 @@ ALLOWED: dict[str, set[str]] = {
     "quota_windows": {"observation_model", "quota_projection"},
     "pool_health": {"observation_model", "quota_projection", "quota_windows"},
     # M2
+    "activity": {"ask_budgets", "usage_normalization"},
     "batch": {"process_tree"},
     "host": {"manifest", "sqlite_tx"},
     "work": {"authoritative", "sqlite_tx"},
@@ -164,8 +165,8 @@ def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
         if src in m1:
             continue
         local = next((family for family in families if src in family), set())
-        billing_inputs = ALLOWED["billing"] if src == "billing" else set()
-        unexpected = dst - helpers - local - billing_inputs
+        read_inputs = ALLOWED[src] if src in {"billing", "activity"} else set()
+        unexpected = dst - helpers - local - read_inputs
         assert not unexpected, f"{src} imports {sorted(unexpected)}: M2/M3 slices connect through public ports, not imports"
 
 

@@ -1,0 +1,1 @@
+"""Optional activity evidence reader."""

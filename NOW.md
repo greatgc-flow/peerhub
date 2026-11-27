@@ -7,7 +7,7 @@ Updated: 2026-11-27
 
 ## State
 
-- Released: v0.28.2 (2026-11-27): #503, #502, #498. Branches: `main` only. In flight: none.
+- Released: v0.28.2 (2026-11-27): #503, #502, #498. An activity export candidate is in review. See the [implementation record](docs/implementation/activity/WORK.md).
 
 ## Next (ordered)
 
