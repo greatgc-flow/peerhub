@@ -89,11 +89,11 @@ def quota_window_timing(item: Mapping[str, Any], read_at: float) -> tuple[float 
 _Pool = TypeVar("_Pool", bound=Mapping[str, Any])
 
 
-def scoped_weekly_parents(rows: Sequence[_Pool]) -> dict[int, _Pool]:
+def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = True) -> dict[int, _Pool]:
     """Fable's scoped weekly window depends on the all-models window when configured consumers confirm it.
 
-    As in the detailed quota tree, require a strict consumer-set inclusion. Equal sets, duplicate display names
-    and different account identities cannot establish a parent. This is presentation only, never a quota rewrite.
+    With profile metadata, require a strict consumer-set inclusion. Without it, callers may use the
+    known dependency by pool ref. Duplicate display names and different accounts cannot establish a parent.
     """
     rows = [row for row in rows if not row["retired"] and row.get("state") != "n/a"]
     parents: dict[int, _Pool] = {}
@@ -108,10 +108,7 @@ def scoped_weekly_parents(rows: Sequence[_Pool]) -> dict[int, _Pool]:
             continue
         parent = common[0]
         members = set(child["profiles"])
-        all_members = set(parent["profiles"])
-        parent_ref, child_ref = str(parent.get("pool_ref") or ""), str(child.get("pool_ref") or "")
-        if (members and members < all_members and parent_ref and child_ref
-                and parent_ref.rpartition(":")[0] == child_ref.rpartition(":")[0]):
+        if not require_consumers or (members and members < set(parent["profiles"])):
             parents[id(child)] = parent
     return parents
 

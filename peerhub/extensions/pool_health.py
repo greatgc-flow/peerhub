@@ -143,10 +143,12 @@ def limit_pool_health(own: PoolHealth, parent: PoolHealth, parent_ref: object) -
     if worse:
         state = "blocked" if parent["state"] == "out" else parent["state"]
     margin = _exhaust_margin(source["exhaust_in_seconds"], reset)
+    early = margin is not None and margin < 0
+    forecast = "on_pace" if source["forecast"] == "threat" and not early else source["forecast"]
     return {
         **source, "state": state, "left_pct": left, "reset_in_seconds": reset,
         "limited_by": parent_ref if isinstance(parent_ref, str) else None, "own_left_pct": own["left_pct"],
-        "exhaust_margin_seconds": margin, "exhaust_before_reset": margin is not None and margin < 0,
+        "exhaust_margin_seconds": margin, "exhaust_before_reset": early, "forecast": forecast,
     }
 
 

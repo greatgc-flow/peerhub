@@ -445,7 +445,8 @@ def _outcome_ask(e):
 def _outcome_effect(e, field):
     db, ask_id = _outcome_ask(e)
     if field == "ask_id":
-        assert e.run(db, "outcome", "missing", "accepted")[0] == 1
+        code, _, err = e.run(db, "outcome", "missing", "accepted")
+        assert code == 1 and "[ask_not_found]" in err
         assert e.j(db, "outcome", ask_id, "accepted")["ask_id"] == ask_id
     else:
         for outcome in ("accepted", "rejected", "retried"):

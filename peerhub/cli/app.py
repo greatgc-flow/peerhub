@@ -124,6 +124,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         # Pure ask usage errors must win over store discovery and missing stores.
         if args.subcommand == "ask":
             ask_cmd.validate_ask_args(args, parser)
+            args.prompt = ask_cmd.read_ask_prompt(args)
+            if args.prompt is None:
+                return INVALID_ARGUMENTS_EXIT
         if hasattr(args, "db") and args.db and not getattr(args, "update_check", False):
             workspace = Path(args.workspace) if args.subcommand in ("ask", "profile") and getattr(args, "workspace", None) else None
             if args.subcommand == "ask" and args.dry_run:

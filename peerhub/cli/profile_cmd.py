@@ -105,7 +105,7 @@ def run_profile(args: argparse.Namespace) -> int:
         error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
-        if isinstance(exc, TOMLDecodeError):
+        if isinstance(exc, (TOMLDecodeError, UnicodeDecodeError)):
             error_line("profile_config_error", str(exc), "peerhub explain profile_config_error")
             return 1
         error_line("invalid_arguments", str(exc))  # the message only: no Python class name (#401)

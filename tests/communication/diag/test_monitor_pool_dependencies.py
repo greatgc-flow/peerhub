@@ -152,7 +152,7 @@ def test_fable_exhaustion_prioritizes_its_common_pool_group():
 
 @pytest.mark.parametrize("view", ["plain", "rich"])
 @pytest.mark.parametrize("measured", [False, True])
-def test_expanded_peer_quota_omission_notes_explain_missing_windows(view, measured):
+def test_expanded_peer_quota_keeps_summary_without_unavailable_window_notes(view, measured):
     frame = payload(.8)
     frame["selected_groups"].append("peers")
     quota = ({"pool_ref": "quota:cc:C-7D", "state": "MEASURED", "remaining_fraction": .8} if measured else
@@ -160,9 +160,10 @@ def test_expanded_peer_quota_omission_notes_explain_missing_windows(view, measur
     frame["groups"]["peers"]["data"]["peers"] = [{"peer_id": "cc", "quota": quota}]
     if not measured:
         frame["_human_peer_pools"] = {"cc": ["C-5H"]}
-    shown = mv.render_grouped_frame(frame, view=view, expand=True, width=200)
-    assert ("no 5h window" if measured else "not reported") in shown
-    assert "80%" in shown if measured else "not reported" in shown
+    screen = mv.render_grouped_frame(frame, view=view, expand=True, width=200)
+    peer_row = next(line for line in screen.splitlines() if "cc  quota:" in line)
+    assert ("26% (F-7D)" if measured else "? (not reported)") in peer_row
+    assert "no 5h window" not in screen
 
 
 @pytest.mark.parametrize("view", ["plain", "rich"])

@@ -245,15 +245,14 @@ def test_c1_explicit_stale_without_ttl_keeps_the_stale_reserve(expand: bool, mon
 def test_measurement_at_reset_time_colour_matches_between_views(
         reset: int, elapsed: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
-    frame = frame_for({"cc.a": ["C-5H"]})
+    frame = frame_for({"cc.a": ["C-5H", "C-7D"]})
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item["measurements"]["reset_in_seconds"] = reset
     frame["display_elapsed_seconds"] = elapsed
-    cell = f"\x1b[{monitor_layout.RICH_SGR['dim']}m○ reset\x1b[0m"
+    cell = f"\x1b[{monitor_layout.RICH_SGR['dim']}mreset · refresh pending\x1b[0m"
     for expand in (False, True):
         screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-        # dim in the palette's dim: the POOLS row, and the QUOTA details row of --expand (the same state cell)
-        assert screen.count(cell) == (2 if expand else 1)
+        assert screen.count(cell) == screen.count("C-5H") == 1
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -336,7 +335,7 @@ def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool, monk
     screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand)
     rows = pool_lines(screen)
     assert len(rows) == 3
-    assert all("`-" not in row and "|-" not in row for row in rows)
+    assert "`- C-5H" in rows[1]
     first, second = [row for row in rows if "C-7D" in row]
     assert "5%" in first and "87%" in second
     assert frame == before

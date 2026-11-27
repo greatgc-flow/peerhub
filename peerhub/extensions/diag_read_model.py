@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, cast
 from peerhub.core.text import strip_controls
 from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS, format_pace
 from peerhub.extensions.billing_port import billing_consumer
-from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, BILLING_KINDS
-from peerhub.extensions.quota_projection import limit_by_parent, observation_projection, scoped_parent_ref
+from peerhub.extensions.observation_model import BILLING_KINDS
+from peerhub.extensions.quota_projection import ProjectionState, observation_projection
 from peerhub.extensions.quota_read_model import PoolReading, PoolRow, project_pool_rows
 from peerhub.extensions.quota_windows import (
     FAMILIES,
@@ -55,7 +55,7 @@ def section_data(rep: DiagnosticReport, name: str) -> Obj:
 
 
 class QuotaRow:
-    def __init__(self, item: Obj, read_at: float) -> None:
+    def __init__(self, item: Obj) -> None:
         self.item = item
         payload = as_object(item.get("payload"))
         subject = item.get("subject_ref")
@@ -70,9 +70,12 @@ class QuotaRow:
         rf = report_number(payload.get("remaining_fraction"))
         self.left_fraction = rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
         self.used = 1 - rf if self.left_fraction is not None and rf is not None else None
-        self.na = self.state == "ABSENT" and self.reason.startswith(ABSENT_FACT_REASONS)
+        self.na = False
         self.limited_by: str | None = None
-        self.own_left_fraction: float | None = None
+        self.forecast: ProjectionState = "unknown"
+        self.exhaustion_at: float | None = None
+        self.diff: float | None = None
+        self.left: float | None = None
         start, reset = report_number(payload.get("window_started_at")), report_number(payload.get("resets_at"))
         self.span = reset - start if reset is not None and start is not None and reset > start else float("inf")
         # A declared suffix supplies a display/sort window for a registered
@@ -80,12 +83,9 @@ class QuotaRow:
         suffix = re.search(r"(\d+)([HD])$", self.pool.upper())
         if self.span == float("inf") and suffix and int(suffix[1]) > 0:
             self.span = float(int(suffix[1]) * (3600 if suffix[2] == "H" else 86400))
-        self.left = None if reset is None else reset - read_at
-        self.projection = observation_projection({**item, "state": self.state, "payload": dict(payload)}, read_at)
-        self.diff = self.projection["pace_pt"]
 
 
-def quota_rows(items: list[Obj], pools: list[Obj], read_at: float) -> list[QuotaRow]:
+def _select_quota_rows(items: list[Obj], pools: list[Obj]) -> list[QuotaRow]:
     # A probe without a pool belongs to F. Collapse shared pool evidence to one row.
     selected: dict[str, Obj] = {}
     for item in items:
@@ -99,25 +99,49 @@ def quota_rows(items: list[Obj], pools: list[Obj], read_at: float) -> list[Quota
         ref = pool.get("resource_pool_id")
         if ref and pool.get("kind") in ("QUOTA", "RATE_LIMIT"):
             selected.setdefault(str(ref), {"subject_ref": pool.get("provider"), "resource_pool_ref": ref, "state": "UNKNOWN", "payload": {}})
-    rows = sorted((QuotaRow(i, read_at) for i in selected.values()),
-                  key=lambda r: (r.peer, _family(r.pool), r.span, r.ref))
-    by_peer_ref = {(r.subject_ref, r.ref): r for r in rows}
-    for r in rows:
-        parent_ref = scoped_parent_ref(r.ref)
-        parent = by_peer_ref.get((r.subject_ref, parent_ref)) if parent_ref else None
-        if (parent is None or r.state != "MEASURED" or parent.state != "MEASURED"
-                or (r.left is not None and r.left <= 0) or (parent.left is not None and parent.left <= 0)):
-            continue
-        eff_left, eff_reset, limited = limit_by_parent(r.left_fraction, r.left, parent.left_fraction, parent.left)
-        if limited and eff_left is not None:
-            r.own_left_fraction = r.left_fraction
-            r.limited_by = parent.pool
-            r.left_fraction = eff_left
-            r.used = 1 - eff_left
-            r.left = eff_reset
-            r.projection = parent.projection
-            r.diff = parent.diff
+    return sorted((QuotaRow(i) for i in selected.values()), key=lambda r: (r.peer, _family(r.pool), r.span, r.ref))
+
+
+def _quota_consumers(rows: list[QuotaRow], profiles_by_pool: Mapping[str, list[str]] | None) -> dict[str, list[str]]:
+    return {r.ref: [profile for profile in (profiles_by_pool or {}).get(r.pool, [])
+                    if profile.partition(".")[0] == r.subject_ref] for r in rows}
+
+
+def _project_quota_rows(rows: list[QuotaRow], read_at: float, consumers: Mapping[str, list[str]], *,
+                        require_consumers: bool) -> list[PoolRow]:
+    readings = [PoolReading(peer=r.peer, pool=r.pool, pool_ref=r.ref, reading=r.item,
+                            profiles=tuple(consumers[r.ref]), retired=bool(r.item.get("display_retired")))
+                for r in rows]
+    return project_pool_rows(readings, read_at, require_consumers=require_consumers)
+
+
+def quota_rows(items: list[Obj], pools: list[Obj], read_at: float, *,
+               profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[QuotaRow]:
+    rows = _select_quota_rows(items, pools)
+    projected = _project_quota_rows(rows, read_at, _quota_consumers(rows, profiles_by_pool),
+                                    require_consumers=profiles_by_pool is not None)
+    for row, pool in zip(rows, projected):
+        health = pool.health
+        row.na = health["state"] == "n/a"
+        row.left = health["reset_in_seconds"]
+        row.diff = health["pace_pt"]
+        row.forecast = "expired" if health["state"] == "reset" else health["forecast"]
+        exhaust = health["exhaust_in_seconds"]
+        row.exhaustion_at = None if exhaust is None else read_at + exhaust
+        if health["limited_by"] is not None:
+            row.limited_by = strip_controls(health["limited_by"]).rsplit(":", 1)[-1]
+            left_pct = health["left_pct"]
+            row.left_fraction = None if left_pct is None else left_pct / 100
     return rows
+
+
+def dashboard_quota_rows(report: DiagnosticReport, *,
+                         profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[QuotaRow]:
+    items = _plan_observations(report)
+    items.extend(item for item in object_items(section_data(report, "observations").get("items"))
+                 if item.get("kind") == "rate_limit")
+    pools = object_items(section_data(report, "resource_pools").get("pools"))
+    return quota_rows(items, pools, report.read_at, profiles_by_pool=profiles_by_pool)
 
 
 def _family(pool: str) -> str:
@@ -126,11 +150,11 @@ def _family(pool: str) -> str:
 
 
 def threat_summary(rows: list[QuotaRow]) -> dict[str, object]:
-    fresh = sum(r.projection["state"] in ("threat", "on_pace", "insufficient", "exhausted") for r in rows)
+    fresh = sum(r.forecast in ("threat", "on_pace", "insufficient", "exhausted") for r in rows)
     stale = [r for r in rows if r.state == "STALE"]
     na = sum(1 for r in rows if r.na)
-    threats = [r for r in rows if r.projection["state"] == "threat"]
-    exhausted = [r for r in rows if r.projection["state"] == "exhausted"]
+    threats = [r for r in rows if r.forecast == "threat"]
+    exhausted = [r for r in rows if r.forecast == "exhausted"]
     oldest = max((r.age for r in stale if r.age is not None), default=None)
     state = "threat" if threats or exhausted else "clear" if fresh else "unknown"
     reason = None if fresh else "evidence is stale" if stale else "evidence is missing or invalid"
@@ -251,7 +275,8 @@ def _serialize_section(name: str, sec: Section, read_at: float, *, include_billi
     return {"name": sec.name, "status": sec.status, "data": data, "errors": errors}
 
 
-def dashboard_data(report: DiagnosticReport, *, include_billing: bool = True) -> dict[str, object]:
+def dashboard_data(report: DiagnosticReport, *, include_billing: bool = True,
+                   profiles_by_pool: Mapping[str, list[str]] | None = None) -> dict[str, object]:
     """Dashboard JSON uses the same evidence coverage and projections as text."""
     sections_dict = {
         name: _serialize_section(name, sec, report.read_at, include_billing=include_billing)
@@ -265,9 +290,7 @@ def dashboard_data(report: DiagnosticReport, *, include_billing: bool = True) ->
         "sections": sections_dict,
         "error": "diagnostic snapshot failed" if report.error is not None else None,
     }
-    observations = as_object(sections_dict.get("observations"))
-    items = as_object(observations.get("data")).get("items")
-    rows = quota_rows(object_items(items), object_items(section_data(report, "resource_pools").get("pools")), report.read_at)
+    rows = dashboard_quota_rows(report, profiles_by_pool=profiles_by_pool)
     data["threats"] = threat_summary(rows)
     data["forecast_basis"] = "conditional window-average (cond)"
     return data
@@ -404,10 +427,7 @@ def _plan_advice(window: _PlanWindow, parent: QuotaRow | None, facts: PoolHealth
     gate = max(applicable, key=lambda entry: (_PLAN_RANK[entry[2]], entry[0].span), default=None)
     parent_vote = None
     if parent is not None and effective_parent_ref and parent.ref not in exhausted:
-        forecast = facts["forecast"]
-        if forecast == "threat" and not facts["exhaust_before_reset"]:
-            forecast = "on_pace"
-        parent_vote = (parent, facts["left_pct"], *plan_action(facts["left_pct"], facts["pace_pt"], forecast))
+        parent_vote = (parent, facts["left_pct"], *plan_action(facts["left_pct"], facts["pace_pt"], facts["forecast"]))
 
     # Equal actions prefer the effective parent, then the pool's own evidence.
     # In particular, another exhausted gate cannot replace a zero's refresh reason.
@@ -444,13 +464,9 @@ def plan_pools(report: DiagnosticReport, *,
 
     items = _plan_observations(report)
     pools = [p for p in object_items(section_data(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
-    rows = quota_rows(items, pools, report.read_at)
-    consumers = {r.ref: [profile for profile in (profiles_by_pool or {}).get(r.pool, [])
-                         if profile.partition(".")[0] == r.subject_ref] for r in rows}
-    readings = [PoolReading(peer=r.peer, pool=r.pool, pool_ref=r.ref, reading=r.item,
-                            profiles=tuple(consumers[r.ref]), retired=bool(r.item.get("display_retired")))
-                for r in rows]
-    projected = project_pool_rows(readings, report.read_at)
+    rows = _select_quota_rows(items, pools)
+    consumers = _quota_consumers(rows, profiles_by_pool)
+    projected = _project_quota_rows(rows, report.read_at, consumers, require_consumers=profiles_by_pool is not None)
     healths = {r.ref: row.own_health for r, row in zip(rows, projected)}
     rows_by_ref = {r.ref: r for r in rows}
     parents = {r.ref: rows_by_ref[row.parent["pool_ref"]] for r, row in zip(rows, projected) if row.parent is not None}
@@ -482,7 +498,7 @@ def plan_pools(report: DiagnosticReport, *,
         if ref and ref not in exhausted and as_object(item.get("payload")).get("remaining_fraction") == 0:
             facts = pool_health(item, None, report.read_at)
             if facts["state"] == "out":
-                exhausted[ref] = (QuotaRow(item, report.read_at), facts["left_pct"], "blocked", _PLAN_ZERO_REASONS["out"])
+                exhausted[ref] = (QuotaRow(item), facts["left_pct"], "blocked", _PLAN_ZERO_REASONS["out"])
     _plan_pool_facts(own, out, projected)
     gates = _plan_gate_windows(own, consumers, exhausted, profiles_by_pool)
     result: list[_PlanPool] = []

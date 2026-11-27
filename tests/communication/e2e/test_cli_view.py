@@ -36,13 +36,13 @@ def test_helpers():
 def test_untrusted_peer_pool_and_reason_cannot_emit_terminal_controls():
     from peerhub.core.text import strip_controls
     from peerhub.cli.view import _activity_lines, _credit_lines, _quota_table
-    from peerhub.extensions.diag_read_model import QuotaRow
+    from peerhub.extensions.diag_read_model import quota_rows
     payload = "peer\x1b[2J\x00\x07\x85pool"
     assert strip_controls(payload) == "peer[2Jpool"
     item = {"subject_ref": payload, "resource_pool_ref": "quota:" + payload,
             "kind": "quota", "state": "ERROR", "payload": {"reason": payload}}
     alerts = []
-    lines = _quota_table([QuotaRow(item, 0)], 100, now=0)
+    lines = _quota_table(quota_rows([item], [], 0), 100, now=0)
     lines += _credit_lines([{**item, "kind": "reset_credit"}], 0, alerts)
     lines += _activity_lines([{**item, "kind": "activity", "payload": {
         "status": payload, "certainty": payload}}])

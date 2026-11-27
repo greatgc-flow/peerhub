@@ -46,85 +46,82 @@ def pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
     return (peer, pool_family(pool), parse_window(pool)[0], pool)
 
 
+def _quota_parents(rows: list[dict[str, Any]]) -> dict[int, int]:
+    """Find the unambiguous consumer-based parents within one account."""
+    by_name = {str(row["pool"]): row for row in rows}
+    if len(by_name) != len(rows):
+        return {}
+    windows = {name: parse_window(name)[0] for name in by_name}
+    members = {name: set(row["profiles"]) for name, row in by_name.items()}
+    if any(a & b and not (a <= b or b <= a) for a in members.values() for b in members.values()):
+        return {}
+    parents: dict[int, int] = {}
+    for child, profiles in members.items():
+        if not profiles:
+            continue
+        window = windows[child]
+        eligible = [name for name in by_name if name != child and profiles <= members[name]
+                    and window <= windows[name] < UNKNOWN_WINDOW_SECONDS
+                    and (profiles < members[name] or window < windows[name])]
+        minimal = [name for name in eligible if not any(members[other] < members[name] for other in eligible)]
+        if not minimal:
+            continue
+        shortest = min(windows[name] for name in minimal)
+        candidates = [name for name in minimal if windows[name] == shortest]
+        if len(candidates) > 1:
+            return {}
+        parents[id(by_name[child])] = id(by_name[candidates[0]])
+    return parents
+
+
 def quota_layout(rows: list[dict[str, Any]], unicode: bool, *,
                  order: dict[tuple[str, str], int] | None = None) -> list[dict[str, Any]]:
-    """Derive a forest from configured consumers. For QUOTA, `order` gives each pool's POOLS rank."""
+    """Derive a forest from each account's configured consumers, sorted by POOLS rank."""
     result: list[dict[str, Any]] = []
     order = order or {}
 
     def rank(row: dict[str, Any]) -> int:
         return order.get((str(row["peer"]), str(row["pool_ref"])), len(order))
 
-    visible = [row for row in rows if not row.get("retired") and row["state"] != QUOTA_NA]
-    peer_order = {peer: min(rank(row) for row in visible if row["peer"] == peer)
-                  for peer in {str(row["peer"]) for row in visible}}
-    for peer in sorted(peer_order, key=lambda p: (peer_order[p], p)):
-        active = [dict(row) for row in visible if row["peer"] == peer]
+    by_peer: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if not row.get("retired") and row["state"] != QUOTA_NA:
+            by_peer.setdefault(str(row["peer"]), []).append(row)
+    for peer, active in sorted(by_peer.items(), key=lambda entry: (min(map(rank, entry[1])), entry[0])):
+        by_account: dict[str, list[dict[str, Any]]] = {}
+        for row in active:
+            by_account.setdefault(str(row["pool_ref"]).rpartition(":")[0], []).append(row)
+        parents = {child: parent for account in by_account.values() for child, parent in _quota_parents(account).items()}
+        children: dict[int, list[dict[str, Any]]] = {}
+        for row in active:
+            if (parent := parents.get(id(row))) is not None:
+                children.setdefault(parent, []).append(row)
+        for siblings in children.values():
+            siblings.sort(key=lambda row: (-parse_window(str(row["pool"]))[0], str(row["pool"])))
+
         first_peer_row = True
 
-        def append_row(row: dict[str, Any], display_pool: str) -> None:
+        def visit(row: dict[str, Any], prefix: str, continuation: str) -> None:
             nonlocal first_peer_row
-            row.update(display_pool=display_pool, display_peer=peer if first_peer_row else "")
+            result.append({**row, "display_pool": prefix + str(row["pool"]), "display_peer": peer if first_peer_row else ""})
             first_peer_row = False
-            result.append(row)
-
-        # Names are tree identities only when unique. Preserve every source row
-        # in the flat fallback, including duplicate names with different values.
-        if len({row["pool"] for row in active}) != len(active):
-            for row in sorted(active, key=rank):
-                append_row(row, str(row["pool"]))
-            continue
-        by_name = {str(row["pool"]): row for row in active}
-        windows = {name: parse_window(name)[0] for name in by_name}
-        members = {name: set(row["profiles"]) for name, row in by_name.items()}
-        parents: dict[str, str | None] = dict.fromkeys(by_name)
-        flat = any(a & b and not (a <= b or b <= a) for a in members.values() for b in members.values())
-        def parent_candidates(child: str, profiles: set[str], window: int) -> list[str]:
-            if not profiles:
-                return []
-            eligible = [name for name in by_name if name != child and profiles <= members[name]
-                        and window <= windows[name] < UNKNOWN_WINDOW_SECONDS
-                        and (profiles < members[name] or window < windows[name])]
-            minimal = [name for name in eligible if not any(members[other] < members[name] for other in eligible)]
-            if not minimal:
-                return []
-            shortest = min(windows[name] for name in minimal)
-            return [name for name in minimal if windows[name] == shortest]
-
-        for child in by_name:
-            if flat:
-                break
-            candidates = parent_candidates(child, members[child], windows[child])
-            if len(candidates) > 1:
-                flat = True
-                break
-            if candidates:
-                parents[child] = candidates[0]
-        if flat:
-            parents = dict.fromkeys(by_name)
-        children: dict[str, list[str]] = {name: [] for name in by_name}
-        for child, parent in parents.items():
-            if parent is not None:
-                children[parent].append(child)
-        for names in children.values():
-            names.sort(key=lambda name: (-windows[name], name))
-
-        def visit(name: str, prefix: str, continuation: str) -> None:
-            row = by_name[name]
-            append_row(row, prefix + name)
-            for i, child in enumerate(children[name]):
-                last = i == len(children[name]) - 1
+            siblings = children.get(id(row), [])
+            for i, child in enumerate(siblings):
+                last = i == len(siblings) - 1
                 branch = ("└─ " if last else "├─ ") if unicode else ("`- " if last else "|- ")
                 stem = "   " if last else "│  " if unicode else "|  "
                 visit(child, continuation + branch, continuation + stem)
 
-        def tree_rank(name: str) -> int:
-            # A family sorts by its best-ranked member: a 30D root holding a 7D child ranks by that child.
-            return min([rank(by_name[name]), *(tree_rank(child) for child in children[name])])
+        def tree_rank(row: dict[str, Any]) -> int:
+            # A family sorts by its best-ranked member, which can be a child.
+            return min([rank(row), *(tree_rank(child) for child in children.get(id(row), []))])
 
-        for name in sorted((name for name in by_name if parents[name] is None),
-                           key=lambda name: (tree_rank(name), pool_family(name), windows[name], name)):
-            visit(name, "", "")
+        def root_order(row: dict[str, Any]) -> tuple[int, str, int, str]:
+            name = str(row["pool"])
+            return tree_rank(row), pool_family(name), parse_window(name)[0], name
+
+        for row in sorted((row for row in active if id(row) not in parents), key=root_order):
+            visit(row, "", "")
     return result
 
 

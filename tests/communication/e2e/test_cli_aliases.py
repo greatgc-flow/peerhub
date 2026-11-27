@@ -136,6 +136,17 @@ def test_ask_missing_or_unreadable_query_file_is_user_error(tmp_path, capsys, fl
         assert "[Errno" not in captured.err and "ask_unexpected_failure" not in captured.err
 
 
+def test_ask_checks_query_file_before_store_selection(capsys, monkeypatch):
+    monkeypatch.setattr(app, "select_store", lambda *a, **kw: pytest.fail("must not select store"))
+    missing = "missing-query-file-before-store-selection.txt"
+    assert app.main(["ask", "cx", "--dry-run", "--query-file", missing, "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.err.startswith("[invalid_arguments] cannot read --query-file")
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "invalid_arguments"
+    assert missing in payload["error"]["message"] and "check the path" in payload["guidance"]["summary"]
+
+
 @pytest.mark.parametrize("command, expected", [
     (["peer"], ("show", "alias of get")),
     (["peer", "show"], ("alias of get",)),

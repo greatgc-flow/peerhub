@@ -170,8 +170,7 @@ def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bo
                     else:
                         pool_label = q_pool
                     pool_str = f" ({pool_label})" if pool_label else ""
-                    plan_note = clean_text(as_dict(data.get("plan_notes")).get(pid) or "")
-                    q_wide = f"{format_percent(q_rem)}{pool_str}{age_str}" + (f" [{plan_note}]" if plan_note else "")
+                    q_wide = f"{format_percent(q_rem)}{pool_str}{age_str}"
                     q_narr = f"{format_percent(q_rem)}{pool_str}"
 
             if p_obj is None:

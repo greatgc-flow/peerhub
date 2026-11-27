@@ -16,6 +16,14 @@ they do not claim new validation or publication evidence.
 - Unknown-peer errors name the built-in adapter choices for registration.
 - Kept the exit-code lesson under its output budget, restored the batch quota freshness threshold, and regenerated the guidance, lessons, and command inventory references.
 - Fixed strict typing for observation refresh and diagnostic quota and plan output.
+- Monitor shows the reset-pending child from the reported reset instant and lists it once under its weekly parent.
+- Expanded monitor PEERS hides fresh unavailable-window notes while keeping measured quota.
+- Expanded monitor QUOTA nests duplicate pool names under the weekly row for their own account.
+- Bare `peerhub diag` shares effective quota caps, reset timing, and exhaustion forecasts with `diag --plan`.
+- `peerhub diag quota` compares quota reserves at full precision before rounding the displayed cap.
+- `peerhub diag --plan` uses ASCII glyphs on ASCII stdout, including when the stream requests strict encoding.
+- `peerhub ask` checks its query files before store discovery, so a missing file returns exit 2 even without a store.
+- Profile inspection reports invalid UTF-8 in `models.toml` as `profile_config_error` with exit 1.
 
 ## [0.28.0] - 2026-11-27
 
@@ -35,7 +43,6 @@ Breaking: removes `peerhub suggest` and the monitor `suggest:` line (deprecated 
 - `peerhub diag quota` rounds float measurements, uses uniform human durations for observation ages and reset-credit countdowns, and lists `MEASURED/STALE/ABSENT/ERROR` with user-facing `--peer`/`--pool` labels in `--help` (#497).
 - `peerhub observation refresh` prints a concise per-peer/pool summary in text mode and reserves the raw observation JSON array for `--json`.
 - `peerhub diag health` renders readable key-value lines with a single store path in text mode and reserves JSON structures for `--json`.
-- `peerhub suggest --help` and `peerhub explain lessons` mark `suggest` as deprecated in favor of `peerhub diag --plan`.
 - `peerhub update --help` scopes exit `1` (asks running) to `--plan`.
 - Model defaults (revision 2026-11-27.1): agy 1.5.18 observed (clears the `ag: version_drift` fact); the `codex debug models` and `agy.exe models` catalogs still list every packaged model; `python -m tools.model_ping` passed for all cx and ag profiles (model, and effort for cx), so their `checked` and card dates are 2026-11-27. cc profiles were not pinged.
 

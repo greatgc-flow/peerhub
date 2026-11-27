@@ -135,3 +135,19 @@ def test_profile_show_reports_invalid_config_in_json(tmp_path, capsys):
     data = json.loads(capsys.readouterr().out)
 
     assert code == 1 and data["status"] == "ERROR"
+
+
+def test_profile_show_reports_non_utf8_models_as_config_error(capsys, monkeypatch):
+    from io import BytesIO
+
+    config = Path.cwd() / ".peerhub" / "config" / "models.toml"
+    real_open, real_exists = Path.open, Path.exists
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(config.parent))
+    monkeypatch.setattr(Path, "exists", lambda path: path == config or real_exists(path))
+    monkeypatch.setattr(Path, "open", lambda path, *a, **kw:
+                        BytesIO(b"\xff") if path == config else real_open(path, *a, **kw))
+
+    code = main(["profile", "show", "cx.effort", "--json"])
+    captured = capsys.readouterr()
+    assert code == 1 and json.loads(captured.out)["status"] == "ERROR"
+    assert captured.err.startswith("[profile_config_error]")

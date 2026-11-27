@@ -1009,12 +1009,11 @@ def _cx_plan_frame(absent_state="ABSENT", peer_quota=None):
     }}
 
 
-def test_not_reported_pool_is_hidden_but_peer_keeps_plan_and_quota():
-    """The peer line keeps the plan and the reported pool's percent."""
+def test_not_reported_pool_is_hidden_but_peer_keeps_reported_quota():
     from peerhub.cli.monitor_view import render_grouped_frame
     rendered = render_grouped_frame(_cx_plan_frame(), view="plain", unicode=False, width=120, expand=True)
     assert "X-5H" not in rendered
-    assert "quota: 89% (X-7D) [plan prolite: no 5h window]" in rendered
+    assert "quota: 89% (X-7D)" in rendered and "plan prolite: no 5h window" not in rendered
     assert "incomplete" not in rendered
 
 

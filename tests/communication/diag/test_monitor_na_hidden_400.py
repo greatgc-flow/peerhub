@@ -177,17 +177,30 @@ def test_bar_keeps_its_room_at_intermediate_widths(width, bar_cells):
 @pytest.mark.parametrize("expand_mode", [False, True])
 @pytest.mark.parametrize("height", [None, 40], ids=["append", "viewport"])
 def test_pool_visibility_by_layout(view, unicode, expand_mode, height):
-    payload = na_payload(selected_groups=["capacity"])
+    payload = na_payload()
     observations = payload["groups"]["capacity"]["data"]["observations"]
     observations.extend([absent("ag", "A-7D"), absent("cx", "X-5H")])
+    payload["_human_observations"] = observations
     options = dict(view=view, unicode=unicode, width=140, height=height, expand=expand_mode)
     screen = render_grouped_frame(payload, **options)
     assert re.search(r"POOLS 2\b", screen)
     assert "(+" not in screen.split("POOLS 2", 1)[1].splitlines()[0]
     assert all(name not in screen for name in ("X-30D", "C-5H", "A-7D", "X-5H"))
     assert all(name in screen for name in ("C-7D", "X-7D"))
+    if expand_mode:
+        assert "PEERS [" in screen
+    assert "plan prolite: no" not in screen
     gap = next(line for line in screen.splitlines() if line.startswith("gap vs "))
     assert "C-7D -23.0" in gap and "A-7D" not in gap
+
+
+def test_expanded_peers_shows_measured_short_window_without_unavailable_family_note():
+    observations = [pool("ag", "G-5H", .30), absent("ag", "3P-5H")]
+    payload = _payload([], observations, _human_observations=observations)
+    screen = render_grouped_frame(payload, view="plain", width=140, expand=True)
+    peers = screen.split("PEERS [", 1)[1]
+    assert "quota: 30% (G-5H)" in peers
+    assert "3P-5H" not in screen and "plan prolite: no 5h window" not in screen
 
 
 @pytest.mark.parametrize("expanded", [False, True])

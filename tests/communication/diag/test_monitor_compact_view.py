@@ -81,21 +81,22 @@ def _solo(frame, drop=":G-7D", **kw):
     return render_grouped_frame(frame, **kw)
 
 
-def test_pool_screen_layout_state_precedence_and_no_number_reset(compact_frame):
+def test_pool_screen_layout_state_precedence_and_retired_reset(compact_frame):
     # G4: POOLS uses the shared columns and includes the nonbinding short window.
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=100)
     assert screen.splitlines()[1] == "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m"
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    assert _header(screen).split() == ["POOLS", "7", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
+    assert _header(screen).split() == ["POOLS", "6", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "aged", "0%!"),
-                                ("A-7D", "aged", "55%"), ("G-7D", "reset", None), ("F-7D", "?", None),
+                                ("A-7D", "aged", "55%"), ("F-7D", "?", None),
                                 ("X-7D", "ok", "89%")):
         row = _row(screen, name)
         assert state in row.split()
         assert "%" not in row if value is None else value in row
     assert screen.index(_row(screen, "3P-7D")) < screen.index(_row(screen, "3P-5H")) < screen.index(_row(screen, "X-7D"))
-    assert "80%" in _row(screen, "G-5H") and "X-5H" not in screen
+    assert "80%" in _row(screen, "G-5H")
+    assert "G-7D" not in screen and "X-5H" not in screen
     assert "claude-via-ag" in _row(screen, "3P-7D")
     for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "ok enough",
                 "PEERS", "facts ok", "sessions >=", "delivery", "telemetry", "unmapped", "deepthink 0%"):
@@ -122,12 +123,11 @@ def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
 
 
 @pytest.mark.parametrize("width", [80, 100])
-@pytest.mark.parametrize("unusable", ["?", "reset", "missing", "nan", "inf", "bool", "invalid"])
+@pytest.mark.parametrize("unusable", ["?", "missing", "nan", "inf", "bool", "invalid"])
 def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unusable):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row["projection"] = {"pace_pt": 46}
     if unusable == "?": row.update(state="UNKNOWN")
-    if unusable == "reset": row.update(resets_at=NOW)
     if unusable == "missing": row["projection"] = {}
     if unusable == "nan": row["projection"]["pace_pt"] = float("nan")
     if unusable == "inf": row["projection"]["pace_pt"] = float("inf")
@@ -143,7 +143,7 @@ def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unus
 @pytest.mark.parametrize("width", [80, 100])
 @pytest.mark.parametrize("elapsed", [0, 60])
 @pytest.mark.parametrize("reset_field", ["resets_at", "reset_in_seconds"])
-def test_exact_reset_expires_state_and_pace(compact_frame, width, elapsed, reset_field):
+def test_exact_reset_hides_short_window_without_weekly_parent(compact_frame, width, elapsed, reset_field):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "on_pace", "pace_pt": 46})
     row.pop("resets_at")
@@ -153,10 +153,8 @@ def test_exact_reset_expires_state_and_pace(compact_frame, width, elapsed, reset
         {"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
     compact_frame["display_elapsed_seconds"] = elapsed
     screen = render_grouped_frame(compact_frame, width=width, view="plain")
-    header = _header(screen)
-    pool = _row(screen, "G-5H")
-    assert "reset" in pool.split() and "80%" not in pool
-    assert "—" in pool.split() and "PACE(pp)" in header  # G2: no past-window pace
+    assert "POOLS 0" in _header(screen)
+    assert "G-5H" not in screen and "PACE(pp)" not in screen
 
 
 @pytest.mark.parametrize("width", [60, 70])
@@ -220,7 +218,11 @@ def test_low_fast_and_higher_priority_states(compact_frame, remaining, projectio
         anchor_pool(row, NOW, min(15, (1 - remaining) * 50) if projection == "threat" else 0)
     original = deepcopy(compact_frame)
     assert render_grouped_frame(compact_frame, view="plain", width=100) and compact_frame == original
-    assert expected in _row(_solo(compact_frame, view="plain", width=100), "G-5H").split()
+    screen = _solo(compact_frame, view="plain", width=100)
+    if expected == "reset":
+        assert "G-5H" not in screen
+    else:
+        assert expected in _row(screen, "G-5H").split()
 
 
 @pytest.mark.parametrize("stored_state,expected", [("ABSENT", "aged"), ("UNKNOWN", "?"), ("ERROR", "?")])
@@ -305,7 +307,7 @@ def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
     hidden = re.search(r"(?m)^\+(\d+) pools", pools)
     if width == 20:
         assert {"0%!", "1%!"} <= set(pools.split())
-        assert hidden and int(hidden[1]) == 7 - 2  # wrapped display lines still count as one row
+        assert hidden and int(hidden[1]) == 6 - 3  # three visible rows, including their wrapped lines
     else:
         assert "55%" in pools and ("89%" in pools or hidden)  # G4: LEFT stays.
     if width < 48:
@@ -436,16 +438,14 @@ def test_tick_advances_header_age_and_ttl_without_mutation(compact_frame):
     assert compact_frame["read_at"] == NOW
 
 
-def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_frame):
+def test_absent_and_reset_windows_on_one_peer_are_both_hidden(compact_frame):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     absent, reset = rows[6], rows[7]
     reset.update(resets_at=NOW, age_seconds=540, state="STALE")
     compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    assert "X-5H" not in screen
-    assert "reset" in _row(screen, "X-7D").split()
-    assert "%" not in _row(screen, "X-7D")
-    assert "89%" not in screen
+    assert "POOLS 0" in _header(screen)
+    assert "X-5H" not in screen and "X-7D" not in screen and "89%" not in screen
 
 
 def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
@@ -582,8 +582,8 @@ def test_compact_and_expand_each_keep_their_pool_order(compact_frame):
     # Unknown-PACE roots tie by peer and name in POOLS and QUOTA uses that rank within peer groups.
     compact = _compact_pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
     expanded = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=120, expand=True))
-    assert compact == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H", "cc F-7D", "cx X-7D"]
-    assert expanded[:5] == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H"]
+    assert compact == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-5H", "cc F-7D", "cx X-7D"]
+    assert expanded == compact
 
 
 COMPACT_COLUMNS = ["STATE", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]

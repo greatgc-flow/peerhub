@@ -100,3 +100,21 @@ def test_quota_family_ranks_by_its_best_member_not_its_root() -> None:
     layout = quota_layout(rows, False, order=order)
     assert [r["display_pool"].split()[-1] if " " in r["display_pool"] else r["display_pool"] for r in layout] == [
         "A-30D", "A-7D", "B-7D"]
+
+
+@pytest.mark.parametrize("view", ["plain", "rich"])
+def test_quota_nests_same_named_windows_under_their_own_accounts(view: str) -> None:
+    observations = [
+        {**pool("cc", name, left, pace=pace), "pool_ref": f"quota:cc:{account}:{name}"}
+        for account, name, left, pace in (
+            ("a", "C-5H", .20, 0), ("b", "C-7D", .80, -10),
+            ("b", "C-5H", .40, 0), ("a", "C-7D", .60, 10),
+        )
+    ]
+    payload = _payload([], observations)
+    screen = mv.render_grouped_frame(payload, view=view, unicode=True, expand=True, width=140)
+    pools, quota = screen.split("QUOTA [", 1)
+    pattern = r"(?m)^ *(?:cc +)?(└─ )?(C-(?:7D|5H)) +[^\n]*? (\d+)%"
+    expected = [("", "C-7D", "80"), ("└─ ", "C-5H", "40"), ("", "C-7D", "60"), ("└─ ", "C-5H", "20")]
+    assert re.findall(pattern, pools) == expected
+    assert re.findall(pattern, quota) == expected

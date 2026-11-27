@@ -159,21 +159,21 @@ def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
     small = compact(payload, width=140).splitlines()
     big = expand(payload, width=140).splitlines()
-    assert block("\n".join(small), "pools")[0].startswith("── POOLS 10")
-    assert block("\n".join(big), "pools")[0].startswith("── POOLS 10") and not any(re.match(r"^\+\d+ pools", line) for line in big)
+    assert block("\n".join(small), "pools")[0].startswith("── POOLS 9")
+    assert block("\n".join(big), "pools")[0].startswith("── POOLS 9") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = [row for row in block("\n".join(big), "pools")[1:] if re.match(r"^ +(?:\w+ |[└├]─ )[A-Z0-9]+-\d+[HD] +", row)]
     names = [" ".join(row.replace("└─ ", "").split()[:2]) for row in rows]
-    assert len(rows) == 10 and len(set(names)) == 10  # every observation of the payload but the n/a one (#400) has its row
+    assert len(rows) == 9 and len(set(names)) == 9  # the unavailable and reset weekly windows are hidden
     # Both layouts group short windows under their weekly parents. Compact caps the list.
     for index, row in enumerate(rows):
         if "└─" in row:
             assert rows[index - 1].split()[1] == row.split()[1].replace("-5H", "-7D")
-    assert {row.split()[1] for row in rows if "└─" in row} == {"X-5H", "3P-5H", "C-5H", "G-5H"}
+    assert {row.split()[1] for row in rows if "└─" in row} == {"X-5H", "3P-5H", "C-5H"}
     compact_rows = [" ".join(row.split()[:2]) for row in block("\n".join(small), "pools")[1:]
                     if re.match(r"^ +(?:\w+ |[└├]─ )[A-Z0-9]+-\d+[HD] +", row)]
-    assert compact_rows == [" ".join(row.split()[:2]) for row in rows if not re.search(r"\b(?:3P|G)-5H\b", row)]
+    assert compact_rows == [" ".join(row.split()[:2]) for row in rows if not re.search(r"\b3P-5H\b", row)]
     assert len(compact_rows) == POOLS_CAP
-    assert not any("X-30D" in row for row in rows)
+    assert not any(name in row for row in rows for name in ("X-30D", "G-7D"))
 
 
 def test_the_header_drops_the_fields_hidden_text_and_the_conditional_db_part():
@@ -288,7 +288,7 @@ def test_g_quota_details_match_pools_vocabulary_and_bar():
     columns = ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
     assert table[1].split()[:len(columns)] == columns
     rows = quota_rows(screen)
-    assert len(rows) == 10  # X-30D remains a folded note.
+    assert len(rows) == 9 and "G-7D" not in rows and "X-30D" not in rows
     for name, cells in rows.items():
         row = next(line for line in block(screen, "pools")[1:]
                    if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ )?{name} +", line))
@@ -355,7 +355,7 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
     first = next(i for i, line in enumerate(lines) if strip(line).startswith("── POOLS "))
     pools = lines[first + 1:next(i for i, line in enumerate(lines) if strip(line).startswith("gap vs "))]
     pools = [line for line in pools if re.match(r"^\s*(?:\w+ +)?(?:[└├]─ )?[0-9A-Z]+-\d+[HD] +", strip(line))]
-    assert len(pools) == 10
+    assert len(pools) == 9
     details = [line for line in lines[start + 1:] if re.match(r"^\s*(?:\w+ +)?(?:[└├]─ )?[0-9A-Z]+-\d+[HD] {2,}", strip(line))]
 
     def state_code(line: str) -> tuple[str, str]:
@@ -502,7 +502,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     assert heads(screen) == ORDER
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
-    assert any(line.startswith("-- POOLS 10") for line in lines) and any("`- 3P-5H" in line for line in lines)
+    assert any(line.startswith("-- POOLS 9") for line in lines) and any("`- 3P-5H" in line for line in lines)
     assert [row.split()[0] for row in entries(block(screen, "running"))] == [A["run"], A["gone"], "?", "!"]
     assert all(re.match(rf" {re.escape(A['dot'])} (ok|empty|unsure|error) ", row) for row in entries(block(screen, "recent")))
     if width == 100:

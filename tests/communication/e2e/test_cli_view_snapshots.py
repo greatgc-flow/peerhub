@@ -416,7 +416,7 @@ def test_registered_unknown_pools_keep_short_before_long_order():
              for peer, pool, *_ in reversed(INPUTS)]
     rows = quota_rows([], pools, NOW)
     assert [(row.peer, row.pool) for row in rows] == sorted((peer, pool) for peer, pool, *_ in INPUTS)
-    assert all(row.projection["state"] == "unknown" for row in rows)
+    assert all(row.forecast == "unknown" for row in rows)
 
 
 @pytest.mark.parametrize("states,summary_state,wording", [

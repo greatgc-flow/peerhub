@@ -98,7 +98,7 @@ def test_cross_view_health_equivalence() -> None:
         assert plan_rows[name][:3] == [left, pace_cell, exhaust_cell]
         for screen, count in ((compact, 1), (expanded, 2)):
             cells = pool_cells(screen, name)
-            assert len(cells) == count
+            assert len(cells) == (0 if name == expired else count)
             assert all((row_cells[0], row_cells[2:6]) == (state, [left, pace_cell, margin_cell, exhaust_cell])
                        for row_cells in cells)
     child_json = json_rows[child]

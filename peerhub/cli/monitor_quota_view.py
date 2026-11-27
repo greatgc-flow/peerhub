@@ -261,11 +261,11 @@ def display_retired_windows(payload: dict[str, Any]) -> dict[str, Any]:
     if read_at is not None:
         for item in observations:
             remaining, reset_at = quota_window_timing(item, read_at)
-            if remaining is not None and remaining < elapsed:
+            if remaining is not None and remaining <= elapsed:
                 key = (str(item.get("peer_id")), str(item["pool_ref"]))
                 replacements.setdefault(key, {**item, "state": "ABSENT", "stored_state": "ABSENT",
                     "reason": EXPIRED_WINDOW_REASON, "display_retired": True, "age_seconds": None, "ttl_seconds": None,
-                    "_reset_passed": reset_at is not None and reset_at < read_at + elapsed,
+                    "_reset_passed": reset_at is not None and reset_at <= read_at + elapsed,
                     "measurements": None, "last_measurements": None, "projection": {}, "resets_at": None, "reset_in_seconds": None})
     if not replacements:
         return payload

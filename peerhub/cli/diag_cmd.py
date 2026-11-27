@@ -150,6 +150,22 @@ def _nonnegative_seconds(value: str) -> int:
     return seconds
 
 
+def _diagnostic_profiles() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    from peerhub.extensions.adapters.profiles import list_profiles
+
+    pools_of_profile: dict[str, list[str]] = {}
+    profiles_by_pool: dict[str, list[str]] = {}
+    for profile in list_profiles(Path.cwd()):
+        name = str(profile["profile"])
+        pools = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
+        pools_of_profile[name] = pools
+        for pool in pools:
+            profiles_by_pool.setdefault(pool, []).append(name)
+    for names in profiles_by_pool.values():
+        names.sort()
+    return pools_of_profile, profiles_by_pool
+
+
 def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if args.plan and args.action is not None:
         parser.error("--plan applies to diag without a subcommand")
@@ -176,20 +192,12 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         from peerhub._console import FrameOutput
         from peerhub.cli.view import render_plan
         from peerhub.extensions.diag_read_model import plan_data
-        from peerhub.extensions.adapters.profiles import list_profiles
         from peerhub.extensions.diag_running import sample_load
 
         rep = diag_quota.read_quota_snapshot(obs_db or args.db, include_quota_samples=True)
         peers = frozenset(args.plan_peers or ())
-        pools_of_profile: dict[str, list[str]] = {}
-        for profile in list_profiles(Path.cwd()):
-            pools_of_profile[str(profile["profile"])] = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
+        pools_of_profile, profiles_by_pool = _diagnostic_profiles()
         load = sample_load(args.db, pools_of_profile=pools_of_profile)
-        profiles_by_pool: dict[str, list[str]] = {}
-        for name, pools in pools_of_profile.items():
-            for pool in pools:
-                profiles_by_pool.setdefault(pool, []).append(name)
-        profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
         if args.json:
             data = plan_data(rep, store, load, profiles_by_pool, peers=peers)
             plan_output = json.dumps(data, separators=(",", ":"), ensure_ascii=True)
@@ -205,14 +213,15 @@ def run_diag(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         from peerhub.cli.view import render_view
         from peerhub.extensions.diag_read_model import dashboard_data
 
-        rep = ReadonlyDiag(args.db).render(["peers", "streams", "resource_pools", "observations"])
+        rep = ReadonlyDiag(args.db).render(["peers", "streams", "resource_pools", "observations"], include_quota_samples=True)
+        _, profiles_by_pool = _diagnostic_profiles()
         if args.json:
-            data = dashboard_data(rep)
+            data = dashboard_data(rep, profiles_by_pool=profiles_by_pool)
             data["store_selection"] = store
             print(json.dumps(data, indent=2, ensure_ascii=True), flush=True)
         else:
             print(render_view(rep, width=FrameOutput.width(), store_path=store["path"],
-                              store_source=store["source"], store_note=store_note), flush=True)
+                              store_source=store["source"], store_note=store_note, profiles_by_pool=profiles_by_pool), flush=True)
         return (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
                 else 0 if rep.status == "OK" else 4)
     if args.action == "readiness":

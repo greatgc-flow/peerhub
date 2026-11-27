@@ -10,7 +10,6 @@ from peerhub.core.scalars import finite_converted_number as finite_number
 from peerhub.cli.monitor_activity_view import plain_activity, rich_activity
 from peerhub.cli.monitor_alert_view import group_error
 from peerhub.cli.monitor_compact import build_compact_frame, frame_line_ladder
-from peerhub.cli.monitor_format import na_plan
 from peerhub.cli.monitor_layout import (
     FRAME_TRAILING_ROWS,
     RICH_GLYPHS,
@@ -30,7 +29,6 @@ from peerhub.cli.monitor_links import link_profiles
 from peerhub.cli.monitor_quota_view import display_peer_quotas, frame_consumers, frame_pools
 from peerhub.cli.monitor_running_view import ask_split, running_total
 from peerhub.cli.monitor_sections import group_label, group_lines
-from peerhub.extensions.observation_model import NOT_REPORTED_REASON
 
 
 def _group_has_uncertain_measurement(value: object, *, depth: int) -> bool:
@@ -81,23 +79,11 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
         activity_data = as_dict(activity.get("data"))
         running_asks = running_total(activity_data, ask_split(activity_data)[0])
         display_groups["execution"] = {**execution, "data": {**as_dict(execution.get("data")), "_running_asks": running_asks}}
-    # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
-    plan_windows: dict[str, tuple[str, list[str]]] = {}
-    for obs in observations:
-        reason = clean_text(obs.get("reason") or "")
-        if obs.get("state") == "ABSENT" and reason.startswith(NOT_REPORTED_REASON):
-            pool = clean_text(obs.get("pool_ref") or "").split(":")[-1]
-            plan = na_plan(obs, reason)
-            window = pool.split("-", 1)[-1].lower() if "-" in pool else pool.lower()
-            plan_windows.setdefault(clean_text(obs.get("peer_id") or "?"), (plan, []))[1].append(window)
     peers_group = as_dict(groups.get("peers"))
     if isinstance(peers_group.get("data"), Mapping):
         peers_data = as_dict(peers_group.get("data"))
         display_groups["peers"] = {**peers_group, "data": {**peers_data,
             "peers": display_peer_quotas(payload, dict_items(peers_data.get("peers")), observations, pool_rows)}}
-        if plan_windows:
-            display_groups["peers"]["data"]["plan_notes"] = {
-                peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}
     display = {**payload, "selected_groups": selected, "groups": display_groups}
     report = as_dict(as_dict(as_dict(groups.get("peers")).get("data")).get("facts_report"))
     # Every facts_report reason is a drift reason ("ag: unknown_pool", "cc: version_drift").

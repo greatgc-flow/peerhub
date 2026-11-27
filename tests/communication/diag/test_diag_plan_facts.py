@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_TAG_LEGEND, render_plan
-from peerhub.extensions.diag_read_model import PLAN_GATE_TAG, plan_data
+from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_TAG_LEGEND, render_plan, render_view
+from peerhub.extensions.diag_read_model import PLAN_GATE_TAG, dashboard_data, plan_data
 from peerhub.extensions.quota_windows import FAMILIES
 from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, ResourceSample, load_snapshot
 from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS, format_pace
@@ -26,10 +26,39 @@ SHORT = 5 * HOUR
 WEEK = 7 * DAY
 FACT_FIELDS = {"age_seconds", "ttl_seconds", "fast", "family", "parent", "gates"}
 HEALTH_FIELDS = {"even_left_pct", "exhaust_in_seconds", "exhaust_before_reset", "stale", "limited_by", "own_left_pct"}
+WEEKLY_PROFILES = {"C-7D": ["cc.standard", "cc.fable"], "F-7D": ["cc.fable"]}
 
 
 def _rows(report, profiles=None):
     return {r["resource_pool_ref"]: r for r in plan_data(report, {}, profiles_by_pool=profiles)["pools"]}
+
+
+def test_dashboard_ignores_a_weekly_cap_after_a_relative_reset():
+    parent = _item("cc", "C-7D", 0, span=WEEK, elapsed=WEEK - 30, age=60)
+    parent["payload"].pop("resets_at")
+    parent["payload"]["reset_in_seconds"] = 30
+    child = _item("cc", "F-7D", .8, span=WEEK, elapsed=WEEK / 2)
+    report = _report(parent, child)
+    row = _rows(report, WEEKLY_PROFILES)[child["resource_pool_ref"]]
+    assert row["limited_by"] is None and row["left_pct"] == 80
+    rendered = render_view(report, width=140, profiles_by_pool=WEEKLY_PROFILES)
+    line = next(line for line in rendered.splitlines() if line.startswith("cc   F-7D"))
+    assert "80%" in line and "exhausted" not in line and "(cap C-7D)" not in line
+    assert dashboard_data(report, profiles_by_pool=WEEKLY_PROFILES)["threats"]["exhausted_pools"] == []
+
+
+def test_dashboard_uses_the_effective_reset_for_a_weekly_cap_forecast():
+    parent = _item("cc", "C-7D", .11, span=WEEK, elapsed=.8 * WEEK, age=0)
+    child = _item("cc", "F-7D", .8, span=WEEK, elapsed=WEEK - 3 * HOUR, age=0)
+    report = _report(parent, child)
+    row = _rows(report, WEEKLY_PROFILES)[child["resource_pool_ref"]]
+    assert row["limited_by"] == parent["resource_pool_ref"]
+    assert row["health"]["effective_reset_in_seconds"] == 3 * HOUR
+    assert row["exhaust_in_seconds"] > 10 * HOUR and not row["exhaust_before_reset"]
+    rendered = render_view(report, width=140, profiles_by_pool=WEEKLY_PROFILES)
+    line = next(line for line in rendered.splitlines() if line.startswith("cc   F-7D"))
+    assert "11%" in line and "3h" in line and "= on pace (cap C-7D)" in line
+    assert dashboard_data(report, profiles_by_pool=WEEKLY_PROFILES)["threats"]["threatened_pools"] == [parent["resource_pool_ref"]]
 
 
 def _flash_windows():

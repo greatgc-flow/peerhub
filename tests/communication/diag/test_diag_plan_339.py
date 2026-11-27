@@ -6,6 +6,7 @@ import json
 import socket
 import sqlite3
 import subprocess
+import sys
 import time
 from contextlib import closing
 from datetime import datetime, timezone
@@ -74,6 +75,31 @@ def _report(*items):
 
 def _by_pool(report):
     return {(p["peer"], p["pool"]): p for p in plan_data(report, {"path": "x", "source": "explicit"})["pools"]}
+
+
+def test_plan_cli_uses_ascii_glyphs_on_strict_ascii_stdout():
+    from tests.communication.harness.pkg_env import REPO, clean_env
+
+    # Drive the real CLI with a read-only report fixture and a strict subprocess stdout.
+    script = """
+from peerhub.cli import store_select
+from peerhub.core.load_limits import ResourceSample, load_snapshot
+from peerhub.extensions import diag_quota, diag_running
+from peerhub.extensions.adapters import profiles
+from tests.communication.diag.test_diag_plan_339 import _report, _item, HOUR
+store_select.report_missing_store = lambda *args, **kwargs: False
+diag_quota.read_quota_snapshot = lambda *args, **kwargs: _report(
+    _item("ag", "G-5H", None, span=5 * HOUR, elapsed=HOUR, state="ERROR", reason="probe error"))
+diag_running.sample_load = lambda *args, **kwargs: load_snapshot({}, ResourceSample())
+profiles.list_profiles = lambda *args, **kwargs: []
+from peerhub.cli.app import main
+raise SystemExit(main(["--db", "caf\\u00e9.db", "diag", "--plan"]))
+"""
+    result = subprocess.run([sys.executable, "-c", script], cwd=REPO, capture_output=True,
+                            env=clean_env({"PYTHONIOENCODING": "ascii:strict"}), timeout=15)
+    assert result.returncode == 0, result.stderr
+    output = result.stdout.decode("ascii")
+    assert "caf?.db" in output and "blocked 0%/-/?" in output
 
 
 def test_target_rate_is_left_over_hours_to_reset():

@@ -143,8 +143,8 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
     width = 140
-    line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 10")
-    assert line.startswith(f"── {POOLS_HEAD} 10") and line.endswith("─") and cell_width(line) == width - 1
+    line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 9")
+    assert line.startswith(f"── {POOLS_HEAD} 9") and line.endswith("─") and cell_width(line) == width - 1
     assert monitor_quota_view.POOLS_USE_FIRST_HINT in line
     titles = [word for word in line.replace(monitor_quota_view.POOLS_USE_FIRST_HINT, "").split() if word in monitor_format._POOL_COLUMNS]
     assert titles == ["STATE", "LEFT", "PACE(pp)", monitor_legend.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
@@ -224,7 +224,7 @@ def test_no_color_keeps_the_rich_layout_with_unicode_and_no_sgr(monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     screen = rich(full_payload(), color=True, width=120)
     assert "\x1b" not in screen and screen == bare
-    assert f"── {POOLS_HEAD} 10" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
+    assert f"── {POOLS_HEAD} 9" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
     assert screen.splitlines()[0].startswith("ATTN 2 · gone: cc.fable activity-view 5m · pool_out: cx X-5H")
 
 
@@ -352,11 +352,10 @@ def test_m1_a_fast_state_and_its_pace_use_separate_colours():
 
 
 @pytest.mark.parametrize("state,glyph", [("ok", "ok"), ("fast", "fast"), ("low", "low"), ("out", "out"), ("aged", "aged"),
-                                         ("?", "aged"), ("reset", "aged")])  # n/a is never a row (#400)
+                                         ("?", "aged")])
 def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
     row = {"ok": pool("cc", "C-7D", .9), "fast": pool("cc", "C-7D", .5, fast=True, pace=12.5), "low": pool("cc", "C-7D", .05),
-           "out": pool("cc", "C-7D", 0.0), "aged": pool("cc", "C-7D", .9), "?": pool("cc", "C-7D", None),
-           "reset": pool("cc", "C-7D", .9, reset=0)}[state]
+           "out": pool("cc", "C-7D", 0.0), "aged": pool("cc", "C-7D", .9), "?": pool("cc", "C-7D", None)}[state]
     if state == "aged":
         row.update(state="STALE", age_seconds=999, measurements=None)
     if state == "?":

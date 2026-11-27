@@ -256,9 +256,8 @@ def _wait_for_ask_resources(
         sleep(min(ASK_RESOURCE_POLL_SECONDS, remaining))
 
 
-def run_ask(args: argparse.Namespace) -> int:
-    from peerhub.cli.monitor_refresh import refresh_dispatch_quota
-    from peerhub.extensions.ask import ask, open_ask_snapshot
+def read_ask_prompt(args: argparse.Namespace) -> str | None:
+    """Resolve the prompt after argument validation, before opening or selecting a store."""
     query_files: list[str] = args.query_file or []
     if query_files:
         parts: list[str] = []
@@ -282,18 +281,24 @@ def run_ask(args: argparse.Namespace) -> int:
                                           error=dict(code="invalid_arguments", message=message),
                                           guidance=guidance), ensure_ascii=True))
                 error_line("invalid_arguments", message, hint)
-                return 2
+                return None
             total_bytes += len(contents)
             if index:
                 part = part.lstrip("\n")
             if index < len(query_files) - 1:
                 part = part.rstrip("\n")
             parts.append(part)
-        prompt = "\n\n".join(parts)
         if total_bytes > 64 * 1024:
             print("Warning: inlined query exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
-    else:
-        prompt = args.prompt
+        return "\n\n".join(parts)
+    return cast(str, args.prompt)
+
+
+def run_ask(args: argparse.Namespace) -> int:
+    from peerhub.cli.monitor_refresh import refresh_dispatch_quota
+    from peerhub.extensions.ask import ask, open_ask_snapshot
+
+    query_files: list[str] = args.query_file or []
     text_output = not (args.json or args.final_only)
     terminal_notices = not args.dry_run and text_output and sys.stderr.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1"
     has_streamed = False
@@ -320,7 +325,7 @@ def run_ask(args: argparse.Namespace) -> int:
             print(render_ask_receipt(ask_id, args.profile, metrics), file=sys.stderr)
 
     try:
-        result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
+        result = ask(args.db, args.peer, args.prompt, stream_id=args.stream_id, request_id=args.request_id,
                      author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,

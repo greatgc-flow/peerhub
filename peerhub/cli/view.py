@@ -24,12 +24,12 @@ from peerhub.extensions.diag_read_model import (
     Obj,
     QuotaRow,
     as_object,
+    dashboard_quota_rows,
     object_items,
     plan_budget,
     plan_gaps,
     plan_gate_reason,
     plan_pools,
-    quota_rows,
     report_number,
     section_data,
     threat_summary,
@@ -52,11 +52,11 @@ def _eta(at: float, now: float, tz: tzinfo | None) -> str:
 def _forecast(row: QuotaRow, now: float, tz: tzinfo | None, short: bool) -> str:
     if row.na:
         return "- n/a"
-    state = row.projection["state"]
+    state = row.forecast
     glyph = {"threat": "!", "on_pace": "=", "insufficient": ":", "exhausted": "x",
              "unknown": "?", "stale": "~", "expired": "/"}[state]
     if state == "threat":
-        at = row.projection["exhaustion_at"]
+        at = row.exhaustion_at
         assert at is not None
         clock, left = _eta(at, now, tz), _forecast_duration(max(0, at - now))
         if short:
@@ -109,7 +109,7 @@ PLAN_FAST_TAG = "fast"
 PLAN_TAG_LEGEND = f"{PLAN_FAST_TAG}/{PLAN_GATE_TAG} tags"
 PLAN_BUDGET_COLUMN = "BUDGET%/h"
 _PLAN_COLUMNS = ("PEER", "POOL", "LEFT", "PACE(pp)", "EXH/RESET", PLAN_BUDGET_COLUMN, "ACTION", "REASON")
-_PLAN_TEXT_LEGEND = f"{PLAN_PACE_LEGEND}/early | blocked 0%/—/? | - n/a | {PLAN_BUDGET_COLUMN} | {PLAN_TAG_LEGEND}"
+_PLAN_TEXT_LEGEND = f"{PLAN_PACE_LEGEND}/early | blocked 0%/{{missing}}/? | - n/a | {PLAN_BUDGET_COLUMN} | {PLAN_TAG_LEGEND}"
 PLAN_EARLY_TAG = "!early"
 
 
@@ -156,7 +156,7 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
         lines.extend(_wrap(" ".join([reason, *tags]), width) if tags else [ellipsize(reason, width, False)])
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
-    lines.extend(_wrap(_PLAN_TEXT_LEGEND, width))
+    lines.extend(_wrap(_PLAN_TEXT_LEGEND.format(missing="—" if unicode else "-"), width))
     applicable_pools = [p for _, p, _ in pools if p["action"] != "n/a"]
     profile_groups = [f"{p['pool']} {','.join(cast(list[str], p['profiles']))}"
                       for p in applicable_pools if p.get("profiles")]
@@ -222,7 +222,7 @@ def _credit_lines(items: list[Obj], read_at: float, alerts: list[str], tz: tzinf
         if state != "MEASURED":
             word = "stale" if state == "STALE" else "unknown"
             glyph = "~" if word == "stale" else "?"
-            line += f"; {glyph} {word} {_badge(QuotaRow(item, read_at))}"
+            line += f"; {glyph} {word} {_badge(QuotaRow(item))}"
         out.append(line)
         if exp is not None and 0 <= exp - read_at < 72 * 3600 and isinstance(count, int) and count > 0:
             alerts.append(f"{peer} {expiry} in {human_duration(exp - read_at)}")
@@ -292,19 +292,20 @@ def _probe_line(items: list[Obj]) -> str:
 
 
 def render_view(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None = None,
-                store_path: str = "", store_source: str = "", store_note: str = "") -> str:
+                store_path: str = "", store_source: str = "", store_note: str = "",
+                profiles_by_pool: Mapping[str, list[str]] | None = None) -> str:
     """Render a plain-text diagnostic snapshot."""
     width = max(1, width)
     items = object_items(section_data(report, "observations").get("items"))
-    rows = quota_rows(items, object_items(section_data(report, "resource_pools").get("pools")), report.read_at)
+    rows = dashboard_quota_rows(report, profiles_by_pool=profiles_by_pool)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M:%S%z" if width >= 100 else "%Y-%m-%d %H:%M%z")
     tail = f" ({strip_controls(store_source)})" if store_source else ""
     # #338: the full resolved store path; a narrow terminal wraps it instead of truncating it.
     header = f"PeerHub {strip_controls(report.status)} {when} " + strip_controls(store_path or "workspace") + tail
-    threats = [r for r in rows if r.projection["state"] == "threat"]
-    first = min(threats, key=lambda r: r.projection["exhaustion_at"] or float("inf")) if threats else None
-    earliest_at = cast(float, first.projection["exhaustion_at"]) if first is not None else None
-    exhausted = ", ".join(f"{r.peer}/{r.pool}" for r in rows if r.projection["state"] == "exhausted")
+    threats = [r for r in rows if r.forecast == "threat"]
+    first = min(threats, key=lambda r: r.exhaustion_at or float("inf")) if threats else None
+    earliest_at = first.exhaustion_at if first is not None else None
+    exhausted = ", ".join(f"{r.peer}/{r.pool}" for r in rows if r.forecast == "exhausted")
     credit_alerts: list[str] = []
     credits = _credit_lines(items, report.read_at, credit_alerts, tz)
     summary = threat_summary(rows)

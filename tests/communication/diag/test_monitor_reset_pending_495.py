@@ -13,8 +13,8 @@ from tests.communication.diag.test_monitor_plain_golden import _payload
 RESET_AGO = -180.0  # the 5H window reset three minutes before the reading
 
 
-def frame(*extra):
-    return _payload([], [pool("ag", "G-5H", .3, reset=RESET_AGO), pool("ag", "G-7D", .5), *extra],
+def frame(*extra, reset=RESET_AGO):
+    return _payload([], [pool("ag", "G-5H", .3, reset=reset), pool("ag", "G-7D", .5), *extra],
                     selected_groups=["capacity"])
 
 
@@ -23,10 +23,11 @@ def lines_of(screen):
 
 
 @pytest.mark.parametrize("expand", [False, True])
+@pytest.mark.parametrize("reset", [RESET_AGO, 0], ids=["after-reset", "at-reset"])
 @pytest.mark.parametrize("view,unicode,branch,dot", [
     ("plain", True, "└─", "·"), ("plain", False, "`-", "|"), ("rich", True, "└─", "·"), ("rich", False, "`-", "|")])
-def test_placeholder_row_follows_its_weekly_parent_without_bar_or_pace(view, unicode, branch, dot, expand):
-    screen = render_grouped_frame(frame(), view=view, unicode=unicode, width=120, expand=expand)
+def test_placeholder_row_follows_its_weekly_parent_without_bar_or_pace(view, unicode, branch, dot, expand, reset):
+    screen = render_grouped_frame(frame(reset=reset), view=view, unicode=unicode, width=120, expand=expand)
     lines = lines_of(screen)
     (index,) = [i for i, line in enumerate(lines) if "refresh pending" in line]
     assert re.fullmatch(rf"\s+{re.escape(branch)} G-5H reset {re.escape(dot)} refresh pending", lines[index])
@@ -34,6 +35,7 @@ def test_placeholder_row_follows_its_weekly_parent_without_bar_or_pace(view, uni
     assert index == parent + 1
     assert "50%" in lines[parent] and "G-5H" not in lines[parent] and "limited by" not in lines[parent]
     assert re.search(r"POOLS 2\b", screen)
+    assert screen.count("G-5H") == 1
 
 
 def test_expand_shows_the_placeholder_only_in_pools():

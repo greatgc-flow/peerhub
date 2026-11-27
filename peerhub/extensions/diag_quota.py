@@ -67,7 +67,7 @@ def _round_num(v: Any) -> Any:
 
 
 def _measurements(payload: dict[str, Any]) -> dict[str, Any]:
-    return {k: _round_num(payload[k]) for k in sorted(payload) if k in MEASUREMENT_KEYS}
+    return {k: payload[k] for k in sorted(payload) if k in MEASUREMENT_KEYS}
 
 
 def _derived(meas: dict[str, Any]) -> dict[str, Any]:
@@ -206,6 +206,9 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
     # A pool with filtered evidence must not be synthesized as a pool with no evidence.
     groups = {ref: items for ref, items in groups.items() if items}
     _limit_scoped(groups)
+    for items in groups.values():
+        for item in items:
+            item["measurements"] = {key: _round_num(value) for key, value in item["measurements"].items()}
     pools: list[dict[str, Any]] = [{"resource_pool_ref": k, "items": groups[k]} for k in sorted(groups, key=lambda x: (x is None, x or ""))]
     out["pools"] = pools
     out["reset_credits"] = resets
@@ -276,7 +279,7 @@ def _limit_scoped(groups: dict[str | None, list[dict[str, Any]]]) -> None:
             effective_left, effective_reset, limited = limit_by_parent(left, reset, parent_left,
                                                                        _num(parent["window"].get("resets_at")))
             if limited:
-                item["effective"] = {"remaining_fraction": effective_left, "resets_at": effective_reset,
+                item["effective"] = {"remaining_fraction": _round_num(effective_left), "resets_at": effective_reset,
                                      "limited_by": parent_ref}
 
 
