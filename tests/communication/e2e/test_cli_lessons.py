@@ -56,7 +56,7 @@ MONITOR_LESSON = "monitor-states"
     ("ant install", ["setup"]),
     ("executable not found", ["setup"]),
     ("codex sign-in", ["setup"]),
-    ("handoff", []),
+    ("handoff", ["lane-briefs"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),

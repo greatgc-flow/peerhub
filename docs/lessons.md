@@ -123,6 +123,14 @@ Guidance codes and result labels take priority, followed by exact profile IDs (f
 - Fix: Run peerhub COMMAND --help, correct the arguments and retry only if no execution began.
 - Issue: 0.24.0
 
+## Brief parallel AI lanes without long prompts (`lane-briefs`)
+
+- Aliases: `handoff`, `lane-rules`
+- Keywords: lane, lanes, brief, handoff, now, now.md, agents, agents.md, prompt, context, parallel, collide, conflict, union, slug, misread, rules
+- Symptom: Peers misread a task, parallel lanes collide on the same numbers or files, or every prompt repeats the same rules and project history.
+- Fix: Keep project state in the repository: a short root NOW.md (state, recent flow, next steps) and the shared lane rules in its AGENTS.md. cx and cc read AGENTS.md by themselves, and ag reads files under a trusted -w. An inline vote gets NOW.md as its first --query-file. A lane prompt then carries only the task. Give each peer kind its own rules (cx: read-only shell plus tests; ag: file reader, every file inside -w). Give lanes disjoint files. Append-only files (CHANGELOG, registries) merge with merge=union, and new IDs take topic slugs, not the next number. Facts in a brief come from command output, not memory.
+- Issue: #493, #497
+
 ## Monitor layout, quota states and alerts (`monitor-states`)
 
 - Aliases: `monitor-view`, `monitor-accounts`, `monitor-alerts`, `monitor-insuff`, `monitor-stale-window`, `monitor-probe-age`, `monitor-drift`, `plan-windows`, `cx-plan-windows`, `a1`, `a2`, `a3`, `a4`, `a5`, `a6`

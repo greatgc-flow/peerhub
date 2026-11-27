@@ -35,3 +35,5 @@ Verdicts are unanimous unless a split is shown; a split is settled by majority.
 | API billing observations | DEFER: no new work (3/3). |
 
 Every removal ships with a CHANGELOG "Removed" line that names the replacement. The version becomes 0.27.0.
+
+Revisited the same day: the `explain handoff` cut assumed the AGENTS.md pointer was enough, but AGENTS.md reaches only contributors to this repository. Installed users get guidance only through the package, so 0.28.0 adds `peerhub explain lane-briefs` (aliases `handoff`, `lane-rules`).

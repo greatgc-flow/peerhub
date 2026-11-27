@@ -109,6 +109,15 @@ fix = "Wait for the claim to end, then rerun the identical command with the same
 issue = "#312"
 
 [[lessons]]
+id = "lane-briefs"
+title = "Brief parallel AI lanes without long prompts"
+aliases = ["handoff", "lane-rules"]
+keywords = ["lane", "lanes", "brief", "handoff", "now", "now.md", "agents", "agents.md", "prompt", "context", "parallel", "collide", "conflict", "union", "slug", "misread", "rules"]
+symptom = "Peers misread a task, parallel lanes collide on the same numbers or files, or every prompt repeats the same rules and project history."
+fix = """Keep project state in the repository: a short root NOW.md (state, recent flow, next steps) and the shared lane rules in its AGENTS.md. cx and cc read AGENTS.md by themselves, and ag reads files under a trusted -w. An inline vote gets NOW.md as its first --query-file. A lane prompt then carries only the task. Give each peer kind its own rules (cx: read-only shell plus tests; ag: file reader, every file inside -w). Give lanes disjoint files. Append-only files (CHANGELOG, registries) merge with merge=union, and new IDs take topic slugs, not the next number. Facts in a brief come from command output, not memory."""
+issue = "#493, #497"
+
+[[lessons]]
 id = "instruction-diet"
 title = "Keep peer instructions, memory and quota spend small"
 keywords = ["instruction", "diet", "memory", "quota", "observation", "refresh", "snapshot", "profile", "ladder", "pytest", "launcher", "allow", "headless", "cc", "tokens", "global", "workspace", "votes", "deepthink"]

@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `peerhub explain lane-briefs` (aliases `handoff`, `lane-rules`): how to brief parallel AI lanes from the repository (NOW.md, AGENTS.md lane rules, per-peer rules, union merge, slug IDs). It reaches installed users, which a repository AGENTS.md does not.
+
 ### Changed
 
 - Parallel lanes no longer collide: `CHANGELOG.md` and `docs/requirements.md` merge with git's union driver, new requirement rows take a unique slug ID (`R-<topic>`, checked by the registry test), and `AGENTS.md` holds the per-peer lane rules so lane prompts carry only the task.
