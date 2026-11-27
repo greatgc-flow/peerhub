@@ -57,14 +57,24 @@ def _coverage(data: dict[str, Any], unicode: bool = True) -> str:
     return ""
 
 
-def _usage_values(telemetry: dict[str, Any]) -> tuple[float | None, float | None, float | None]:
+def _input_excludes_cache(item: dict[str, Any]) -> bool:
+    """agy reports input without its cached part (#502); other peers include it."""
+    return (item.get("runtime_kind") or item.get("peer_id")) == "ag"
+
+
+def _prompt_input(inputs: float | None, cached: float | None, excludes_cache: bool) -> float | None:
+    return inputs + cached if excludes_cache and inputs is not None and cached is not None and cached >= 0 else inputs
+
+
+def _usage_values(telemetry: dict[str, Any], excludes_cache: bool = False) -> tuple[float | None, float | None, float | None]:
     normalized, reported = as_dict(telemetry.get("normalized")), as_dict(telemetry.get("reported"))
     tokens = finite_number(normalized.get("provider_total_tokens", reported.get("total_tokens")))
-    inputs = finite_number(normalized.get("provider_input_tokens", reported.get("input_tokens")))
     outputs = finite_number(normalized.get("output_tokens", reported.get("output_tokens")))
     cached = finite_number(normalized.get("cached_input_tokens", reported.get("cached_input_tokens")))
-    if tokens is None and inputs is not None and outputs is not None and inputs >= 0 and outputs >= 0:
-        tokens = inputs + outputs
+    reported_inputs = finite_number(normalized.get("provider_input_tokens", reported.get("input_tokens")))
+    if tokens is None and reported_inputs is not None and outputs is not None and reported_inputs >= 0 and outputs >= 0:
+        tokens = reported_inputs + outputs
+    inputs = _prompt_input(reported_inputs, cached, excludes_cache)
     if inputs is None or inputs <= 0 or cached is None or not 0 <= cached <= inputs:
         inputs = cached = None
     return tokens if tokens is not None and tokens >= 0 else None, inputs, cached
@@ -361,7 +371,8 @@ def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bo
                           f"gen {format_count(session.get('generation'))}", uses, f"{profile} / {model} ({effort})", resume,
                           f"ctx {estimate}" if estimate else ""]
                 if bounded and expand:
-                    tokens, inputs, cached = _usage_values(as_dict(as_dict(session.get("telemetry")).get("usage")))
+                    tokens, inputs, cached = _usage_values(as_dict(as_dict(session.get("telemetry")).get("usage")),
+                                                           _input_excludes_cache(session))
                     usage_text = f"tok {format_count(tokens)}"
                     if inputs is not None and cached is not None:
                         usage_text += f"{sep}cache {cached / inputs * 100:.0f}%"
@@ -388,7 +399,8 @@ def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bo
         sessions = dict_items(data.get("sessions"))
         if sessions and bounded:
             for peer in sorted({peer_label(item) for item in sessions}):
-                values = [_usage_values(as_dict(item.get("telemetry"))) for item in sessions if peer_label(item) == peer]
+                values = [_usage_values(as_dict(item.get("telemetry")), _input_excludes_cache(item))
+                          for item in sessions if peer_label(item) == peer]
                 measured = [tokens for tokens, _, _ in values if tokens is not None]
                 inputs = sum(inputs or 0 for _, inputs, _ in values)
                 cached = sum(cached or 0 for _, _, cached in values)
@@ -407,6 +419,7 @@ def group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bo
                 cached_tok = finite_number(normalized.get("cached_input_tokens", reported.get("cached_input_tokens")))
                 if tokens is None and in_tok is not None and out_tok is not None and in_tok >= 0 and out_tok >= 0:
                     tokens = int(in_tok + out_tok)
+                in_tok = _prompt_input(in_tok, cached_tok, _input_excludes_cache(session))
                 cache_part = ""
                 if cached_tok is not None and in_tok is not None and in_tok > 0 and 0 <= cached_tok <= in_tok:
                     cache_part = f"{sep}cache {cached_tok / in_tok * 100:.0f}%"

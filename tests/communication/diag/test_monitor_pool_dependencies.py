@@ -205,3 +205,32 @@ def test_a_second_peer_reporting_the_same_parent_keeps_the_strictest_reading(ord
     screen = mv.render_grouped_frame(frame, view="rich", expand=True, width=160)
     assert all("blocked" in row.split() for row in pool_rows(screen, "F-7D"))
     assert pool_rows(screen, "F-7D")[0] == pool_rows(base, "F-7D")[0]
+
+
+def test_the_consumers_of_every_report_establish_the_dependency_before_the_reading_is_picked():
+    """#498 review: the strict report may come from a peer without the consumer list; F-7D is still capped."""
+    from peerhub.extensions.quota_windows import scoped_weekly_parents
+    loose = {"pool_ref": "quota:cc:C-7D", "profiles": ("cc.effort", "cc.fable"), "retired": False, "left": 80}
+    strict = {"pool_ref": "quota:cc:C-7D", "profiles": (), "retired": False, "left": 0}
+    child = {"pool_ref": "quota:cc:F-7D", "profiles": ("cc.fable",), "retired": False, "left": 26}
+    twin = {**child}
+    parents = scoped_weekly_parents([loose, strict, child, twin], strictness=lambda row: row["left"])
+    assert parents == {id(child): strict, id(twin): strict}  # a child reported twice keeps the cap too
+
+
+def test_a_parent_reading_that_cannot_cap_never_wins_over_one_that_can():
+    """#498 review: a stale 0% report loses to a current 5% report of the same parent."""
+    from peerhub.extensions.quota_read_model import project_pool_rows
+    from tests.communication.diag.test_monitor_activity_view import NOW
+    from peerhub.extensions.quota_read_model import monitor_reading
+    frame = payload()
+    current, child = frame["_human_observations"][0], frame["_human_observations"][1]
+    current = {**current, "measurements": {"remaining_fraction": .05}, "last_measurements": {"remaining_fraction": .05}}
+    stale = {**current, "peer_id": "cc2", "age_seconds": 10_000, "measurements": {"remaining_fraction": 0.0},
+             "last_measurements": {"remaining_fraction": 0.0}}
+    readings = [{"peer": str(item["peer_id"]), "pool": str(item["pool_ref"]).rpartition(":")[2],
+                 "pool_ref": str(item["pool_ref"]), "reading": monitor_reading(item, NOW, 0),
+                 "profiles": (), "retired": False} for item in (stale, current, child)]
+    rows = project_pool_rows(readings, NOW, require_consumers=False)  # type: ignore[arg-type]
+    assert rows[1].own_health["stale"] is False and rows[0].own_health["stale"] is True
+    assert rows[2].parent is readings[1]

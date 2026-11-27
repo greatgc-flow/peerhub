@@ -68,13 +68,13 @@ def _with_status(status: str) -> str:
 SYNTHETIC_QUOTA_ERROR = _nd([_events()[0], _terminal("ERROR", error=QUOTA_LINE)])
 
 
-def _step(index: int, step_type: str, state: str = "DONE") -> dict:
+def _quota_step(index: int, step_type: str, state: str = "DONE") -> dict:
     return {"event": "step_update", "step_update": {"conversation_id": CID, "step_index": index, "state": state,
                                                     "step_type": step_type}}
 
 
 # #503: once a tool step ran, a quota terminal cannot prove that nothing happened, so it stays uncertain.
-QUOTA_AFTER_TOOL = _nd([_events()[0], _step(1, "tool"), _terminal("ERROR", error=QUOTA_LINE)])
+QUOTA_AFTER_TOOL = _nd([_events()[0], _quota_step(1, "tool"), _terminal("ERROR", error=QUOTA_LINE)])
 
 
 class Kit:
@@ -676,7 +676,7 @@ def test_17b_quota_in_a_terminal_error_is_classified_from_the_terminal_only(kit,
     assert _provider_limit(_error(result)) == QUOTA
 
 
-@pytest.mark.parametrize("steps", [[], [_step(1, "user_input"), _step(2, "agent_response")]], ids=["no_steps", "no_tool_step"])
+@pytest.mark.parametrize("steps", [[], [_quota_step(1, "user_input"), _quota_step(2, "agent_response")]], ids=["no_steps", "no_tool_step"])
 def test_17d_quota_before_any_tool_step_is_not_executed_and_acked(kit, bridge_h, steps):
     # #503: a validated stream with no tool step proves that no tool ran; settle like a cx or cc refusal.
     stdout = _nd([_events()[0], *steps, _terminal("ERROR", error=QUOTA_LINE)])
@@ -689,8 +689,32 @@ def test_17d_quota_before_any_tool_step_is_not_executed_and_acked(kit, bridge_h,
 
 
 def test_17e_quota_while_a_tool_step_is_unfinished_stays_uncertain(kit, bridge_h):
-    stdout = _nd([_events()[0], _step(1, "tool", "ACTIVE"), _terminal("ERROR", error=QUOTA_LINE)])
+    stdout = _nd([_events()[0], _quota_step(1, "tool", "ACTIVE"), _terminal("ERROR", error=QUOTA_LINE)])
+    assert terminal_result(stdout.encode())["validation"]["reason"] == "step_unfinished"  # the tool step is read
     assert _cycle(bridge_h, kit.replay(stdout, exit_code=3, stderr=Q_STDERR)).status == "uncertain"
+
+
+def test_17f_a_finished_tool_step_is_read_as_a_tool():
+    stdout = QUOTA_AFTER_TOOL.encode()
+    assert terminal_result(stdout)["validation"] is None
+    assert [step["step_type"] for step in parse_ag_stream_json(stdout.decode())["steps"]] == ["tool"]
+
+
+@pytest.mark.parametrize("case", ["gap_between_steps", "quota_only_in_response"])
+def test_17g_unproven_quota_refusals_stay_uncertain(kit, bridge_h, case):
+    # #503 review: a gap between streamed steps could hide a tool; model text is never refusal evidence.
+    if case == "gap_between_steps":
+        stdout = _nd([_events()[0], _quota_step(0, "user_input"), _quota_step(2, "checkpoint"),
+                      _terminal("ERROR", error=QUOTA_LINE)])
+    else:
+        stdout = _nd([_events()[0], _terminal("ERROR", error="unrelated failure", response=QUOTA_LINE)])
+    assert _cycle(bridge_h, kit.replay(stdout, exit_code=3)).status == "uncertain"
+
+
+def test_17h_an_untrusted_reset_phrase_is_not_recorded(kit, bridge_h):
+    line = "Individual quota reached. Resets at 2026-11-15T00:00Z/" + "PRIVATE-SENTINEL" * 3
+    result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _terminal("ERROR", error=line)]), exit_code=3))
+    assert (result.status, result.detail["reason"], result.detail.get("reset_time")) == ("not_executed", "quota_exhausted", None)
 
 
 def test_17c_success_with_nonzero_exit_never_claims_quota(kit, bridge_h):
@@ -957,7 +981,7 @@ def test_23i_a_reset_phrase_over_100_characters_is_dropped():
 
 def test_23_delivery_with_exit_0_uses_the_bounded_summary(kit, bridge_h):
     line = "Individual quota reached. " + "x" * 400 + " Resets in 20h9m47s."
-    result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _step(1, "tool"), _terminal("ERROR", error=line)])))
+    result = _cycle(bridge_h, kit.replay(_nd([_events()[0], _quota_step(1, "tool"), _terminal("ERROR", error=line)])))
     assert result.status == "uncertain"
     assert _error(result).split("\n")[0] == "Individual quota reached (Resets in 20h9m47s)"
     assert _provider_limit(_error(result)) == QUOTA

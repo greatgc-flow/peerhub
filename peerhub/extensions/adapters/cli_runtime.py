@@ -441,7 +441,7 @@ class CliRuntimeTarget:
                 termination_confirmed=res.termination_confirmed)
         raw_text = res.stdout.decode("utf-8", "replace")
         # #503: a validated ag stream that hit a quota before any tool step is a refusal, not an uncertain run.
-        refusal: dict[str, Any] | None = ag.quota_refusal_before_work(res) if stream else None
+        refusal: dict[str, Any] | None = ag.quota_refusal_before_work(res, san) if stream else None
         stdout_text, stream_validation = (raw_text, None) if refusal is not None else (
             ag.stream_stdout(res, san, len(stdin_payload or b"")) if stream else (raw_text, None))
         if refusal is None and (not parser.has_tool_calls and not parser.has_success

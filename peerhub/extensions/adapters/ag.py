@@ -474,24 +474,35 @@ def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san:
     return "\n".join((san.clean(prefix), status_line))
 
 
-def quota_refusal_before_work(res: ProcessResult) -> dict[str, Any] | None:
+REFUSAL_RESET_CHARS = 40  # a reset phrase like "20h9m47s" or an ISO instant; anything longer is not trusted
+
+
+def quota_refusal_before_work(res: ProcessResult, san: Sanitizer) -> dict[str, Any] | None:
     """A quota or usage-limit terminal of a fully validated stream with no tool step (#503), else None.
 
-    The stream transport reports every step, so a validated stream (framing, every step known and finished) whose
-    steps include no `tool` proves that no tool ran: the delivery settles as NOT_EXECUTED like a cx or cc refusal.
-    A truncated, invalid or unvalidated stream, or one with any tool step, stays uncertain.
+    The stream transport reports tool steps, so a validated stream (framing, every step known and finished) whose
+    streamed steps are contiguous and include no `tool` proves that no tool ran: the delivery settles as
+    NOT_EXECUTED like a cx or cc refusal. Steps before the first streamed one are not streamed by agy (the turn's
+    input, earlier turns); a gap between streamed steps could hide a tool, so it stays uncertain. The limit must
+    come from the terminal's error fields, never from `response`. Anything else stays uncertain.
     """
     if res.stdout_truncated:
         return None
     term = terminal_result(res.stdout)
     if term["observation"] != "complete" or term["status"] == "SUCCESS" or term["validation"] is not None:
         return None
-    if any(step["step_type"] == "tool" for step in parse_ag_stream_json(res.stdout.decode("utf-8"))["steps"]):
+    steps = parse_ag_stream_json(res.stdout.decode("utf-8"))["steps"]
+    indices = [step["step_index"] for step in steps]
+    if any(step["step_type"] == "tool" for step in steps) or (indices and indices != list(range(indices[0], indices[-1] + 1))):
         return None
-    match = terminal_quota(term["terminal_line"])
+    terminal = json.loads(term["terminal_line"])
+    errors = {key: value for key, value in cast(dict[str, Any], terminal["result"]).items() if key != "response"}
+    match = terminal_quota(json.dumps({**terminal, "result": errors}))
     if match is None:
         return None
-    return {"reason": match.reason, "reset_time": match.reset_time, "message": _AG_LIMIT_SUMMARY[match.reason]}
+    reset = san.clean(match.reset_time) if match.reset_time else None
+    return {"reason": match.reason, "reset_time": reset if reset and len(reset) <= REFUSAL_RESET_CHARS else None,
+            "message": _AG_LIMIT_SUMMARY[match.reason]}
 
 
 def stream_stdout(res: ProcessResult, san: Sanitizer, payload_len: int) -> tuple[str, dict[str, Any] | None]:

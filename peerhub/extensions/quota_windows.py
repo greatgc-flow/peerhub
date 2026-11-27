@@ -95,7 +95,8 @@ def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = Tr
 
     With profile metadata, require a strict consumer-set inclusion. Without it, callers may use the
     known dependency by pool ref. The parent is matched by its account-scoped pool ref. When two peers
-    report that same parent, the lowest `strictness` key wins (the first row without one) (#498).
+    report that same parent, the consumers of every report establish the dependency, then the lowest
+    `strictness` key picks the reading (the first row without one), and every report of the child gets it (#498).
     """
     rows = [row for row in rows if not row["retired"] and row.get("state") != "n/a"]
     parents: dict[int, _Pool] = {}
@@ -105,13 +106,12 @@ def scoped_weekly_parents(rows: Sequence[_Pool], *, require_consumers: bool = Tr
             continue
         # Match by the account-scoped pool ref: another account's pools (or its ABSENT readings) never break the link.
         common = [row for row in rows if row["pool_ref"] == parent_ref]
-        same_ref = [row for row in rows if row["pool_ref"] == child["pool_ref"]]
-        if not common or len(same_ref) != 1:
+        if not common:
             continue
-        parent = min(common, key=strictness) if strictness is not None else common[0]
         members = set(child["profiles"])
-        if not require_consumers or (members and members < set(parent["profiles"])):
-            parents[id(child)] = parent
+        consumers = {profile for row in common for profile in row["profiles"]}
+        if not require_consumers or (members and members < consumers):
+            parents[id(child)] = min(common, key=strictness) if strictness is not None else common[0]
     return parents
 
 

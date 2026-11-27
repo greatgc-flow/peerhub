@@ -520,3 +520,25 @@ def test_first_delivery_of_a_fresh_session_counts_its_cumulative_usage(mode, exp
         conn.execute("INSERT INTO bridge_deliveries VALUES ('d1', 1, 's', 'ag', 'h1', ?)", (json.dumps({"mode": mode}),))
         telemetry = _cumulative("ag", provider_input_tokens=11154, cached_input_tokens=0, output_tokens=370)
         assert ask_budgets.ask_delivery_tokens(conn, "d1", telemetry)["prompt_tokens"] == expected
+
+
+def test_ag_prompt_is_unknown_when_either_cumulative_component_resets():
+    # #502 review: deltas come first, so input falling 100 -> 50 is a reset, not 50 prompt tokens.
+    before = _cumulative("ag", provider_input_tokens=100, cached_input_tokens=100, output_tokens=1)
+    after = _cumulative("ag", provider_input_tokens=50, cached_input_tokens=200, output_tokens=2)
+    tokens = ask_budgets.ask_tokens(after, before)
+    assert (tokens["input_tokens"], tokens["prompt_tokens"], tokens["cache_read_tokens"]) == (None, None, 100)
+
+
+def test_bridge_keeps_the_turn_limit_of_a_legacy_budget_pair(tmp_path):
+    from tests.communication.harness.bridge import BridgeHarness
+    bridge = BridgeHarness(tmp_path / "ws").new_bridge("legacy", stream_budget=(128_000, 12))
+    assert bridge._stream_budget == 12
+
+
+def test_monitor_ag_cache_share_adds_cached_input():
+    # #502 review: the monitor USAGE and SESSIONS views agree with profile stats for agy.
+    from peerhub.cli.monitor_sections import _input_excludes_cache, _usage_values
+    telemetry = {"normalized": {"provider_input_tokens": 5000, "cached_input_tokens": 15000, "output_tokens": 10}}
+    assert _usage_values(telemetry, _input_excludes_cache({"peer_id": "ag"})) == (5010, 20000, 15000)
+    assert _usage_values(telemetry, _input_excludes_cache({"peer_id": "cx"})) == (5010, None, None)

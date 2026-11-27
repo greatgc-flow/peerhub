@@ -85,12 +85,19 @@ def _token_counts(telemetry: Mapping[str, Any]) -> dict[str, int | None]:
         # so adding it again would double count.
         "prompt_tokens": normalized.get("provider_input_tokens"),
     }
-    if telemetry.get("provider_kind") == "ag":
-        # agy's input_tokens excludes cached input (#502: cached exceeds input in stored runs), so the prompt is the sum.
-        reported, cached = counts["input_tokens"], counts["cache_read_tokens"]
-        whole = reported + cached if type(reported) is int and type(cached) is int else None
-        counts["input_tokens"] = counts["prompt_tokens"] = whole
     return {key: value if type(value) is int and value >= 0 else None for key, value in counts.items()}
+
+
+def _ask_counts(telemetry: Mapping[str, Any], counts: dict[str, int | None]) -> dict[str, int | None]:
+    """agy's input_tokens excludes cached input (#502: cached exceeds input in stored runs), so its prompt is the sum.
+
+    Applied after any session delta, so a reset in either component leaves the prompt unknown.
+    """
+    if telemetry.get("provider_kind") != "ag":
+        return counts
+    reported, cached = counts["input_tokens"], counts["cache_read_tokens"]
+    whole = reported + cached if reported is not None and cached is not None else None
+    return {**counts, "input_tokens": whole, "prompt_tokens": whole}
 
 
 def ask_tokens(
@@ -100,7 +107,7 @@ def ask_tokens(
     scope = telemetry.get("usage", {}).get("scope")
     counts = _token_counts(telemetry)
     if scope == "delivery":
-        return counts
+        return _ask_counts(telemetry, counts)
     if (scope != "session_cumulative" or previous is None
             or previous.get("usage", {}).get("scope") != scope
             or previous.get("provider_kind") != telemetry.get("provider_kind")):
@@ -114,7 +121,7 @@ def ask_tokens(
         # A reset in a component can be masked by growth in the total prompt counter.
         if any(deltas[key] is None for key in ("input_tokens", "cache_read_tokens", "cache_write_tokens")):
             deltas["prompt_tokens"] = None
-    return deltas
+    return _ask_counts(telemetry, deltas)
 
 
 def _previous_session_delivery(conn: sqlite3.Connection, delivery_id: str) -> str | None:
@@ -142,7 +149,7 @@ def ask_delivery_tokens(
     if delivery_id is not None and telemetry.get("usage", {}).get("scope") == "session_cumulative":
         prior = _previous_session_delivery(conn, delivery_id)
         if prior is None and _session_mode(conn, delivery_id) == "fresh":
-            return _token_counts(telemetry)  # #502: a fresh session starts at zero, so its first delivery is the total
+            return _ask_counts(telemetry, _token_counts(telemetry))  # #502: a fresh session starts at zero
         previous = _delivery_telemetry(conn, prior)
     return ask_tokens(telemetry, previous)
 
