@@ -63,3 +63,18 @@ The option-effect suite found a valid base64url cursor beginning with a dash. Th
 - Six real filesystem/WAL/restore and process-crash cases are registered in the reviewed Windows platform inventory. A Windows skip cannot stand in for an executed test.
 - Wheel and sdist builds stay at the existing source version. Installed-wheel smoke runs against a missing synthetic DB outside the checkout and checks exit 5 with no creation.
 - The only existing CLI oracle changes add the activity leaf commands and option-effect proofs. No owner requirement text or pinned existing behavior was changed. Live provider validation, Engram-side ingestion, P1, P2 and publication are NOT_RUN.
+
+## WP6 receiver recovery evidence
+
+The Engram refs reviewed included main at `61076a4734d691fe917bee562a2e2bec9c7a9148`, WP0 at `50d3ddd19a1fed292080266c233f70e5bf52ef03` and optional-pack catalog at `26b8bb0e03455dcd054b70ca6eda3961769cb4c0`. All nine fetched branch trees were checked for an activity receiver. The available WP0 probe exercises stream/record/session history. Native Engram WP6 ingestion and owner acceptance remain **BLOCKED** pending its adapter. The producer schema and golden fixture remain at version 1.0.
+
+The earlier WP0 probe observed new WAL/SHM sidecars after a direct history read on a closed WAL database. The stricter protected-source route now has an executable test using a real PeerHub backup bundle and a disposable restored workspace. The first run failed before export because the backup scanner matched the letters at the end of the prefix in an ask-generated claim owner. The scanner now distinguishes the exact text UUID4 in `bridge_claims.owner_id`. Binary values, other fields, token-shaped text, invalid UUIDs and appended text still receive the full credential checks. A second RED detected binary input being treated as text before classification. Both corrections have regression coverage.
+
+| Scenario | Producer-side observation |
+|---|---|
+| Receiver exits before committing a page | Reopening the disposable ledger recovers the previous cursor and event count. Feedback appended during downtime is visible on retry and verification remains UNKNOWN. |
+| Receiver exits immediately after commit | The successor checkpoint and both feedback entries survive process death. Restarting yields an empty poll. |
+| Replacing the working copy with a managed restore | The previous checkpoint returns exit 2 and RESNAPSHOT_REQUIRED. A new snapshot retains identical event keys, preserves the original accepted receipt and quarantines the divergent rejected receipt once, with its new lineage. |
+| Protected backup and enrollment | The normal CLI pages the explicitly selected stream in the disposable directory. The list and SHA-256 digests of all files in the supplied synthetic backup agree before and after both restores. |
+
+Reproduce with `python -m pytest -q tests/communication/integration/test_activity_receiver.py tests/continuity/test_backup_recovery.py`. The receiver database exists only in the test's temporary directory. Tests exercise an independent fixture through the CLI and OS process exits. They cover producer-side behavior relevant to T95/T97 and the WP6 transaction boundary. Native Engram evaluation invalidation, policy rechecks and cross-source task linking still require the consumer.

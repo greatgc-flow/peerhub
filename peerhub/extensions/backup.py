@@ -99,6 +99,7 @@ def _now_iso() -> str:
 # -----------------------------------------------------------------------------
 _SECRET_VALUE = re.compile(r"sk-(?:secret|proj-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY")
 _SECRET_ASSIGNMENT = re.compile(r'''(?im)(?:api[_-]?key|private[_-]?key|password|access[_-]?token|auth[_-]?token|credential|secret[_-]?token)\s*["']?\s*[:=]\s*["']?([^\s"'#,{}\[\]]+)''')
+_ASK_OWNER = re.compile(r"ask-[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}")
 
 
 def assert_no_plaintext_secrets(data: Any) -> None:
@@ -147,14 +148,17 @@ def _scan_secrets(path: Path) -> None:
                 with closing(conn.execute(f'SELECT * FROM "{quoted}"')) as cursor:
                     names = [column[0] for column in cursor.description]
                     for row in cursor:
-                        assert_no_plaintext_secrets(dict(zip(names, (
-                            value.decode("utf-8", "replace") if isinstance(value, bytes) else value for value in row
-                        ))))
-                        for value in row:
+                        fields = dict(zip(names, row))
+                        owner = fields.get("owner_id")
+                        if table == "bridge_claims" and isinstance(owner, str) and _ASK_OWNER.fullmatch(owner):
+                            # ask() writes this UUID4. Inspect its payload without matching "sk-" inside "ask-".
+                            fields["owner_id"] = owner.removeprefix("ask-")
+                        decoded = {name: value.decode("utf-8", "replace") if isinstance(value, bytes) else value
+                                   for name, value in fields.items()}
+                        assert_no_plaintext_secrets(decoded)
+                        for value in decoded.values():
                             if isinstance(value, str):
                                 check(value)
-                            elif isinstance(value, bytes):
-                                check(value.decode("utf-8", "replace"))
     else:
         # Overlap catches credentials split across bounded read chunks.
         tail = b""

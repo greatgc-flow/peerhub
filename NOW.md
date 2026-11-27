@@ -3,11 +3,11 @@
 Read this first: current state and next steps. Recent flow is the top of CHANGELOG.md and `git log --oneline -10`.
 Update it in the same PR when the state or next steps change. Keep it under 30 lines.
 
-Updated: 2026-11-27
+Updated: 2026-11-28
 
 ## State
 
-- Released: v0.28.2 (2026-11-27): #503, #502, #498. An activity export candidate is in review. See the [implementation record](docs/implementation/activity/WORK.md).
+- Released: v0.28.2 (2026-11-27): #503, #502, #498. The activity export candidate includes backup and receiver crash-recovery checks. Engram WP6 adapter validation is pending. See the [implementation record](docs/implementation/activity/WORK.md).
 
 ## Next (ordered)
 
