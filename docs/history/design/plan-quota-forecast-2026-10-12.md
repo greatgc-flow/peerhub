@@ -1,5 +1,7 @@
 Plan document, 2026-10-12. Reference, not an instruction file.
 
+Issue #500 updated the long-window support rule. See the [current forecast rules](../../../README.md#everyday-commands).
+
 A2d polish, 2026-10-12: remove WIN and visible zone labels; align FORECAST/FRESH at 80/100/120 columns; round countdowns, simplify ETA wording, and report missing coverage honestly in text and JSON. Fresh zero usage is insufficient (no usage yet). The A2c policy gates below remain unchanged.
 
 A2c update, 2026-10-12: decisions changed after the real `screen_live.txt`

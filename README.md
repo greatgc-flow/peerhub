@@ -258,12 +258,13 @@ For automation, `--json` emits schema
 The `diag` dashboard shows a threat summary, a stable pool
 table with usage, PACE in percentage points, reset countdown, conditional
 forecast and freshness, then credits, latest asks, probe health and one
-legend/controls line. PACE is measured usage minus elapsed window percentage;
-positive means faster than even. Forecasts require 5 percentage points used
-and 10% elapsed (20% for windows of at least one day); projected reset use of at
-least 105% is a threat. Below the support gates the screen says “not enough
-data”. Inferred anchors remain conditional and predictive accuracy is not
-established.
+legend/controls line. PACE is measured usage minus elapsed window percentage.
+Positive means faster than even. Forecasts require at least 5 percentage points
+used and some elapsed time. Windows of at least one day qualify once 20% has
+elapsed or 25 percentage points have been used. Shorter windows require 10%
+elapsed. Projected reset use of at least 105% is a threat. Below the
+support gates the screen says “not enough data”. Inferred anchors remain
+conditional and predictive accuracy is not established.
 
 Monitor reads committed evidence every N seconds (`--interval-seconds`).
 In a terminal it refreshes quota when due. Collection may spend quota through provider calls such as

@@ -7,7 +7,7 @@ Updated: 2026-11-27
 
 ## State
 
-- Released: v0.28.0 (2026-11-27). Branches: `main` only. In flight: none.
+- Released: v0.28.1 (2026-11-27). Branches: `main` only. In flight: none.
 
 ## Next (ordered)
 

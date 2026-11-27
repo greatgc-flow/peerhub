@@ -84,7 +84,7 @@ def test_state_precedence_keeps_low_and_fast_ahead_of_aged_or_ok():
 def test_exhaustion_reuses_projection_guard_and_compares_to_reset():
     from peerhub.extensions.diag_quota import projection
 
-    guarded = health(reading(HALF, elapsed=WEEK * MIN_ELAPSED_LONG - 1))
+    guarded = health(reading(.90, elapsed=WEEK * MIN_ELAPSED_LONG - 1))
     assert guarded["exhaust_in_seconds"] is None and not guarded["exhaust_before_reset"]
     assert guarded["exhaust_margin_seconds"] is None
     tied = health(reading(HALF))
