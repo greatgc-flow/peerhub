@@ -42,3 +42,15 @@ def test_requirements_registry_names_existing_tests() -> None:
             module = ast.parse(path.read_text(encoding="utf-8"), filename=filename)
             assert any(isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)) and definition.name == name
                        for definition in module.body), f"{requirement_id} names a missing test: {node}"
+
+
+def test_owner_requirements_keep_their_wording() -> None:
+    """Owner-stated rows change only with the owner's approval: edit owner_requirements.json in that same PR."""
+    import json
+    frozen = json.loads((Path(__file__).with_name("owner_requirements.json")).read_text(encoding="utf-8"))
+    rows = {cells[0].strip(): cells[1].strip()
+            for line in (ROOT / "docs/requirements.md").read_text(encoding="utf-8").splitlines()
+            if line.startswith("| R") and len(cells := line.strip().strip("|").split("|")) == 3}
+    for requirement_id, text in frozen.items():
+        assert rows.get(requirement_id) == text, (
+            f"{requirement_id} is an owner requirement; keep its wording or get the owner's approval first")

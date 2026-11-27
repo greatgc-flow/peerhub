@@ -41,6 +41,7 @@ Breaking: removes `peerhub suggest` and the monitor `suggest:` line (deprecated 
 
 ### Fixed
 
+- Restored owner requirement R2: compact and expand hide n/a pools by default (0.27.0 had started listing them in expand); POOLS counts and the gap line leave them out. Owner-stated registry rows are now frozen by a test, so a lane cannot reword one silently.
 - `peerhub diag quota` and `peerhub diag health` supersede old unpooled `ERROR` quota rows once a newer `MEASURED` quota observation exists for the same peer (#497).
 - `peerhub diag health --stream` retains stream details in text mode when an unavailable `--observation-db` downgrades overall status to `PARTIAL` (#497).
 - `peerhub observation refresh` text mode computes the age column at refresh time (`now` minus `observed_at`), prints `-` for missing or unparseable timestamps, and tolerates `observations: null` (#497).

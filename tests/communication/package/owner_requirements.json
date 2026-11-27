@@ -1,0 +1,17 @@
+{
+ "R1": "The monitor's first line stays on screen at 118×37 in compact and expand.",
+ "R2": "Compact and expand hide n/a pools by default.",
+ "R3": "Compact and expand share section order.",
+ "R4": "Both monitor views show the Guide link in the header when links are enabled.",
+ "R5": "F-7D appears under C-7D and is limited by it.",
+ "R6": "PACE shows 0.00 for an unused window and uses two decimals.",
+ "R7": "The RUNNING count equals the number of active asks.",
+ "R8": "Expanded SESSIONS shows `uses N`.",
+ "R9": "Narrow terminals drop columns from the right.",
+ "R10": "Confirmed dead workers release leases and clear gone alerts.",
+ "R11": "An agy quota probe must spend zero model turns. The token guard rejects consumption.",
+ "R12": "`peerhub diag --plan` is the AI view with pools, load and RAM.",
+ "R14": "Reset short windows hold without gating another pool. Both monitor views keep one `reset · refresh pending` child row under the weekly parent, with no bar or PACE (#495). Both views hide other expired readings.",
+ "R15": "Both monitor views count running asks beyond the scope detail cap.",
+ "R16": "QUOTA groups pools by peer and orders peer groups and families by POOLS rank, keeping children under their parents."
+}

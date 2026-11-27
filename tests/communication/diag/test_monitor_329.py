@@ -350,20 +350,21 @@ def test_5h_na_notes_use_the_fresh_account_plan_when_the_quota_probe_reports_non
     assert item["display_plan"] == "pro" and item["plan_source"] == "account"
     other = next(o for o in observations if o["pool_ref"] == "quota:cc:C-7D")
     assert "display_plan" not in other and "plan_source" not in other  # only the notes that needed it carry the fields
-    assert "C-5H" not in compact
-    pools = expanded.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
-    assert f"(C-5H {QUOTA_NA})" in pools and "plan unknown" not in expanded
-    assert "plan pro: no 5h window" in expanded
+    # R2 (owner): both views hide n/a pools, so the plan explanation lives in the JSON fields above.
+    assert "C-5H" not in compact and f"(C-5H {QUOTA_NA})" not in expanded
 
 
 def test_unknown_plan_stays_unknown_without_a_fresh_account_plan(store, capsys):
     cc_without_5h(store)
     account(store, "cc", age=7 * 3600, plan="pro", plan_status="reported")  # aged: not a fresh reading
-    assert "plan unknown" in snapshot(store, capsys, "--expand")
+    def c5h(target):
+        items = json.loads(snapshot(target, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
+        return next(o for o in items if o["pool_ref"] == "quota:cc:C-5H")
+    assert "display_plan" not in c5h(store)
     store2 = Store(store.db.parent.parent / "second")
     cc_without_5h(store2)
     account(store2, "cc", age=30, plan=None, plan_status="UNKNOWN")  # reported nothing
-    assert "plan unknown" in snapshot(store2, capsys, "--expand")
+    assert "display_plan" not in c5h(store2)
 
 
 def test_a_quota_probe_plan_is_never_overridden_by_the_account_plan(store, capsys):
@@ -371,7 +372,7 @@ def test_a_quota_probe_plan_is_never_overridden_by_the_account_plan(store, capsy
     store.add("cx", "X-5H", "ABSENT", age=20, source="codex_app_server", evidence_ref="probe:cx:app-server", reason=NOT_REPORTED + "prolite")
     account(store, "cx", age=30, plan="other", plan_status="reported")
     out = snapshot(store, capsys, "--expand")
-    assert "(plan prolite)" in out and "plan other" not in out
+    assert "plan other" not in out  # R2: the n/a X-5H note is hidden; the probe plan stays in the stored reason
     items = json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
     assert all("display_plan" not in o for o in items)
 
