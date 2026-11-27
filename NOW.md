@@ -11,6 +11,7 @@ Updated: 2026-11-27
 
 ## Next (ordered)
 
-1. #497 item 5 (monitor `--json` size and PARTIAL exit) is deferred until a concrete consumer appears.
-2. Engram and VerySimpleGuide adopt NOW.md and AGENTS.md lane rules once this file has stayed accurate for one release.
-3. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
+1. [#498](https://github.com/greatgc-flow/peerhub/issues/498) Two low-impact diag/monitor edge cases from the 0.28.0 review.
+2. #497 item 5 (monitor `--json` size and PARTIAL exit) is deferred until a concrete consumer appears.
+3. Engram and VerySimpleGuide adopt NOW.md and AGENTS.md lane rules once this file has stayed accurate for one release.
+4. #488 item 4 (watch keyboard controls) is deferred: the interactive TUI stays in the STATUS backlog.
