@@ -8,12 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-11-27
+
 ### Added
 
 - `peerhub batch run` reports the denied tool names (`denied_actions`) of a task in JSON and as a `denied:` line in text, so a `denied_empty` task shows what was denied (#493).
-### Fixed
 
-- Monitor: a just-reset short window keeps a `reset · refresh pending` row under its weekly parent in compact and expand instead of vanishing from POOLS (#495).
 ### Changed
 
 - `peerhub observation refresh` prints a concise per-peer/pool summary in text mode and reserves the raw observation JSON array for `--json`.
@@ -21,9 +21,11 @@ they do not claim new validation or publication evidence.
 - `peerhub suggest --help` and `peerhub explain lessons` mark `suggest` as deprecated in favor of `peerhub diag --plan`.
 - `peerhub explain exit-codes` renders a scannable exit-code table matching `ask`, `monitor` and `update`, and `peerhub update --help` scopes exit `1` to `--plan`.
 - `peerhub guide` clarifies that `ag` is always writable (no read-only sandbox) and points to `peerhub profile list` instead of hardcoding top profiles.
+- Model defaults (revision 2026-11-27.1): agy 1.5.18 observed (clears the `ag: version_drift` fact); the `codex debug models` and `agy.exe models` catalogs still list every packaged model; `python -m tools.model_ping` passed for all cx and ag profiles (model, and effort for cx), so their `checked` and card dates are 2026-11-27. cc profiles were not pinged.
 
 ### Fixed
 
+- Monitor: a just-reset short window keeps a `reset · refresh pending` row under its weekly parent in compact and expand instead of vanishing from POOLS (#495).
 - `peerhub batch run`, `peerhub ask` and `peerhub explain` emit targeted `next:` hints without raw Python `Errno` strings or `'.;` punctuation.
 
 ## [0.27.0] - 2026-11-27
