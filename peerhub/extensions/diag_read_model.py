@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, cast
 from peerhub.core.text import strip_controls
 from peerhub.core.quota_policy import PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS, format_pace
 from peerhub.extensions.billing_port import billing_consumer
-from peerhub.extensions.observation_model import BILLING_KINDS
-from peerhub.extensions.quota_projection import observation_projection
+from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, BILLING_KINDS
+from peerhub.extensions.quota_projection import limit_by_parent, observation_projection, scoped_parent_ref
 from peerhub.extensions.quota_read_model import PoolReading, PoolRow, project_pool_rows
 from peerhub.extensions.quota_windows import (
     FAMILIES,
@@ -68,7 +68,11 @@ class QuotaRow:
         self.ttl = report_number(item.get("ttl_seconds"))
         self.reason = strip_controls(payload.get("reason") or "")
         rf = report_number(payload.get("remaining_fraction"))
-        self.used = 1 - rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
+        self.left_fraction = rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
+        self.used = 1 - rf if self.left_fraction is not None and rf is not None else None
+        self.na = self.state == "ABSENT" and self.reason.startswith(ABSENT_FACT_REASONS)
+        self.limited_by: str | None = None
+        self.own_left_fraction: float | None = None
         start, reset = report_number(payload.get("window_started_at")), report_number(payload.get("resets_at"))
         self.span = reset - start if reset is not None and start is not None and reset > start else float("inf")
         # A declared suffix supplies a display/sort window for a registered
@@ -95,8 +99,25 @@ def quota_rows(items: list[Obj], pools: list[Obj], read_at: float) -> list[Quota
         ref = pool.get("resource_pool_id")
         if ref and pool.get("kind") in ("QUOTA", "RATE_LIMIT"):
             selected.setdefault(str(ref), {"subject_ref": pool.get("provider"), "resource_pool_ref": ref, "state": "UNKNOWN", "payload": {}})
-    return sorted((QuotaRow(i, read_at) for i in selected.values()),
+    rows = sorted((QuotaRow(i, read_at) for i in selected.values()),
                   key=lambda r: (r.peer, _family(r.pool), r.span, r.ref))
+    by_peer_ref = {(r.subject_ref, r.ref): r for r in rows}
+    for r in rows:
+        parent_ref = scoped_parent_ref(r.ref)
+        parent = by_peer_ref.get((r.subject_ref, parent_ref)) if parent_ref else None
+        if (parent is None or r.state != "MEASURED" or parent.state != "MEASURED"
+                or (r.left is not None and r.left <= 0) or (parent.left is not None and parent.left <= 0)):
+            continue
+        eff_left, eff_reset, limited = limit_by_parent(r.left_fraction, r.left, parent.left_fraction, parent.left)
+        if limited and eff_left is not None:
+            r.own_left_fraction = r.left_fraction
+            r.limited_by = parent.pool
+            r.left_fraction = eff_left
+            r.used = 1 - eff_left
+            r.left = eff_reset
+            r.projection = parent.projection
+            r.diff = parent.diff
+    return rows
 
 
 def _family(pool: str) -> str:
@@ -107,13 +128,14 @@ def _family(pool: str) -> str:
 def threat_summary(rows: list[QuotaRow]) -> dict[str, object]:
     fresh = sum(r.projection["state"] in ("threat", "on_pace", "insufficient", "exhausted") for r in rows)
     stale = [r for r in rows if r.state == "STALE"]
+    na = sum(1 for r in rows if r.na)
     threats = [r for r in rows if r.projection["state"] == "threat"]
     exhausted = [r for r in rows if r.projection["state"] == "exhausted"]
     oldest = max((r.age for r in stale if r.age is not None), default=None)
     state = "threat" if threats or exhausted else "clear" if fresh else "unknown"
     reason = None if fresh else "evidence is stale" if stale else "evidence is missing or invalid"
     return {"state": state, "reason": reason, "fresh_pools": fresh, "stale_pools": len(stale),
-            "unknown_pools": len(rows) - fresh - len(stale), "oldest_stale_seconds": oldest,
+            "unknown_pools": max(0, len(rows) - fresh - len(stale) - na), "oldest_stale_seconds": oldest,
             "threatened_pools": [r.ref for r in threats], "exhausted_pools": [r.ref for r in exhausted]}
 
 
@@ -499,6 +521,18 @@ def plan_gaps(pools: list[_PlanPool]) -> PaceGaps:
     return pace_gaps({name: health for name, health in by_name.items() if health is not None})
 
 
+def _round_plan_floats(value: object) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return round(value, 2)
+    if isinstance(value, Mapping):
+        return {k: _round_plan_floats(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_round_plan_floats(v) for v in value]
+    return value
+
+
 def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
               load: Mapping[str, object] | None = None,
               profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset()) -> dict[str, object]:
@@ -507,7 +541,8 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
              if not peers or pool[0] in peers]
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
                                "store_selection": dict(store_selection)}
-    data.update(legend=PLAN_LEGEND, pools=[row for _, row, _ in pools], gaps=plan_gaps(pools))
+    data.update(legend=PLAN_LEGEND, pools=[_round_plan_floats(row) for _, row, _ in pools],
+                gaps=_round_plan_floats(plan_gaps(pools)))
     if load is not None:
-        data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
+        data["load"] = _round_plan_floats(dict(load))  # additive: sampled now, unlike the stored pools
     return data

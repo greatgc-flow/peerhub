@@ -318,7 +318,7 @@ def test_limited_child_budget_uses_effective_left_and_nearer_reset():
     cells = next(line.split(maxsplit=7) for line in text.splitlines() if line.startswith(f"cc   {child_pool}"))
     hrs = own["health"]["effective_reset_in_seconds"] / HOUR
     assert cells[5] == f"{effective['left_pct'] / hrs:.2f}"
-    assert own["target_pct_per_hour"] == pytest.approx(own["left_pct"] / hrs)
+    assert own["target_pct_per_hour"] == round(own["left_pct"] / hrs, 2)
     assert cells[6] == "rest" and cells[7].startswith(f"{parent_pool}: ")
 
 

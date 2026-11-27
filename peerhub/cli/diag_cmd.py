@@ -38,13 +38,15 @@ def register_diag_parser(subparsers: Subparsers) -> None:
     diag_parser.description = "Read-only, one-shot diagnostics for AI agents. Run `diag --plan` once per turn to size parallel work. Humans use `peerhub monitor`."
     diag_parser.add_argument("--json", action="store_true")
     diag_parser.add_argument("--plan", action="store_true",
-                             help="Per-pool spend/hold/rest/blocked with target %%/h until reset, from stored observations only (no refresh)")
+                             help="Per-pool spend/hold/rest/blocked with BUDGET%%/h (JSON target_pct_per_hour) and PACE(pp) (JSON pace_pt) "
+                                  "until reset, from stored observations only (no refresh; —/? marks unknown value, JSON action is effective "
+                                  "and health is pool's own state)")
     diag_parser.add_argument("--peer", dest="plan_peers", action="append", metavar="PEER",
                              help="With --plan, show only these subjects (exact match, repeatable)")
     diag_parser.add_argument("--observation-db", dest="plan_obs_db", metavar="PATH",
                              help="With --plan, read observations from this other workspace database (read-only, never created). "
                                   "Load still comes from the selected store.")
-    diag_parser.epilog = "Examples: peerhub diag --json | peerhub diag --plan --json | peerhub monitor"
+    diag_parser.epilog = "Examples: peerhub diag --plan | peerhub diag --json | peerhub monitor"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
 
     d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
@@ -56,18 +58,30 @@ def register_diag_parser(subparsers: Subparsers) -> None:
     d_health.epilog = "examples: peerhub diag health | peerhub diag health --stream s1"
 
     d_quota = diag_sub.add_parser("quota", help="Show current quota/rate-limit evidence (read-only, never refreshes)",
-                                  description="Latest quota/rate_limit Observation per subject/pool exactly as Diag evaluates it "
-                                              "(MEASURED/STALE/UNKNOWN/UNAVAILABLE). Missing evidence is UNKNOWN, never unlimited. "
+                                  description="Latest quota/rate_limit observation per peer/pool as Diag evaluates it "
+                                              "(MEASURED/STALE/ABSENT/ERROR/UNKNOWN/UNAVAILABLE). Missing evidence is UNKNOWN, never unlimited. "
                                               "Exit: 0 ok, 4 storage fault/corrupt evidence, 5 database or observation tables unavailable, 6 schema version.")
     d_quota.add_argument("--observation-db", dest="obs_db", default=None, metavar="PATH",
                          help="Read observations from this OTHER PeerHub workspace database (opened read-only, never created); default: the --db database")
-    d_quota.add_argument("--peer", default=None, help="Only this subject_ref (exact match)")
-    d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
+    d_quota.add_argument("--peer", default=None, help="Only this peer (exact match, e.g. ag, cc, cx)")
+    d_quota.add_argument("--pool", default=None, help="Only this pool (exact match, e.g. quota:cx:X-7D)")
     d_quota.add_argument("--max-age-seconds", type=_nonnegative_seconds, metavar="N",
                          help="Show quota and rate-limit observations at most N seconds old (default: any age)")
     d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
-    d_readiness = diag_sub.add_parser("readiness", help="Cached profile readiness (read-only; never probes)")
+    d_readiness = diag_sub.add_parser(
+        "readiness",
+        help="Cached profile readiness (read-only; never probes)",
+        description=(
+            "Read-only check of cached profile readiness (never probes providers; delivery certainty only). "
+            "UNKNOWN and UNVERIFIED mean a check is uncached or stale, not that the profile is broken. "
+            "STATE: READY (cached criteria satisfied), UNVERIFIED (no cached terminal ask or write-tier consent needed), "
+            "UNKNOWN (missing/stale quota or unresolved stream), EXHAUSTED (0%% quota left before reset). "
+            "NEXT remediation: ok (ready to ask), facts (run `peerhub observation refresh`), "
+            "consent (pass `--writable` on write-tier asks), health (run `peerhub diag health --stream STREAM`), "
+            "refusal (inspect `peerhub diag quota`), wait (wait for pool reset)."
+        ),
+    )
     d_readiness.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_readiness.epilog = "examples: peerhub diag readiness | peerhub --db ws.db diag readiness --json"
 
@@ -94,7 +108,7 @@ def _format_health_text(result: dict[str, Any], *, db: str, db_source: str, obs_
         lines.append(f"observation_store: {obs_db}")
     if "stream_id" in result:
         lines.append(f"stream_id: {result['stream_id']}")
-        if result.get("status") == "OK":
+        if result.get("status") in ("OK", "PARTIAL"):
             for key in ("title", "state", "revision", "head_position", "record_count"):
                 val = result.get(key)
                 lines.append(f"{key}: {'-' if val is None else val}")

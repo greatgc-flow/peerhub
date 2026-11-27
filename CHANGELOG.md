@@ -8,6 +8,20 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Bare `peerhub diag` text uses `LEFT` and `PACE(pp)`, applies `C-7D` parent caps to `F-7D`, renders `ABSENT` windows as `- n/a`, and puts `peerhub diag --plan` first in `diag --help` examples (#497).
+- `peerhub diag --plan --json` rounds float fields to two decimal places, labels `in-flight n/a pools:` on the `load:` line, and documents `BUDGET%/h` (`target_pct_per_hour`), `PACE(pp)` (`pace_pt`), `—`/`?` unknown markers, and `health` (pool's own state) vs `action` (effective gated action) (#497).
+- `peerhub diag readiness` documents `STATE` and `NEXT` remediation commands in `--help` and output, clarifies that `UNKNOWN`/`UNVERIFIED` mean uncached checks rather than broken profiles, and formats durations with `human_duration` (#497).
+- `peerhub diag quota` rounds float measurements, uses uniform human durations for observation ages and reset-credit countdowns, and lists `MEASURED/STALE/ABSENT/ERROR` with user-facing `--peer`/`--pool` labels in `--help` (#497).
+
+### Fixed
+
+- `peerhub diag quota` and `peerhub diag health` supersede old unpooled `ERROR` quota rows once a newer `MEASURED` quota observation exists for the same peer (#497).
+- `peerhub diag health --stream` retains stream details in text mode when an unavailable `--observation-db` downgrades overall status to `PARTIAL` (#497).
+- `peerhub observation refresh` text mode computes the age column at refresh time (`now` minus `observed_at`), prints `-` for missing or unparseable timestamps, and tolerates `observations: null` (#497).
+- Bare `peerhub diag` treats `ABSENT` provider windows as `OK` probe outcomes and uses singular/plural grammar for stale and unknown pool counts (#497).
+
 ## [0.27.1] - 2026-11-27
 
 ### Added

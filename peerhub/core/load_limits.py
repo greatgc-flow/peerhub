@@ -17,7 +17,7 @@ LOAD_WARNING_MESSAGES = {
     "free_ram": "free RAM {free:.1f} GB is below minimum {minimum} GB",
     "cpu_busy": "CPU load {busy:.1f}% is at or above warning level {warning}%",
 }
-PLAN_NA_POOLS_LABEL = "n/a pools"
+PLAN_NA_POOLS_LABEL = "in-flight n/a pools:"
 PLAN_NA_POOLS_LIMIT = 4
 MINE, OTHER, UNKNOWN = CALLER_RELATIONS = ("mine", "other", "unknown")
 _GB = 1024 ** 3

@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from peerhub.core.quota_policy import human_duration
 from peerhub.core.scalars import finite_number
 from peerhub.extensions.adapters.api import API_TARGETS
 from peerhub.extensions.adapters.common import classify_refusal_text
@@ -188,11 +189,16 @@ READINESS_ROWS = 13  # every packaged profile fits (9 tiers + 4 tops); more only
 
 
 def format_readiness(report: dict[str, Any]) -> str:
-    lines = [f"Cached readiness: {report['status']} (READY=cached criteria satisfied; delivery certainty only)", "PROFILE POOLS STATE LAST NEXT"]
+    lines = [
+        f"Cached readiness: {report['status']} (read-only cache check; UNKNOWN/UNVERIFIED=uncached, not broken)",
+        "STATE: READY=cached checks ok | UNVERIFIED=no cached ask/consent | UNKNOWN=stale/missing cache | EXHAUSTED=0% left",
+        "NEXT: -=ready | facts->`peerhub observation refresh` | consent->pass `--writable` | health->`peerhub diag health --stream STREAM` | refusal->`peerhub diag quota` | wait=until reset",
+        "PROFILE POOLS STATE LAST NEXT",
+    ]
     aliases = {ref: str(n) for n, ref in enumerate(report["pools"], 1)}
     for p in report["profiles"][:READINESS_ROWS]:
         last = p["last"]
-        age = "?" if last["age"] is None else f"{last['age']:.0f}s"
+        age = "?" if last["age"] is None else human_duration(last["age"])
         action = {"ask_uncertain": "health", "ask_refusal": "refusal", "ask_delivery_failed": "consent",
                   "wait_reset": "wait", "inspect_facts": "facts"}.get(p["next"]["code"], "facts") if p["next"] else "-"
         label = last["error_class"] if last["error_class"] != "UNKNOWN" else last["outcome"]
@@ -202,8 +208,8 @@ def format_readiness(report: dict[str, Any]) -> str:
         lines.append(f"+{len(report['profiles']) - READINESS_ROWS} profiles, see --json")
     for ref, pool in report["pools"].items():
         rem = "?" if pool["remaining"] is None else f"{pool['remaining']:.0%}"
-        reset = "?" if pool["reset_in"] is None else f"{pool['reset_in']:.0f}s"
-        age = "?" if pool["age"] is None else f"{pool['age']:.0f}s"
+        reset = "?" if pool["reset_in"] is None else human_duration(pool["reset_in"])
+        age = "?" if pool["age"] is None else human_duration(pool["age"])
         limit = f" limited_by={aliases[pool['limited_by']]}" if pool.get("limited_by") in aliases else ""
         lines.append(f"{aliases[ref]}={ref} REM={rem} reset={reset} age={age} {pool['state']}{limit}")
     if report["error"]:

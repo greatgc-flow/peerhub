@@ -25,13 +25,16 @@ def register_observation_parser(subparsers: Subparsers) -> None:
     refresh.add_argument("--timeout-seconds", type=float, default=15, help="Probe timeout in seconds (default %(default)s)")
 
 
-def _format_refresh_text(result: dict[str, Any]) -> str:
+def _format_refresh_text(result: dict[str, Any], *, now: float | None = None) -> str:
+    import time
+
     from peerhub.cli.quota_format import format_percent, human_duration
     from peerhub.extensions.observation_model import instant_us
 
+    now_us = round((time.time() if now is None else now) * 1_000_000)
     lines = [f"status: {result.get('status')}"]
-    for obs in result.get("observations", []):
-        if obs.get("kind") != "quota":
+    for obs in result.get("observations") or []:
+        if not isinstance(obs, dict) or obs.get("kind") != "quota":
             continue
         peer = obs.get("subject_ref") or "-"
         pool_ref = obs.get("resource_pool_ref")
@@ -40,12 +43,14 @@ def _format_refresh_text(result: dict[str, Any]) -> str:
         payload = cast(dict[str, Any], obs.get("payload") or {})
         rem = payload.get("remaining_fraction") if state == "MEASURED" else None
         left = format_percent(float(rem)) if isinstance(rem, (int, float)) and not isinstance(rem, bool) and 0 <= rem <= 1 else "-"
-        obs_at, cap_at = obs.get("observed_at"), obs.get("captured_at")
-        try:
-            age_s = max(0.0, (instant_us(cap_at) - instant_us(obs_at)) / 1e6) if obs_at and cap_at else 0.0
-            age: str = human_duration(age_s)
-        except Exception:
-            age = "0s"
+        obs_at = obs.get("observed_at")
+        if isinstance(obs_at, str) and obs_at:
+            try:
+                age: str = human_duration(max(0.0, (now_us - instant_us(obs_at)) / 1e6))
+            except Exception:
+                age = "-"
+        else:
+            age = "-"
         lines.append(f"{peer} {pool} {state} {left} {age}")
     return "\n".join(lines)
 

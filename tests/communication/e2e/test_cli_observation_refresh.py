@@ -26,7 +26,7 @@ def test_quota_refresh_and_readonly_dashboard(tmp_path, monkeypatch, capsys):
     assert cli.main(["--db", str(db), "diag"]) == 0
     out = capsys.readouterr().out
     row = next(line for line in out.splitlines() if line.split()[:2] == ["cx", "5h"])
-    assert "25%" in row and ("expired" in row or "stale" in row)
+    assert "75%" in row and ("expired" in row or "stale" in row)
     assert "FORECAST" in out and "Probes" in out
     assert "Threats: unknown" in out and "No threats" not in out
     with sqlite3.connect(db) as conn:
@@ -51,7 +51,7 @@ def test_fresh_quota_dashboard_row_is_not_stale(tmp_path, capsys):
     assert cli.main(["--db", str(db), "diag"]) in (0, 4)
     out = capsys.readouterr().out
     row = next(line for line in out.splitlines() if line.split()[:2] == ["cx", "5h"])
-    assert "25%" in row and "stale" not in row
+    assert "75%" in row and "stale" not in row
 
 
 def test_probe_failure_persists_error_without_measurements(tmp_path):
@@ -129,15 +129,18 @@ def test_first_refresh_bootstraps_a_usable_workspace(tmp_path, monkeypatch, caps
 
 
 def test_observation_refresh_text_mode_is_concise_and_json_has_raw_observations(tmp_path, monkeypatch, capsys):
+    import time
+
     from peerhub.cli.app import main
     from peerhub.extensions import quota_probes
 
     value = SimpleNamespace(quota_pool_scope="X-5H", remaining_fraction=0.75,
                             window_started_at=100, resets_at=18100)
     evidence = SimpleNamespace(state=EvidenceState.MEASURED, value=value, source_tag="fake", evidence_ref="test",
-                               observed_at=100, captured_at=112, extra=None)
+                               observed_at=100, captured_at=100, extra=None)
     monkeypatch.setattr(quota_probes, "poll_codex_usage",
                         lambda **kw: [SimpleNamespace(evidence=evidence, extra={"warning": "probe warning"})])
+    monkeypatch.setattr(time, "time", lambda: 112.0)
     db = tmp_path / ".peerhub" / "core.db"
     assert main(["--db", str(db), "observation", "refresh", "--peers", "cx"]) == 0
     out, err = capsys.readouterr()
@@ -146,6 +149,30 @@ def test_observation_refresh_text_mode_is_concise_and_json_has_raw_observations(
     assert main(["--db", str(db), "observation", "refresh", "--peers", "cx", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "OK" and isinstance(payload["observations"], list) and payload["observations"]
+
+
+def test_format_refresh_text_uses_refresh_time_age_dash_on_bad_timestamp_and_null_observations():
+    from peerhub.cli.observation_cmd import _format_refresh_text
+
+    assert _format_refresh_text({"status": "FAILED", "observations": None}) == "status: FAILED"
+    text = _format_refresh_text({
+        "status": "OK",
+        "observations": [
+            {"kind": "quota", "subject_ref": "cx", "resource_pool_ref": "quota:cx:X-5H", "state": "MEASURED",
+             "observed_at": "1970-01-01T00:01:40Z", "captured_at": "1970-01-01T00:01:40Z",
+             "payload": {"remaining_fraction": 0.75}},
+            {"kind": "quota", "subject_ref": "cc", "resource_pool_ref": "quota:cc:C-7D", "state": "MEASURED",
+             "observed_at": None, "payload": {"remaining_fraction": 0.50}},
+            {"kind": "quota", "subject_ref": "ag", "resource_pool_ref": "quota:ag:G-7D", "state": "MEASURED",
+             "observed_at": "not-a-timestamp", "payload": {"remaining_fraction": 0.25}},
+        ],
+    }, now=115.0)
+    assert text.splitlines() == [
+        "status: OK",
+        "cx X-5H MEASURED 75% 15s",
+        "cc C-7D MEASURED 50% -",
+        "ag G-7D MEASURED 25% -",
+    ]
 
 
 def test_automatic_missing_store_uses_selected_output_format(tmp_path, capsys, monkeypatch):

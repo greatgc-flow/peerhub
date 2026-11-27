@@ -98,7 +98,7 @@ def test_quota_table_and_filters(ws, capsys):
     assert code == 0 and "STALE" in out and "UNKNOWN" in out and "used_fraction=0.75 (derived)" in out and "remaining_tokens=1000" in out
     assert "plan" not in out
     import re
-    assert re.search(r"peer:a\s+quota\s+MEASURED\s+age=\d+s\s+src=src-new\s", out) and re.search(r"peer:b\s+rate_limit\s+STALE\s+age=100\ds\s+src=src-rl\s", out)
+    assert re.search(r"peer:a\s+quota\s+MEASURED\s+age=\d+s\s+src=src-new\s", out) and re.search(r"peer:b\s+rate_limit\s+STALE\s+age=17m\s+src=src-rl\s", out)
     assert re.search(r"peer:c\s+quota\s+UNAVAILABLE\s+age=\d+s\s+src=src-q\s+\(no measurement\)", out) and re.search(r"-\s+rate_limit\s+UNKNOWN\s+age=-\s+src=-\s", out)
     code, out, _ = run(capsys, ws.db_path, "diag", "quota", "--json", "--peer", "peer:b")
     rep = json.loads(out)
@@ -318,4 +318,60 @@ def test_render_view_inline_forecast_and_threat_summary(tmp_path):
     assert "exhausts" in threat_row
     assert "on pace" in safe_row
     assert "FORECAST" in text and "ETA:" not in text
+
+
+def test_superseded_unpooled_quota_errors_hidden_in_diag_quota_and_health(tmp_path, capsys):
+    h = ObservationHarness(tmp_path / "wsSup")
+    seed(h.db_path, pools=[("quota:ag:G-7D", "QUOTA"), ("quota:cc:C-7D", "QUOTA"), ("quota:cx:X-7D", "QUOTA")], rows=[
+        ("ag", "quota", None, "ERROR", 4640, {"condition": "probe_failed", "reason": "agy_usage_timeout"}, "quota_probe:ag"),
+        ("cc", "quota", None, "ERROR", 11263, {"condition": "probe_failed", "reason": "claude_usage_timeout"}, "quota_probe:cc"),
+        ("cx", "quota", None, "ERROR", 55251, {"condition": "probe_failed", "reason": "codex_usage_timeout"}, "quota_probe:cx"),
+        ("ag", "quota", "quota:ag:G-7D", "MEASURED", 62, {"remaining_fraction": 0.50}, "agy_cli_usage"),
+        ("cc", "quota", "quota:cc:C-7D", "MEASURED", 62, {"remaining_fraction": 0.28}, "claude_cli_usage"),
+        ("cx", "quota", "quota:cx:X-7D", "MEASURED", 62, {"remaining_fraction": 0.90}, "codex_app_server"),
+    ])
+    code, out, _ = run(capsys, h.db_path, "diag", "quota")
+    assert code == 0 and "pool (none)" not in out and "ERROR" not in out
+    code, j_out, _ = run(capsys, h.db_path, "diag", "quota", "--json")
+    rep = json.loads(j_out)
+    assert all(g["resource_pool_ref"] is not None for g in rep["pools"])
+    code, h_out, _ = run(capsys, h.db_path, "diag", "health")
+    h_rep = json.loads(h_out)
+    assert code == 0 and h_rep["observations"]["by_state"] == {"MEASURED": 3}
+
+
+def test_diag_quota_help_rounded_fractions_and_human_durations(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["diag", "quota", "--help"])
+    assert exc.value.code == 0
+    help_out = capsys.readouterr().out
+    assert "MEASURED/STALE/ABSENT/ERROR" in help_out
+    assert "subject_ref" not in help_out and "resource_pool_ref" not in help_out
+    h = ObservationHarness(tmp_path / "wsRound")
+    now = int(time.time())
+    exp = now + int(701.6 * 3600)
+    seed(h.db_path, pools=[("quota:cc:C-7D", "QUOTA")], rows=[
+        ("cc", "quota", "quota:cc:C-7D", "MEASURED", 1243937, {"remaining_fraction": 0.9299999999999999}, "claude_cli_usage"),
+        ("cx", "reset_credit", "credit:cx:reset", "MEASURED", 65, {
+            "available_count": 1, "nearest_expires_at": exp,
+            "credits": [{"id_ref": "c1", "reset_type": "weekly", "status": "available", "granted_at": now, "expires_at": exp, "title": "Weekly"}],
+        }, "codex_app_server"),
+    ])
+    code, out, _ = run(capsys, h.db_path, "diag", "quota")
+    assert code == 0
+    assert "remaining_fraction=0.93" in out and "0.929999" not in out
+    assert "age=14d09h" in out and "1243937s" not in out
+    assert "(29d05h)" in out and "701.6h" not in out
+
+
+def test_diag_health_stream_text_keeps_details_when_partial(ws, tmp_path, capsys):
+    for p in ("a", "b"):
+        ws.create_peer({"peer_id": p})
+    ws.create_stream({"stream_id": "s", "members": ["a", "b"]})
+    missing_obs = tmp_path / "missing_obs.db"
+    code = main(["--db", str(ws.db_path), "diag", "health", "--stream", "s", "--observation-db", str(missing_obs)])
+    out = capsys.readouterr().out
+    assert code == 4
+    assert "status: PARTIAL" in out and "stream_id: s" in out
+    assert "state: OPEN" in out and "head_position: 0" in out and "members: a, b" in out
 

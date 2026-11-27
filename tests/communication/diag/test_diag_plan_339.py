@@ -77,12 +77,34 @@ def _by_pool(report):
 
 
 def test_target_rate_is_left_over_hours_to_reset():
-    # 84% left, 6d21h to reset -> 84 / 165 = 0.509 %/h (field example in #339)
+    # 84% left, 6d21h to reset -> 84 / 165 = 0.509 %/h (field example in #339), rounded to 2 decimals in JSON
     row = _by_pool(_report(_item("cc", "C-7D", .84, span=7 * DAY, elapsed=3 * HOUR - 10)))[("cc", "C-7D")]
     assert row["left_pct"] == pytest.approx(84.0)
     assert row["resets_in_seconds"] == pytest.approx(7 * DAY - 3 * HOUR)
-    assert row["target_pct_per_hour"] == pytest.approx(84.0 / 165.0)
+    assert row["target_pct_per_hour"] == round(84.0 / 165.0, 2)
     assert row["binding"] == "C-7D"
+
+
+def test_plan_json_rounds_floats_and_aligns_help_and_na_pools_label(capsys):
+    from peerhub.cli.app import main
+    from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL
+
+    assert PLAN_NA_POOLS_LABEL == "in-flight n/a pools:"
+    data = plan_data(_report(
+        _item("ag", "3P-5H", 0.721234567890123, span=5 * HOUR, elapsed=2 * HOUR),
+        _item("ag", "3P-7D", 0.394910603761673, span=7 * DAY, elapsed=2.5 * DAY),
+        _item("cx", "X-7D", 0.851234567890123, span=7 * DAY, elapsed=3.3 * DAY),
+    ), {"path": "x", "source": "explicit"})
+    by_pool = {p["pool"]: p for p in data["pools"]}
+    assert by_pool["3P-7D"]["left_pct"] == 39.49
+    assert by_pool["3P-5H"]["action"] == "rest" and by_pool["3P-5H"]["health"]["state"] == "ok" and by_pool["3P-5H"]["health"]["pace_band"] == "spend"
+    raw_json = json.dumps(data)
+    assert "39.49106" not in raw_json and "72.12345" not in raw_json
+    with pytest.raises(SystemExit) as exc:
+        main(["diag", "--help"])
+    assert exc.value.code == 0
+    help_out = capsys.readouterr().out
+    assert "BUDGET%/h" in help_out and "target_pct_per_hour" in help_out and "PACE(pp)" in help_out and "health is pool's own state" in help_out
 
 
 def test_spare_5h_is_capped_by_its_7d_pool():

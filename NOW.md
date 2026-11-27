@@ -7,15 +7,15 @@ Updated: 2026-11-27
 
 ## State
 
-- Released: v0.27.1 (2026-11-27). Branches: `main` only. In flight: none.
+- Released: v0.27.1 (2026-11-27). Branches: `main`, #497 Lane B worktree (diag and quota views). In flight: #497 CLI review fixes.
 
 ## Recent flow (newest first, at most 5)
 
+- 2026-11-27 #497 Lane B: aligned bare `diag` (`LEFT`, `PACE(pp)`, `C-7D` cap on `F-7D`, `- n/a`, probe outcomes, plural grammar), rounded `diag --plan --json` floats to 2 decimals, documented `diag readiness` states/actions with human durations, superseded old unpooled quota `ERROR` rows in `diag quota`/`diag health`, preserved `PARTIAL` stream health details, and fixed `observation refresh` text ages.
 - 2026-11-27 v0.27.1: batch reports `denied_actions` (#493); a just-reset short window keeps a `reset · refresh pending` row (#495); CLI review fixes (observation refresh and diag health text, exit-code table, error hints); model defaults re-measured (agy 1.5.18, all cx/ag pings passed).
 - 2026-11-27 v0.27.0: scope decision ([record](docs/history/scope-decision-2026-11-27.md)): one-shot diag, trimmed monitor and batch flags, lessons consolidated with aliases, RUNNING ask IDs with `monitor open`, NOW.md handoff, repeatable `--query-file`, `suggest` deprecated.
 - 2026-11-27 #491: Release flow dispatches full-matrix CI when the main push leaves the version unchanged.
 - 2026-11-27 v0.26.19 (#490): Fixed just-reset short windows, RUNNING totals past the detail cap, expanded QUOTA rank and a flaky cc adapter test (#488 follow-ups).
-- 2026-11-26 v0.26.19 (#489): Added a requirements registry and alert-code lessons, set the release review bar to 80 and aligned monitor billing and plan gaps.
 
 ## Next (ordered, at most 8)
 
