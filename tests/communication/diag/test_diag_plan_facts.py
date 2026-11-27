@@ -380,10 +380,10 @@ def test_plan_formats_pace_exhaustion_and_gaps_from_health():
 
 
 def test_exhaustion_and_reset_cells_keep_independent_fallbacks():
-    item = _item("cc", "C-7D", .5, span=WEEK, elapsed=HOUR)
+    item = _item("cc", "C-7D", .9, span=WEEK, elapsed=HOUR)
     row = next(line.split() for line in render_plan(_report(item)).splitlines() if line.startswith("cc "))
     assert row[4].startswith("—/") and not row[4].endswith("!")
-    unavailable = {**item, "payload": {"remaining_fraction": .5}}
+    unavailable = {**item, "payload": {"remaining_fraction": .9}}
     row = next(line.split() for line in render_plan(_report(unavailable)).splitlines() if line.startswith("cc "))
     assert row[4] == "—/—"
 

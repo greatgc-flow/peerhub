@@ -10,6 +10,7 @@ ProjectionState = Literal["unknown", "stale", "expired", "exhausted", "insuffici
 LONG_WINDOW_SECONDS = 86400.0
 MIN_ELAPSED_SHORT = 0.10
 MIN_ELAPSED_LONG = 0.20
+MIN_EARLY_USED_FRACTION = 0.25
 MIN_USED_FRACTION = 0.05
 THREAT_PROJECTED_PERCENT = 105.0
 
@@ -163,10 +164,18 @@ def project_exhaustion(
     if not consistent:
         return suppress("unknown", "window ordering must satisfy start <= measurement < reset")
     e = elapsed / duration
-    minimum_elapsed = MIN_ELAPSED_LONG if duration >= LONG_WINDOW_SECONDS else MIN_ELAPSED_SHORT
+    if e == 0.0:
+        return suppress("insufficient", "no elapsed time yet")
+    long_window = duration >= LONG_WINDOW_SECONDS
+    minimum_elapsed = MIN_ELAPSED_LONG if long_window else MIN_ELAPSED_SHORT
+    early_burn = long_window and u >= MIN_EARLY_USED_FRACTION
     # Compare in seconds: division can put an exact 10% boundary one ULP below it.
-    if elapsed < minimum_elapsed * duration or u < MIN_USED_FRACTION:
-        return suppress("insufficient", f"not enough data: requires >={minimum_elapsed:.0%} elapsed and >=5 percentage points used")
+    if u < MIN_USED_FRACTION or (elapsed < minimum_elapsed * duration and not early_burn):
+        elapsed_support = f">={minimum_elapsed:.0%} elapsed"
+        if long_window:
+            elapsed_support = f"({elapsed_support} or >={MIN_EARLY_USED_FRACTION * 100:g} percentage points used)"
+        return suppress("insufficient", f"not enough data: requires {elapsed_support} and "
+                        f">={MIN_USED_FRACTION * 100:g} percentage points used")
     pace, projected, exhaustion = 100.0 * u - 100.0 * e, 100.0 * u / e, start + elapsed / u
     if not all(math.isfinite(v) for v in (pace, projected, exhaustion)):
         return suppress("unknown", "projection is not finite")

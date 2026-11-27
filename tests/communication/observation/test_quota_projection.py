@@ -47,6 +47,8 @@ def test_support_and_threat_boundaries(used, measured, state):
 
 @pytest.mark.parametrize("elapsed,used,state", [
     (0.199999, 0.21, "insufficient"),
+    (0.199999, 0.249999, "insufficient"),
+    (0.199999, 0.25, "threat"),
     (0.20, 0.05, "on_pace"),
     (0.200001, 0.05, "on_pace"),
     (0.20, 0.049999, "insufficient"),
@@ -56,13 +58,13 @@ def test_support_and_threat_boundaries(used, measured, state):
     (0.20, 0.210001, "threat"),
 ])
 @pytest.mark.parametrize("duration", [86400.0, 7 * 86400.0])
-def test_long_window_twenty_percent_five_pt_and_105_percent_boundaries(duration, elapsed, used, state):
+def test_long_window_support_and_threat_boundaries(duration, elapsed, used, state):
     result = project(used, elapsed * duration, reset=duration)
     assert result["state"] == state
     assert result["pace_pt"] == pytest.approx(100 * (used - elapsed))
     if state == "insufficient":
         assert_suppressed(result, state)
-        assert ">=20% elapsed" in result["reason"]
+        assert ">=20% elapsed or >=25 percentage points used" in result["reason"]
     elif used == 0.21:
         assert result["projected_at_reset"] == 105.0
 
@@ -72,6 +74,23 @@ def test_long_window_definition_starts_at_one_day():
     assert project(0.21, 0.10 * 86399, reset=86399)["state"] == "threat"
     assert_suppressed(project(0.21, 0.10 * 86399 - 0.001, reset=86399), "insufficient")
     assert_suppressed(project(0.21, 0.10 * 86400, reset=86400), "insufficient")
+    assert_suppressed(project(0.53, 0.05 * 86399, reset=86399), "insufficient")
+
+
+def test_heavy_early_burn_forecasts_exhaustion_before_reset():
+    reset = 7 * 86400.0
+    measured = 0.12 * reset
+    result = project(0.53, measured, reset=reset)
+    assert result["state"] == "threat"
+    assert result["exhaustion_at"] == pytest.approx(measured / 0.53)
+    assert measured < result["exhaustion_at"] < reset
+
+
+def test_light_early_burn_has_pace_but_no_forecast():
+    reset = 7 * 86400.0
+    result = project(0.10, 0.12 * reset, reset=reset)
+    assert_suppressed(result, "insufficient")
+    assert result["pace_pt"] == pytest.approx(-2.0)
 
 
 def test_supported_values_and_public_contract():
@@ -96,9 +115,11 @@ def test_owner_one_percent_at_79_seconds():
     assert result["pace_pt"] == pytest.approx(1 - 100 * 79 / 18000)
 
 
-@pytest.mark.parametrize("used,measured", [(0.0, 500.0), (0.0, 0.0), (0.5, 0.0)])
-def test_zero_usage_and_zero_elapsed_are_insufficient(used, measured):
-    assert_suppressed(project(used, measured), "insufficient")
+@pytest.mark.parametrize("used,measured,reset", [
+    (0.0, 500.0, 1000.0), (0.0, 0.0, 1000.0), (0.5, 0.0, 1000.0), (0.5, 0.0, 86400.0),
+])
+def test_zero_usage_and_zero_elapsed_are_insufficient(used, measured, reset):
+    assert_suppressed(project(used, measured, reset=reset), "insufficient")
 
 
 @pytest.mark.parametrize("start,reset", [(None, None), (501, 1000), (0, 1000)])

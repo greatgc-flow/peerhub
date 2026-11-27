@@ -10,6 +10,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- Show early quota exhaustion forecasts for windows of at least one day once 25 percentage points have been used (#500).
 - Restored R2: compact and expanded monitor hide n/a quota pools and count only displayable pools. The weekly pace gap omits unavailable pools, and the reset-pending child row remains visible.
 - Profile inspection returns exit 1 with JSON status ERROR for malformed model TOML. Invalid profile arguments return exit 2.
 - `peerhub outcome` returns exit 1 with `ask_not_found` for an unknown ask ID.

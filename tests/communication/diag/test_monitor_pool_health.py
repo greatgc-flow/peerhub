@@ -158,6 +158,27 @@ def test_near_tie_exhaustion_and_reset_show_minutes(exhaust_minutes: int, reset_
         assert all(expected in cells for cells in rows)
 
 
+def test_early_burn_forecast_matches_monitor_and_plan() -> None:
+    pool = "G-7D"
+    elapsed = .12 * WEEK
+    item = _item("ag", pool, .47, span=WEEK, elapsed=elapsed, age=0)
+    report = _report(item)
+    pair, margin = "17h52m/6d03h!", "-5d09h"
+    for expand in (False, True):
+        screen = mv.render_grouped_frame(frame(item), view="plain", width=120, expand=expand)
+        rows = pool_cells(screen, pool)
+        assert len(rows) == (2 if expand else 1)
+        assert all(cells[4:6] == [margin, pair] for cells in rows)
+
+    plan_row = next(line.split() for line in render_plan(report, width=120).splitlines() if line.startswith("ag "))
+    assert plan_row[4] == pair
+    assert PLAN_EARLY_TAG in plan_row
+    pools: Any = plan_data(report, {})["pools"]
+    [row] = pools
+    assert row["exhaust_before_reset"]
+    assert row["exhaust_margin_seconds"] == round(elapsed / .53 - WEEK, 2)
+
+
 def test_profile_added_in_models_toml_appears_in_both_family_cells(monkeypatch: pytest.MonkeyPatch) -> None:
     pool, profile = "G-7D", "ag.aaa"
     folder = Path(__file__).resolve().parent
