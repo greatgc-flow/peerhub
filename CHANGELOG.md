@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+- Bound SQLite traversal for short stream-scoped activity polls so they avoid rescanning stream history.
+
 - Keep activity export continuations usable as direct CLI arguments when wildcard stream names are long or require JSON escaping.
 
 - Allow default backups of stores with generated ask claim owners. The protected-snapshot activity checks cover receiver crashes, late feedback and divergent receipts after restore.

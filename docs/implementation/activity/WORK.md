@@ -88,3 +88,9 @@ Large continuations now list each partition once and encode each UTF-8 identifie
 PHT037 now has synthetic Linux measurements recorded in [PR #506](https://github.com/greatgc-flow/peerhub/pull/506). On candidate `a115729c` three 20,000-event runs used 26,692–26,696 KiB peak RSS and had per-run median page times of 7.58–8.18 ms. All event IDs appeared in order. These measurements describe the one-stream fixture. Representative production timing remains NOT_RUN.
 
 The Engram branch check included the hardware inventory contract at `e365e0785730b50e7b772ae573d5941ae14c06c7`. No Engram WP6 activity receiver was present in the checked remote refs.
+
+## Stream-scoped evidence tail
+
+SQLite chose the existing `(stream_id, kind, seq)` index for a scoped evidence read. The index groups kinds before sequence, so even a narrow sequence range read old entries from the same stream. The regression fixture inserted 30,000 historical rows and two later rows across two streams. The original query executed at least 150,100 virtual-machine instructions to return the single matching tail event. The short-range query now traverses the existing rowid sequence directly and uses fewer than 5,000 instructions in the same fixture, with the same stream filter, byte limits, independent checkpoint and event order. A previously unknown evidence kind remains visible as unclassified.
+
+For sequence spans above 4,096, the previous planner behavior remains available so sparse historical streams can use the existing stream index. This change requires no schema/index migration and does not change the CLI envelope or Engram fixture. Timing in production and performance across long sparse gaps remain unmeasured.

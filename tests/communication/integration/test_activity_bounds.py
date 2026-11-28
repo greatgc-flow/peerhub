@@ -197,6 +197,7 @@ def test_scoped_evidence_tail_does_not_rescan_stream_history(tmp_path):
 
     h = BridgeHarness(tmp_path / "ws")
     bseed(h, n=0)
+    h.store.create_stream(Stream(stream_id="other", members=["a", "b"]))
     with closing(sqlite3.connect(h.db_path)) as conn:
         with conn:
             conn.executemany("INSERT INTO bridge_evidence(stream_id,peer_id,kind,detail) VALUES ('s','b','caller','{}')",

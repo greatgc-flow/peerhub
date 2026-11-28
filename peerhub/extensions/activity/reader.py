@@ -15,6 +15,7 @@ from peerhub.extensions.activity.cursor import ActivityError
 
 TABLES = ("streams", "records", "bridge_evidence", "bridge_deliveries", "bridge_ask_outcomes")
 MAX_BYTES = 1048576
+SCOPED_TAIL_SPAN = 4096
 
 _RECORD = """
  SELECT r.position AS seq,r.position,r.record_id,r.stream_id,r.reply_to,r.kind,r.author_peer_id,r.created_at,
@@ -47,7 +48,7 @@ _EVIDENCE = """
  THEN json_extract(d.result_json,'$.task_outcome')='NOT_EXECUTED' END not_executed,
  CASE WHEN e.kind='offset_acked' AND d.certainty='TERMINAL' AND length(CAST(d.result_json AS BLOB))<=65536
  THEN json_type(d.result_json,'$.empty_response')='true' AND json_array_length(d.result_json,'$.denied_actions')>0 END denied_empty
- FROM bridge_evidence e LEFT JOIN bridge_deliveries d ON d.delivery_id=e.delivery_id
+ FROM bridge_evidence e{access} LEFT JOIN bridge_deliveries d ON d.delivery_id=e.delivery_id
  AND d.peer_id=e.peer_id AND d.stream_id=e.stream_id
  LEFT JOIN records p ON p.record_id=d.record_id AND p.stream_id=e.stream_id WHERE e.seq>:lo AND e.seq<=:hi
 """
@@ -85,7 +86,10 @@ def _rows(conn: sqlite3.Connection, key: str, lo: int, hi: int, stream: str | No
     if key.startswith("r:"):
         query = _RECORD.format(delivery=_RESPONSE_DELIVERY if link_attempts else "NULL") + (" AND (r.record_id=:ask OR r.reply_to=:ask)" if ask else "") + " ORDER BY r.position LIMIT :limit"
     elif key == "evidence":
-        query = _EVIDENCE + (" AND e.stream_id=:stream" if stream is not None else "")
+        # The stream/kind index cannot seek by sequence alone. For a short range,
+        # visit its bounded INTEGER PRIMARY KEY span instead of sorting stream history.
+        access = " NOT INDEXED" if stream is not None and hi - lo <= SCOPED_TAIL_SPAN else ""
+        query = _EVIDENCE.format(access=access) + (" AND e.stream_id=:stream" if stream is not None else "")
         query += (" AND d.record_id=:ask" if ask else "") + " ORDER BY e.seq LIMIT :limit"
     else:
         query = _OUTCOME + (" AND r.stream_id=:stream" if stream is not None else "")
