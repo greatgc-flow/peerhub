@@ -132,6 +132,12 @@ def can_limit(health: PoolHealth) -> bool:
     return not health["stale"] and health["state"] in _STATE_SEVERITY
 
 
+def parent_strictness(health: PoolHealth) -> tuple[bool, float]:
+    """Prefer a parent that can cap, then the lowest unrounded remaining share."""
+    left = health["left_pct"]
+    return not can_limit(health), left if left is not None else 101.0
+
+
 def limit_pool_health(own: PoolHealth, parent: PoolHealth, parent_ref: object) -> PoolHealth:
     """Apply a scoped parent to already projected pool facts."""
     if not can_limit(own) or not can_limit(parent):

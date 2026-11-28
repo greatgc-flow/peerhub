@@ -461,7 +461,6 @@ def _limit_evidence(text: str) -> tuple[str, str | None] | None:
 def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san: Sanitizer) -> str:
     """Summary (with the verbatim reset phrase), bounded excerpt of the matched line, status; re-parsed to prove it."""
     prefix = _AG_LIMIT_SUMMARY[match.reason]
-    # " )" keeps a closing parenthesis out of a reset that ends in a run of non-space characters (the ISO pattern).
     candidates = [san.clean(f"{prefix} ({match.reset_phrase}{end}") for end in (")", " )")] if match.reset_phrase else []
     summary = next((c for c in candidates if len(c) <= AG_LIMIT_SUMMARY_CHARS
                     and _limit_evidence(c) == (match.reason, match.reset_time)), san.clean(prefix))
