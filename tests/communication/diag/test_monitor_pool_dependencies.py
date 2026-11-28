@@ -234,3 +234,21 @@ def test_a_parent_reading_that_cannot_cap_never_wins_over_one_that_can():
     rows = project_pool_rows(readings, NOW, require_consumers=False)  # type: ignore[arg-type]
     assert rows[1].own_health["stale"] is False and rows[0].own_health["stale"] is True
     assert rows[2].parent is readings[1]
+
+
+def test_pools_nests_fable_under_the_parent_report_that_supplies_the_cap():
+    from peerhub.cli.monitor_format import ordered_pools
+    from peerhub.cli.monitor_quota_view import frame_consumers, frame_pools
+
+    frame = payload(parent=.8)
+    observations = frame["_human_observations"]
+    strict = {**observations[0], "peer_id": "cc2", "observation_id": "cc2-C-7D",
+              "measurements": {"remaining_fraction": 0.05}, "last_measurements": {"remaining_fraction": 0.05}}
+    observations.append(strict)
+    _, _, rows = frame_pools(frame, frame_consumers(frame))
+    ordered = ordered_pools(rows)
+    index = next(i for i, (row, _) in enumerate(ordered) if row["pool"] == "F-7D")
+    child, depth = ordered[index]
+    parent, parent_depth = ordered[index - 1]
+    assert (depth, parent_depth, child["remaining"]) == (1, 0, .05)
+    assert parent["peer"] == "cc2"

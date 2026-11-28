@@ -700,3 +700,12 @@ def test_agy_third_party_quota_classifies_as_quota_exhausted():
             "to increase your limits. Resets in 1h4m55s.")
     assert classify_refusal_text(text) == {"reason": "quota_exhausted", "reset_time": "1h4m55s",
                                            "message": "Individual quota reached / resource exhausted"}
+
+
+@pytest.mark.parametrize("timestamp", ["2026-11-15T17:30:05.250+09:00",
+                                       "2026-11-15T17:30:05.250Z", "2026-11-15T17:30:05-0400"])
+def test_refusal_preserves_the_complete_iso_reset_before_punctuation(timestamp):
+    from peerhub.extensions.adapters.common import classify_refusal_text
+
+    result = classify_refusal_text(f"Third-party quota reached. Resets at {timestamp}.")
+    assert result["reset_time"] == timestamp
