@@ -207,7 +207,7 @@ def paint_text(text: str, code: str | None) -> str:
     return f"\x1b[{code}m{text}\x1b[0m" if code else text
 
 
-def title_rule(title: str, rest: str, width: int, unicode: bool, paint: bool) -> str:
+def title_rule(title: str, rest: str, width: int, unicode: bool, paint: bool, *, accent: str = "title") -> str:
     """A section head drawn as a rule (P21): `── POOLS 9 ── STATE ──────── LEFT  RESET ───`. The head's content
     stays: the title, then `rest` as it is, with the line drawn through the gap after the title (three cells or
     more), through a gap of five cells or more and to the end of the line. With `paint` the line is dim and the
@@ -220,7 +220,7 @@ def title_rule(title: str, rest: str, width: int, unicode: bool, paint: bool) ->
     room = width - RULE_PREFIX_WIDTH - cell_width(title + rest)
     rest = re.sub("^ {3,}| {5,}", lambda gap: f" {line(len(gap[0]) - 2)} ", rest)
     tail = f" {line(room - 1)}" if room >= RULE_MIN_TAIL_WIDTH else ""
-    return f"{line(RULE_PREFIX_WIDTH - 1)} {paint_text(title, RICH_SGR['title']) if paint else title}{rest}{tail}"
+    return f"{line(RULE_PREFIX_WIDTH - 1)} {paint_text(title, RICH_SGR[accent]) if paint else title}{rest}{tail}"
 
 
 def section_rule(label: str, width: int, unicode: bool) -> str:
@@ -424,7 +424,7 @@ def fit_table(rows: list[list[str]], width: int, unicode: bool, *, right: Sequen
     return lines
 
 
-def heading_rule(head: str, width: int, unicode: bool, paint: bool) -> str:
+def heading_rule(head: str, width: int, unicode: bool, paint: bool, *, accent: str = "title") -> str:
     """The rule that replaces a section head in the rich view (P21 C2): the same content on the same line. The first
     two words are the title (`POOLS 9`); a ` | ` of the head is the view's separator. A head that would be cut to
     make room for the line keeps its content and loses the line."""
@@ -435,8 +435,8 @@ def heading_rule(head: str, width: int, unicode: bool, paint: bool) -> str:
     sep = f" {RICH_GLYPHS[unicode]['sep']} "
     rest = head[len(title):].replace(" | ", paint_text(sep, RICH_SGR["dim"]) if paint else sep)
     if ruled:
-        return title_rule(title, rest, width, unicode, paint)
-    return (paint_text(title, RICH_SGR["title"]) if paint else title) + rest
+        return title_rule(title, rest, width, unicode, paint, accent=accent)
+    return (paint_text(title, RICH_SGR[accent]) if paint else title) + rest
 
 
 def column_painter(column: int, colours: Sequence[str | None]) -> Callable[[int, int, str], str]:

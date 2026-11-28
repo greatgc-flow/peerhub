@@ -262,12 +262,19 @@ A fresh account plan can fill in a quota note via `display_plan` and `plan_sourc
 ## Compact and expand
 
 - **Compact** (the default) uses `COMPACT_MAX_LINES` and `COMPACT_MAX_BYTES`. The header is followed by POOLS,
-  ALERTS, RUNNING, RECENT and LEADS. POOLS and RUNNING use `POOLS_CAP` and `RUNNING_CAP`.
+  ALERTS, RUNNING, RECENT and LEADS. POOLS and RUNNING use `POOLS_CAP` and `RUNNING_CAP`. In the rich view,
+  the quota heading and remaining percentages are emphasized. With active work or alerts, a short quota guide
+  leaves more space for live rows. If the viewport shrinks further, the guide gives way first. The verdict keeps
+  the running count alongside the most important alert when both fit.
 - **`--expand`** adds the full DB path under the title and lists every pool. After LEADS it shows QUOTA, PEERS,
   EXECUTION, SESSIONS, USAGE, CONTEXT and any other selected group. When space allows, a clipped frame reports
   `+N rows hidden` and gives the command to print the full frame.
 - `--view plain` (the default for pipes) is ASCII and never coloured; `--view rich` is the default on a terminal.
   `--snapshot` draws one frame and exits.
+
+Use `peerhub monitor --snapshot --view rich --expand --group capacity` for individual quota windows, ages,
+reset forecasts, accounts and reset credits. Add `--group activity` for active and recent asks or
+`--group peers` for peer details. Use `peerhub monitor open ID` to inspect an ask shown in RUNNING.
 
 ## Narrow and small terminals
 

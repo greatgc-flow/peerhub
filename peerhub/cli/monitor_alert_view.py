@@ -88,14 +88,16 @@ def _unread(payload: dict[str, Any]) -> str | None:
     return "; ".join(parts)
 
 
-def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str | None = None, sep: str = " | ") -> str:
+def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str | None = None,
+                 sep: str = " | ", *, prefer_running: bool = False) -> str:
     """Line 1: `OK`, `OK? (... not read)` or `ATTN n` with two named alerts; the right-hand fields drop first.
     `sep` joins the fields (the rich view uses ` · `)."""
     alerts = frame_alerts(payload)
     counts = as_dict(as_dict(as_dict(as_dict(payload.get("groups")).get("activity")).get("data")).get("counts"))
     right: list[str] = []
-    if finite_number(counts.get("running")) is not None:
-        right.append(f"{format_count(counts['running'])} running")
+    running = finite_number(counts.get("running"))
+    if running is not None:
+        right.append(f"{format_count(running)} running")
     leads = finite_number(counts.get("leads"))
     if leads is not None:
         right.append(f"{format_count(leads)} {'lead' if leads == 1 else 'leads'}")
@@ -124,11 +126,19 @@ def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str |
         rest = len(alerts) - shown
         return sep.join([head, *names[:shown], *([f"+{rest}"] if rest else []), *right[:fields]])
 
-    for shown in range(len(names), 0, -1):
-        for fields in (range(len(right), -1, -1) if shown == len(names) else (0,)):
-            line = compose(shown, fields)
-            if cell_width(line) <= width:
-                return line
+    def fit_named(min_fields: int) -> str | None:
+        for shown in range(len(names), 0, -1):
+            max_fields = len(right) if min_fields or shown == len(names) else 0
+            for fields in range(max_fields, min_fields - 1, -1):
+                line = compose(shown, fields)
+                if cell_width(line) <= width:
+                    return line
+        return None
+
+    if prefer_running and running and (line := fit_named(1)) is not None:
+        return line
+    if (line := fit_named(0)) is not None:
+        return line
     tail = f"{sep}+{len(alerts) - 1}" if len(alerts) > 1 else ""
     room = width - cell_width(f"{head}{sep}{tail}")
     if room >= 4:
@@ -195,7 +205,7 @@ def alert_section(payload: dict[str, Any], width: int, unicode: bool, keep: str 
     if rich and expand:
         return rich_section(head, rows, width, unicode, paint)
     if rich:
-        return [heading_rule(head, width, unicode, paint), *(" " + row for row in rows)]
+        return [heading_rule(head, width, unicode, paint, accent="warn"), *(" " + row for row in rows)]
     return [section_rule(head, width, unicode), *rows]
 
 

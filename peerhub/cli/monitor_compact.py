@@ -54,6 +54,7 @@ COMPACT_WIDTH = 100
 COMPACT_MAX_LINES = 24
 COMPACT_MAX_BYTES = 8192
 SECTION_WITH_DETAIL = 2  # one heading and one detail line
+COMPACT_QUOTA_GUIDE = "PACE - spare / + faster | ! early | --expand details"
 
 
 def _safe_refresh_warning_labels(value: object) -> list[str]:
@@ -95,6 +96,7 @@ class CompactFrame:
     running_hint: str = ""
     pool_gap: list[str] = field(default_factory=lambda: list[str]())
     pool_legend: list[str] = field(default_factory=lambda: list[str]())
+    legend_yields_to_activity: bool = False
     pools: list[str] | None = None  # [POOLS header, *rows]; None when `capacity` is not selected
     pools_total: int = 0
     pools_header_lines: int = 1
@@ -180,6 +182,9 @@ def frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str 
         return True
 
     yield assemble()
+    if frame.legend_yields_to_activity and pool_legend:
+        pool_legend.clear()
+        yield assemble()
     for key in reversed(FRAME_SECTION_ORDER):
         rows = parts[key]
         if rows and key == "recent" and frame.recent_short:
@@ -222,6 +227,7 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
     """Build the sections shared by both layouts before height fitting."""
     rich = view == "rich"  # P21: the rich look; `unicode` picks its glyphs and `paint` adds the colour
     paint = color and rich and "NO_COLOR" not in os.environ
+    focused = rich and not expand
     sep = f" {RICH_GLYPHS[unicode]['sep']} " if rich else " | "
     groups = as_dict(payload.get("groups"))
     selected = payload.get("selected_groups")
@@ -270,7 +276,11 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
             # Reserving the Guide may shorten the title, but it must not consume another row in the viewport.
             _, cut = fit_title(width)
     # Fields dropped from line 2 are disclosed on a line of their own, so a narrow terminal keeps the timestamp.
-    header = [paint_text(title, RICH_SGR["dim"]) if paint else title]
+    brand = "PeerHub Monitor"
+    before, name, after = title.partition(brand)
+    header = ([paint_text(before, RICH_SGR["dim"] if before else None)
+               + paint_text(name, RICH_SGR["title"] if name else None)
+               + paint_text(after, RICH_SGR["dim"] if after else None)] if paint else [title])
     if expand and store.get("path"):
         header.extend(location_lines(f"DB:{source} ({clean_text(store['path'])})", width, payload.get("_db_url")))
     if "peers" in selected_ids:
@@ -313,7 +323,8 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
             and (rows or "capacity" not in selected_ids)):
         header.append("next: peerhub observation refresh")
     if rich:  # the pill's padding takes two cells; the time is that of line 2
-        verdict = decorate_verdict(verdict_line(payload, max(1, width - 2), unicode, keep, sep), sep,
+        verdict = decorate_verdict(verdict_line(payload, max(1, width - 2), unicode, keep, sep,
+                                                    prefer_running=focused), sep,
                                     stamp[-6:] if read_at is not None and stamp.endswith("Z") else "", width, paint)
     else:
         verdict = verdict_line(payload, width, unicode, keep)
@@ -341,7 +352,14 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
         profile_urls = as_dict(payload.get("_profile_urls"))
         if ordered_pools(rows, pending=True):
             frame.pool_gap = pool_gap(rows, width, unicode)
-            frame.pool_legend = wrap_text(POOL_LEGEND, width)
+            frame.legend_yields_to_activity = focused and (frame.running_total > 0 or bool(frame.alerts))
+            if frame.legend_yields_to_activity:
+                guide = COMPACT_QUOTA_GUIDE if cell_width(COMPACT_QUOTA_GUIDE) <= width else "--expand details"
+                if unicode:
+                    guide = guide.replace(" | ", sep)
+                frame.pool_legend = [paint_text(guide, RICH_SGR["dim"]) if paint else guide]
+            else:
+                frame.pool_legend = wrap_text(POOL_LEGEND, width)
             frame.pools, frame.pools_total, frame.pools_header_lines, frame.pool_row_sizes = pool_section(
                 rows, pool_width or width, unicode, keep, rich=rich, paint=paint, expand=expand,
                 guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls)

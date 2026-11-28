@@ -114,7 +114,11 @@ def json_lines(text: str) -> list[dict[str, Any]]:
 
 _RESET_IN_RE = re.compile(r"(?:resets?\s+in|try\s+again\s+in)\s+([0-9]+[hdwms][0-9hdwms]*)", re.IGNORECASE)
 _RESET_AT_TIME_RE = re.compile(r"(?:try\s+again\s+at|resets?(?:\s+at)?)\s+([0-9]{1,2}(?::[0-9]{2}(?::[0-9]{2})?\s*(?:AM|PM)?|\s*(?:AM|PM)))\b", re.IGNORECASE)
-_RESET_AT_ISO_RE = re.compile(r"(?:resets?\s+at|try\s+again\s+at)\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s,.]+)", re.IGNORECASE)
+_RESET_AT_ISO_RE = re.compile(
+    r"(?:resets?\s+at|try\s+again\s+at)\s+"
+    r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}:?[0-9]{2})?)"
+    r"(?=$|\s|[,;)\]}]|\.(?=$|\s|[)\]}]))", re.IGNORECASE,
+)
 
 
 def reset_match(text: str) -> re.Match[str] | None:

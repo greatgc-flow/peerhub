@@ -116,7 +116,7 @@ def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool,
     room = width - (RULE_PREFIX_WIDTH + RULE_MIN_TAIL_WIDTH if rich else 0)
     if cell_width(head + hint) <= room:
         head += hint
-    return heading_rule(head, width, unicode, paint) if rich else head
+    return heading_rule(head, width, unicode, paint, accent="spend") if rich else head
 
 
 def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
@@ -143,7 +143,7 @@ def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: st
         else:
             entries.append((" " + name, row, depth > 0, ""))
     headers, table, _ = pool_table(entries, rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
-                                   guide_url=guide_url, profile_urls=profile_urls)
+                                   guide_url=guide_url, profile_urls=profile_urls, highlight_left=True)
     lines = [line for entry in table for line in entry]
     headings = [_pools_heading(head, headers[0], width, unicode, rich, paint), *headers[1:]]
     return [*headings, *lines], len(ordered), len(headings), [len(entry) for entry in table]

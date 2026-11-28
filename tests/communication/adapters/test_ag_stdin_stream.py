@@ -974,7 +974,7 @@ def test_23g_usage_limit_long_line():
 
 def test_23h_a_cut_that_creates_a_higher_priority_reset_drops_line_2():
     iso = "2026-11-15T08:00:00Z"
-    line1 = f"Individual quota reached (resets at {iso} )"
+    line1 = f"Individual quota reached (resets at {iso})"
     limit = EXCERPT_CHARS - len(line1) - 1 - 14
     head = "Individual quota reached. "
     line = head + "x" * (limit - len(head) - len(" resets 5:30")) + " resets 5:300 later; " + "y" * 100 + f" resets at {iso}."

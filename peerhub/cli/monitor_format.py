@@ -31,7 +31,7 @@ from peerhub.cli.quota_format import (
     quota_bar as _bar_quota,
 )
 from peerhub.extensions.observation_model import DISABLED_REASON
-from peerhub.extensions.pool_health import PACE_GAP_BASELINE, PoolHealth, pace_gaps
+from peerhub.extensions.pool_health import PACE_GAP_BASELINE, PoolHealth, pace_gaps, parent_strictness
 from peerhub.extensions.quota_windows import (
     EXPIRED_WINDOW_REASON, UNKNOWN_WINDOW_SECONDS, WEEK_SECONDS, parse_window, pool_family, scoped_weekly_parents,
 )
@@ -175,7 +175,7 @@ def ordered_pools(rows: list[dict[str, Any]], *, pending: bool = False) -> list[
     rows = [row for row in rows if row["state"] != QUOTA_NA
             and not (row["aged"] and row["reason"].startswith(DISABLED_REASON)
                      and parse_window(str(row["pool"]))[0] < WEEK_SECONDS)]
-    scoped = scoped_weekly_parents(rows)
+    scoped = scoped_weekly_parents(rows, strictness=lambda row: parent_strictness(row["health"]))
 
     def family_key(row: dict[str, Any]) -> tuple[str, str, str]:
         account = str(row["pool_ref"]).rpartition(":")[0]
@@ -315,9 +315,13 @@ def _pool_cells(row: dict[str, Any], unicode: bool, glyph: bool, guide_url: str 
     return dict(zip(_POOL_COLUMNS, cells))
 
 
-def _paint_pool_cell(column: str, text: str, row: dict[str, Any]) -> str:
+def _paint_pool_cell(column: str, text: str, row: dict[str, Any], *, highlight_left: bool = False) -> str:
     facts: PoolHealth = row["health"]
     reserve = facts["reserve"]
+    if column == "LEFT" and highlight_left and "%" in text:
+        amount, gap, age = text.partition(" ")
+        colour = "dim" if facts["stale"] else {"out": "out", "low": "warn"}.get(reserve or "", "title")
+        return paint_text(amount, RICH_SGR[colour]) + gap + paint_text(age, RICH_SGR["dim"] if gap else None)
     if column == "STATE":
         colour = "bad" if row["reading"].get("state") == "ERROR" else _STATE_COLOURS.get(facts["state"], "dim")
     elif column in {"BAR", "PACE(pp)"}:
@@ -345,7 +349,7 @@ PoolEntry = tuple[str, dict[str, Any], bool, str]
 def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: int, unicode: bool,
                 keep: str | None, *, rich: bool, paint: bool, details: bool = False,
                 head: str = "PEER POOL", guide_url: str | None = None,
-                profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], list[list[str]], list[str]]:
+                profile_urls: Mapping[str, Any] | None = None, highlight_left: bool = False) -> tuple[list[str], list[list[str]], list[str]]:
     """Use the same column budget and cell formatting in POOLS and QUOTA."""
     width = max(1, width)
     active = [row for row in all_rows if row["state"] != QUOTA_NA]
@@ -406,7 +410,7 @@ def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: 
         for column in columns:
             value = cells.get(column, "")
             padding = max(0, sizes[column] - cell_width(value))
-            ink = _paint_pool_cell(column, value, row) if paint and row and value else value
+            ink = _paint_pool_cell(column, value, row, highlight_left=highlight_left) if paint and row and value else value
             leading = padding if column == "AGE" else 0
             if column == "LEFT":
                 leading = max(0, left_width - _pool_left_value_width(value))
