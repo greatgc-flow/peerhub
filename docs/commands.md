@@ -26,6 +26,16 @@ The [Core contract](m1_spec/01_M1/CORE_CONTRACT.md) defines the data model. Try 
 
 Read from position 0 to start at the beginning. Advance to the position you actually read using the revision returned by `offset get`.
 
+## Activity evidence
+
+| Command | Purpose |
+|---|---|
+| `activity` | Inspect metadata from the explicitly selected existing store. |
+| `activity export` | Export a bounded page, optionally filtered by exact stream. |
+| `activity show` | Page through one prompt, its responses, attempts, receipts and feedback. |
+
+Use `peerhub --db PATH activity export --json` for the first page. See the [activity v1.0 contract](implementation/activity/CONTRACT.md) for enrollment, limits and checkpoint handling.
+
 ## Ask
 
 | Command | Purpose |

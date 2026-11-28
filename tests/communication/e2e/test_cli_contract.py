@@ -20,7 +20,7 @@ def test_inventory_file_equals_the_real_parser():
     committed = json.loads(inv.INVENTORY.read_text(encoding="utf-8"))
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
-        "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor open", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
+        "account bind", "account list", "account show", "activity export", "activity show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor open", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
         "profile check", "profile list", "profile show", "profile stats", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "update"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
@@ -354,7 +354,7 @@ EFFECT = {
     "update --json": lambda e: update_effect(e, "--json"),
 }
 
-from tests.communication.e2e.cli_extension_effects import EFFECT as EXTENSION_EFFECT
+from tests.communication.e2e.cli_extension_effects import EFFECT as EXTENSION_EFFECT, outcome_ask
 EFFECT.update(EXTENSION_EFFECT)
 
 
@@ -395,7 +395,7 @@ def universal_json_effect(e, command):
             result = machine(e.tmp / "unused.db", *argv)
         assert result["schema_version"] == "1.0"
     elif root == "outcome":
-        db, ask_id = _outcome_ask(e)
+        db, ask_id = outcome_ask(e)
         assert machine(db, "outcome", ask_id, "accepted") == {"ask_id": ask_id, "outcome": "accepted"}
     else:
         db = e.fresh()
@@ -433,17 +433,8 @@ for _command in (
     EFFECT[f"{_command} --json"] = lambda e, command=_command: universal_json_effect(e, command)
 
 
-def _outcome_ask(e):
-    from peerhub.extensions.ask import ask
-    from tests.communication.fakes import FakeRuntimeTarget
-
-    db = e.fresh(populate=False)
-    runtime = FakeRuntimeTarget().script_deliver(("started", "exec"), ("terminal", {"response": "ok"}))
-    return db, ask(db, "cx", "question", runtime=runtime)["requested_record_id"]
-
-
 def _outcome_effect(e, field):
-    db, ask_id = _outcome_ask(e)
+    db, ask_id = outcome_ask(e)
     if field == "ask_id":
         code, _, err = e.run(db, "outcome", "missing", "accepted")
         assert code == 1 and "[ask_not_found]" in err

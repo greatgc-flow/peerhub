@@ -116,6 +116,126 @@
       ]
     },
     {
+      "command": "activity export",
+      "options": [
+        {
+          "default": null,
+          "dest": "cursor",
+          "flags": [
+            "--cursor"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": 100,
+          "dest": "limit",
+          "flags": [
+            "--limit"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 1048576,
+          "dest": "max_bytes",
+          "flags": [
+            "--max-bytes"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream",
+          "flags": [
+            "--stream"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "activity show",
+      "options": [
+        {
+          "default": null,
+          "dest": "cursor",
+          "flags": [
+            "--cursor"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": 100,
+          "dest": "limit",
+          "flags": [
+            "--limit"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 1048576,
+          "dest": "max_bytes",
+          "flags": [
+            "--max-bytes"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream",
+          "flags": [
+            "--stream"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "ask_id",
+          "flags": [
+            "ask_id"
+          ],
+          "positional": true,
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
       "command": "ask",
       "options": [
         {
@@ -1428,6 +1548,21 @@
   "groups": [
     {
       "command": "account",
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
+    },
+    {
+      "command": "activity",
       "options": [
         {
           "default": "==SUPPRESS==",
