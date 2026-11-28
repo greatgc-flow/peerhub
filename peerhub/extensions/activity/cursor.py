@@ -14,7 +14,8 @@ from peerhub.core.models import json_digest
 
 MAX_STREAMS = 32
 MAX_ID_BYTES = 256
-MAX_TOKEN = 65536
+MAX_TOKEN = 65536  # Accept previous draft cursors through their original limit.
+MAX_EMITTED_TOKEN = 24576  # Leave room for the executable, DB path and options on Windows.
 MAX_SEQ = 2**63 - 1
 
 
@@ -55,10 +56,22 @@ def wire(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
 
 
+def _token(raw: bytes) -> str:
+    return "a1." + base64.urlsafe_b64encode(hashlib.sha256(raw).digest() + raw).decode("ascii")
+
+
 def encode(store: str, lineage: str, scope: str, after: dict[str, int], heads: dict[str, int] | None) -> str:
-    raw = wire([1, store, lineage, scope, after, heads]).encode("ascii")
-    token = "a1." + base64.urlsafe_b64encode(hashlib.sha256(raw).digest() + raw).decode("ascii")
-    if len(token) > MAX_TOKEN:
+    token = _token(wire([1, store, lineage, scope, after, heads]).encode("ascii"))
+    if len(token) <= MAX_EMITTED_TOKEN:
+        return token
+    # Store each partition once. Hex bounds each UTF-8 byte to two JSON characters,
+    # including control characters that the original form escapes in both vectors.
+    keys = sorted(after)
+    encoded_keys = [key.encode("utf-8").hex() for key in keys]
+    positions = [after[key] for key in keys]
+    highs = [heads[key] for key in keys] if heads is not None else None
+    token = _token(wire([2, store, lineage, scope, encoded_keys, positions, highs]).encode("ascii"))
+    if len(token) > MAX_EMITTED_TOKEN:
         raise ActivityError("PARTITION_LIMIT")
     return token
 
@@ -75,6 +88,33 @@ def _vector(values: Any) -> dict[str, int]:
     return result
 
 
+def _json_list(value: Any) -> list[Any]:
+    if not isinstance(value, list):
+        raise ValueError
+    return cast(list[Any], value)
+
+
+def _unpack(payload: Any) -> tuple[object, object, object, dict[str, int], dict[str, int] | None]:
+    version, origin, epoch, filters, *progress = _json_list(payload)
+    if type(version) is not int:
+        raise ValueError
+    if version == 1:
+        positions, highs = progress
+    elif version == 2:
+        encoded_keys, offsets, ceilings = progress
+        encoded_keys = _json_list(encoded_keys)
+        if len(encoded_keys) > MAX_STREAMS + 2:
+            raise ValueError
+        keys = [bytes.fromhex(key).decode("utf-8") for key in encoded_keys]
+        if len(set(keys)) != len(keys):
+            raise ValueError
+        positions = dict(zip(keys, _json_list(offsets), strict=True))
+        highs = None if ceilings is None else dict(zip(keys, _json_list(ceilings), strict=True))
+    else:
+        raise ValueError
+    return origin, epoch, filters, _vector(positions), None if highs is None else _vector(highs)
+
+
 def decode(token: str, store: str, lineage: str | None, scope: str) -> tuple[dict[str, int], dict[str, int] | None]:
     try:
         if not token or len(token) > MAX_TOKEN:
@@ -83,11 +123,7 @@ def decode(token: str, store: str, lineage: str | None, scope: str) -> tuple[dic
         raw = data[32:]
         if not hmac.compare_digest(data[:32], hashlib.sha256(raw).digest()):
             raise ValueError
-        version, origin, epoch, filters, positions, highs = json.loads(raw)
-        if type(version) is not int or version != 1:
-            raise ValueError
-        after = _vector(positions)
-        heads = None if highs is None else _vector(highs)
+        origin, epoch, filters, after, heads = _unpack(json.loads(raw))
         if heads is not None and (after.keys() != heads.keys() or any(after[k] > heads[k] for k in after)):
             raise ValueError
     except (ValueError, TypeError, RecursionError, UnicodeError):

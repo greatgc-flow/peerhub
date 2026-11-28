@@ -171,3 +171,20 @@ def test_wildcard_cursor_fits_portable_process_argv(tmp_path, prefix):
     assert {item["record_id"] for item in first["items"] + drain["items"]} == expected
     assert len(first["items"]) + len(drain["items"]) == len(expected)
     assert invoke("--cursor", drain["next_cursor"])["items"] == []
+
+
+def test_compact_cursor_handles_max_sequence_numbers():
+    from peerhub.extensions.activity import cursor
+
+    prefix = "\x01" * 253
+    names = [f"r:{prefix}{i:03}" for i in range(32)] + ["evidence", "outcome"]
+    after = dict.fromkeys(names, cursor.MAX_SEQ - 1)
+    heads = dict.fromkeys(names, cursor.MAX_SEQ)
+    ids = ("a" * 64, "b" * 64, "c" * 64)
+    token = cursor.encode(*ids, after, heads)
+    assert len(token) <= 24576
+    assert cursor.decode(token, *ids) == (after, heads)
+    with pytest.raises(cursor.ActivityError, match="CURSOR_SCOPE_MISMATCH"):
+        cursor.decode(token, ids[0], ids[1], "another-scope")
+    with pytest.raises(cursor.ActivityError, match="RESNAPSHOT_REQUIRED"):
+        cursor.decode(token, ids[0], "another-epoch", ids[2])

@@ -7,7 +7,7 @@ Updated: 2026-11-28
 
 ## State
 
-- Released: v0.28.2 (2026-11-27): #503, #502, #498. The activity export candidate includes backup and receiver crash-recovery checks. Engram WP6 adapter validation is pending. See the [implementation record](docs/implementation/activity/WORK.md).
+- Released: v0.28.2 (2026-11-27): #503, #502, #498. The activity export candidate includes backup and receiver crash-recovery checks and portable wildcard cursors. Engram WP6 adapter validation is pending. See the [implementation record](docs/implementation/activity/WORK.md).
 
 ## Next (ordered)
 

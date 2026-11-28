@@ -78,3 +78,13 @@ The earlier WP0 probe observed new WAL/SHM sidecars after a direct history read 
 | Protected backup and enrollment | The normal CLI pages the explicitly selected stream in the disposable directory. The list and SHA-256 digests of all files in the supplied synthetic backup agree before and after both restores. |
 
 Reproduce with `python -m pytest -q tests/communication/integration/test_activity_receiver.py tests/continuity/test_backup_recovery.py`. The receiver database exists only in the test's temporary directory. Tests exercise an independent fixture through the CLI and OS process exits. They cover producer-side behavior relevant to T95/T97 and the WP6 transaction boundary. Native Engram evaluation invalidation, policy rechecks and cross-source task linking still require the consumer.
+
+## Windows argument length and large stream identifiers
+
+A CLI regression test creates 32 streams through CoreStore, with each ID close to the 256-byte export limit. On the earlier candidate, Unicode identifiers produced a continuation whose Windows command line required 44,376 UTF-16 code units including the terminator. A second fixture of valid IDs requiring JSON escapes failed with PARTITION_LIMIT before it could return the first page. The character count uses Python's Windows argument quoting from the Linux harness. The test also launches the CLI directly on each host.
+
+Large continuations now list each partition once and encode each UTF-8 identifier byte in two ASCII hex characters internally. The existing cursor format and golden exchange remain accepted. The new test drains the same 32 streams exactly once and polls an empty successor. A separate extreme-value case uses 256-byte IDs and maximum SQLite sequence values, and checks scope and lineage errors in the compact form. No transport field or event digest changes.
+
+PHT037 now has synthetic Linux measurements recorded in [PR #506](https://github.com/greatgc-flow/peerhub/pull/506). On candidate `a115729c` three 20,000-event runs used 26,692–26,696 KiB peak RSS and had per-run median page times of 7.58–8.18 ms. All event IDs appeared in order. These measurements describe the one-stream fixture. Representative production timing remains NOT_RUN.
+
+The Engram branch check included the hardware inventory contract at `e365e0785730b50e7b772ae573d5941ae14c06c7`. No Engram WP6 activity receiver was present in the checked remote refs.
