@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+- Emphasize quota amounts in the rich monitor. Keep more live rows visible by shortening the quota guide while work or alerts are present.
+
 ## [0.28.2] - 2026-11-27
 
 ### Changed

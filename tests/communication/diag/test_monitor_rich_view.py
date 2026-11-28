@@ -288,7 +288,10 @@ def test_the_time_gives_way_before_any_fact_of_line_1():
         old = plain(full_payload(), width=width - 2).splitlines()[0].split(" | ")
         new = strip(rich(full_payload(), width=width, color=False)).splitlines()[0]
         body = re.sub(r" +\d\d:\d\dZ$", "", new)
-        assert body.split(" · ") == [field.replace("~", "…") for field in old], width
+        facts = body.split(" · ")
+        if facts != [field.replace("~", "…") for field in old]:
+            assert facts[:3] == ["ATTN 2", "gone: cc.fable activity-view 5m", "+1"], width
+            assert "4 running" in facts and "4 running" not in old, width
         timed.append(new != body)
         if new != body:  # at the right edge, two cells or more after the last fact
             assert cell_width(new) == width - 1 and new.endswith("23:46Z") and new[len(body):].startswith("  ")
@@ -300,9 +303,10 @@ def test_the_time_gives_way_before_any_fact_of_line_1():
     assert "Z" not in rich(payload, color=False).splitlines()[0]  # no time is invented
 
 
-def test_line_2_is_dim_structure():
+def test_line_2_highlights_the_title_and_dims_snapshot_details():
     line = rich(quiet_payload()).splitlines()[1]
-    assert line == f"\x1b[{monitor_layout.RICH_SGR['dim']}mPeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s\x1b[0m"
+    dim, title = (monitor_layout.RICH_SGR[key] for key in ("dim", "title"))
+    assert line == f"\x1b[{title}mPeerHub Monitor\x1b[0m\x1b[{dim}m 2026-11-14 23:46Z · DB:env · quota age 10s\x1b[0m"
 
 
 # ---- POOLS rows: bar, glyph and state word, the row's one colour ------------------------------------------------------
@@ -366,10 +370,10 @@ def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
     assert f"  {A[glyph]} {state}  " in row_of(strip(rich(payload, unicode=False)), "C-7D")
 
 
-def test_m1_the_family_cell_is_dim_and_left_is_neutral():
+def test_m1_the_family_cell_is_dim_and_left_is_bold():
     line = row_of(rich(pools_payload(pool("cc", "C-7D", .63, pace=-20))), "C-7D")
     assert f"\x1b[{monitor_layout.RICH_SGR['dim']}mclaude: cc.effort\x1b[0m" in line
-    assert span(line, "63%") is None
+    assert span(line, "63%") == monitor_layout.RICH_SGR["title"]
     assert f"\x1b[{monitor_layout.RICH_SGR['spend']}m-20.00\x1b[0m" in line
 
 
@@ -670,3 +674,34 @@ def test_a_capacity_read_error_stays_an_error(sources):
     assert "QUOTA [ERROR] | measured remaining" in expanded
     bounded = render_grouped_frame(payload, view="plain", unicode=False, width=120, height=60, expand=True)
     assert "OperationalError: database read failed" in bounded
+
+
+def test_quota_first_rich_frame_keeps_quota_and_live_activity_within_24_rows():
+    payload = full_payload()
+    before = deepcopy(payload)
+    screen = render_grouped_frame(payload, view="rich", color=False, width=100, height=24)
+    heads = [rule_head(line) for line in screen.splitlines() if rule_head(line)]
+    assert heads[:3] == ["POOLS 9", "ALERTS 2", "RUNNING 4"]
+    assert monitor_legend.POOL_LEGEND not in " ".join(screen.split())
+    assert "PACE(pp)" in screen and "EXH/RESET" in screen and "peerhub monitor open ID" in screen
+    assert all(cell_width(line) < 100 for line in screen.splitlines()) and screen.count("\n") < 24
+    expanded = render_grouped_frame(payload, view="rich", expand=True, width=100)
+    assert "QUOTA [OK]" in expanded and monitor_legend.POOL_LEGEND in " ".join(expanded.split())
+    assert payload == before
+
+
+def test_narrow_quota_first_header_shows_running_even_when_alert_labels_compete():
+    screen = rich(full_payload(), color=False, width=64, height=23)
+    verdict = screen.splitlines()[0]
+    assert verdict.startswith("ATTN 2")
+    assert "gone:" in verdict and "4 running" in verdict and "+1" in verdict
+    assert cell_width(verdict) < 64
+
+
+def test_quota_first_rendering_emphasizes_labels_and_quota_amounts():
+    screen = rich(full_payload(), width=120, height=26)
+    assert span(screen.splitlines()[1], "PeerHub Monitor") == monitor_layout.RICH_SGR["title"]
+    assert span(row_of(screen, "POOLS 9"), "POOLS 9") == monitor_layout.RICH_SGR["spend"]
+    assert span(row_of(screen, "C-7D"), "63%") == monitor_layout.RICH_SGR["title"]
+    assert span(row_of(screen, "ALERTS 2"), "ALERTS 2") == monitor_layout.RICH_SGR["warn"]
+    assert strip(screen).splitlines()[1:] == rich(full_payload(), color=False, width=120, height=26).splitlines()[1:]
