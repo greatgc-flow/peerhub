@@ -1242,3 +1242,58 @@ def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_pat
     last = refreshing[-1]
     assert last["elapsed"] == pytest.approx(150.0) and last["text"].splitlines()[0].endswith("cx X-7D aged")
 
+
+
+@pytest.mark.parametrize("short_state", ["ABSENT", "MEASURED"], ids=["weekly-only", "short-exhausted"])
+def test_quota_plan_and_monitor_agree_on_a_short_window(tmp_path, monkeypatch, capsys, short_state):
+    import time
+
+    from peerhub.extensions.observation_model import EvidenceState, Observation, epoch_to_iso
+    from tests.communication.harness.observation import ObservationHarness
+
+    store = ObservationHarness(tmp_path / "workspace")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("COLUMNS", "120")
+    now = time.time()
+    stamp = epoch_to_iso(now - 10)
+
+    def record(window, state, payload):
+        pool = f"quota:cx:X-{window}"
+        store.register_pool({"schema_version": "1.0", "resource_pool_id": pool,
+                             "provider": "openai", "kind": "QUOTA", "metadata": {}})
+        store.obs.persist(Observation(
+            observation_id=window, subject_ref="cx", resource_pool_ref=pool, kind="quota", source="fixture",
+            state=EvidenceState(state), observed_at=stamp, captured_at=stamp, payload=payload,
+        ))
+
+    week = 7 * 86400
+    record("7D", "MEASURED", {"remaining_fraction": .41, "window_started_at": now - .59 * week,
+                               "resets_at": now + .41 * week})
+    exhausted = short_state == "MEASURED"
+    record("5H", short_state, {"remaining_fraction": 0, "window_started_at": now - 4 * 3600, "resets_at": now + 3600}
+           if exhausted else {"reason": "not reported by provider; plan=fixture-weekly-only"})
+
+    args = ["--db", str(store.db_path)]
+    assert main([*args, "diag", "--plan", "--json"]) == 0
+    rows = {row["pool"]: row for row in json.loads(capsys.readouterr().out)["pools"]}
+    if exhausted:
+        assert rows["X-7D"]["binding"] == "X-5H"
+        assert rows["X-7D"]["gates"] == [{"pool": "X-5H", "action": "blocked", "reason": "out"}]
+    else:
+        assert rows["X-5H"]["action"] == "n/a"
+        assert rows["X-7D"]["action"] == "hold"
+        assert rows["X-7D"]["gates"] == []
+
+    monitor = [*args, "monitor", "--snapshot", "--group", "capacity"]
+    assert main([*monitor, "--view", "rich"]) == 0
+    text = ANSI_ESCAPE.sub("", capsys.readouterr().out)
+    assert "41%" in text and "X-7D" in text
+    assert ("X-5H" in text) is exhausted
+    if exhausted:
+        assert any("X-5H" in line and "out" in line and "0%" in line for line in text.splitlines())
+
+    assert main([*monitor, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "2.0"
+    observations = payload["groups"]["capacity"]["data"]["observations"]
+    assert next(row for row in observations if row["pool_ref"] == "quota:cx:X-5H")["state"] == short_state

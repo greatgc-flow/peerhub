@@ -7,7 +7,7 @@ Updated: 2026-11-28
 
 ## State
 
-- Released: v0.28.2 (2026-11-27): #503, #502, #498. In review: #507 quota plan gates and #504 quota diagnostics follow-ups.
+- Released: v0.28.2 (2026-11-27): #503, #502, #498. In review: #507 quota plan gates, #504 quota diagnostics follow-ups, and the rich quota dashboard.
 
 ## Next (ordered)
 
