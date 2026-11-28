@@ -188,3 +188,31 @@ def test_compact_cursor_handles_max_sequence_numbers():
         cursor.decode(token, ids[0], ids[1], "another-scope")
     with pytest.raises(cursor.ActivityError, match="RESNAPSHOT_REQUIRED"):
         cursor.decode(token, ids[0], "another-epoch", ids[2])
+
+
+def test_scoped_evidence_tail_does_not_rescan_stream_history(tmp_path):
+    from peerhub.extensions.activity.reader import _rows
+    from tests.communication.bridge_helpers import bseed
+    from tests.communication.harness.bridge import BridgeHarness
+
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h, n=0)
+    with closing(sqlite3.connect(h.db_path)) as conn:
+        with conn:
+            conn.executemany("INSERT INTO bridge_evidence(stream_id,peer_id,kind,detail) VALUES ('s','b','caller','{}')",
+                             (() for _ in range(30000)))
+            conn.execute("INSERT INTO bridge_evidence(stream_id,peer_id,kind,detail) VALUES ('other','b','caller','{}')")
+            conn.execute("INSERT INTO bridge_evidence(stream_id,peer_id,kind,detail) VALUES ('s','b','fixture.kind','{}')")
+        conn.row_factory = sqlite3.Row
+        samples = 0
+
+        def count_instructions():
+            nonlocal samples
+            samples += 1
+            return 0
+
+        conn.set_progress_handler(count_instructions, 100)
+        late, = list(_rows(conn, "evidence", 30000, 30002, "s", None, 100, True))
+        assert late[0] == 30002
+        assert late[1]["event"] == "unclassified"
+        assert samples < 50, f"SQLite ran at least {samples * 100} instructions for two tail rows"
