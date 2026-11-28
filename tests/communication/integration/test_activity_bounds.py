@@ -1,6 +1,9 @@
 import json
 import sqlite3
+import subprocess
+import sys
 from contextlib import closing
+from pathlib import Path
 
 import pytest
 
@@ -134,3 +137,37 @@ def test_emitted_cursor_is_always_a_positional_argument_value(tmp_path, capsys, 
     first = page(capsys, db, "export", "--stream", "z")
     assert not first["next_cursor"].startswith("-")
     assert not page(capsys, db, "export", "--stream", "z", "--cursor", first["next_cursor"])["items"]
+
+
+@pytest.mark.parametrize("prefix", ("한" * 84, "\x01" * 253), ids=("unicode", "escaped"))
+@pytest.mark.platform_sensitive
+def test_wildcard_cursor_fits_portable_process_argv(tmp_path, prefix):
+    db = tmp_path / "workspace" / "core.db"
+    db.parent.mkdir()
+    (db.parent / "workspace.generation").write_text("fixture", encoding="ascii")
+    store = CoreStore(db)
+    store.register_peer(Peer(peer_id="p"))
+    expected = set()
+    for index in range(32):
+        stream = f"{prefix}{index:03}"
+        store.create_stream(Stream(stream_id=stream, members=["p"]))
+        record = store.append_record(stream_id=stream, author_peer_id="p", kind="message",
+                                     body="fixture", idempotency_key="k",
+                                     created_at="2026-11-28T00:00:00Z")
+        expected.add(record.record_id)
+
+    def invoke(*extra):
+        cmd = [sys.executable, "-m", "peerhub", "--db", str(db), "activity", "export", "--json", *extra]
+        # Windows CreateProcess caps argv after flattening, including its terminating NUL.
+        assert len(subprocess.list2cmdline(cmd).encode("utf-16-le")) // 2 + 1 <= 32767
+        done = subprocess.run(cmd, cwd=Path(__file__).resolve().parents[3], capture_output=True, timeout=45)
+        assert done.returncode == 0, done.stdout + done.stderr
+        return json.loads(done.stdout)
+
+    first = invoke("--limit", "1")
+    assert first["has_more"]
+    drain = invoke("--cursor", first["next_cursor"])
+    assert not drain["has_more"]
+    assert {item["record_id"] for item in first["items"] + drain["items"]} == expected
+    assert len(first["items"]) + len(drain["items"]) == len(expected)
+    assert invoke("--cursor", drain["next_cursor"])["items"] == []
