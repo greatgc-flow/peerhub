@@ -117,7 +117,7 @@ _RESET_AT_TIME_RE = re.compile(r"(?:try\s+again\s+at|resets?(?:\s+at)?)\s+([0-9]
 _RESET_AT_ISO_RE = re.compile(
     r"(?:resets?\s+at|try\s+again\s+at)\s+"
     r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}:?[0-9]{2})?)"
-    r"(?![\w:+-]|\.[0-9])", re.IGNORECASE,
+    r"(?=$|\s|[,;)\]}]|\.(?=$|\s|[)\]}]))", re.IGNORECASE,
 )
 
 
