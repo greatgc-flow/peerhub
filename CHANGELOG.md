@@ -8,6 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+- Keep unknown or stale-zero short quota windows out of weekly plan gates and expose the explicit refresh command in diagnostics help (#507).
+- Preserve shared quota consumers when the displayed diagnostic reading comes from another reporter of the same pool (#504).
+- Nest dependent weekly pools under the parent report that supplies their cap (#504).
+- Preserve fractional seconds and timezone offsets in provider reset timestamps (#504).
+
 ## [0.28.2] - 2026-11-27
 
 ### Changed

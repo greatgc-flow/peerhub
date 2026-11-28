@@ -46,7 +46,8 @@ def register_diag_parser(subparsers: Subparsers) -> None:
     diag_parser.add_argument("--observation-db", dest="plan_obs_db", metavar="PATH",
                              help="With --plan, read observations from this other workspace database (read-only, never created). "
                                   "Load still comes from the selected store.")
-    diag_parser.epilog = "Examples: peerhub diag --plan | peerhub diag --json | peerhub monitor"
+    diag_parser.epilog = ("Examples: peerhub diag --plan | peerhub diag --json | peerhub monitor. "
+                          "Refresh quota separately with peerhub observation refresh --peers cc cx.")
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
 
     d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
