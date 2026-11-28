@@ -26,7 +26,8 @@ def test_full_frame_section_order(view: str, expand: bool) -> None:
     catalog = tuple(FRAME_SECTIONS.values())
     shown = tuple(head for head in heads(screen) if head in catalog)
 
-    assert shown == (catalog if expand else FRAME_HEADS[:-1])
+    compact = FRAME_HEADS if view == "rich" else FRAME_HEADS[:-1]
+    assert shown == (catalog if expand else compact)
 
 
 @pytest.mark.parametrize("view", ["plain", "rich"])
@@ -34,7 +35,8 @@ def test_full_frame_section_order(view: str, expand: bool) -> None:
 def test_height_evicts_sections_from_the_bottom(view: str, expand: bool) -> None:
     payload = _all_sections_payload()
     options = {"view": view, "unicode": view == "rich", "width": 120, "expand": expand}
-    catalog = tuple(FRAME_SECTIONS.values()) if expand else FRAME_HEADS[:-1]  # M9/G8
+    compact = FRAME_HEADS if view == "rich" else FRAME_HEADS[:-1]
+    catalog = tuple(FRAME_SECTIONS.values()) if expand else compact
     full = render_grouped_frame(payload, **options)
     assert tuple(head for head in heads(full) if head in catalog) == catalog
 

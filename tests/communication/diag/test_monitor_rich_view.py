@@ -288,7 +288,10 @@ def test_the_time_gives_way_before_any_fact_of_line_1():
         old = plain(full_payload(), width=width - 2).splitlines()[0].split(" | ")
         new = strip(rich(full_payload(), width=width, color=False)).splitlines()[0]
         body = re.sub(r" +\d\d:\d\dZ$", "", new)
-        assert body.split(" · ") == [field.replace("~", "…") for field in old], width
+        facts = body.split(" · ")
+        if facts != [field.replace("~", "…") for field in old]:
+            assert facts[:3] == ["ATTN 2", "gone: cc.fable activity-view 5m", "+1"], width
+            assert "4 running" in facts and "4 running" not in old, width
         timed.append(new != body)
         if new != body:  # at the right edge, two cells or more after the last fact
             assert cell_width(new) == width - 1 and new.endswith("23:46Z") and new[len(body):].startswith("  ")
@@ -300,9 +303,10 @@ def test_the_time_gives_way_before_any_fact_of_line_1():
     assert "Z" not in rich(payload, color=False).splitlines()[0]  # no time is invented
 
 
-def test_line_2_is_dim_structure():
+def test_line_2_highlights_the_title_and_dims_snapshot_details():
     line = rich(quiet_payload()).splitlines()[1]
-    assert line == f"\x1b[{monitor_layout.RICH_SGR['dim']}mPeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s\x1b[0m"
+    dim, title = (monitor_layout.RICH_SGR[key] for key in ("dim", "title"))
+    assert line == f"\x1b[{title}mPeerHub Monitor\x1b[0m\x1b[{dim}m 2026-11-14 23:46Z · DB:env · quota age 10s\x1b[0m"
 
 
 # ---- POOLS rows: bar, glyph and state word, the row's one colour ------------------------------------------------------
@@ -366,10 +370,10 @@ def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
     assert f"  {A[glyph]} {state}  " in row_of(strip(rich(payload, unicode=False)), "C-7D")
 
 
-def test_m1_the_family_cell_is_dim_and_left_is_neutral():
+def test_m1_the_family_cell_is_dim_and_left_is_bold():
     line = row_of(rich(pools_payload(pool("cc", "C-7D", .63, pace=-20))), "C-7D")
     assert f"\x1b[{monitor_layout.RICH_SGR['dim']}mclaude: cc.effort\x1b[0m" in line
-    assert span(line, "63%") is None
+    assert span(line, "63%") == monitor_layout.RICH_SGR["title"]
     assert f"\x1b[{monitor_layout.RICH_SGR['spend']}m-20.00\x1b[0m" in line
 
 

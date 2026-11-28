@@ -246,7 +246,7 @@ def test_g_pace_precision_and_m1_independent_colours(pace: float, colour: str, s
     expected = format_pace(pace) + suffix
     assert all(expected in cells for cells in pool_cells(screen, pool))
     assert screen.count(f"\x1b[{monitor_layout.RICH_SGR[colour]}m{expected}\x1b[0m") == 2
-    assert not re.search(r"\x1b\[[0-9;]*m17%", screen)
+    assert re.findall(r"\x1b\[([0-9;]*)m17%", screen) == [monitor_layout.RICH_SGR["title"]]
 
 
 @pytest.mark.parametrize("age,state,left,exhaust", [

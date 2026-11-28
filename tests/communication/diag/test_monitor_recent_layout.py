@@ -132,7 +132,8 @@ def recent_rows(screen: str) -> list[str]:
 def test_compact_order_puts_running_ahead_of_recent(busy, view, unicode_mode):
     screen = render_grouped_frame(busy, view=view, unicode=unicode_mode, width=100)
     names = [name for name in head_names(screen) if name in FRAME_HEADS]
-    assert names == [head for head in FRAME_HEADS if head not in {"ALERTS", "LEADS"}]  # M9/G8
+    omitted = {"ALERTS", "LEADS"} if view == "plain" else {"ALERTS"}
+    assert names == [head for head in FRAME_HEADS if head not in omitted]
 
 
 def detailed(busy: dict[str, Any]) -> dict[str, Any]:

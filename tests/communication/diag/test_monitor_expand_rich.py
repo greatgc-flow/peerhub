@@ -246,7 +246,9 @@ def test_the_expanded_section_rules_match_the_compact_style():
     rules = [line for line in screen.splitlines() if strip(line).startswith("── ")]
     assert heads("\n".join(rules)) == list(ORDER)
     dim, title = monitor_layout.RICH_SGR["dim"], monitor_layout.RICH_SGR["title"]
-    assert all(line.startswith(f"\x1b[{dim}m──\x1b[0m \x1b[{title}m") and cell_width(line) == 99 for line in rules)
+    for line in rules:
+        ink = monitor_layout.RICH_SGR["spend"] if strip(line).startswith("── POOLS ") else title
+        assert line.startswith(f"\x1b[{dim}m──\x1b[0m \x1b[{ink}m") and cell_width(line) == 99
     texts = [strip(line) for line in rules]
     assert any(text.startswith("── RUNNING 4 · ag 1 cc 2 cx 1 ─") for text in texts)
     assert any(text.startswith("── LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found ─") for text in texts)
