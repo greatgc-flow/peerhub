@@ -640,3 +640,46 @@ def test_plan_and_health_agree_at_spend_boundary_with_float_noise():
     cells = next(line.split() for line in render_plan(report, width=120).splitlines()
                  if line.split()[:2] == [row["peer"], pool])
     assert cells[3] == format_pace(-PLAN_SPEND_PACE_PT) and cells[6] == row["action"]
+
+
+@pytest.mark.parametrize("state, reason, age, action", [
+    ("UNKNOWN", "probe incomplete", FRESH_AGE, "blocked"),
+    ("ABSENT", "not reported by provider; plan=unknown", AGED, "blocked"),
+    ("ABSENT", "not reported by provider; plan=prolite", FRESH_AGE, "n/a"),
+    ("STALE", None, AGED, "blocked"),
+])
+@pytest.mark.parametrize("peer, family", [("cc", "C"), ("cx", "X")])
+def test_unknown_short_window_never_appears_as_a_weekly_gate(state, reason, age, action, peer, family):
+    short_name, weekly_name = f"{family}-5H", f"{family}-7D"
+    short = _item(peer, short_name, 0.0 if state == "STALE" else None, span=SHORT, elapsed=HOUR,
+                  state=state, age=age, reason=reason)
+    weekly = _item(peer, weekly_name, .5, span=WEEK, elapsed=WEEK / 2)
+    profiles = dict.fromkeys((short_name, weekly_name), [f"{peer}.standard"])
+    report = _report(short, weekly)
+    rows = _rows(report, profiles)
+
+    assert rows[short["resource_pool_ref"]]["action"] == action
+    row = rows[weekly["resource_pool_ref"]]
+    assert (row["action"], row["binding"], row["gates"]) == ("hold", weekly_name, [])
+    rendered = render_plan(report, width=140, profiles_by_pool=profiles)
+    line = next(line for line in rendered.splitlines() if line.split()[:2] == [peer, weekly_name])
+    assert "gate:" not in line
+
+
+@pytest.mark.parametrize("same_pool", [True, False])
+def test_diag_shared_parent_keeps_consumers_when_alias_is_the_displayed_report(same_pool):
+    common = _item("cc", "C-7D", .8, span=WEEK, elapsed=WEEK / 2, age=FRESH_AGE)
+    child = _item("cc", "F-7D", .9, span=WEEK, elapsed=WEEK / 2, age=FRESH_AGE)
+    alias = _item("cc2", "C-7D", .25, span=WEEK, elapsed=WEEK / 2, age=FRESH_AGE - 1)
+    if same_pool:
+        alias["resource_pool_ref"] = common["resource_pool_ref"]
+    report = _report(common, child, alias)
+
+    rows = _rows(report, WEEKLY_PROFILES)
+    parent = rows[common["resource_pool_ref"]]
+    assert parent["peer"] == ("cc2" if same_pool else "cc")
+    assert parent["profiles"] == WEEKLY_PROFILES["C-7D"]
+    assert rows[child["resource_pool_ref"]]["limited_by"] == common["resource_pool_ref"]
+    rendered = render_view(report, width=140, profiles_by_pool=WEEKLY_PROFILES)
+    line = next(line for line in rendered.splitlines() if line.startswith("cc   F-7D"))
+    assert ("25%" if same_pool else "80%") in line

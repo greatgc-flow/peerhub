@@ -105,9 +105,26 @@ def _select_quota_rows(items: list[Obj], pools: list[Obj]) -> list[QuotaRow]:
     return sorted((QuotaRow(i) for i in selected.values()), key=lambda r: (r.peer, _family(r.pool), r.span, r.ref))
 
 
-def _quota_consumers(rows: list[QuotaRow], profiles_by_pool: Mapping[str, list[str]] | None) -> dict[str, list[str]]:
-    return {r.ref: [profile for profile in (profiles_by_pool or {}).get(r.pool, [])
-                    if profile.partition(".")[0] == r.subject_ref] for r in rows}
+def _quota_consumers(rows: list[QuotaRow], items: list[Obj],
+                     profiles_by_pool: Mapping[str, list[str]] | None) -> dict[str, list[str]]:
+    if profiles_by_pool is None:
+        return {row.ref: [] for row in rows}
+    # Selecting the displayed reading must not discard the configured consumers
+    # of another reporter for the very same account-scoped pool.
+    reporters: dict[str, set[str]] = {}
+    for item in items:
+        ref, subject = item.get("resource_pool_ref"), item.get("subject_ref")
+        if item.get("kind") in ("quota", "rate_limit") and isinstance(ref, str) and isinstance(subject, str):
+            reporters.setdefault(ref, set()).add(subject)
+    result: dict[str, list[str]] = {}
+    for row in rows:
+        raw_ref = row.item.get("resource_pool_ref")
+        subjects: set[str] = {row.subject_ref} if row.subject_ref is not None else set()
+        if isinstance(raw_ref, str):
+            subjects.update(reporters.get(raw_ref, ()))
+        result[row.ref] = [profile for profile in profiles_by_pool.get(row.pool, [])
+                           if profile.partition(".")[0] in subjects]
+    return result
 
 
 def _project_quota_rows(rows: list[QuotaRow], read_at: float, consumers: Mapping[str, list[str]], *,
@@ -121,7 +138,7 @@ def _project_quota_rows(rows: list[QuotaRow], read_at: float, consumers: Mapping
 def quota_rows(items: list[Obj], pools: list[Obj], read_at: float, *,
                profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[QuotaRow]:
     rows = _select_quota_rows(items, pools)
-    projected = _project_quota_rows(rows, read_at, _quota_consumers(rows, profiles_by_pool),
+    projected = _project_quota_rows(rows, read_at, _quota_consumers(rows, items, profiles_by_pool),
                                     require_consumers=profiles_by_pool is not None)
     for row, pool in zip(rows, projected):
         health = pool.health
@@ -460,9 +477,10 @@ def _plan_advice(window: _PlanWindow, parent: QuotaRow | None, facts: PoolHealth
 
     shown = [entry for entry in applicable if not use_family or entry[0].ref in exhausted]
     if parse_window(r.pool)[0] == WEEK_SECONDS:
-        # Unknown windows remain weekly evidence. Their block applies only to their own row.
+        # A blocked sibling is already in applicable if it is freshly exhausted.
+        # Unknown or stale-zero siblings show their own status without advertising a gate.
         shown.extend(entry for entry in windows if entry not in shown
-                     and _plan_family(r) == _plan_family(entry[0]) and entry[2] in {"rest", "blocked"})
+                     and _plan_family(r) == _plan_family(entry[0]) and entry[2] == "rest")
     if parent_vote is not None:
         shown.append(parent_vote)
     if decided is gate and decided not in shown:
@@ -480,7 +498,7 @@ def plan_pools(report: DiagnosticReport, *,
     items = _plan_observations(report)
     pools = [p for p in object_items(section_data(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
     rows = _select_quota_rows(items, pools)
-    consumers = _quota_consumers(rows, profiles_by_pool)
+    consumers = _quota_consumers(rows, items, profiles_by_pool)
     projected = _project_quota_rows(rows, report.read_at, consumers, require_consumers=profiles_by_pool is not None)
     healths = {r.ref: row.own_health for r, row in zip(rows, projected)}
     rows_by_ref = {r.ref: r for r in rows}

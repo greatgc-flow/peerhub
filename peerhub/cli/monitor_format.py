@@ -31,7 +31,7 @@ from peerhub.cli.quota_format import (
     quota_bar as _bar_quota,
 )
 from peerhub.extensions.observation_model import DISABLED_REASON
-from peerhub.extensions.pool_health import PACE_GAP_BASELINE, PoolHealth, pace_gaps
+from peerhub.extensions.pool_health import PACE_GAP_BASELINE, PoolHealth, pace_gaps, parent_strictness
 from peerhub.extensions.quota_windows import (
     EXPIRED_WINDOW_REASON, UNKNOWN_WINDOW_SECONDS, WEEK_SECONDS, parse_window, pool_family, scoped_weekly_parents,
 )
@@ -175,7 +175,7 @@ def ordered_pools(rows: list[dict[str, Any]], *, pending: bool = False) -> list[
     rows = [row for row in rows if row["state"] != QUOTA_NA
             and not (row["aged"] and row["reason"].startswith(DISABLED_REASON)
                      and parse_window(str(row["pool"]))[0] < WEEK_SECONDS)]
-    scoped = scoped_weekly_parents(rows)
+    scoped = scoped_weekly_parents(rows, strictness=lambda row: parent_strictness(row["health"]))
 
     def family_key(row: dict[str, Any]) -> tuple[str, str, str]:
         account = str(row["pool_ref"]).rpartition(":")[0]

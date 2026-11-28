@@ -64,14 +64,14 @@ CLI dispatch for default ag, cx and cc accounts also attempts to refresh quota w
 
 Use `--observation-db PATH` with `diag --plan` or `diag quota` to read observations from another store. These commands exit 5 if the observation store is missing. Without an override, the selected store supplies observations. With an existing observation store and a missing selected store, `diag --plan` still reports the observations and shows the active ask count as unknown (`load.active: null` in JSON). See [parallel planning](batch.md#choosing-profiles-and-concurrency-manual) for pool ranking and launch sizing.
 
-Use `diag --plan --json` for scripts. Each pool includes its identity, left percentage (`left_pct`), `PACE(pp)` (`pace_pt`), `BUDGET%/h` (`target_pct_per_hour`), effective `action`, limiting pool (`binding`), reason, its own reset and the effective reset after parent limits. In JSON, floats are rounded to two decimal places; `health` reports the pool's own state (after any scoped weekly parent cap) while `action` reports the effective gated action. In plan text, `—` (`?` in ASCII) marks an unknown value. The top-level `load` includes lease-active asks and current machine resources.
+Use `diag --plan --json` for scripts. Each pool includes its identity, left percentage (`left_pct`), `PACE(pp)` (`pace_pt`), `BUDGET%/h` (`target_pct_per_hour`), effective `action`, limiting pool (`binding`), reason, its own reset and the effective reset after parent limits. In JSON, floats are rounded to two decimal places; `health` reports the pool's own state (after any scoped weekly parent cap) while `action` reports the effective gated action. In plan text, `—` (`?` in ASCII) marks an unknown value. The top-level `load` includes lease-active asks and current machine resources. A window with unknown remaining quota keeps its own refresh status and contributes no weekly gate. A provider-confirmed absent window is `n/a` while its evidence is fresh.
 
 | Command | Purpose |
 |---|---|
 | `observation` | Collect provider evidence. |
 | `observation refresh` | Write refreshed quota and account evidence. This may contact providers. |
 
-Use `peerhub observation refresh --peers cx` to refresh a single provider's evidence. Before launching a wave, select the providers whose quota readings could change your launch decision. `--system-dir PATH` points to a portable provider installation. The probe timeout defaults to 15 seconds and doubles at 80% CPU load or higher. See [what each probe consumes](implementation/OBSERVATION_PROBES.md).
+Use `peerhub observation refresh --peers cc cx` to update Claude and Codex quota without sending a work ask. Then rerun `peerhub diag --plan`. Omit a peer from the command to refresh only the other one. Before launching a wave, select the providers whose quota readings could change your launch decision. `--system-dir PATH` points to a portable provider installation. The probe timeout defaults to 15 seconds and doubles at 80% CPU load or higher. See [what each probe consumes](implementation/OBSERVATION_PROBES.md).
 
 ## Monitor
 
