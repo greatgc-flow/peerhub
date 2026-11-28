@@ -670,3 +670,34 @@ def test_a_capacity_read_error_stays_an_error(sources):
     assert "QUOTA [ERROR] | measured remaining" in expanded
     bounded = render_grouped_frame(payload, view="plain", unicode=False, width=120, height=60, expand=True)
     assert "OperationalError: database read failed" in bounded
+
+
+def test_quota_first_rich_frame_keeps_quota_and_live_activity_within_24_rows():
+    payload = full_payload()
+    before = deepcopy(payload)
+    screen = render_grouped_frame(payload, view="rich", color=False, width=100, height=24)
+    heads = [rule_head(line) for line in screen.splitlines() if rule_head(line)]
+    assert heads[:3] == ["POOLS 9", "ALERTS 2", "RUNNING 4"]
+    assert monitor_legend.POOL_LEGEND not in " ".join(screen.split())
+    assert "PACE(pp)" in screen and "EXH/RESET" in screen and "peerhub monitor open ID" in screen
+    assert all(cell_width(line) < 100 for line in screen.splitlines()) and screen.count("\n") < 24
+    expanded = render_grouped_frame(payload, view="rich", expand=True, width=100)
+    assert "QUOTA [OK]" in expanded and monitor_legend.POOL_LEGEND in " ".join(expanded.split())
+    assert payload == before
+
+
+def test_narrow_quota_first_header_shows_running_even_when_alert_labels_compete():
+    screen = rich(full_payload(), color=False, width=64, height=23)
+    verdict = screen.splitlines()[0]
+    assert verdict.startswith("ATTN 2")
+    assert "gone:" in verdict and "4 running" in verdict and "+1" in verdict
+    assert cell_width(verdict) < 64
+
+
+def test_quota_first_rendering_emphasizes_labels_and_quota_amounts():
+    screen = rich(full_payload(), width=120, height=26)
+    assert span(screen.splitlines()[1], "PeerHub Monitor") == monitor_layout.RICH_SGR["title"]
+    assert span(row_of(screen, "POOLS 9"), "POOLS 9") == monitor_layout.RICH_SGR["spend"]
+    assert span(row_of(screen, "C-7D"), "63%") == monitor_layout.RICH_SGR["title"]
+    assert span(row_of(screen, "ALERTS 2"), "ALERTS 2") == monitor_layout.RICH_SGR["warn"]
+    assert strip(screen).splitlines()[1:] == rich(full_payload(), color=False, width=120, height=26).splitlines()[1:]
